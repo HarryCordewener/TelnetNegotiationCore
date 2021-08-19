@@ -11,7 +11,9 @@ namespace TelnetNegotiationCore
 		private BufferedStream _InputStream;
 		private byte[] buffer = new byte[50000];
 		private int bufferposition = 0;
-		private int currentByte;
+
+		private StateMachine<State, Trigger>.TriggerWithParameters<byte> BTrigger(Trigger t)
+			=> ParameterizedTriggers.ByteTrigger(_TelnetStateMachine, t);
 
 		#region Setup
 		public TelnetInterpretor()
@@ -21,8 +23,13 @@ namespace TelnetNegotiationCore
 			SetupNAWS(_TelnetStateMachine);
 		}
 
+		/// <summary>
+		/// Setup standard processes.
+		/// </summary>
+		/// <param name="tsm">The state machine.</param>
 		private void SetupStandardProtocol(StateMachine<State, Trigger> tsm)
 		{
+			// If we are in Accepting mode, these should be interpreted as regular characters.
 			tsm.Configure(State.Accepting)
 				.Permit(Trigger.CHARSET, State.ReadingCharacters)
 				.Permit(Trigger.DO, State.ReadingCharacters)
@@ -39,14 +46,29 @@ namespace TelnetNegotiationCore
 			// Standard triggers, which are fine in the Awaiting state and should just be interpretted as a character in this state.
 			tsm.Configure(State.ReadingCharacters)
 				.SubstateOf(State.Accepting)
-				.Permit(Trigger.CR, State.Act)
-				.OnEntry(WriteToBufferAndAdvance);
+				.Permit(Trigger.NewLine, State.Act)
+				.OnEntryFrom(BTrigger(Trigger.CHARSET), WriteToBufferAndAdvance)
+				.OnEntryFrom(BTrigger(Trigger.DO), WriteToBufferAndAdvance)
+				.OnEntryFrom(BTrigger(Trigger.DONT), WriteToBufferAndAdvance)
+				.OnEntryFrom(BTrigger(Trigger.IS), WriteToBufferAndAdvance)
+				.OnEntryFrom(BTrigger(Trigger.NOP), WriteToBufferAndAdvance)
+				.OnEntryFrom(BTrigger(Trigger.SB), WriteToBufferAndAdvance)
+				.OnEntryFrom(BTrigger(Trigger.SE), WriteToBufferAndAdvance)
+				.OnEntryFrom(BTrigger(Trigger.SEND), WriteToBufferAndAdvance)
+				.OnEntryFrom(BTrigger(Trigger.WILL), WriteToBufferAndAdvance)
+				.OnEntryFrom(BTrigger(Trigger.WONT), WriteToBufferAndAdvance)
+				.OnEntryFrom(BTrigger(Trigger.ReadNextCharacter), WriteToBufferAndAdvance);
 
+			// We've gotten a newline. We interpret this as time to act and send a signal back.
 			tsm.Configure(State.Act)
 				.SubstateOf(State.Accepting)
 				.OnEntry(WriteToOutput);
 		}
 
+		/// <summary>
+		/// Register the Buffered Stream to read and write to for Telnet negotiation.
+		/// </summary>
+		/// <param name="input">A Buffered Stream wrapped around a Network Stream</param>
 		public void RegisterStream(BufferedStream input)
 		{
 			_InputStream = input;
@@ -58,7 +80,7 @@ namespace TelnetNegotiationCore
 		/// 
 		/// NAWS can be initiated from the Client or the Server.
 		/// </summary>
-		/// <param name="tsm"></param>
+		/// <param name="tsm">The state machine.</param>
 		private void SetupNAWS(StateMachine<State, Trigger> tsm)
 		{
 			tsm.Configure(State.Accepting)
@@ -68,6 +90,11 @@ namespace TelnetNegotiationCore
 			tsm.Configure(State.Accepting)
 				.PermitReentry(Trigger.CHARSET)
 				.PermitReentry(Trigger.NAWS);
+
+			// Write this character.
+			tsm.Configure(State.ReadingCharacters)
+				.OnEntryFrom(BTrigger(Trigger.CHARSET), WriteToBufferAndAdvance)
+				.OnEntryFrom(BTrigger(Trigger.NAWS), WriteToBufferAndAdvance);
 
 			// Escaped IAC, interpret as actual IAC
 			tsm.Configure(State.StartNegotiation)
@@ -87,7 +114,7 @@ namespace TelnetNegotiationCore
 
 			tsm.Configure(State.WillDoNAWS)
 				.SubstateOf(State.Accepting)
-				.OnEntry(x => RequestNAWS());
+				.OnEntry(RequestNAWS);
 
 			tsm.Configure(State.WontDoNAWS)
 				.SubstateOf(State.Accepting)
@@ -102,40 +129,46 @@ namespace TelnetNegotiationCore
 
 			tsm.Configure(State.NegotiatingNAWS)
 				.Permit(Trigger.IAC, State.EndSubNegotiation)
-				.OnEntry( x => GetNAWS());
+				.OnEntry(GetNAWS);
 
 			tsm.Configure(State.EndSubNegotiation)
 				.Permit(Trigger.SE, State.Accepting);
 		}
 		#endregion Setup
 
-		private void WriteToBufferAndAdvance()
+		private void WriteToBufferAndAdvance(byte b)
 		{
-			buffer[bufferposition] = (byte)currentByte;
+			buffer[bufferposition] = b;
 			bufferposition++;
 		}
 
 		private void WriteToOutput()
 		{
-			Console.WriteLine(new ASCIIEncoding().GetString(buffer,0,bufferposition));
+			Console.WriteLine(new ASCIIEncoding().GetString(buffer, 0, bufferposition));
 			buffer = new byte[50000];
 			bufferposition = 0;
 		}
 
-		public void RequestNAWS()
+		/// <summary>
+		/// Request NAWS from a client.
+		/// </summary>
+		public void RequestNAWS(StateMachine<State, Trigger>.Transition _)
 		{
+			Console.WriteLine("Requesting NAWS details from Client");
 			_InputStream.Write(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
 		}
 
-		private void GetNAWS()
+		private void GetNAWS(StateMachine<State, Trigger>.Transition _)
 		{
+			// TODO: We should check if there is a 255 in here, if so, keep reading.
+
 			byte[] width = new byte[2];
 			byte[] height = new byte[2];
 			_InputStream.Read(width, 0, 2);
 			_InputStream.Read(height, 0, 2);
 
-			if(BitConverter.IsLittleEndian)
-			{ 
+			if (BitConverter.IsLittleEndian)
+			{
 				Array.Reverse(width);
 				Array.Reverse(height);
 			}
@@ -145,17 +178,20 @@ namespace TelnetNegotiationCore
 
 		public void Process()
 		{
+			int currentByte;
 			while ((currentByte = _InputStream.ReadByte()) != -1)
 			{
-				if(Enum.IsDefined(typeof(Trigger), currentByte))
+				if (Enum.IsDefined(typeof(Trigger), currentByte))
 				{
-					_TelnetStateMachine.Fire((Trigger)currentByte);
+					_TelnetStateMachine.Fire(BTrigger((Trigger)currentByte), (byte)currentByte);
 					continue;
 				}
-				_TelnetStateMachine.Fire(Trigger.ReadNextCharacter);
+				_TelnetStateMachine.Fire(BTrigger(Trigger.ReadNextCharacter), (byte)currentByte);
 			}
 
-			Console.WriteLine(buffer);
+			Console.WriteLine("Connection Closed");
 		}
+
+
 	}
 }

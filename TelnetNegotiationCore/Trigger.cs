@@ -1,5 +1,27 @@
-﻿namespace TelnetNegotiationCore
+﻿using Stateless;
+using System.Collections.Generic;
+
+namespace TelnetNegotiationCore
 {
+	public static class ParameterizedTriggers
+	{
+		private readonly static Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<byte>> _cache;
+
+		static ParameterizedTriggers()
+		{
+			_cache = new Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<byte>>();
+		}
+
+		public static StateMachine<State, Trigger>.TriggerWithParameters<byte> ByteTrigger(StateMachine<State, Trigger> stm, Trigger t)
+		{
+			if(!_cache.ContainsKey(t))
+			{
+				_cache.Add(t, stm.SetTriggerParameters<byte>(t));
+			}
+			return _cache[t];
+		}
+	}
+
 	public enum Trigger
 	{
 		/// <summary>
@@ -22,7 +44,7 @@
 		/// <remarks>
 		/// We treat this as 'now act'
 		/// </remarks>
-		CR = 13,
+		NewLine = 10,
 		/// <summary>
 		/// Window size option.	
 		/// </summary>
