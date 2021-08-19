@@ -13,6 +13,11 @@
 		WillDoNAWS,
 		WontDoNAWS,
 		NegotiatingNAWS,
+		EvaluatingNAWS,
+		EscapingNAWSValue,
+		CompletingNAWS,
+		WillDoCharset,
+		WontDoCharset,
 		Act
 	}
 }

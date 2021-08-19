@@ -115,6 +115,7 @@ namespace TelnetNegotiationCore
 		/// RFC 855: http://www.faqs.org/rfcs/rfc855.html
 		/// </remarks>
 		IAC = 255,
-		ReadNextCharacter = 256
+		ReadNextCharacter = 256,
+		ReadNextNAWSCharacter = 257
 	}
 }

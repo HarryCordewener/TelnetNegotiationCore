@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace TelnetNegotiationCore.TestServer
+﻿namespace TelnetNegotiationCore.TestServer
 {
 	class Program
 	{
