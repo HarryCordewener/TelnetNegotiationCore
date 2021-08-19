@@ -7,11 +7,32 @@ namespace TelnetNegotiationCore
 {
 	public partial class TelnetInterpretor
 	{
+
+		/// <summary>
+		/// Telnet state machine
+		/// </summary>
 		private readonly StateMachine<State, Trigger> _TelnetStateMachine;
+		
+		/// <summary>
+		/// Input Stream
+		/// </summary>
 		private BufferedStream _InputStream;
+
+		/// <summary>
+		/// Local buffer. We only take up to 5mb in buffer space. 
+		/// </summary>
 		private byte[] buffer = new byte[5242880];
+
+		/// <summary>
+		/// Buffer position where we are writing.
+		/// </summary>
 		private int bufferposition = 0;
 
+		/// <summary>
+		/// Helper function for Byte parameterized triggers.
+		/// </summary>
+		/// <param name="t">The Trigger</param>
+		/// <returns>A Parameterized trigger</returns>
 		private StateMachine<State, Trigger>.TriggerWithParameters<byte> BTrigger(Trigger t)
 			=> ParameterizedTriggers.ByteTrigger(_TelnetStateMachine, t);
 
@@ -27,6 +48,8 @@ namespace TelnetNegotiationCore
 			SetupStandardProtocol(_TelnetStateMachine);
 			SetupNAWS(_TelnetStateMachine);
 			SetupCharsetNegotiation(_TelnetStateMachine);
+
+			_TelnetStateMachine.OnTransitioned((transition) => { Console.WriteLine($"{transition.Source} --[{transition.Trigger}]--> {transition.Destination}"); });
 		}
 
 		/// <summary>
@@ -36,32 +59,14 @@ namespace TelnetNegotiationCore
 		private void SetupStandardProtocol(StateMachine<State, Trigger> tsm)
 		{
 			// If we are in Accepting mode, these should be interpreted as regular characters.
-			tsm.Configure(State.Accepting)
-				.Permit(Trigger.DO, State.ReadingCharacters)
-				.Permit(Trigger.DONT, State.ReadingCharacters)
-				.Permit(Trigger.IS, State.ReadingCharacters)
-				.Permit(Trigger.NOP, State.ReadingCharacters)
-				.Permit(Trigger.SB, State.ReadingCharacters)
-				.Permit(Trigger.SE, State.ReadingCharacters)
-				.Permit(Trigger.SEND, State.ReadingCharacters)
-				.Permit(Trigger.WILL, State.ReadingCharacters)
-				.Permit(Trigger.WONT, State.ReadingCharacters)
-				.Permit(Trigger.ReadNextCharacter, State.ReadingCharacters);
+			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.Accepting).Permit(t, State.ReadingCharacters));
 
 			// Standard triggers, which are fine in the Awaiting state and should just be interpretted as a character in this state.
 			tsm.Configure(State.ReadingCharacters)
 				.SubstateOf(State.Accepting)
-				.Permit(Trigger.NewLine, State.Act)
-				.OnEntryFrom(BTrigger(Trigger.DO), WriteToBufferAndAdvance)
-				.OnEntryFrom(BTrigger(Trigger.DONT), WriteToBufferAndAdvance)
-				.OnEntryFrom(BTrigger(Trigger.IS), WriteToBufferAndAdvance)
-				.OnEntryFrom(BTrigger(Trigger.NOP), WriteToBufferAndAdvance)
-				.OnEntryFrom(BTrigger(Trigger.SB), WriteToBufferAndAdvance)
-				.OnEntryFrom(BTrigger(Trigger.SE), WriteToBufferAndAdvance)
-				.OnEntryFrom(BTrigger(Trigger.SEND), WriteToBufferAndAdvance)
-				.OnEntryFrom(BTrigger(Trigger.WILL), WriteToBufferAndAdvance)
-				.OnEntryFrom(BTrigger(Trigger.WONT), WriteToBufferAndAdvance)
-				.OnEntryFrom(BTrigger(Trigger.ReadNextCharacter), WriteToBufferAndAdvance);
+				.Permit(Trigger.NewLine, State.Act);
+
+			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.ReadingCharacters).OnEntryFrom(BTrigger(t), WriteToBufferAndAdvance));
 
 			// We've gotten a newline. We interpret this as time to act and send a signal back.
 			tsm.Configure(State.Act)
@@ -91,7 +96,7 @@ namespace TelnetNegotiationCore
 
 			tsm.Configure(State.SubNegotiation)
 				.OnEntryFrom(Trigger.IAC, x => Console.WriteLine("Subnegotiation request"));
-
+			
 			tsm.Configure(State.EndSubNegotiation)
 				.Permit(Trigger.SE, State.Accepting);
 		}
@@ -105,20 +110,30 @@ namespace TelnetNegotiationCore
 			_InputStream = input;
 		}
 
-
+		/// <summary>
+		/// Write the character into a buffer.
+		/// </summary>
+		/// <param name="b"></param>
 		private void WriteToBufferAndAdvance(byte b)
 		{
 			buffer[bufferposition] = b;
 			bufferposition++;
 		}
 
+		/// <summary>
+		/// Write it to output - this should become an Event.
+		/// </summary>
 		private void WriteToOutput()
 		{
+			// We use ASCII Encoding here until we negotiate for UTF-8.
+			// How do we want to split out ASCII vs UNICODE if we get mid-session negotiation?
 			Console.WriteLine(new ASCIIEncoding().GetString(buffer, 0, bufferposition));
-			buffer = new byte[5242880];
 			bufferposition = 0;
 		}
 
+		/// <summary>
+		/// Start processing the inbound stream.
+		/// </summary>
 		public void Process()
 		{
 			int currentByte;

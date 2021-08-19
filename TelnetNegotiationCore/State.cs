@@ -18,6 +18,10 @@
 		CompletingNAWS,
 		WillDoCharset,
 		WontDoCharset,
+		NegotiatingCharset,
+		EvaluatingCharset,
+		EscapingCharsetValue,
+		CompletingCharset,
 		Act
 	}
 }

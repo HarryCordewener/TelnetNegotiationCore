@@ -1,12 +1,37 @@
 ﻿using System;
-using System.IO;
-using System.Text;
 using Stateless;
 
 namespace TelnetNegotiationCore
 {
 	public partial class TelnetInterpretor
 	{
+		/// <summary>
+		/// Internal NAWS Byte State
+		/// </summary>
+		private byte[] _nawsByteState;
+
+		/// <summary>
+		/// Internal NAWS Byte Index Value
+		/// </summary>
+		private int _nawsIndex = 0;
+
+		/// <summary>
+		/// Currently known Client Height
+		/// </summary>
+		/// <remarks>
+		/// Defaults to 24
+		/// </remarks>
+		public int ClientHeight { get; private set; } = 24;
+
+		/// <summary>
+		/// Currently known Client Width.
+		/// </summary>
+		/// <remarks>
+		/// Defaults to 78
+		/// </remarks>
+		public int ClientWidth { get; private set; } = 78;
+
+
 		/// <summary>
 		/// If the server you are connected to makes use of the client window in ways that are linked to its width and height, 
 		/// then is useful for it to be able to find out how big it is, and also to get notified when it is resized.
@@ -16,15 +41,6 @@ namespace TelnetNegotiationCore
 		/// <param name="tsm">The state machine.</param>
 		private void SetupNAWS(StateMachine<State, Trigger> tsm)
 		{
-
-			// NAWS triggers, which are fine in the Awaiting state and should just be interpretted as a character in this state.
-			tsm.Configure(State.Accepting)
-				.PermitReentry(Trigger.NAWS);
-
-			// Write this character.
-			tsm.Configure(State.ReadingCharacters)
-				.OnEntryFrom(BTrigger(Trigger.NAWS), WriteToBufferAndAdvance);
-
 			tsm.Configure(State.Willing)
 				.Permit(Trigger.NAWS, State.WillDoNAWS);
 
@@ -43,8 +59,28 @@ namespace TelnetNegotiationCore
 				.Permit(Trigger.NAWS, State.NegotiatingNAWS);
 
 			tsm.Configure(State.NegotiatingNAWS)
-				.Permit(Trigger.IAC, State.EndSubNegotiation)
+				.Permit(Trigger.IAC, State.EscapingNAWSValue)
 				.OnEntry(GetNAWS);
+
+			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.NegotiatingNAWS).Permit(t, State.EvaluatingNAWS));
+
+			tsm.Configure(State.EvaluatingNAWS)
+				.PermitDynamic(Trigger.IAC, () => _nawsIndex < 4 ? State.EscapingNAWSValue : State.CompletingNAWS);
+
+			// Source of Error: This gets triggered because CompletingNAWS is a substate of EvaluatingNAWS
+			// Either CompletingNAWS needs to be turned into a different substate, or the Dynamic method above needs to change, 
+			// thus removing the need for the Substate.
+			// Likely the latter.
+			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingNAWS).OnEntryFrom(BTrigger(t), CaptureNAWS));
+
+			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.EvaluatingNAWS).PermitReentry(t));
+
+			tsm.Configure(State.EscapingNAWSValue)
+				.Permit(Trigger.IAC, State.EvaluatingNAWS);
+
+			tsm.Configure(State.CompletingNAWS)
+				.SubstateOf(State.EndSubNegotiation)
+				.OnEntry(CompleteNAWS);
 		}
 
 		/// <summary>
@@ -56,14 +92,34 @@ namespace TelnetNegotiationCore
 			_InputStream.Write(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
 		}
 
+		/// <summary>
+		/// Capture a byte and write it into the NAWS buffer
+		/// </summary>
+		/// <param name="b">The current byte</param>
+		private void CaptureNAWS(byte b)
+		{
+			_nawsByteState[_nawsIndex] = b;
+			_nawsIndex++;
+		}
+
+		/// <summary>
+		/// Initialize internal state values for NAWS.
+		/// </summary>
+		/// <param name="_">Ignored</param>
 		private void GetNAWS(StateMachine<State, Trigger>.Transition _)
 		{
-			// TODO: We should check if there is a 255 in here, if so, keep reading.
-			
-			byte[] width = new byte[2];
-			byte[] height = new byte[2];
-			_InputStream.Read(width, 0, 2);
-			_InputStream.Read(height, 0, 2);
+			_nawsByteState = new byte[4];
+			_nawsIndex = 0;
+		}
+
+		/// <summary>
+		/// Read the NAWS state values and finalize it into width and height values.
+		/// </summary>
+		/// <param name="_">Ignored</param>
+		private void CompleteNAWS(StateMachine<State, Trigger>.Transition _)
+		{
+			byte[] width = new byte[] { _nawsByteState[0], _nawsByteState[1] };
+			byte[] height = new byte[] { _nawsByteState[2], _nawsByteState[3] };
 
 			if (BitConverter.IsLittleEndian)
 			{
@@ -71,7 +127,10 @@ namespace TelnetNegotiationCore
 				Array.Reverse(height);
 			}
 
-			Console.WriteLine($"Negotiated for: {BitConverter.ToInt16(width)} width and {BitConverter.ToInt16(height)} height");
+			ClientWidth = BitConverter.ToInt16(width);
+			ClientHeight = BitConverter.ToInt16(height);
+
+			Console.WriteLine($"Negotiated for: {ClientWidth} width and {ClientHeight} height");
 		}
 	}
 }

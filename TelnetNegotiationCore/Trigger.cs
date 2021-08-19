@@ -1,5 +1,8 @@
 ﻿using Stateless;
+using System;
+using System.Linq;
 using System.Collections.Generic;
+using MoreLinq;
 
 namespace TelnetNegotiationCore
 {
@@ -20,6 +23,17 @@ namespace TelnetNegotiationCore
 			}
 			return _cache[t];
 		}
+	}
+
+	public static class TriggerHelper
+	{
+		public static IEnumerable<Trigger> AllTriggers = (Trigger[])Enum.GetValues(typeof(Trigger));
+		public static IEnumerable<Trigger> AllTriggersButIAC = AllTriggers.Where(x => x != Trigger.IAC).ToArray();
+
+		public static void ForAllTriggers(Action<Trigger> f) 
+			=> AllTriggers.ForEach(f);
+		public static void ForAllTriggersButIAC(Action<Trigger> f) 
+			=> AllTriggersButIAC.ForEach(f);
 	}
 
 	public enum Trigger
@@ -115,7 +129,6 @@ namespace TelnetNegotiationCore
 		/// RFC 855: http://www.faqs.org/rfcs/rfc855.html
 		/// </remarks>
 		IAC = 255,
-		ReadNextCharacter = 256,
-		ReadNextNAWSCharacter = 257
+		ReadNextCharacter = 256
 	}
 }
