@@ -1,6 +1,9 @@
 ﻿using System;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
+using Serilog;
+using Serilog.Context;
 using Stateless;
 using Stateless.Graph;
 
@@ -24,6 +27,13 @@ namespace TelnetNegotiationCore
 		/// </summary>
 		private StreamWriter _OutputStream;
 
+		private Func<string, Task> _WriteBack;
+
+		/// <summary>
+		/// Identifier for the connection.
+		/// </summary>
+		private string _Identifier;
+
 		/// <summary>
 		/// Local buffer. We only take up to 5mb in buffer space. 
 		/// </summary>
@@ -43,19 +53,31 @@ namespace TelnetNegotiationCore
 			=> ParameterizedTriggers.ByteTrigger(_TelnetStateMachine, t);
 
 		/// <summary>
+		/// The Serilog style Logger
+		/// </summary>
+		private readonly ILogger _Logger;
+
+		/// <summary>
 		/// Constructor, sets up for standard Telnet protocol with NAWS and Character Set support.
 		/// </summary>
 		/// <remarks>
 		/// After calling this constructor, one should subscribe to the Triggers, register a Stream, and then run Process()
 		/// </remarks>
-		public TelnetInterpretor()
+		/// <param name="logger">A Serilog Logger. If null, we will use the default one with a Context of the Telnet Interpretor.</param>
+		public TelnetInterpretor(ILogger logger = null)
 		{
+			_Logger = logger ?? Log.Logger.ForContext<TelnetInterpretor>();
+
 			_TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
 			SetupStandardProtocol(_TelnetStateMachine);
 			SetupNAWS(_TelnetStateMachine);
 			SetupCharsetNegotiation(_TelnetStateMachine);
 
-			_TelnetStateMachine.OnTransitioned((transition) => { Console.WriteLine($"{transition.Source} --[{transition.Trigger}]--> {transition.Destination}"); });
+			if (_Logger.IsEnabled(Serilog.Events.LogEventLevel.Verbose))
+			{
+				_TelnetStateMachine.OnTransitioned((transition) => _Logger.Verbose("{source} --[{trigger}]--> {destination}",
+					transition.Source, transition.Trigger, transition.Destination));
+			}
 		}
 
 		/// <summary>
@@ -91,20 +113,18 @@ namespace TelnetNegotiationCore
 				.Permit(Trigger.DO, State.Do)
 				.Permit(Trigger.DONT, State.Dont)
 				.Permit(Trigger.SB, State.SubNegotiation)
-				.OnEntry(x => Console.WriteLine("Starting Negotiation"));
+				.OnEntry(x => _Logger.Debug("{connectionState}", "Starting Negotiation"));
 
-			tsm.Configure(State.Willing)
-				.OnEntry(x => Console.WriteLine("Willing"));
+			tsm.Configure(State.Willing);
 
-			tsm.Configure(State.Refusing)
-				.OnEntry(x => Console.WriteLine("Refusing"));
+			tsm.Configure(State.Refusing);
 
 			tsm.Configure(State.ReadingCharacters)
-				.OnEntryFrom(Trigger.IAC, x => Console.WriteLine("Canceling negotation"));
+				.OnEntryFrom(Trigger.IAC, x => _Logger.Debug("{connectionState}", "Canceling negotation"));
 
 			tsm.Configure(State.SubNegotiation)
-				.OnEntryFrom(Trigger.IAC, x => Console.WriteLine("Subnegotiation request"));
-			
+				.OnEntryFrom(Trigger.IAC, x => _Logger.Debug("{connectionState}", "Subnegotiation request"));
+
 			tsm.Configure(State.EndSubNegotiation)
 				.Permit(Trigger.SE, State.Accepting);
 		}
@@ -112,11 +132,21 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// Register the Buffered Stream to read and write to for Telnet negotiation.
 		/// </summary>
-		/// <param name="input">A Buffered Stream wrapped around a Network Stream</param>
-		public void RegisterStream(StreamReader input, StreamWriter output)
+		/// <param name="input">A StreamReader wrapped around a Network Stream</param>
+		/// <param name="output">A StreamWriter wrapped around a Network Stream</param>
+		/// <param name="identifier">An identifier for the client stream. Doesn't need to be unique, but is used for logging.</param>
+		public void RegisterStream(StreamReader input, StreamWriter output, string identifier = null)
 		{
+			_Identifier = identifier ?? Guid.NewGuid().ToString();
+			LogContext.PushProperty("identifier", _Identifier);
+
 			_InputStream = input;
 			_OutputStream = output;
+		}
+
+		public void RegisterWriteBack(Func<string, Task> wb)
+		{
+			_WriteBack = wb;
 		}
 
 		/// <summary>
@@ -132,34 +162,47 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// Write it to output - this should become an Event.
 		/// </summary>
-		private void WriteToOutput()
+		/// <remarks>
+		/// TODO: 
+		/// We use ASCII Encoding here until we negotiate for UTF-8.
+		/// How do we want to split out ASCII vs UNICODE if we get mid-session negotiation?
+		/// </remarks>
+		private void WriteToOutput() => _WriteBack?.Invoke(ascii.GetString(buffer, 0, bufferposition));
+
+		/// <summary>
+		/// Validates the object is ready to process.
+		/// </summary>
+		private void Validate()
 		{
-			// We use ASCII Encoding here until we negotiate for UTF-8.
-			// How do we want to split out ASCII vs UNICODE if we get mid-session negotiation?
-			Console.WriteLine(ascii.GetString(buffer, 0, bufferposition));
-			bufferposition = 0;
+			if (_WriteBack == null) throw new ApplicationException("Writeback Function is null or has not been registered.");
+			if (_InputStream == null) throw new ApplicationException("Input Stream is null or has not been registered.");
+			if (_OutputStream == null) throw new ApplicationException("Output Stream is null or has not been registered.");
 		}
 
 		/// <summary>
 		/// Start processing the inbound stream.
 		/// </summary>
-		public void Process()
+		public async Task ProcessAsync()
 		{
-			int currentByte;
-			WillingCharset();
-			WillingNAWS();
+			_Logger.Information("{serverStatus}", "Connected");
 
-			while ((currentByte = _InputStream.BaseStream.ReadByte() ) != -1)
+			Validate();
+
+			int currentByte;
+			await WillingCharsetAsync();
+			await WillingNAWSAsync();
+
+			while ((currentByte = _InputStream.BaseStream.ReadByte()) != -1)
 			{
 				if (Enum.IsDefined(typeof(Trigger), currentByte))
 				{
-					_TelnetStateMachine.Fire(BTrigger((Trigger)currentByte), (byte)currentByte);
+					await _TelnetStateMachine.FireAsync(BTrigger((Trigger)currentByte), (byte)currentByte);
 					continue;
 				}
-				_TelnetStateMachine.Fire(BTrigger(Trigger.ReadNextCharacter), (byte)currentByte);
+				await _TelnetStateMachine.FireAsync(BTrigger(Trigger.ReadNextCharacter), (byte)currentByte);
 			}
 
-			Console.WriteLine("Connection Closed");
+			_Logger.Information("{serverStatus}", "Connection Closed");
 		}
 	}
 }

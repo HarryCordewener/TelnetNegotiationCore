@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading.Tasks;
 using Stateless;
 
 namespace TelnetNegotiationCore
@@ -51,11 +52,11 @@ namespace TelnetNegotiationCore
 			
 			tsm.Configure(State.DontNAWS)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => Console.WriteLine("Client won't do NAWS - do nothing"));
+				.OnEntry(() => _Logger.Debug("{connectionStatus}", "Client won't do NAWS - do nothing"));
 
 			tsm.Configure(State.WillDoNAWS)
 				.SubstateOf(State.Accepting)
-				.OnEntry(RequestNAWS);
+				.OnEntryAsync(RequestNAWS);
 
 			tsm.Configure(State.WontDoNAWS)
 				.SubstateOf(State.Accepting);
@@ -91,10 +92,10 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// Request NAWS from a client.
 		/// </summary>
-		public void RequestNAWS(StateMachine<State, Trigger>.Transition _)
+		public async Task RequestNAWS(StateMachine<State, Trigger>.Transition _)
 		{
-			Console.WriteLine("Requesting NAWS details from Client");
-			_OutputStream.BaseStream.Write(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
+			_Logger.Debug("{connectionStatus}", "Requesting NAWS details from Client");
+			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
 		}
 
 		/// <summary>
@@ -117,10 +118,10 @@ namespace TelnetNegotiationCore
 			_nawsIndex = 0;
 		}
 
-		private void WillingNAWS()
+		private async Task WillingNAWSAsync()
 		{
-			Console.WriteLine("Announcing willingness to NAWS!");
-			_OutputStream.BaseStream.Write(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NAWS });
+			_Logger.Debug("{connectionStatus}", "Announcing willingness to NAWS!");
+			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NAWS });
 		}
 
 		/// <summary>
@@ -141,7 +142,7 @@ namespace TelnetNegotiationCore
 			ClientWidth = BitConverter.ToInt16(width);
 			ClientHeight = BitConverter.ToInt16(height);
 
-			Console.WriteLine($"Negotiated for: {ClientWidth} width and {ClientHeight} height");
+			_Logger.Debug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
 		}
 	}
 }

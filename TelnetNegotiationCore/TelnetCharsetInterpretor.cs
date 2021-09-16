@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using Stateless;
 
 namespace TelnetNegotiationCore
@@ -53,19 +54,19 @@ namespace TelnetNegotiationCore
 
 			tsm.Configure(State.WillDoCharset)
 				.SubstateOf(State.Accepting)
-				.OnEntry(OnWillingCharset);
+				.OnEntryAsync(OnWillingCharsetAsync);
 
 			tsm.Configure(State.WontDoCharset)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => Console.WriteLine("Won't do Character Set - do nothing"));
+				.OnEntry(() => _Logger.Debug("{connectionStatus}", "Won't do Character Set - do nothing"));
 
 			tsm.Configure(State.DoCharset)
 				.SubstateOf(State.Accepting)
-				.OnEntry(OnDoCharset);
+				.OnEntryAsync(OnDoCharsetAsync);
 
 			tsm.Configure(State.DontCharset)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => Console.WriteLine("Client won't do Character Set - do nothing"));
+				.OnEntry(() => _Logger.Debug("{connectionStatus}", "Client won't do Character Set - do nothing"));
 
 			tsm.Configure(State.SubNegotiation)
 				.Permit(Trigger.CHARSET, State.AlmostNegotiatingCharset);
@@ -106,11 +107,11 @@ namespace TelnetNegotiationCore
 			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingCharset).OnEntryFrom(BTrigger(t), CaptureCharset));
 
 			tsm.Configure(State.CompletingAcceptedCharset)
-				.OnEntry(CompleteAcceptedCharset)
+				.OnEntryAsync(CompleteAcceptedCharsetAsync)
 				.SubstateOf(State.Accepting);
 
 			tsm.Configure(State.CompletingCharset)
-				.OnEntry(CompleteCharset)
+				.OnEntryAsync(CompleteCharsetAsync)
 				.SubstateOf(State.Accepting);
 		}
 
@@ -148,25 +149,25 @@ namespace TelnetNegotiationCore
 		/// Finalize  internal state values for Charset.
 		/// </summary>
 		/// <param name="_">Ignored</param>
-		private void CompleteCharset(StateMachine<State, Trigger>.Transition _)
+		private async Task CompleteCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
 			if(charsetoffered)
 			{
-				_OutputStream.BaseStream.Write(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+				await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
 			}
 
 			// Accept one that we recognize. We pretend [TTABLE] doesn't exist for now.
 			char sep = ascii.GetString(_charsetByteState, 0, 1)[0];
 			string[] charsetsOffered = ascii.GetString(_charsetByteState, 1, _charsetByteIndex).Split(sep);
 
-			Console.WriteLine(ascii.GetString(_charsetByteState, 0, _charsetByteIndex));
+			_Logger.Debug("{charsetResultDebug}", ascii.GetString(_charsetByteState, 0, _charsetByteIndex));
 		}
 
 		/// <summary>
 		/// Finalize internal state values for Accepted Charset.
 		/// </summary>
 		/// <param name="_">Ignored</param>
-		private void CompleteAcceptedCharset(StateMachine<State, Trigger>.Transition _)
+		private async Task CompleteAcceptedCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
 			try
 			{
@@ -175,34 +176,34 @@ namespace TelnetNegotiationCore
 			}
 			catch
 			{
-				_OutputStream.BaseStream.Write(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+				await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
 			}
 		}
 
 		/// <summary>
 		/// Announce we do charset negotiation to the client after getting a Willing.
 		/// </summary>
-		public void OnWillingCharset(StateMachine<State, Trigger>.Transition _)
+		public async Task OnWillingCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_OutputStream.BaseStream.Write(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET });
+			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET });
 			charsetoffered = false;
 		}
 
 		/// <summary>
 		/// Announce we do charset negotiation to the client after getting a Willing.
 		/// </summary>
-		public void WillingCharset()
+		public async Task WillingCharsetAsync()
 		{
-			Console.WriteLine("Announcing willingness to Charset!");
-			_OutputStream.BaseStream.Write(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
+			_Logger.Debug("{connectionStatus}", "Announcing willingness to Charset!");
+			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
 		}
 
 		/// <summary>
 		/// Announce we are willing to have charset negotiation to the client after getting a Do.
 		/// </summary>
-		public void OnDoCharset(StateMachine<State, Trigger>.Transition _)
+		public async Task OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_OutputStream.BaseStream.Write(SupportedCharacterSets.Value);
+			await _OutputStream.BaseStream.WriteAsync(SupportedCharacterSets.Value);
 			charsetoffered = true;
 		}
 
@@ -218,10 +219,10 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// Announce we do charset negotiation to the client.
 		/// </summary>
-		public void RequestCharset(StateMachine<State, Trigger>.Transition _)
+		public async Task RequestCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			Console.WriteLine("Request charset negotiation from Client");
-			_OutputStream.BaseStream.Write(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET });
+			_Logger.Debug("{connectionStatus}", "Request charset negotiation from Client");
+			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET });
 		}
 	}
 }

@@ -1,17 +1,21 @@
-﻿using System;
+﻿using Serilog;
+using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace TelnetNegotiationCore
 {
 	public class MockServer
   {
 		readonly TcpListener server = null;
+    readonly ILogger _Logger;
 
-    public MockServer(string ip, int port)
+    public MockServer(string ip, int port, ILogger logger = null)
     {
+      _Logger = logger ?? Log.Logger.ForContext<MockServer>();
       IPAddress localAddr = IPAddress.Parse(ip);
       server = new TcpListener(localAddr, port);
       server.Start();
@@ -24,29 +28,38 @@ namespace TelnetNegotiationCore
       {
         while (true)
         {
-          Console.WriteLine("Waiting for a connection...");
+          _Logger.Information("{serverStatus}", "Waiting for a connection...");
           TcpClient client = server.AcceptTcpClient();
-          Console.WriteLine("Connected!");
           Thread t = new Thread(new ParameterizedThreadStart(HandleDevice));
           t.Start(client);
         }
       }
       catch (SocketException e)
       {
-        Console.WriteLine("SocketException: {0}", e);
+        _Logger.Error(e, "SocketException occurred in thread");
         server.Stop();
       }
     }
-    public void HandleDevice(Object obj)
+
+    public Task WriteBack(string writeback)
+		{
+      _Logger.Information("{writeBack}", writeback);
+      return Task.CompletedTask;
+		}
+
+    public void HandleDevice(object obj)
     {
       TcpClient client = (TcpClient)obj;
       var stream = client.GetStream();
       var input = new StreamReader(stream);
-      var output = new StreamWriter(stream);
-      output.AutoFlush = true;
-      var telnet = new TelnetInterpretor();
+			var output = new StreamWriter(stream)
+			{
+				AutoFlush = true
+			};
+			var telnet = new TelnetInterpretor(_Logger.ForContext<TelnetInterpretor>());
       telnet.RegisterStream(input, output);
-      telnet.Process();
+      telnet.RegisterWriteBack(WriteBack);
+      telnet.ProcessAsync().ConfigureAwait(false).GetAwaiter().GetResult();
     }
 }
 }
