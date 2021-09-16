@@ -53,6 +53,48 @@ namespace TelnetNegotiationCore
 		/// </remarks>
 		SEND = 1,
 		/// <summary>
+		/// Sub-negotiation ACCEPTED command.	
+		/// </summary>
+		/// <remarks>
+		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+		/// </remarks>
+		ACCEPTED = 2,
+		/// <summary>
+		/// Sub-negotiation REJECTED command.	
+		/// </summary>
+		/// <remarks>
+		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+		/// </remarks>
+		REJECTED = 3,
+		/// <summary>
+		/// Sub-negotiation TTABLE-IS command.	
+		/// </summary>
+		/// <remarks>
+		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+		/// </remarks>
+		TTABLE_IS = 4,
+		/// <summary>
+		/// Sub-negotiation TTABLE_REJECTED command.	
+		/// </summary>
+		/// <remarks>
+		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+		/// </remarks>
+		TTABLE_REJECTED = 5,
+		/// <summary>
+		/// Sub-negotiation TTABLE_ACK command.	
+		/// </summary>
+		/// <remarks>
+		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+		/// </remarks>
+		TTABLE_ACK = 6,
+		/// <summary>
+		/// Sub-negotiation TTABLE_NAK command.	
+		/// </summary>
+		/// <remarks>
+		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+		/// </remarks>
+		TTABLE_NAK = 7,
+		/// <summary>
 		/// Carriage Return
 		/// </summary>
 		/// <remarks>

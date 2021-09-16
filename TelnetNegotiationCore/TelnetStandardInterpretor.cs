@@ -2,6 +2,7 @@
 using System.IO;
 using System.Text;
 using Stateless;
+using Stateless.Graph;
 
 namespace TelnetNegotiationCore
 {
@@ -12,11 +13,16 @@ namespace TelnetNegotiationCore
 		/// Telnet state machine
 		/// </summary>
 		private readonly StateMachine<State, Trigger> _TelnetStateMachine;
-		
+
 		/// <summary>
 		/// Input Stream
 		/// </summary>
-		private BufferedStream _InputStream;
+		private StreamReader _InputStream;
+
+		/// <summary>
+		/// Output Stream
+		/// </summary>
+		private StreamWriter _OutputStream;
 
 		/// <summary>
 		/// Local buffer. We only take up to 5mb in buffer space. 
@@ -82,6 +88,8 @@ namespace TelnetNegotiationCore
 				.Permit(Trigger.IAC, State.ReadingCharacters)
 				.Permit(Trigger.WILL, State.Willing)
 				.Permit(Trigger.WONT, State.Refusing)
+				.Permit(Trigger.DO, State.Do)
+				.Permit(Trigger.DONT, State.Dont)
 				.Permit(Trigger.SB, State.SubNegotiation)
 				.OnEntry(x => Console.WriteLine("Starting Negotiation"));
 
@@ -105,9 +113,10 @@ namespace TelnetNegotiationCore
 		/// Register the Buffered Stream to read and write to for Telnet negotiation.
 		/// </summary>
 		/// <param name="input">A Buffered Stream wrapped around a Network Stream</param>
-		public void RegisterStream(BufferedStream input)
+		public void RegisterStream(StreamReader input, StreamWriter output)
 		{
 			_InputStream = input;
+			_OutputStream = output;
 		}
 
 		/// <summary>
@@ -127,7 +136,7 @@ namespace TelnetNegotiationCore
 		{
 			// We use ASCII Encoding here until we negotiate for UTF-8.
 			// How do we want to split out ASCII vs UNICODE if we get mid-session negotiation?
-			Console.WriteLine(new ASCIIEncoding().GetString(buffer, 0, bufferposition));
+			Console.WriteLine(ascii.GetString(buffer, 0, bufferposition));
 			bufferposition = 0;
 		}
 
@@ -137,7 +146,10 @@ namespace TelnetNegotiationCore
 		public void Process()
 		{
 			int currentByte;
-			while ((currentByte = _InputStream.ReadByte()) != -1)
+			WillingCharset();
+			WillingNAWS();
+
+			while ((currentByte = _InputStream.BaseStream.ReadByte() ) != -1)
 			{
 				if (Enum.IsDefined(typeof(Trigger), currentByte))
 				{

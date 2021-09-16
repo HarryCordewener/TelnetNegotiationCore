@@ -41,8 +41,11 @@ namespace TelnetNegotiationCore
     {
       TcpClient client = (TcpClient)obj;
       var stream = client.GetStream();
+      var input = new StreamReader(stream);
+      var output = new StreamWriter(stream);
+      output.AutoFlush = true;
       var telnet = new TelnetInterpretor();
-      telnet.RegisterStream(new BufferedStream(stream, 10000));
+      telnet.RegisterStream(input, output);
       telnet.Process();
     }
 }

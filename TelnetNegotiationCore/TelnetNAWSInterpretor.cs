@@ -31,7 +31,6 @@ namespace TelnetNegotiationCore
 		/// </remarks>
 		public int ClientWidth { get; private set; } = 78;
 
-
 		/// <summary>
 		/// If the server you are connected to makes use of the client window in ways that are linked to its width and height, 
 		/// then is useful for it to be able to find out how big it is, and also to get notified when it is resized.
@@ -47,13 +46,19 @@ namespace TelnetNegotiationCore
 			tsm.Configure(State.Refusing)
 				.Permit(Trigger.NAWS, State.WontDoNAWS);
 
+			tsm.Configure(State.Dont)
+				.Permit(Trigger.NAWS, State.DontNAWS);
+			
+			tsm.Configure(State.DontNAWS)
+				.SubstateOf(State.Accepting)
+				.OnEntry(() => Console.WriteLine("Client won't do NAWS - do nothing"));
+
 			tsm.Configure(State.WillDoNAWS)
 				.SubstateOf(State.Accepting)
 				.OnEntry(RequestNAWS);
 
 			tsm.Configure(State.WontDoNAWS)
-				.SubstateOf(State.Accepting)
-				.OnEntry(x => Console.WriteLine("Refusing to NAWS"));
+				.SubstateOf(State.Accepting);
 
 			tsm.Configure(State.SubNegotiation)
 				.Permit(Trigger.NAWS, State.NegotiatingNAWS);
@@ -89,7 +94,7 @@ namespace TelnetNegotiationCore
 		public void RequestNAWS(StateMachine<State, Trigger>.Transition _)
 		{
 			Console.WriteLine("Requesting NAWS details from Client");
-			_InputStream.Write(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
+			_OutputStream.BaseStream.Write(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
 		}
 
 		/// <summary>
@@ -110,6 +115,12 @@ namespace TelnetNegotiationCore
 		{
 			_nawsByteState = new byte[4];
 			_nawsIndex = 0;
+		}
+
+		private void WillingNAWS()
+		{
+			Console.WriteLine("Announcing willingness to NAWS!");
+			_OutputStream.BaseStream.Write(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NAWS });
 		}
 
 		/// <summary>

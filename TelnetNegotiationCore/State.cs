@@ -8,6 +8,8 @@
 		EndNegotiation,
 		SubNegotiation,
 		EndSubNegotiation,
+		Do,
+		Dont,
 		Willing,
 		Refusing,
 		WillDoNAWS,
@@ -16,12 +18,21 @@
 		EvaluatingNAWS,
 		EscapingNAWSValue,
 		CompletingNAWS,
+		DontNAWS,
 		WillDoCharset,
 		WontDoCharset,
+		AlmostNegotiatingCharset,
 		NegotiatingCharset,
 		EvaluatingCharset,
 		EscapingCharsetValue,
 		CompletingCharset,
-		Act
+		Act,
+		DoCharset,
+		DontCharset,
+		EndingCharsetSubnegotiation,
+		NegotiatingAcceptedCharset,
+		EvaluatingAcceptedCharsetValue,
+		EscapingAcceptedCharsetValue,
+		CompletingAcceptedCharset
 	}
 }
