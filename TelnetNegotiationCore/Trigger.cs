@@ -47,11 +47,14 @@ namespace TelnetNegotiationCore
 		IS = 0,
 		/// <summary>
 		/// Sub-negotiation SEND command.	
+		/// ECHO negotiation
 		/// </summary>
 		/// <remarks>
 		/// RFC 855: http://www.faqs.org/rfcs/rfc855.html
+		/// RFC 857: http://www.faqs.org/rfcs/rfc857.html
 		/// </remarks>
 		SEND = 1,
+		ECHO = 1,
 		/// <summary>
 		/// Sub-negotiation ACCEPTED command.	
 		/// </summary>
@@ -61,11 +64,14 @@ namespace TelnetNegotiationCore
 		ACCEPTED = 2,
 		/// <summary>
 		/// Sub-negotiation REJECTED command.	
+		/// Suppress Go Ahead
 		/// </summary>
 		/// <remarks>
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+		/// RFC 858: http://www.faqs.org/rfcs/rfc858.html
 		/// </remarks>
 		REJECTED = 3,
+		SUPPRESSGOAHEAD = 3,
 		/// <summary>
 		/// Sub-negotiation TTABLE-IS command.	
 		/// </summary>
@@ -100,7 +106,14 @@ namespace TelnetNegotiationCore
 		/// <remarks>
 		/// We treat this as 'now act'
 		/// </remarks>
-		NewLine = 10,
+		NEWLINE = 10,
+		/// <summary>
+		/// Terminal Type
+		/// </summary>
+		/// <remarks>
+		/// RFC 1091: http://www.faqs.org/rfcs/rfc1091.html
+		/// </remarks>
+		TTYPE = 24,
 		/// <summary>
 		/// Window size option.	
 		/// </summary>
@@ -108,6 +121,62 @@ namespace TelnetNegotiationCore
 		/// RFC 1073: http://www.faqs.org/rfcs/rfc1073.html
 		/// </remarks>
 		NAWS = 31,
+		/// <summary>
+		/// Terminal Speed option.	
+		/// </summary>
+		/// <remarks>
+		/// RFC 1079: http://www.faqs.org/rfcs/rfc1079.html
+		/// </remarks>
+		TSPEED = 32,
+		/// <summary>
+		/// Toggle Flow Control
+		/// </summary>
+		/// <remarks>
+		/// RFC 1372: http://www.faqs.org/rfcs/rfc1372.html
+		/// </remarks>
+		FLOWCONTROL = 33,
+		/// <summary>
+		/// Linemode option.	
+		/// </summary>
+		/// <remarks>
+		/// RFC 1184: http://www.faqs.org/rfcs/rfc1184.html
+		/// </remarks>
+		LINEMODE = 34,
+		/// <summary>
+		/// X-Display Location
+		/// </summary>
+		/// <remarks>
+		/// RFC 1096: http://www.faqs.org/rfcs/rfc1096.html
+		/// </remarks>
+		XDISPLOC = 35,
+		/// <summary>
+		/// Environment
+		/// </summary>
+		/// <remarks>
+		/// RFC 1408: http://www.faqs.org/rfcs/rfc1408.html
+		/// </remarks>
+		ENVIRON = 36,
+		/// <summary>
+		/// Authentication
+		/// </summary>
+		/// <remarks>
+		/// RFC 2941: http://www.faqs.org/rfcs/rfc2941.html
+		/// </remarks>
+		AUTHENTICATION = 37,
+		/// <summary>
+		/// Encrypt
+		/// </summary>
+		/// <remarks>
+		/// RFC 2946: http://www.faqs.org/rfcs/rfc2946.html
+		/// </remarks>
+		ENCRYPT = 38,
+		/// <summary>
+		/// New Environment
+		/// </summary>
+		/// <remarks>
+		/// RFC 1572: http://www.faqs.org/rfcs/rfc1572.html
+		/// </remarks>
+		NEWENVIRON = 39,
 		/// <summary>
 		/// Charset option.	
 		/// </summary>

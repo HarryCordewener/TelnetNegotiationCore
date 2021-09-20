@@ -38,7 +38,7 @@ namespace TelnetNegotiationCore
 		/// 
 		/// NAWS can be initiated from the Client or the Server.
 		/// </summary>
-		/// <param name="tsm">The state machine.</param>
+		/// <param name="tsm">The state machine</param>
 		private void SetupNAWS(StateMachine<State, Trigger> tsm)
 		{
 			tsm.Configure(State.Willing)
@@ -73,10 +73,6 @@ namespace TelnetNegotiationCore
 			tsm.Configure(State.EvaluatingNAWS)
 				.PermitDynamic(Trigger.IAC, () => _nawsIndex < 4 ? State.EscapingNAWSValue : State.CompletingNAWS);
 
-			// Source of Error: This gets triggered because CompletingNAWS is a substate of EvaluatingNAWS
-			// Either CompletingNAWS needs to be turned into a different substate, or the Dynamic method above needs to change, 
-			// thus removing the need for the Substate.
-			// Likely the latter.
 			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingNAWS).OnEntryFrom(BTrigger(t), CaptureNAWS));
 
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.EvaluatingNAWS).PermitReentry(t));
@@ -87,6 +83,8 @@ namespace TelnetNegotiationCore
 			tsm.Configure(State.CompletingNAWS)
 				.SubstateOf(State.EndSubNegotiation)
 				.OnEntry(CompleteNAWS);
+
+			RegisterInitialWilling(WillingNAWSAsync);
 		}
 
 		/// <summary>

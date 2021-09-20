@@ -1,16 +1,25 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Serilog;
 using Serilog.Context;
 using Stateless;
-using Stateless.Graph;
 
 namespace TelnetNegotiationCore
 {
 	public partial class TelnetInterpretor
 	{
+		/// <summary>
+		/// A list of functions to call at the start.
+		/// </summary>
+		private List<Func<Task>> _InitialWilling;
+
+		/// <summary>
+		/// The current Encoding used for interpretting incoming non-negotiation text, and what we should send on outbound.
+		/// </summary>
+		private Encoding _CurrentEncoding = Encoding.GetEncoding("ISO-8859-1");
 
 		/// <summary>
 		/// Telnet state machine
@@ -67,11 +76,14 @@ namespace TelnetNegotiationCore
 		public TelnetInterpretor(ILogger logger = null)
 		{
 			_Logger = logger ?? Log.Logger.ForContext<TelnetInterpretor>();
+			_InitialWilling = new List<Func<Task>>();
 
 			_TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
 			SetupStandardProtocol(_TelnetStateMachine);
 			SetupNAWS(_TelnetStateMachine);
 			SetupCharsetNegotiation(_TelnetStateMachine);
+			SetupTelnetTerminalType(_TelnetStateMachine);
+			SetupIgnored(_TelnetStateMachine);
 
 			if (_Logger.IsEnabled(Serilog.Events.LogEventLevel.Verbose))
 			{
@@ -92,7 +104,7 @@ namespace TelnetNegotiationCore
 			// Standard triggers, which are fine in the Awaiting state and should just be interpretted as a character in this state.
 			tsm.Configure(State.ReadingCharacters)
 				.SubstateOf(State.Accepting)
-				.Permit(Trigger.NewLine, State.Act);
+				.Permit(Trigger.NEWLINE, State.Act);
 
 			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.ReadingCharacters).OnEntryFrom(BTrigger(t), WriteToBufferAndAdvance));
 
@@ -167,7 +179,7 @@ namespace TelnetNegotiationCore
 		/// We use ASCII Encoding here until we negotiate for UTF-8.
 		/// How do we want to split out ASCII vs UNICODE if we get mid-session negotiation?
 		/// </remarks>
-		private void WriteToOutput() => _WriteBack?.Invoke(ascii.GetString(buffer, 0, bufferposition));
+		private void WriteToOutput() => _WriteBack?.Invoke(_CurrentEncoding.GetString(buffer, 0, bufferposition));
 
 		/// <summary>
 		/// Validates the object is ready to process.
@@ -179,6 +191,11 @@ namespace TelnetNegotiationCore
 			if (_OutputStream == null) throw new ApplicationException("Output Stream is null or has not been registered.");
 		}
 
+		private void RegisterInitialWilling(Func<Task> fun)
+		{
+			_InitialWilling.Add(fun);
+		}
+
 		/// <summary>
 		/// Start processing the inbound stream.
 		/// </summary>
@@ -188,9 +205,12 @@ namespace TelnetNegotiationCore
 
 			Validate();
 
+			foreach (var t in _InitialWilling)
+			{
+				await t();
+			}
+
 			int currentByte;
-			await WillingCharsetAsync();
-			await WillingNAWSAsync();
 
 			while ((currentByte = _InputStream.BaseStream.ReadByte()) != -1)
 			{

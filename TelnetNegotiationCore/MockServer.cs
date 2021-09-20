@@ -59,6 +59,7 @@ namespace TelnetNegotiationCore
 			var telnet = new TelnetInterpretor(_Logger.ForContext<TelnetInterpretor>());
       telnet.RegisterStream(input, output);
       telnet.RegisterWriteBack(WriteBack);
+      telnet.RegisterCharsetOrder(new[] { "utf-8", "iso-8859-1" });
       telnet.ProcessAsync().ConfigureAwait(false).GetAwaiter().GetResult();
     }
 }
