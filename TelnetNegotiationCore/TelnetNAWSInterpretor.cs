@@ -49,14 +49,21 @@ namespace TelnetNegotiationCore
 
 			tsm.Configure(State.Dont)
 				.Permit(Trigger.NAWS, State.DontNAWS);
-			
+
+			tsm.Configure(State.Do)
+				.Permit(Trigger.NAWS, State.DoNAWS);
+
 			tsm.Configure(State.DontNAWS)
 				.SubstateOf(State.Accepting)
 				.OnEntry(() => _Logger.Debug("{connectionStatus}", "Client won't do NAWS - do nothing"));
 
+			tsm.Configure(State.DoNAWS)
+				.SubstateOf(State.Accepting)
+				.OnEntryAsync(WontNAWSAsync);
+
 			tsm.Configure(State.WillDoNAWS)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(RequestNAWS);
+				.OnEntryAsync(RequestNAWSAsync);
 
 			tsm.Configure(State.WontDoNAWS)
 				.SubstateOf(State.Accepting);
@@ -84,13 +91,13 @@ namespace TelnetNegotiationCore
 				.SubstateOf(State.EndSubNegotiation)
 				.OnEntry(CompleteNAWS);
 
-			RegisterInitialWilling(WillingNAWSAsync);
+			RegisterInitialWilling(async () => await RequestNAWSAsync(null));
 		}
 
 		/// <summary>
 		/// Request NAWS from a client.
 		/// </summary>
-		public async Task RequestNAWS(StateMachine<State, Trigger>.Transition _)
+		public async Task RequestNAWSAsync(StateMachine<State, Trigger>.Transition _)
 		{
 			_Logger.Debug("{connectionStatus}", "Requesting NAWS details from Client");
 			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
@@ -116,10 +123,10 @@ namespace TelnetNegotiationCore
 			_nawsIndex = 0;
 		}
 
-		private async Task WillingNAWSAsync()
+		private async Task WontNAWSAsync()
 		{
-			_Logger.Debug("{connectionStatus}", "Announcing willingness to NAWS!");
-			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NAWS });
+			_Logger.Debug("{connectionStatus}", "Announcing refusing to send NAWS, this is a Server!");
+			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
 		}
 
 		/// <summary>

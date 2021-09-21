@@ -82,6 +82,7 @@
 		EscapingNAWSValue,
 		CompletingNAWS,
 		DontNAWS,
+		DoNAWS,
 		#endregion NAWS
 		#region Charset Negotation
 		WillDoCharset,

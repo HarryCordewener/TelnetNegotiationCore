@@ -8,9 +8,19 @@ namespace TelnetNegotiationCore
 {
 	public partial class TelnetInterpretor
 	{
+		/// <summary>
+		/// A list of terminal types for this connection.
+		/// </summary>
 		public List<string> TerminalTypes { get; private set; } = new List<string>();
+
+		/// <summary>
+		/// The current selected Terminal Type. Use RequestTerminalTypeAsync if you want the client to switch to another mode.
+		/// </summary>
 		public string CurrentTerminalType => _CurrentTerminalType == -1 ? "unknown" : TerminalTypes[_CurrentTerminalType];
 
+		/// <summary>
+		/// Currently selected Terminal Type index.
+		/// </summary>
 		private int _CurrentTerminalType = -1;
 
 		/// <summary>
@@ -44,7 +54,7 @@ namespace TelnetNegotiationCore
 
 			tsm.Configure(State.WillDoTType)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(SendDoTerminalTypeAsync);
+				.OnEntryAsync(RequestTerminalTypeAsync);
 
 			tsm.Configure(State.WontDoTType)
 				.SubstateOf(State.Accepting)
@@ -52,7 +62,7 @@ namespace TelnetNegotiationCore
 
 			tsm.Configure(State.DoTType)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(RequestTerminalTypeAsync);
+				.OnEntryAsync(WillDoTerminalTypeAsync);
 
 			tsm.Configure(State.DontTType)
 				.SubstateOf(State.Accepting)
@@ -69,15 +79,18 @@ namespace TelnetNegotiationCore
 			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingTerminalType).OnEntryFrom(BTrigger(t), CaptureTerminalType));
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.EvaluatingTerminalType).PermitReentry(t));
 
+			tsm.Configure(State.EvaluatingTerminalType)
+				.Permit(Trigger.IAC, State.EscapingTerminalTypeValue);
+
 			tsm.Configure(State.EscapingTerminalTypeValue)
 				.Permit(Trigger.IAC, State.EvaluatingTerminalType)
 				.Permit(Trigger.SE, State.CompletingTerminalType);
 
 			tsm.Configure(State.CompletingTerminalType)
-				.SubstateOf(State.EndSubNegotiation)
-				.OnEntryAsync(CompleteTerminalTypeAsync);
+				.OnEntryAsync(CompleteTerminalTypeAsync)
+				.SubstateOf(State.Accepting);
 
-			RegisterInitialWilling(WillDoTerminalTypeAsync);
+			RegisterInitialWilling(SendDoTerminalTypeAsync);
 		}
 
 		/// <summary>
@@ -110,10 +123,12 @@ namespace TelnetNegotiationCore
 			var ttype = ascii.GetString(_ttypeByteState, 0, _ttypeIndex);
 			if (TerminalTypes.Contains(ttype))
 			{
+				_Logger.Debug("{connectionStatus}: {@ttypes}", "Completing Terminal Type negotiation. List as follows", TerminalTypes);
 				_CurrentTerminalType = (_CurrentTerminalType + 1) % TerminalTypes.Count;
 			}
 			else
 			{
+				_Logger.Debug("{connectionStatus}: {ttype}", "Registering Terminal Type. Requesting the next", ttype);
 				TerminalTypes.Add(ttype);
 				_CurrentTerminalType++;
 				await RequestTerminalTypeAsync();
@@ -142,7 +157,7 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// Request Terminal Type from Client.
 		/// </summary>
-		private async Task RequestTerminalTypeAsync()
+		public async Task RequestTerminalTypeAsync()
 		{
 			_Logger.Debug("{connectionStatus}", "Telling the Client, to send Terminal Type.");
 			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE });
