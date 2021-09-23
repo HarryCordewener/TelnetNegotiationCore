@@ -59,7 +59,7 @@ namespace TelnetNegotiationCore
 
 			tsm.Configure(State.WontDoCharset)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.Debug("{connectionStatus}", "Won't do Character Set - do nothing"));
+				.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Won't do Character Set - do nothing"));
 
 			tsm.Configure(State.DoCharset)
 				.SubstateOf(State.Accepting)
@@ -67,7 +67,7 @@ namespace TelnetNegotiationCore
 
 			tsm.Configure(State.DontCharset)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.Debug("{connectionStatus}", "Client won't do Character Set - do nothing"));
+				.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Client won't do Character Set - do nothing"));
 
 			tsm.Configure(State.SubNegotiation)
 				.Permit(Trigger.CHARSET, State.AlmostNegotiatingCharset);
@@ -192,7 +192,7 @@ namespace TelnetNegotiationCore
 		/// </summary>
 		public async Task OnWillingCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("{connectionStatus}", "Request charset negotiation from Client");
+			_Logger.Debug("Connection: {connectionStatus}", "Request charset negotiation from Client");
 			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET });
 			charsetoffered = false;
 		}
@@ -202,7 +202,7 @@ namespace TelnetNegotiationCore
 		/// </summary>
 		public async Task WillingCharsetAsync()
 		{
-			_Logger.Debug("{connectionStatus}", "Announcing willingness to Charset!");
+			_Logger.Debug("Connection: {connectionStatus}", "Announcing willingness to Charset!");
 			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
 		}
 

@@ -15,6 +15,9 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// Protect against State Transitions and Telnet Negotiations we do not recognize.
 		/// </summary>
+		/// <remarks>
+		/// TODO: Log what byte was sent using TriggerWithParameter output.
+		/// </remarks>
 		/// <param name="tsm"></param>
 		public void SetupSafeNegotiation(StateMachine<State, Trigger> tsm)
 		{
@@ -38,7 +41,7 @@ namespace TelnetNegotiationCore
 						tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
 							.OnEntryFromAsync(trigger, async () =>
 							{
-								_Logger.Debug("{connectionStatus}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
+								_Logger.Debug("Connection: {connectionStatus}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
 								await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger });
 							});
 					}
@@ -47,7 +50,7 @@ namespace TelnetNegotiationCore
 						tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
 							.OnEntryFromAsync(trigger, async () =>
 							{
-								_Logger.Debug("{connectionStatus}", $"Telling the Client, Don't send {trigger}.");
+								_Logger.Debug("Connection: {connectionStatus}", $"Telling the Client, Don't send {trigger}.");
 								await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger });
 							});
 					}
@@ -69,12 +72,12 @@ namespace TelnetNegotiationCore
 
 			tsm.Configure(State.BadSubNegotiation)
 				.Permit(Trigger.IAC, State.BadSubNegotiationEscaping)
-				.OnEntry(() => _Logger.Debug("{connectionState}", $"Bad subnegotiation."));
+				.OnEntry(() => _Logger.Debug("Connection: {connectionState}", $"Unsupported subnegotiation."));
 			tsm.Configure(State.BadSubNegotiationEscaping)
 				.Permit(Trigger.IAC, State.BadSubNegotiationEvaluating)
 				.Permit(Trigger.SE, State.BadSubNegotiationCompleting);
 			tsm.Configure(State.BadSubNegotiationCompleting)
-				.OnEntry(() => _Logger.Debug("{Explicitly ignoring the subnegotiation that was sent.}"))
+				.OnEntry(() => _Logger.Debug("Connection: Explicitly ignoring the subnegotiation that was sent."))
 				.SubstateOf(State.Accepting);
 		}
 	}

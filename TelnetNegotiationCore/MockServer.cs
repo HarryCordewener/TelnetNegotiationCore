@@ -1,5 +1,4 @@
 ﻿using Serilog;
-using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -28,7 +27,7 @@ namespace TelnetNegotiationCore
       {
         while (true)
         {
-          _Logger.Information("{serverStatus}", "Waiting for a connection...");
+          _Logger.Information("Waiting for a connection...");
           TcpClient client = server.AcceptTcpClient();
           Thread t = new Thread(new ParameterizedThreadStart(HandleDevice));
           t.Start(client);
@@ -42,12 +41,18 @@ namespace TelnetNegotiationCore
     }
 
     public Task WriteBack(string writeback)
-		{
+    {
       // The Regex removes control characters.
       // Regex.Replace(writeback, @"\p{Cc}+", String.Empty);
-      _Logger.Information("{writeBack}", writeback);
+      _Logger.Information("Writeback: {writeBack}", writeback);
       return Task.CompletedTask;
-		}
+    }
+
+    public Task SignalNAWS(int height, int width)
+    {
+      _Logger.Information("Client Height and Width updated: {height}x{width}", height, width);
+      return Task.CompletedTask;
+    }
 
     public void HandleDevice(object obj)
     {
@@ -61,6 +66,7 @@ namespace TelnetNegotiationCore
 			var telnet = new TelnetInterpretor(_Logger.ForContext<TelnetInterpretor>());
       telnet.RegisterStream(input, output);
       telnet.RegisterWriteBack(WriteBack);
+      telnet.RegisterNAWSCallback(SignalNAWS);
       telnet.RegisterCharsetOrder(new[] { "utf-8", "iso-8859-1" });
       telnet.ProcessAsync().ConfigureAwait(false).GetAwaiter().GetResult();
     }

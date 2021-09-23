@@ -6,6 +6,9 @@ using MoreLinq;
 
 namespace TelnetNegotiationCore
 {
+	/// <summary>
+	/// Helper class to create TriggerWithParameter objects.
+	/// </summary>
 	public static class ParameterizedTriggers
 	{
 		private readonly static Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<byte>> _cache;
@@ -25,6 +28,9 @@ namespace TelnetNegotiationCore
 		}
 	}
 
+	/// <summary>
+	/// A helper class to create state transitions for a list of triggers.
+	/// </summary>
 	public static class TriggerHelper
 	{
 		public static IEnumerable<Trigger> AllTriggers = (Trigger[])Enum.GetValues(typeof(Trigger));

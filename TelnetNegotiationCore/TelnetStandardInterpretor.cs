@@ -88,7 +88,7 @@ namespace TelnetNegotiationCore
 
 			if (_Logger.IsEnabled(Serilog.Events.LogEventLevel.Verbose))
 			{
-				_TelnetStateMachine.OnTransitioned((transition) => _Logger.Verbose("{source} --[{trigger}]--> {destination}",
+				_TelnetStateMachine.OnTransitioned((transition) => _Logger.Verbose("Telnet Statemachine: {source} --[{trigger}]--> {destination}",
 					transition.Source, transition.Trigger, transition.Destination));
 			}
 		}
@@ -126,17 +126,17 @@ namespace TelnetNegotiationCore
 				.Permit(Trigger.DO, State.Do)
 				.Permit(Trigger.DONT, State.Dont)
 				.Permit(Trigger.SB, State.SubNegotiation)
-				.OnEntry(x => _Logger.Debug("{connectionState}", "Starting Negotiation"));
+				.OnEntry(x => _Logger.Debug("Connection: {connectionState}", "Starting Negotiation"));
 
 			tsm.Configure(State.Willing);
 
 			tsm.Configure(State.Refusing);
 
 			tsm.Configure(State.ReadingCharacters)
-				.OnEntryFrom(Trigger.IAC, x => _Logger.Debug("{connectionState}", "Canceling negotation"));
+				.OnEntryFrom(Trigger.IAC, x => _Logger.Debug("Connection: {connectionState}", "Canceling negotation"));
 
 			tsm.Configure(State.SubNegotiation)
-				.OnEntryFrom(Trigger.IAC, x => _Logger.Debug("{connectionState}", "Subnegotiation request"));
+				.OnEntryFrom(Trigger.IAC, x => _Logger.Debug("{Connection: connectionState}", "Subnegotiation request"));
 
 			tsm.Configure(State.EndSubNegotiation)
 				.Permit(Trigger.SE, State.Accepting);
@@ -202,7 +202,7 @@ namespace TelnetNegotiationCore
 		/// </summary>
 		public async Task ProcessAsync()
 		{
-			_Logger.Information("{serverStatus}", "Connected");
+			_Logger.Information("Connection: {connectionState}", "Connected");
 
 			Validate();
 
@@ -223,7 +223,7 @@ namespace TelnetNegotiationCore
 				await _TelnetStateMachine.FireAsync(BTrigger(Trigger.ReadNextCharacter), (byte)currentByte);
 			}
 
-			_Logger.Information("{serverStatus}", "Connection Closed");
+			_Logger.Information("Connection: {connectionState}", "Connection Closed");
 		}
 	}
 }

@@ -33,6 +33,11 @@ namespace TelnetNegotiationCore
 		public int ClientWidth { get; private set; } = 78;
 
 		/// <summary>
+		/// NAWS Callback function to alert server of Width & Height negotiation
+		/// </summary>
+		private Func<int, int, Task> _NAWSCallback;
+
+		/// <summary>
 		/// If the server you are connected to makes use of the client window in ways that are linked to its width and height, 
 		/// then is useful for it to be able to find out how big it is, and also to get notified when it is resized.
 		/// 
@@ -55,7 +60,7 @@ namespace TelnetNegotiationCore
 
 			tsm.Configure(State.DontNAWS)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.Debug("{connectionStatus}", "Client won't do NAWS - do nothing"));
+				.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Client won't do NAWS - do nothing"));
 
 			tsm.Configure(State.DoNAWS)
 				.SubstateOf(State.Accepting)
@@ -99,7 +104,7 @@ namespace TelnetNegotiationCore
 		/// </summary>
 		public async Task RequestNAWSAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("{connectionStatus}", "Requesting NAWS details from Client");
+			_Logger.Debug("Connection: {connectionStatus}", "Requesting NAWS details from Client");
 			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
 		}
 
@@ -125,8 +130,13 @@ namespace TelnetNegotiationCore
 
 		private async Task WontNAWSAsync()
 		{
-			_Logger.Debug("{connectionStatus}", "Announcing refusing to send NAWS, this is a Server!");
+			_Logger.Debug("Connection: {connectionStatus}", "Announcing refusing to send NAWS, this is a Server!");
 			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
+		}
+
+		public void RegisterNAWSCallback(Func<int, int, Task> cb)
+		{
+			_NAWSCallback = cb;
 		}
 
 		/// <summary>
@@ -148,6 +158,7 @@ namespace TelnetNegotiationCore
 			ClientHeight = BitConverter.ToInt16(height);
 
 			_Logger.Debug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
+			_NAWSCallback?.Invoke(ClientHeight, ClientWidth);
 		}
 	}
 }
