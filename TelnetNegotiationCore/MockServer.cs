@@ -43,6 +43,8 @@ namespace TelnetNegotiationCore
 
     public Task WriteBack(string writeback)
 		{
+      // The Regex removes control characters.
+      // Regex.Replace(writeback, @"\p{Cc}+", String.Empty);
       _Logger.Information("{writeBack}", writeback);
       return Task.CompletedTask;
 		}

@@ -46,8 +46,8 @@ namespace TelnetNegotiationCore
 		/// </remarks>
 		IS = 0,
 		/// <summary>
-		/// Sub-negotiation SEND command.	
-		/// ECHO negotiation
+		/// Sub-negotiation SEND command
+		/// ECHO negotiation (Unsupported)
 		/// </summary>
 		/// <remarks>
 		/// RFC 855: http://www.faqs.org/rfcs/rfc855.html
@@ -73,28 +73,28 @@ namespace TelnetNegotiationCore
 		REJECTED = 3,
 		SUPPRESSGOAHEAD = 3,
 		/// <summary>
-		/// Sub-negotiation TTABLE-IS command.	
+		/// Sub-negotiation TTABLE-IS command. (Unsupported)
 		/// </summary>
 		/// <remarks>
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// </remarks>
 		TTABLE_IS = 4,
 		/// <summary>
-		/// Sub-negotiation TTABLE_REJECTED command.	
+		/// Sub-negotiation TTABLE_REJECTED command. (Unsupported)
 		/// </summary>
 		/// <remarks>
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// </remarks>
 		TTABLE_REJECTED = 5,
 		/// <summary>
-		/// Sub-negotiation TTABLE_ACK command.	
+		/// Sub-negotiation TTABLE_ACK command. (Unsupported)
 		/// </summary>
 		/// <remarks>
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// </remarks>
 		TTABLE_ACK = 6,
 		/// <summary>
-		/// Sub-negotiation TTABLE_NAK command.	
+		/// Sub-negotiation TTABLE_NAK command. (Unsupported)
 		/// </summary>
 		/// <remarks>
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
@@ -112,6 +112,7 @@ namespace TelnetNegotiationCore
 		/// </summary>
 		/// <remarks>
 		/// RFC 1091: http://www.faqs.org/rfcs/rfc1091.html
+		/// MTTS: https://tintin.mudhalla.net/protocols/mtts/ (Unsupported) (Support Planned)
 		/// </remarks>
 		TTYPE = 24,
 		/// <summary>
@@ -122,68 +123,99 @@ namespace TelnetNegotiationCore
 		/// </remarks>
 		NAWS = 31,
 		/// <summary>
-		/// Terminal Speed option.	
+		/// Terminal Speed option (Unsupported)
 		/// </summary>
 		/// <remarks>
 		/// RFC 1079: http://www.faqs.org/rfcs/rfc1079.html
 		/// </remarks>
 		TSPEED = 32,
 		/// <summary>
-		/// Toggle Flow Control
+		/// Toggle Flow Control (Unsupported)
 		/// </summary>
 		/// <remarks>
 		/// RFC 1372: http://www.faqs.org/rfcs/rfc1372.html
 		/// </remarks>
 		FLOWCONTROL = 33,
 		/// <summary>
-		/// Linemode option.	
+		/// Linemode option (Unsupported)
 		/// </summary>
 		/// <remarks>
 		/// RFC 1184: http://www.faqs.org/rfcs/rfc1184.html
 		/// </remarks>
 		LINEMODE = 34,
 		/// <summary>
-		/// X-Display Location
+		/// X-Display Location (Unsupported)
 		/// </summary>
 		/// <remarks>
 		/// RFC 1096: http://www.faqs.org/rfcs/rfc1096.html
 		/// </remarks>
 		XDISPLOC = 35,
 		/// <summary>
-		/// Environment
+		/// Environment (Unsupported)
 		/// </summary>
 		/// <remarks>
 		/// RFC 1408: http://www.faqs.org/rfcs/rfc1408.html
 		/// </remarks>
 		ENVIRON = 36,
 		/// <summary>
-		/// Authentication
+		/// Authentication (Unsupported)
 		/// </summary>
 		/// <remarks>
 		/// RFC 2941: http://www.faqs.org/rfcs/rfc2941.html
 		/// </remarks>
 		AUTHENTICATION = 37,
 		/// <summary>
-		/// Encrypt
+		/// Encrypt (Unsupported)
 		/// </summary>
 		/// <remarks>
 		/// RFC 2946: http://www.faqs.org/rfcs/rfc2946.html
 		/// </remarks>
 		ENCRYPT = 38,
 		/// <summary>
-		/// New Environment
+		/// New Environment (Unsupported) (Support Planned)
 		/// </summary>
 		/// <remarks>
+		/// MNES: https://tintin.mudhalla.net/protocols/mnes/
 		/// RFC 1572: http://www.faqs.org/rfcs/rfc1572.html
 		/// </remarks>
 		NEWENVIRON = 39,
 		/// <summary>
-		/// Charset option.	
+		/// Charset option
 		/// </summary>
 		/// <remarks>
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// </remarks>
 		CHARSET = 42,
+		/// <summary>
+		/// Mud Server Data Protocol (Unsupported) (Support Planned)
+		/// </summary>
+		/// <remarks>
+		/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
+		/// </remarks>
+		MSDP = 69,
+		/// <summary>
+		/// https://tintin.mudhalla.net/protocols/mssp/ (Unsupported) (Support Planned)
+		/// </summary>
+		/// <remarks>
+		/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
+		/// </remarks>
+		MSSP = 70,
+		/// <summary>
+		/// Mud Client Compression Protocol	(Unsupported)
+		/// </summary>
+		/// <remarks>
+		/// MCCP: https://tintin.mudhalla.net/protocols/mccp
+		/// RFC 1950: https://tintin.mudhalla.net/rfc/rfc1950/
+		/// </remarks>
+		MCCP2 = 86,
+		MCCP3 = 87,
+		/// <summary>
+		/// Generic Mud Communication Protocol	
+		/// </summary>
+		/// <remarks>
+		/// GMCP: https://tintin.mudhalla.net/protocols/gmcp/
+		/// </remarks>
+		GMCP = 240,
 		/// <summary>
 		/// The end of sub-negotiation options.	
 		/// </summary>
@@ -240,6 +272,9 @@ namespace TelnetNegotiationCore
 		/// RFC 855: http://www.faqs.org/rfcs/rfc855.html
 		/// </remarks>
 		IAC = 255,
+		/// <summary>
+		/// A generic trigger, outside of what a byte can contain, to indicate generic progression.
+		/// </summary>
 		ReadNextCharacter = 256
 	}
 }
