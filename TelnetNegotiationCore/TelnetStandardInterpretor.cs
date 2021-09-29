@@ -88,8 +88,8 @@ namespace TelnetNegotiationCore
 
 			if (_Logger.IsEnabled(Serilog.Events.LogEventLevel.Verbose))
 			{
-				_TelnetStateMachine.OnTransitioned((transition) => _Logger.Verbose("Telnet Statemachine: {source} --[{trigger}]--> {destination}",
-					transition.Source, transition.Trigger, transition.Destination));
+				_TelnetStateMachine.OnTransitioned((transition) => _Logger.Verbose("Telnet Statemachine: {source} --[{trigger}({triggerbyte})]--> {destination}",
+					transition.Source, transition.Trigger, transition.Parameters[0], transition.Destination));
 			}
 		}
 

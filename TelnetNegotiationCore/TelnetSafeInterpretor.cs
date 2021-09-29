@@ -79,6 +79,8 @@ namespace TelnetNegotiationCore
 			tsm.Configure(State.BadSubNegotiationCompleting)
 				.OnEntry(() => _Logger.Debug("Connection: Explicitly ignoring the subnegotiation that was sent."))
 				.SubstateOf(State.Accepting);
+
+			tsm.OnUnhandledTrigger((state, trigger) => _Logger.Fatal("Bad transition from {state} with trigger {trigger}. Cannot recover."));
 		}
 	}
 }

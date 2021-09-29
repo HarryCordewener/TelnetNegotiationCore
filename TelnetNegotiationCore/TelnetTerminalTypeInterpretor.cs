@@ -69,7 +69,10 @@ namespace TelnetNegotiationCore
 				.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Client telling us not to Terminal Type - do nothing"));
 
 			tsm.Configure(State.SubNegotiation)
-				.Permit(Trigger.TTYPE, State.NegotiatingTerminalType);
+				.Permit(Trigger.TTYPE, State.AlmostNegotiatingTerminalType);
+
+			tsm.Configure(State.AlmostNegotiatingTerminalType)
+				.Permit(Trigger.IS, State.NegotiatingTerminalType);
 
 			tsm.Configure(State.NegotiatingTerminalType)
 				.Permit(Trigger.IAC, State.EscapingTerminalTypeValue)

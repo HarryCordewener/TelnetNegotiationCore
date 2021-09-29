@@ -47,6 +47,7 @@
 		DoTType,
 		DontTType,
 		EndingTerminalTypeNegotiation,
+		AlmostNegotiatingTerminalType,
 		NegotiatingTerminalType,
 		EvaluatingTerminalType,
 		EscapingTerminalTypeValue,
