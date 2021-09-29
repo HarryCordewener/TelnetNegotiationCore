@@ -70,5 +70,5 @@ namespace TelnetNegotiationCore
       telnet.RegisterCharsetOrder(new[] { "utf-8", "iso-8859-1" });
       telnet.ProcessAsync().ConfigureAwait(false).GetAwaiter().GetResult();
     }
-}
+  }
 }

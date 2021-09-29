@@ -10,7 +10,7 @@ namespace TelnetNegotiationCore.TestServer
 			var log = new LoggerConfiguration()
 				.Enrich.FromLogContext()
 				.WriteTo.Console()
-				.WriteTo.File(new CompactJsonFormatter(), "log.txt")
+				.WriteTo.File(new CompactJsonFormatter(), "logresult.log")
 				.MinimumLevel.Verbose()
 				.CreateLogger();
 

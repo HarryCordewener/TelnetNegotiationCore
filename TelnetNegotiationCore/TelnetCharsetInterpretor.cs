@@ -182,7 +182,7 @@ namespace TelnetNegotiationCore
 			}
 			catch(Exception ex)
 			{
-				_Logger.Error(ex, "Unexpected error during Accepting Charset Negotation.");
+				_Logger.Error(ex, "Unexpected error during Accepting Charset Negotiation.");
 				await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
 			}
 		}
@@ -227,6 +227,13 @@ namespace TelnetNegotiationCore
 			return pre.Concat(defaultcharsets).Concat(post).ToArray();
 		}
 
+
+		/// <summary>
+		/// Register the preferred order of character sets. 
+		/// </summary>
+		/// <remarks>
+		/// TODO: Make this take in EncodingInfo instead of string.
+		/// </remarks>
 		public void RegisterCharsetOrder(IEnumerable<string> order)
 		{
 			var reversed = order.Reverse().ToList();

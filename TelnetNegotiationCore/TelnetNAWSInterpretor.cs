@@ -38,6 +38,11 @@ namespace TelnetNegotiationCore
 		private Func<int, int, Task> _NAWSCallback;
 
 		/// <summary>
+		/// This exists to avoid an infinite loop with badly conforming clients.
+		/// </summary>
+		private bool _ClientWillingToDoNAWS = false;
+
+		/// <summary>
 		/// If the server you are connected to makes use of the client window in ways that are linked to its width and height, 
 		/// then is useful for it to be able to find out how big it is, and also to get notified when it is resized.
 		/// 
@@ -71,7 +76,8 @@ namespace TelnetNegotiationCore
 				.OnEntryAsync(RequestNAWSAsync);
 
 			tsm.Configure(State.WontDoNAWS)
-				.SubstateOf(State.Accepting);
+				.SubstateOf(State.Accepting)
+				.OnEntry(() => _ClientWillingToDoNAWS = false);
 
 			tsm.Configure(State.SubNegotiation)
 				.Permit(Trigger.NAWS, State.NegotiatingNAWS);
@@ -104,8 +110,12 @@ namespace TelnetNegotiationCore
 		/// </summary>
 		public async Task RequestNAWSAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Connection: {connectionStatus}", "Requesting NAWS details from Client");
-			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
+			if(!_ClientWillingToDoNAWS)
+			{
+				_Logger.Debug("Connection: {connectionStatus}", "Requesting NAWS details from Client");
+				await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
+				_ClientWillingToDoNAWS = true;
+			}
 		}
 
 		/// <summary>

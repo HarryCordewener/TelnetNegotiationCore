@@ -54,20 +54,26 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// Sub-negotiation SEND command
 		/// ECHO negotiation (Unsupported)
+		/// Sub-negotiation MSSP_VAR
 		/// </summary>
 		/// <remarks>
 		/// RFC 855: http://www.faqs.org/rfcs/rfc855.html
 		/// RFC 857: http://www.faqs.org/rfcs/rfc857.html
+		/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
 		/// </remarks>
 		SEND = 1,
 		ECHO = 1,
+		MSSP_VAR = 1,
 		/// <summary>
 		/// Sub-negotiation ACCEPTED command.	
+		/// Sub-negotiation MSSP_VAR
 		/// </summary>
 		/// <remarks>
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+		/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
 		/// </remarks>
 		ACCEPTED = 2,
+		MSSP_VAL = 2,
 		/// <summary>
 		/// Sub-negotiation REJECTED command.	
 		/// Suppress Go Ahead

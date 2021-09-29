@@ -14,6 +14,10 @@
 		Willing,
 		Refusing,
 		#endregion Standard Negotiation
+		#region MSSP
+        DoMSSP,
+        DontMSSP,
+		#endregion MSSP
 		#region NAWS
 		WillDoNAWS,
 		WontDoNAWS,
@@ -61,7 +65,7 @@
 		BadSubNegotiation,
 		BadSubNegotiationEscaping,
 		BadSubNegotiationEvaluating,
-		BadSubNegotiationCompleting
-		#endregion
-	}
+		BadSubNegotiationCompleting,
+        #endregion
+    }
 }
