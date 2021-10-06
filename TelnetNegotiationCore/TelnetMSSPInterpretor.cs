@@ -150,11 +150,12 @@ namespace TelnetNegotiationCore
 
 			var fields = typeof(MSSPConfig).GetFields();
 			var knownFields = fields.Where(field => Attribute.IsDefined(field, typeof(MSSPConfig.NameAttribute)));
+			
 			foreach(var field in knownFields)
 			{
-				Func<object> val = field.GetValue(config) as Func<object>;
-				if(val == null) continue;
-				var res = val();
+				Func<object> func = field.GetValue(config) as Func<object>;
+				if(func == null) continue;
+				var res = func();
 				var tp = res.GetType();
 				var attr = Attribute.GetCustomAttribute(field, typeof(MSSPConfig.NameAttribute)) as MSSPConfig.NameAttribute;
 
@@ -163,12 +164,14 @@ namespace TelnetNegotiationCore
 
 			foreach(var item in config.Extended)
 			{
-				var name = item.Key;
 				var func = item.Value as Func<(dynamic obj,Type type)>;
 				if(func == null) continue;
 				var val = func();
-				msspBytes.Concat(MSSPConvert(val.type, name, val.obj));
+
+				msspBytes.Concat(MSSPConvert(val.type, item.Key, val.obj).ToArray());
 			}
+
+			return msspBytes;
 		}
 
 		private byte[] MSSPConvert(Type type, string name, dynamic val)
