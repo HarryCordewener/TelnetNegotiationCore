@@ -16,7 +16,7 @@ namespace TelnetNegotiationCore.TestServer
 
 			Log.Logger = log;
 
-			MockServer server = new MockServer("127.0.0.1", 4201, log.ForContext<MockServer>());
+			MockServer server = new MockServer("127.0.0.1", 4202, log.ForContext<MockServer>());
 		}
 	}
 }

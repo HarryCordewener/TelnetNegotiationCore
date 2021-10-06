@@ -83,7 +83,9 @@ namespace TelnetNegotiationCore
 			SetupNAWS(_TelnetStateMachine);
 			SetupCharsetNegotiation(_TelnetStateMachine);
 			SetupTelnetTerminalType(_TelnetStateMachine);
-			// SetupIgnored(_TelnetStateMachine);
+			SetupMSSPNegotiation(_TelnetStateMachine);
+
+			// Must be called last.
 			SetupSafeNegotiation(_TelnetStateMachine);
 
 			if (_Logger.IsEnabled(Serilog.Events.LogEventLevel.Verbose))

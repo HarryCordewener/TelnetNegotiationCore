@@ -61,9 +61,9 @@ namespace TelnetNegotiationCore
 		/// RFC 857: http://www.faqs.org/rfcs/rfc857.html
 		/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
 		/// </remarks>
-		SEND = 1,
 		ECHO = 1,
 		MSSP_VAR = 1,
+		SEND = 1,
 		/// <summary>
 		/// Sub-negotiation ACCEPTED command.	
 		/// Sub-negotiation MSSP_VAR
@@ -72,8 +72,8 @@ namespace TelnetNegotiationCore
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
 		/// </remarks>
-		ACCEPTED = 2,
 		MSSP_VAL = 2,
+		ACCEPTED = 2,
 		/// <summary>
 		/// Sub-negotiation REJECTED command.	
 		/// Suppress Go Ahead
@@ -82,8 +82,8 @@ namespace TelnetNegotiationCore
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// RFC 858: http://www.faqs.org/rfcs/rfc858.html
 		/// </remarks>
-		REJECTED = 3,
 		SUPPRESSGOAHEAD = 3,
+		REJECTED = 3,
 		/// <summary>
 		/// Sub-negotiation TTABLE-IS command. (Unsupported)
 		/// </summary>
@@ -206,7 +206,7 @@ namespace TelnetNegotiationCore
 		/// </remarks>
 		MSDP = 69,
 		/// <summary>
-		/// https://tintin.mudhalla.net/protocols/mssp/ (Unsupported) (Support Planned)
+		/// https://tintin.mudhalla.net/protocols/mssp/
 		/// </summary>
 		/// <remarks>
 		/// MSSP: https://tintin.mudhalla.net/protocols/mssp/

@@ -33,7 +33,7 @@ namespace TelnetNegotiationCore
 
 		private static readonly Lazy<byte[]> SupportedCharacterSets = new Lazy<byte[]>(CharacterSets, true);
 
-		private static Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<string>> _CharsetOrder = (x) => x.Select(z => z.Name).OrderBy(z => z);
+		private static Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<EncodingInfo>> _CharsetOrder = (x) => x.OrderBy(z => z);
 
 		/// <summary>
 		/// Character set Negotiation will set the Character Set and Character Page Server & Client have agreed to.
@@ -106,8 +106,10 @@ namespace TelnetNegotiationCore
 				.Permit(Trigger.IAC, State.EscapingAcceptedCharsetValue);
 
 			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingCharset).OnEntryFrom(BTrigger(t), CaptureCharset));
+			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingAcceptedCharsetValue).OnEntryFrom(BTrigger(t), CaptureAcceptedCharset));
 
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.EvaluatingCharset).PermitReentry(t));
+			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.EvaluatingAcceptedCharsetValue).PermitReentry(t));
 
 			tsm.Configure(State.CompletingAcceptedCharset)
 				.OnEntryAsync(CompleteAcceptedCharsetAsync)
@@ -151,6 +153,16 @@ namespace TelnetNegotiationCore
 		}
 
 		/// <summary>
+		/// Read the Charset state values and finalize it and prepare to respond.
+		/// </summary>
+		/// <param name="_">Ignored</param>
+		private void CaptureAcceptedCharset(byte b)
+		{
+			_acceptedCharsetByteState[_acceptedCharsetByteIndex] = b;
+			_acceptedCharsetByteIndex++;
+		}
+
+		/// <summary>
 		/// Finalize internal state values for Charset.
 		/// </summary>
 		/// <param name="_">Ignored</param>
@@ -177,14 +189,23 @@ namespace TelnetNegotiationCore
 		{
 			try
 			{
-				_CurrentEncoding = Encoding.GetEncoding(ascii.GetString(_acceptedCharsetByteState, 0, _acceptedCharsetByteIndex));
-				charsetoffered = false;
+				_CurrentEncoding = Encoding.GetEncoding(ascii.GetString(_acceptedCharsetByteState, 1, _acceptedCharsetByteIndex-1).Trim());
 			}
-			catch(Exception ex)
+			catch(Exception ex1)
 			{
-				_Logger.Error(ex, "Unexpected error during Accepting Charset Negotiation.");
-				await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+				_Logger.Warning(ex1, "Potentially expected error during Accepting Charset Negotiation. Seperator not passed back. Trying without seperator.");
+				try
+				{
+					_CurrentEncoding = Encoding.GetEncoding(ascii.GetString(_acceptedCharsetByteState, 0, _acceptedCharsetByteIndex).Trim());
+				}
+				catch(Exception ex2)
+				{
+					_Logger.Warning(ex2, "Unexpected error during Accepting Charset Negotiation. Could not find charset: {charset}", ascii.GetString(_acceptedCharsetByteState, 0, _acceptedCharsetByteIndex));
+					await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+				}
 			}
+			_Logger.Information("Connection: Accepted Charset Negotiation for: {charset}", _CurrentEncoding);
+			charsetoffered = false;
 		}
 
 		/// <summary>
@@ -211,6 +232,7 @@ namespace TelnetNegotiationCore
 		/// </summary>
 		public async Task OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
+			_Logger.Debug("Charsets String: {charsetlist}", ";" + string.Join(";", _CharsetOrder(Encoding.GetEncodings())));
 			await _OutputStream.BaseStream.WriteAsync(SupportedCharacterSets.Value);
 			charsetoffered = true;
 		}
@@ -234,10 +256,10 @@ namespace TelnetNegotiationCore
 		/// <remarks>
 		/// TODO: Make this take in EncodingInfo instead of string.
 		/// </remarks>
-		public void RegisterCharsetOrder(IEnumerable<string> order)
+		public void RegisterCharsetOrder(IEnumerable<EncodingInfo> order)
 		{
 			var reversed = order.Reverse().ToList();
-			_CharsetOrder = (x) => x.Select(z => z.Name).OrderByDescending(z => reversed.IndexOf(z));
+			_CharsetOrder = (x) => x.OrderByDescending(z => reversed.IndexOf(z));
 		}
 	}
 }
