@@ -33,7 +33,7 @@ namespace TelnetNegotiationCore
 
 		private static readonly Lazy<byte[]> SupportedCharacterSets = new Lazy<byte[]>(CharacterSets, true);
 
-		private static Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<EncodingInfo>> _CharsetOrder = (x) => x.OrderBy(z => z);
+		private static Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _CharsetOrder = (x) => x.Select(x => x.GetEncoding()).OrderBy(z => z);
 
 		/// <summary>
 		/// Character set Negotiation will set the Character Set and Character Page Server & Client have agreed to.
@@ -232,7 +232,7 @@ namespace TelnetNegotiationCore
 		/// </summary>
 		public async Task OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Charsets String: {charsetlist}", ";" + string.Join(";", _CharsetOrder(Encoding.GetEncodings())));
+			_Logger.Debug("Charsets String: {charsetlist}", ";" + string.Join(";", _CharsetOrder(Encoding.GetEncodings()).Select( x=> x.WebName)));
 			await _OutputStream.BaseStream.WriteAsync(SupportedCharacterSets.Value);
 			charsetoffered = true;
 		}
@@ -245,7 +245,7 @@ namespace TelnetNegotiationCore
 		{
 			byte[] pre = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.SEND };
 			byte[] post = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };
-			byte[] defaultcharsets = Encoding.ASCII.GetBytes(";" + string.Join(";", _CharsetOrder(Encoding.GetEncodings())));
+			byte[] defaultcharsets = Encoding.ASCII.GetBytes(";" + string.Join(";", _CharsetOrder(Encoding.GetEncodings()).Select(x => x.WebName)));
 			return pre.Concat(defaultcharsets).Concat(post).ToArray();
 		}
 
@@ -256,10 +256,10 @@ namespace TelnetNegotiationCore
 		/// <remarks>
 		/// TODO: Make this take in EncodingInfo instead of string.
 		/// </remarks>
-		public void RegisterCharsetOrder(IEnumerable<EncodingInfo> order)
+		public void RegisterCharsetOrder(IEnumerable<Encoding> order)
 		{
 			var reversed = order.Reverse().ToList();
-			_CharsetOrder = (x) => x.OrderByDescending(z => reversed.IndexOf(z));
+			_CharsetOrder = (x) => x.Select(x => x.GetEncoding()).OrderByDescending(z => reversed.IndexOf(z));
 		}
 	}
 }

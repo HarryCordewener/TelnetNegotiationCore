@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -71,7 +72,7 @@ namespace TelnetNegotiationCore
 				telnet.RegisterStream(input, output);
 				telnet.RegisterWriteBack(WriteBack);
 				telnet.RegisterNAWSCallback(SignalNAWS);
-				telnet.RegisterCharsetOrder(new[] { "utf-8", "iso-8859-1" });
+				telnet.RegisterCharsetOrder(new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") });
 				telnet.RegisterMSSPConfig(new MSSPConfig
 				{
 					Name = () => "Dood",
