@@ -10,13 +10,14 @@ namespace TelnetNegotiationCore
 {
 	public partial class TelnetInterpretor
 	{
-		private MSSPConfig _msspConfig; 
+		private MSSPConfig _msspConfig;
 
 		/// <summary>
-		/// Character set Negotiation will set the Character Set and Character Page Server & Client have agreed to.
+		/// Mud Server Status Protocol will provide information to the requestee about the server's contents.
 		/// </summary>
-		/// <param name="tsm"></param>
-		private void SetupMSSPNegotiation(StateMachine<State, Trigger> tsm)
+		/// <param name="tsm">The state machine.</param>
+		/// <returns>Itself</returns>
+		private StateMachine<State, Trigger> SetupMSSPNegotiation(StateMachine<State, Trigger> tsm)
 		{
 			tsm.Configure(State.Do)
 				.Permit(Trigger.MSSP, State.DoMSSP);
@@ -33,12 +34,14 @@ namespace TelnetNegotiationCore
 				.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Client won't do MSSP - do nothing"));
 
 			RegisterInitialWilling(WillingMSSPAsync);
+
+			return tsm;
 		}
 
 		/// <summary>
 		/// Announce we do MSSP negotiation to the client.
 		/// </summary>
-		public async Task WillingMSSPAsync()
+		private async Task WillingMSSPAsync()
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Announcing willingness to MSSP!");
 			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP });
@@ -47,7 +50,7 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// Announce the MSSP we support to the client after getting a Do.
 		/// </summary>
-		public async Task OnDoMSSPAsync(StateMachine<State, Trigger>.Transition _)
+		private async Task OnDoMSSPAsync(StateMachine<State, Trigger>.Transition _)
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Writing MSSP output");
 			await _OutputStream.BaseStream.WriteAsync(ReportMSSP(_msspConfig).ToArray());
@@ -65,9 +68,10 @@ namespace TelnetNegotiationCore
 			return prefix.Concat(MSSPReadConfig(config)).Concat(postfix);
 		}
 
-		public void RegisterMSSPConfig(MSSPConfig config)
+		public TelnetInterpretor RegisterMSSPConfig(MSSPConfig config)
 		{
 			_msspConfig = config;
+			return this;
 		}
 
 		private IEnumerable<byte> MSSPReadConfig(MSSPConfig config)

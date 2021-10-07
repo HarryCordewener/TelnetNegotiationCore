@@ -34,12 +34,16 @@ namespace TelnetNegotiationCore
 	public static class TriggerHelper
 	{
 		public static IEnumerable<Trigger> AllTriggers = (Trigger[])Enum.GetValues(typeof(Trigger));
-		public static IEnumerable<Trigger> AllTriggersButIAC = AllTriggers.Where(x => x != Trigger.IAC).ToArray();
+		public static IEnumerable<Trigger> AllTriggersButIAC = AllTriggers.Except(new[] { Trigger.IAC }).ToArray();
 
 		public static void ForAllTriggers(Action<Trigger> f) 
 			=> AllTriggers.ForEach(f);
-		public static void ForAllTriggersButIAC(Action<Trigger> f) 
+
+		public static void ForAllTriggersButIAC(Action<Trigger> f)
 			=> AllTriggersButIAC.ForEach(f);
+
+		public static void ForAllTriggersExcept(IEnumerable<Trigger> except, Action<Trigger> f)
+			=> AllTriggers.Except(except).ForEach(f);
 	}
 
 	public enum Trigger
@@ -113,12 +117,19 @@ namespace TelnetNegotiationCore
 		/// </remarks>
 		TTABLE_NAK = 7,
 		/// <summary>
-		/// Carriage Return
+		/// Newline Indicator
 		/// </summary>
 		/// <remarks>
 		/// We treat this as 'now act'
 		/// </remarks>
 		NEWLINE = 10,
+		/// <summary>
+		/// Carriage Return
+		/// </summary>
+		/// <remarks>
+		/// We ignore this, due to its relationship to Newline Indication.
+		/// </remarks>
+		CARRIAGERETURN = 13,
 		/// <summary>
 		/// Terminal Type
 		/// </summary>
@@ -127,6 +138,15 @@ namespace TelnetNegotiationCore
 		/// MTTS: https://tintin.mudhalla.net/protocols/mtts/
 		/// </remarks>
 		TTYPE = 24,
+		/// <summary>
+		/// End of Record Negotiation
+		/// </summary>
+		/// <remarks>
+		/// EOR: https://tintin.mudhalla.net/protocols/eor/
+		/// RFC 885: http://www.faqs.org/rfcs/rfc885.html
+		/// </remarks>
+		/// <summary>
+		TELOPT_EOR = 25,
 		/// <summary>
 		/// Window size option.	
 		/// </summary>
@@ -206,7 +226,7 @@ namespace TelnetNegotiationCore
 		/// </remarks>
 		MSDP = 69,
 		/// <summary>
-		/// https://tintin.mudhalla.net/protocols/mssp/
+		/// Mud Server Status Protocol
 		/// </summary>
 		/// <remarks>
 		/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
@@ -222,6 +242,14 @@ namespace TelnetNegotiationCore
 		MCCP2 = 86,
 		MCCP3 = 87,
 		/// <summary>
+		/// End of Record
+		/// </summary>
+		/// <remarks>
+		/// EOR: https://tintin.mudhalla.net/protocols/eor/
+		/// RFC 885: http://www.faqs.org/rfcs/rfc885.html
+		/// </remarks>
+		/// <summary>
+		EOR = 239,
 		/// Generic Mud Communication Protocol	
 		/// </summary>
 		/// <remarks>
@@ -287,6 +315,6 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// A generic trigger, outside of what a byte can contain, to indicate generic progression.
 		/// </summary>
-		ReadNextCharacter = 256
+		ReadNextCharacter = 256,
 	}
 }

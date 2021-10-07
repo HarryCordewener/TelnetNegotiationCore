@@ -56,8 +56,9 @@ namespace TelnetNegotiationCore
 		/// Support for Client & Server Terminal Type negotiation
 		/// RFC 1091
 		/// </summary>
-		/// <param name="tsm">The state machine</param>
-		private void SetupTelnetTerminalType(StateMachine<State, Trigger> tsm)
+		/// <param name="tsm">The state machine.</param>
+		/// <returns>Itself</returns>
+		private StateMachine<State, Trigger> SetupTelnetTerminalType(StateMachine<State, Trigger> tsm)
 		{
 			tsm.Configure(State.Willing)
 				.Permit(Trigger.TTYPE, State.WillDoTType);
@@ -113,6 +114,8 @@ namespace TelnetNegotiationCore
 				.SubstateOf(State.Accepting);
 
 			RegisterInitialWilling(SendDoTerminalTypeAsync);
+
+			return tsm;
 		}
 
 		/// <summary>

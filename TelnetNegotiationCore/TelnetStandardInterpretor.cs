@@ -36,7 +36,7 @@ namespace TelnetNegotiationCore
 		/// </summary>
 		private StreamWriter _OutputStream;
 
-		private Func<string, Task> _WriteBack;
+		private Func<byte[], Encoding, Task> _Callback;
 
 		/// <summary>
 		/// Identifier for the connection.
@@ -79,11 +79,13 @@ namespace TelnetNegotiationCore
 			_InitialWilling = new List<Func<Task>>();
 
 			_TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
+
 			SetupStandardProtocol(_TelnetStateMachine);
 			SetupNAWS(_TelnetStateMachine);
 			SetupCharsetNegotiation(_TelnetStateMachine);
 			SetupTelnetTerminalType(_TelnetStateMachine);
 			SetupMSSPNegotiation(_TelnetStateMachine);
+			SetupEORNegotiation(_TelnetStateMachine);
 
 			// Must be called last.
 			SetupSafeNegotiation(_TelnetStateMachine);
@@ -99,7 +101,8 @@ namespace TelnetNegotiationCore
 		/// Setup standard processes.
 		/// </summary>
 		/// <param name="tsm">The state machine.</param>
-		private void SetupStandardProtocol(StateMachine<State, Trigger> tsm)
+		/// <returns>Itself</returns>
+		private StateMachine<State, Trigger> SetupStandardProtocol(StateMachine<State, Trigger> tsm)
 		{
 			// If we are in Accepting mode, these should be interpreted as regular characters.
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.Accepting).Permit(t, State.ReadingCharacters));
@@ -142,6 +145,8 @@ namespace TelnetNegotiationCore
 
 			tsm.Configure(State.EndSubNegotiation)
 				.Permit(Trigger.SE, State.Accepting);
+
+			return tsm;
 		}
 
 		/// <summary>
@@ -150,26 +155,34 @@ namespace TelnetNegotiationCore
 		/// <param name="input">A StreamReader wrapped around a Network Stream</param>
 		/// <param name="output">A StreamWriter wrapped around a Network Stream</param>
 		/// <param name="identifier">An identifier for the client stream. Doesn't need to be unique, but is used for logging.</param>
-		public void RegisterStream(StreamReader input, StreamWriter output, string identifier = null)
+		public TelnetInterpretor RegisterStream(StreamReader input, StreamWriter output, string identifier = null)
 		{
 			_Identifier = identifier ?? Guid.NewGuid().ToString();
 			LogContext.PushProperty("identifier", _Identifier);
 
 			_InputStream = input;
 			_OutputStream = output;
+			return this;
 		}
 
-		public void RegisterWriteBack(Func<string, Task> wb)
+		/// <summary>
+		/// The main method through which the Client/Server is informed what has been sent.
+		/// </summary>
+		/// <param name="wb">The callback function</param>
+		/// <returns>This interpretor</returns>
+		public TelnetInterpretor RegisterCallback(Func<byte[], Encoding, Task> wb)
 		{
-			_WriteBack = wb;
+			_Callback = wb;
+			return this;
 		}
 
 		/// <summary>
 		/// Write the character into a buffer.
 		/// </summary>
-		/// <param name="b"></param>
+		/// <param name="b">A useful byte for the Client/Server</param>
 		private void WriteToBufferAndAdvance(byte b)
 		{
+			if (b == (byte)Trigger.CARRIAGERETURN) return;
 			buffer[bufferposition] = b;
 			bufferposition++;
 		}
@@ -178,18 +191,20 @@ namespace TelnetNegotiationCore
 		/// Write it to output - this should become an Event.
 		/// </summary>
 		/// <remarks>
-		/// TODO: 
-		/// We use ASCII Encoding here until we negotiate for UTF-8.
-		/// How do we want to split out ASCII vs UNICODE if we get mid-session negotiation?
-		/// </remarks>
-		private void WriteToOutput() => _WriteBack?.Invoke(_CurrentEncoding.GetString(buffer, 0, bufferposition));
+		private void WriteToOutput()
+		{
+			byte[] cp = new byte[bufferposition];
+			Array.Copy(buffer, cp, bufferposition);
+			_Callback.Invoke(cp, _CurrentEncoding);
+			bufferposition = 0;
+		}
 
 		/// <summary>
 		/// Validates the object is ready to process.
 		/// </summary>
 		private void Validate()
 		{
-			if (_WriteBack == null) throw new ApplicationException("Writeback Function is null or has not been registered.");
+			if (_Callback == null) throw new ApplicationException("Writeback Function is null or has not been registered.");
 			if (_InputStream == null) throw new ApplicationException("Input Stream is null or has not been registered.");
 			if (_OutputStream == null) throw new ApplicationException("Output Stream is null or has not been registered.");
 		}
@@ -226,6 +241,11 @@ namespace TelnetNegotiationCore
 			}
 
 			_Logger.Information("Connection: {connectionState}", "Connection Closed");
+		}
+
+		public async Task SendLineAsync(byte[] send)
+		{
+			await _OutputStream.BaseStream.WriteAsync(send);
 		}
 	}
 }

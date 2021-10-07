@@ -14,11 +14,11 @@
 		Willing,
 		Refusing,
 		#endregion Standard Negotiation
-		#region MSSP
+		#region MSSP Negotiation
         DoMSSP,
         DontMSSP,
-		#endregion MSSP
-		#region NAWS
+		#endregion MSSP Negotiation
+		#region Window Size Negotiation
 		WillDoNAWS,
 		WontDoNAWS,
 		NegotiatingNAWS,
@@ -27,7 +27,7 @@
 		CompletingNAWS,
 		DontNAWS,
 		DoNAWS,
-		#endregion NAWS
+		#endregion Window Size Negotiation
 		#region Charset Negotation
 		WillDoCharset,
 		WontDoCharset,
@@ -66,6 +66,10 @@
 		BadSubNegotiationEscaping,
 		BadSubNegotiationEvaluating,
 		BadSubNegotiationCompleting,
-        #endregion
-    }
+		#endregion
+		#region End of Record Negotiation
+		DoEOR,
+		DontEOR,
+		#endregion End of Record Negotiation
+	}
 }

@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -14,6 +15,8 @@ namespace TelnetNegotiationCore
 	{
 		readonly TcpListener server = null;
 		readonly ILogger _Logger;
+
+		private readonly ConcurrentDictionary<int, TelnetInterpretor> Clients = new ConcurrentDictionary<int, TelnetInterpretor>();
 
 		public MockServer(string ip, int port, ILogger logger = null)
 		{
@@ -43,11 +46,12 @@ namespace TelnetNegotiationCore
 			}
 		}
 
-		public Task WriteBack(string writeback)
+		public Task WriteBack(byte[] writeback, Encoding encoding)
 		{
 			// The Regex removes control characters.
 			// Regex.Replace(writeback, @"\p{Cc}+", String.Empty);
-			_Logger.Information("Writeback: {writeBack}", writeback);
+			string str = encoding.GetString(writeback);
+			_Logger.Information("Writeback: {writeBack}", str);
 			return Task.CompletedTask;
 		}
 
@@ -59,36 +63,48 @@ namespace TelnetNegotiationCore
 
 		public void HandleDevice(object obj)
 		{
+			int port = -1;
+			TelnetInterpretor telnet = null;
+			TcpClient client = null;
+
 			try
 			{
-				TcpClient client = (TcpClient)obj;
-				var stream = client.GetStream();
-				var input = new StreamReader(stream);
-				var output = new StreamWriter(stream)
+				client = (TcpClient)obj;
+				port = ((IPEndPoint)client.Client.RemoteEndPoint).Port;
+
+				using (var stream = client.GetStream())
+				using (var input = new StreamReader(stream))
+				using (var output = new StreamWriter(stream) { AutoFlush = true })
 				{
-					AutoFlush = true
-				};
-				var telnet = new TelnetInterpretor(_Logger.ForContext<TelnetInterpretor>());
-				telnet.RegisterStream(input, output);
-				telnet.RegisterWriteBack(WriteBack);
-				telnet.RegisterNAWSCallback(SignalNAWS);
-				telnet.RegisterCharsetOrder(new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") });
-				telnet.RegisterMSSPConfig(new MSSPConfig
-				{
-					Name = () => "Dood",
-					UTF_8 = () => true,
-					Gameplay = () => new [] {"ABC", "DEF"},
-					Extended = new Dictionary<string, Func<dynamic>>
-					{
+
+					telnet = new TelnetInterpretor(_Logger.ForContext<TelnetInterpretor>())
+						.RegisterStream(input, output)
+						.RegisterCallback(WriteBack)
+						.RegisterNAWSCallback(SignalNAWS)
+						.RegisterCharsetOrder(new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") })
+						.RegisterMSSPConfig(new MSSPConfig
+						{
+							Name = () => "Dood",
+							UTF_8 = () => true,
+							Gameplay = () => new[] { "ABC", "DEF" },
+							Extended = new Dictionary<string, Func<dynamic>>
+						{
 						{ "Foo", () => "Bar"},
 						{ "Baz", () => new [] {"Moo", "Meow" }}
-					}
-				});
-				telnet.ProcessAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+						}
+						});
+
+					Clients.TryAdd(port, telnet);
+					telnet.ProcessAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+				}
 			}
-			catch(Exception ex)
+			catch (Exception ex)
 			{
-				_Logger.Error(ex, "Connection: Connection was unexpectedly closed.");
+				_Logger.Error(ex, "Connection: {connectionStatus}", "Connection was unexpectedly closed.");
+			}
+			finally
+			{
+				Clients.TryRemove(port, out telnet);
 			}
 		}
 	}

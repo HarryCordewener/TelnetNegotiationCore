@@ -18,8 +18,9 @@ namespace TelnetNegotiationCore
 		/// <remarks>
 		/// TODO: Log what byte was sent using TriggerWithParameter output.
 		/// </remarks>
-		/// <param name="tsm"></param>
-		public void SetupSafeNegotiation(StateMachine<State, Trigger> tsm)
+		/// <param name="tsm">The state machine.</param>
+		/// <returns>Itself</returns>
+		private StateMachine<State, Trigger> SetupSafeNegotiation(StateMachine<State, Trigger> tsm)
 		{
 			var info = tsm.GetInfo();
 			var triggers = Enum.GetValues(typeof(Trigger)).OfType<Trigger>();
@@ -81,6 +82,8 @@ namespace TelnetNegotiationCore
 				.SubstateOf(State.Accepting);
 
 			tsm.OnUnhandledTrigger((state, trigger) => _Logger.Fatal("Bad transition from {@state} with trigger {@trigger}. Cannot recover.", state,trigger));
+
+			return tsm;
 		}
 	}
 }

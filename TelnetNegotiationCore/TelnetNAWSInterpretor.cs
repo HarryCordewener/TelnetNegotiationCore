@@ -48,8 +48,9 @@ namespace TelnetNegotiationCore
 		/// 
 		/// NAWS can be initiated from the Client or the Server.
 		/// </summary>
-		/// <param name="tsm">The state machine</param>
-		private void SetupNAWS(StateMachine<State, Trigger> tsm)
+		/// <param name="tsm">The state machine.</param>
+		/// <returns>Itself</returns>
+		private StateMachine<State, Trigger> SetupNAWS(StateMachine<State, Trigger> tsm)
 		{
 			tsm.Configure(State.Willing)
 				.Permit(Trigger.NAWS, State.WillDoNAWS);
@@ -103,6 +104,8 @@ namespace TelnetNegotiationCore
 				.OnEntry(CompleteNAWS);
 
 			RegisterInitialWilling(async () => await RequestNAWSAsync(null));
+
+			return tsm;
 		}
 
 		/// <summary>
@@ -144,9 +147,10 @@ namespace TelnetNegotiationCore
 			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
 		}
 
-		public void RegisterNAWSCallback(Func<int, int, Task> cb)
+		public TelnetInterpretor RegisterNAWSCallback(Func<int, int, Task> cb)
 		{
 			_NAWSCallback = cb;
+			return this;
 		}
 
 		/// <summary>

@@ -38,8 +38,9 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// Character set Negotiation will set the Character Set and Character Page Server & Client have agreed to.
 		/// </summary>
-		/// <param name="tsm"></param>
-		private void SetupCharsetNegotiation(StateMachine<State, Trigger> tsm)
+		/// <param name="tsm">The state machine.</param>
+		/// <returns>Itself</returns>
+		private StateMachine<State, Trigger> SetupCharsetNegotiation(StateMachine<State, Trigger> tsm)
 		{
 			tsm.Configure(State.Willing)
 				.Permit(Trigger.CHARSET, State.WillDoCharset);
@@ -120,6 +121,8 @@ namespace TelnetNegotiationCore
 				.SubstateOf(State.Accepting);
 
 			RegisterInitialWilling(WillingCharsetAsync);
+
+			return tsm;
 		}
 
 		/// <summary>
@@ -211,7 +214,7 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// Announce we do charset negotiation to the client after getting a Willing.
 		/// </summary>
-		public async Task OnWillingCharsetAsync(StateMachine<State, Trigger>.Transition _)
+		private async Task OnWillingCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Request charset negotiation from Client");
 			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET });
@@ -221,7 +224,7 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// Announce we do charset negotiation to the client.
 		/// </summary>
-		public async Task WillingCharsetAsync()
+		private async Task WillingCharsetAsync()
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Announcing willingness to Charset!");
 			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
@@ -230,7 +233,7 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// Announce the charsets we support to the client after getting a Do.
 		/// </summary>
-		public async Task OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _)
+		private async Task OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
 			_Logger.Debug("Charsets String: {charsetlist}", ";" + string.Join(";", _CharsetOrder(Encoding.GetEncodings()).Select( x=> x.WebName)));
 			await _OutputStream.BaseStream.WriteAsync(SupportedCharacterSets.Value);
@@ -253,13 +256,11 @@ namespace TelnetNegotiationCore
 		/// <summary>
 		/// Register the preferred order of character sets. 
 		/// </summary>
-		/// <remarks>
-		/// TODO: Make this take in EncodingInfo instead of string.
-		/// </remarks>
-		public void RegisterCharsetOrder(IEnumerable<Encoding> order)
+		public TelnetInterpretor RegisterCharsetOrder(IEnumerable<Encoding> order)
 		{
 			var reversed = order.Reverse().ToList();
 			_CharsetOrder = (x) => x.Select(x => x.GetEncoding()).OrderByDescending(z => reversed.IndexOf(z));
+			return this;
 		}
 	}
 }
