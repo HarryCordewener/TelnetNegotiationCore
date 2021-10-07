@@ -4,7 +4,7 @@ using System.Linq;
 using System.Collections.Generic;
 using MoreLinq;
 
-namespace TelnetNegotiationCore
+namespace TelnetNegotiationCore.Models
 {
 	/// <summary>
 	/// Helper class to create TriggerWithParameter objects.

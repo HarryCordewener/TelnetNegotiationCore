@@ -1,4 +1,4 @@
-﻿namespace TelnetNegotiationCore
+﻿namespace TelnetNegotiationCore.Models
 {
 	public enum State
 	{

@@ -8,8 +8,10 @@ using System.Text;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using TelnetNegotiationCore.Interpretors;
+using TelnetNegotiationCore.Models;
 
-namespace TelnetNegotiationCore
+namespace TelnetNegotiationCore.TestServer
 {
 	public class MockServer
 	{
@@ -76,8 +78,7 @@ namespace TelnetNegotiationCore
 				using (var input = new StreamReader(stream))
 				using (var output = new StreamWriter(stream) { AutoFlush = true })
 				{
-
-					telnet = new TelnetInterpretor(_Logger.ForContext<TelnetInterpretor>())
+					telnet = new TelnetInterpretor(TelnetInterpretor.TelnetMode.Server, _Logger.ForContext<TelnetInterpretor>())
 						.RegisterStream(input, output)
 						.RegisterCallback(WriteBack)
 						.RegisterNAWSCallback(SignalNAWS)

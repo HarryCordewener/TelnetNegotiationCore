@@ -1,12 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Collections.Immutable;
-using System.Linq;
-using System.Threading.Tasks;
-using MoreLinq;
+﻿using System.Threading.Tasks;
 using Stateless;
+using TelnetNegotiationCore.Models;
 
-namespace TelnetNegotiationCore
+namespace TelnetNegotiationCore.Interpretors
 {
 	public partial class TelnetInterpretor
 	{

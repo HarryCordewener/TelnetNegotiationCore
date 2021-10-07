@@ -6,11 +6,20 @@ using System.Threading.Tasks;
 using Serilog;
 using Serilog.Context;
 using Stateless;
+using TelnetNegotiationCore.Models;
 
-namespace TelnetNegotiationCore
+namespace TelnetNegotiationCore.Interpretors
 {
 	public partial class TelnetInterpretor
 	{
+		public enum TelnetMode { 
+			[Obsolete("Not yet supported")]
+			Client = 0, 
+			Server = 1
+		};
+
+		public TelnetMode Mode { get; }
+
 		/// <summary>
 		/// A list of functions to call at the start.
 		/// </summary>
@@ -73,10 +82,12 @@ namespace TelnetNegotiationCore
 		/// After calling this constructor, one should subscribe to the Triggers, register a Stream, and then run Process()
 		/// </remarks>
 		/// <param name="logger">A Serilog Logger. If null, we will use the default one with a Context of the Telnet Interpretor.</param>
-		public TelnetInterpretor(ILogger logger = null)
+		public TelnetInterpretor(TelnetMode mode, ILogger logger = null)
 		{
 			_Logger = logger ?? Log.Logger.ForContext<TelnetInterpretor>();
 			_InitialWilling = new List<Func<Task>>();
+
+			Mode = mode;
 
 			_TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
 

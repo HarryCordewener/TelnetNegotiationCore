@@ -1,11 +1,11 @@
 ﻿using Stateless;
-using Stateless.Reflection;
 using System.Collections.Generic;
 using System.Linq;
 using MoreLinq;
 using System;
+using TelnetNegotiationCore.Models;
 
-namespace TelnetNegotiationCore
+namespace TelnetNegotiationCore.Interpretors
 {
 	/// <summary>
 	/// The Safe Interpretor, providing ways to not crash the system when we are given a STATE we were not expecting.

@@ -4,8 +4,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Stateless;
+using TelnetNegotiationCore.Models;
 
-namespace TelnetNegotiationCore
+namespace TelnetNegotiationCore.Interpretors
 {
 	public partial class TelnetInterpretor
 	{

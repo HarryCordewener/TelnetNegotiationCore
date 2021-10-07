@@ -1,8 +1,9 @@
 ﻿using System;
 using System.Threading.Tasks;
 using Stateless;
+using TelnetNegotiationCore.Models;
 
-namespace TelnetNegotiationCore
+namespace TelnetNegotiationCore.Interpretors
 {
 	public partial class TelnetInterpretor
 	{

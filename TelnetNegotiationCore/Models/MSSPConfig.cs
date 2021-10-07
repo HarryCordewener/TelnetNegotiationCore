@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace TelnetNegotiationCore
+namespace TelnetNegotiationCore.Models
 {
 	public class MSSPConfig 
 	{
