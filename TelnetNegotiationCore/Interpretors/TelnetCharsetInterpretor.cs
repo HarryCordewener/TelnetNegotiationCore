@@ -209,7 +209,7 @@ namespace TelnetNegotiationCore.Interpretors
 					await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
 				}
 			}
-			_Logger.Information("Connection: Accepted Charset Negotiation for: {charset}", _CurrentEncoding);
+			_Logger.Information("Connection: Accepted Charset Negotiation for: {charset}", _CurrentEncoding.WebName);
 			charsetoffered = false;
 		}
 

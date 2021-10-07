@@ -33,7 +33,7 @@ namespace TelnetNegotiationCore.Models
 	/// </summary>
 	public static class TriggerHelper
 	{
-		public static IEnumerable<Trigger> AllTriggers = (Trigger[])Enum.GetValues(typeof(Trigger));
+		public static IEnumerable<Trigger> AllTriggers = ((IEnumerable<Trigger>)Enum.GetValues(typeof(Trigger))).Distinct();
 		public static IEnumerable<Trigger> AllTriggersButIAC = AllTriggers.Except(new[] { Trigger.IAC }).ToArray();
 
 		public static void ForAllTriggers(Action<Trigger> f) 

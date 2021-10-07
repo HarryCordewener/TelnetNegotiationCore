@@ -194,6 +194,7 @@ namespace TelnetNegotiationCore.Interpretors
 		private void WriteToBufferAndAdvance(byte b)
 		{
 			if (b == (byte)Trigger.CARRIAGERETURN) return;
+			_Logger.Verbose("Debug: Writing into buffer: {byte}", b);
 			buffer[bufferposition] = b;
 			bufferposition++;
 		}
