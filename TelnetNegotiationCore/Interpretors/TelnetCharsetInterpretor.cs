@@ -152,6 +152,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <param name="_">Ignored</param>
 		private void CaptureCharset(byte b)
 		{
+			if (_charsetByteIndex > _charsetByteState.Length) return;
 			_charsetByteState[_charsetByteIndex] = b;
 			_charsetByteIndex++;
 		}
@@ -178,8 +179,8 @@ namespace TelnetNegotiationCore.Interpretors
 				return;
 			}
 
-			char sep = ascii.GetString(_charsetByteState, 0, 1)[0];
-			string[] charsetsOffered = ascii.GetString(_charsetByteState, 1, _charsetByteIndex).Split(sep);
+			char? sep = ascii.GetString(_charsetByteState, 0, 1)?[0];
+			string[] charsetsOffered = ascii.GetString(_charsetByteState, 1, _charsetByteIndex).Split(sep ?? ' ');
 
 			var result = ascii.GetString(_charsetByteState, 0, _charsetByteIndex);
 			_Logger.Debug("Charsets offered to us: {@charsetResultDebug}", charsetsOffered);

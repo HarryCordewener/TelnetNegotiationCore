@@ -85,7 +85,7 @@ namespace TelnetNegotiationCore.TestServer
 						.RegisterCharsetOrder(new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") })
 						.RegisterMSSPConfig(new MSSPConfig
 						{
-							Name = () => "Dood",
+							Name = () => "My Telnet Negotiated Server",
 							UTF_8 = () => true,
 							Gameplay = () => new[] { "ABC", "DEF" },
 							Extended = new Dictionary<string, Func<dynamic>>

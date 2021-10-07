@@ -134,6 +134,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <param name="b">The current byte</param>
 		private void CaptureTerminalType(byte b)
 		{
+			if (_ttypeIndex > _ttypeByteState.Length) return;
 			_ttypeByteState[_ttypeIndex] = b;
 			_ttypeIndex++;
 		}

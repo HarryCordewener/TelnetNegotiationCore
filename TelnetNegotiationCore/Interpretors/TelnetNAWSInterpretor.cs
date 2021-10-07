@@ -128,6 +128,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <param name="b">The current byte</param>
 		private void CaptureNAWS(byte b)
 		{
+			if(_nawsIndex > _nawsByteState.Length) return;
 			_nawsByteState[_nawsIndex] = b;
 			_nawsIndex++;
 		}
