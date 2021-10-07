@@ -316,5 +316,9 @@ namespace TelnetNegotiationCore.Models
 		/// A generic trigger, outside of what a byte can contain, to indicate generic progression.
 		/// </summary>
 		ReadNextCharacter = 256,
+		/// <summary>
+		/// A generic bad state trigger, outside of what a byte can contain, to indicate a generic bad state transition.
+		/// </summary>
+		Error = 257
 	}
 }

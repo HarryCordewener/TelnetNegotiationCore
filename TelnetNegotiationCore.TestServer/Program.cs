@@ -5,18 +5,17 @@ namespace TelnetNegotiationCore.TestServer
 {
 	public class Program
 	{
-		static void Main(string[] args)
+		static void Main()
 		{
 			var log = new LoggerConfiguration()
 				.Enrich.FromLogContext()
 				.WriteTo.Console()
 				.WriteTo.File(new CompactJsonFormatter(), "logresult.log")
-				.MinimumLevel.Verbose()
+				.MinimumLevel.Debug()
 				.CreateLogger();
 
 			Log.Logger = log;
-
-			MockServer server = new MockServer("127.0.0.1", 4202, log.ForContext<MockServer>());
+			_ = new MockServer("127.0.0.1", 4202, log.ForContext<MockServer>());
 		}
 	}
 }

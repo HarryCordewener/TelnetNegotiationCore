@@ -151,7 +151,7 @@ namespace TelnetNegotiationCore.Interpretors
 			{
 				_CurrentTerminalType = (_CurrentTerminalType + 1) % TerminalTypes.Count;
 				var mtts = TerminalTypes.FirstOrDefault(x => x.StartsWith("MTTS"));
-				if (mtts != default(string))
+				if (mtts != default)
 				{
 					var mttsVal = int.Parse(mtts.Remove(0, 5));
 

@@ -7,14 +7,16 @@ using Serilog;
 using Serilog.Context;
 using Stateless;
 using TelnetNegotiationCore.Models;
+using MoreLinq;
 
 namespace TelnetNegotiationCore.Interpretors
 {
 	public partial class TelnetInterpretor
 	{
-		public enum TelnetMode { 
+		public enum TelnetMode
+		{
 			[Obsolete("Not yet supported")]
-			Client = 0, 
+			Client = 0,
 			Server = 1
 		};
 
@@ -23,7 +25,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <summary>
 		/// A list of functions to call at the start.
 		/// </summary>
-		private List<Func<Task>> _InitialWilling;
+		private readonly List<Func<Task>> _InitialWilling;
 
 		/// <summary>
 		/// The current Encoding used for interpretting incoming non-negotiation text, and what we should send on outbound.
@@ -55,7 +57,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <summary>
 		/// Local buffer. We only take up to 5mb in buffer space. 
 		/// </summary>
-		private byte[] buffer = new byte[5242880];
+		private readonly byte[] buffer = new byte[5242880];
 
 		/// <summary>
 		/// Buffer position where we are writing.
@@ -91,15 +93,9 @@ namespace TelnetNegotiationCore.Interpretors
 
 			_TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
 
-			SetupStandardProtocol(_TelnetStateMachine);
-			SetupNAWS(_TelnetStateMachine);
-			SetupCharsetNegotiation(_TelnetStateMachine);
-			SetupTelnetTerminalType(_TelnetStateMachine);
-			SetupMSSPNegotiation(_TelnetStateMachine);
-			SetupEORNegotiation(_TelnetStateMachine);
-
-			// Must be called last.
-			SetupSafeNegotiation(_TelnetStateMachine);
+			var li = new List<Func<StateMachine<State, Trigger>, StateMachine<State, Trigger>>> {
+				SetupSafeNegotiation, SetupEORNegotiation, SetupMSSPNegotiation, SetupTelnetTerminalType, SetupCharsetNegotiation, SetupNAWS, SetupStandardProtocol
+			}.AggregateRight(_TelnetStateMachine, (x, y) => x(y));
 
 			if (_Logger.IsEnabled(Serilog.Events.LogEventLevel.Verbose))
 			{

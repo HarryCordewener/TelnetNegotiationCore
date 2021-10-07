@@ -26,18 +26,18 @@ namespace TelnetNegotiationCore.Interpretors
 			var triggers = Enum.GetValues(typeof(Trigger)).OfType<Trigger>();
 			var refuseThese = new List<State> { State.Willing, State.Refusing, State.Do, State.Dont };
 
-			foreach(var state in refuseThese)
+			foreach (var stateinfo in info.States.Join(refuseThese, x => x.UnderlyingState, y => y, (x,y) => x))
 			{
-				var stateinfo = info.States.First(x => (State)x.UnderlyingState == state);
+				var state = (State)stateinfo.UnderlyingState;
 				var outboundUnhandledTriggers = triggers.Except(stateinfo.Transitions.Select(x => (Trigger)x.Trigger.UnderlyingTrigger));
 
 				foreach (var trigger in outboundUnhandledTriggers)
 				{
-					tsm.Configure(state).Permit(trigger, (State)Enum.Parse(typeof(State),$"Bad{state}"));
+					tsm.Configure(state).Permit(trigger, (State)Enum.Parse(typeof(State), $"Bad{state}"));
 					tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
 						.SubstateOf(State.Accepting);
 
-					if(state is State.Do)
+					if (state is State.Do)
 					{
 						tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
 							.OnEntryFromAsync(trigger, async () =>
@@ -46,7 +46,7 @@ namespace TelnetNegotiationCore.Interpretors
 								await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger });
 							});
 					}
-					else if(state is State.Willing)
+					else if (state is State.Willing)
 					{
 						tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
 							.OnEntryFromAsync(trigger, async () =>
@@ -81,7 +81,22 @@ namespace TelnetNegotiationCore.Interpretors
 				.OnEntry(() => _Logger.Debug("Connection: Explicitly ignoring the subnegotiation that was sent."))
 				.SubstateOf(State.Accepting);
 
-			tsm.OnUnhandledTrigger((state, trigger) => _Logger.Fatal("Bad transition from {@state} with trigger {@trigger}. Cannot recover.", state,trigger));
+			var states = tsm.GetInfo().States;
+			var acceptingStateInfo = states.Where(x => (State)x.UnderlyingState == State.Accepting);
+
+			foreach (var state in states
+				.Except(acceptingStateInfo)
+				.Where(x => x.Transitions.Any(x => (Trigger)x.Trigger.UnderlyingTrigger == Trigger.Error)))
+			{
+				tsm.Configure((State)state.UnderlyingState)
+					.Permit(Trigger.Error, State.Accepting);
+			}
+
+			tsm.OnUnhandledTrigger(async (state, trigger) =>
+			{
+				_Logger.Fatal("Bad transition from {@state} with trigger {@trigger}. Cannot recover. Ignoring character and attempting to recover.", state, trigger);
+				await tsm.FireAsync(Trigger.Error);
+			});
 
 			return tsm;
 		}

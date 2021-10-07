@@ -3,8 +3,15 @@ using System.Collections.Generic;
 
 namespace TelnetNegotiationCore.Models
 {
+	/// <summary>
+	/// The MSSP Configuration. Takes Functions for its inputs for the purpose of re-evaluation.
+	/// </summary>
 	public class MSSPConfig 
 	{
+		/// <summary>
+		/// Indicates the MSSP-safe name to send.
+		/// </summary>
+		[AttributeUsage(AttributeTargets.Field, Inherited=false)]
 		public class NameAttribute: Attribute
 		{
 			public string Name {get;private set;}
@@ -14,7 +21,11 @@ namespace TelnetNegotiationCore.Models
 				Name = name;
 			}
 		}
-		
+
+		/// <summary>
+		/// Indicates whether or not it's in the official MSSP definition.
+		/// </summary>
+		[AttributeUsage(AttributeTargets.Field, Inherited = false)]
 		public class OfficialAttribute: Attribute
 		{
 			public bool Official {get;private set;}
