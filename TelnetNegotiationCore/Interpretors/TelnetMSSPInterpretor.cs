@@ -77,7 +77,7 @@ namespace TelnetNegotiationCore.Interpretors
 
 		private IEnumerable<byte> MSSPReadConfig(MSSPConfig config)
 		{
-			IEnumerable<byte> msspBytes = new byte[] {};
+			IEnumerable<byte> msspBytes = Array.Empty<byte>();
 
 			var fields = typeof(MSSPConfig).GetFields();
 			var knownFields = fields.Where(field => Attribute.IsDefined(field, typeof(MSSPConfig.NameAttribute)));
@@ -107,7 +107,7 @@ namespace TelnetNegotiationCore.Interpretors
 
 		private IEnumerable<byte> MSSPConvert(string name, dynamic val)
 		{
-			IEnumerable<byte> bt = new byte[] { }
+			IEnumerable<byte> bt = Array.Empty<byte>()
 				.Concat(new byte[] {(byte)Trigger.MSSP_VAR})
 				.Concat(ascii.GetBytes(name));
 
@@ -117,11 +117,11 @@ namespace TelnetNegotiationCore.Interpretors
 				return bt.Concat(new byte[] {(byte)Trigger.MSSP_VAL})
 					.Concat(ascii.GetBytes((string)val.ToString()));
 			}
-			else if(val is bool)
+			else if(val is bool boolean)
 			{
 				_Logger.Verbose("MSSP Announcement: {msspkey}: {msspval}", name, val);
 				return bt.Concat(new byte[] {(byte)Trigger.MSSP_VAL})
-					.Concat(ascii.GetBytes((bool)val ? "1" : "0") );
+					.Concat(ascii.GetBytes(boolean ? "1" : "0") );
 			}
 			else if(val is IEnumerable<string>)
 			{
@@ -136,7 +136,7 @@ namespace TelnetNegotiationCore.Interpretors
 			}
 			else 
 			{
-				return new byte[] { };
+				return Array.Empty<byte>();
 			}
 		}
 	}

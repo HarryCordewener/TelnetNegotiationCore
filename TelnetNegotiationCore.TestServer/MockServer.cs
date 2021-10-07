@@ -74,30 +74,29 @@ namespace TelnetNegotiationCore.TestServer
 				client = (TcpClient)obj;
 				port = ((IPEndPoint)client.Client.RemoteEndPoint).Port;
 
-				using (var stream = client.GetStream())
-				using (var input = new StreamReader(stream))
-				using (var output = new StreamWriter(stream) { AutoFlush = true })
-				{
-					telnet = new TelnetInterpretor(TelnetInterpretor.TelnetMode.Server, _Logger.ForContext<TelnetInterpretor>())
-						.RegisterStream(input, output)
-						.RegisterCallback(WriteBack)
-						.RegisterNAWSCallback(SignalNAWS)
-						.RegisterCharsetOrder(new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") })
-						.RegisterMSSPConfig(new MSSPConfig
-						{
-							Name = () => "My Telnet Negotiated Server",
-							UTF_8 = () => true,
-							Gameplay = () => new[] { "ABC", "DEF" },
-							Extended = new Dictionary<string, Func<dynamic>>
-						{
+				using var stream = client.GetStream();
+				using var input = new StreamReader(stream);
+				using var output = new StreamWriter(stream) { AutoFlush = true };
+
+				telnet = new TelnetInterpretor(TelnetInterpretor.TelnetMode.Server, _Logger.ForContext<TelnetInterpretor>())
+					.RegisterStream(input, output)
+					.RegisterCallback(WriteBack)
+					.RegisterNAWSCallback(SignalNAWS)
+					.RegisterCharsetOrder(new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") })
+					.RegisterMSSPConfig(new MSSPConfig
+					{
+						Name = () => "My Telnet Negotiated Server",
+						UTF_8 = () => true,
+						Gameplay = () => new[] { "ABC", "DEF" },
+						Extended = new Dictionary<string, Func<dynamic>>
+					{
 						{ "Foo", () => "Bar"},
 						{ "Baz", () => new [] {"Moo", "Meow" }}
-						}
-						});
+					}
+					});
 
-					Clients.TryAdd(port, telnet);
-					telnet.ProcessAsync().ConfigureAwait(false).GetAwaiter().GetResult();
-				}
+				Clients.TryAdd(port, telnet);
+				telnet.ProcessAsync().ConfigureAwait(false).GetAwaiter().GetResult();
 			}
 			catch (Exception ex)
 			{

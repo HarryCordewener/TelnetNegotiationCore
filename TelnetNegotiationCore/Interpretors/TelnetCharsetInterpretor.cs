@@ -182,7 +182,8 @@ namespace TelnetNegotiationCore.Interpretors
 			char? sep = ascii.GetString(_charsetByteState, 0, 1)?[0];
 			string[] charsetsOffered = ascii.GetString(_charsetByteState, 1, _charsetByteIndex).Split(sep ?? ' ');
 
-			var result = ascii.GetString(_charsetByteState, 0, _charsetByteIndex);
+			// TODO: Accept the first one we like.
+
 			_Logger.Debug("Charsets offered to us: {@charsetResultDebug}", charsetsOffered);
 		}
 

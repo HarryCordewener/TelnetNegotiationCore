@@ -23,7 +23,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <summary>
 		/// A list of functions to call at the start.
 		/// </summary>
-		private List<Func<Task>> _InitialWilling;
+		private readonly List<Func<Task>> _InitialWilling;
 
 		/// <summary>
 		/// The current Encoding used for interpretting incoming non-negotiation text, and what we should send on outbound.
@@ -55,7 +55,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <summary>
 		/// Local buffer. We only take up to 5mb in buffer space. 
 		/// </summary>
-		private byte[] buffer = new byte[5242880];
+		private readonly byte[] buffer = new byte[5242880];
 
 		/// <summary>
 		/// Buffer position where we are writing.
