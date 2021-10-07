@@ -124,7 +124,7 @@ namespace TelnetNegotiationCore
 		/// </summary>
 		/// <remarks>
 		/// RFC 1091: http://www.faqs.org/rfcs/rfc1091.html
-		/// MTTS: https://tintin.mudhalla.net/protocols/mtts/ (Unsupported) (Support Planned)
+		/// MTTS: https://tintin.mudhalla.net/protocols/mtts/
 		/// </remarks>
 		TTYPE = 24,
 		/// <summary>

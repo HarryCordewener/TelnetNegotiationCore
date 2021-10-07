@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace TelnetNegotiationCore
@@ -32,6 +33,24 @@ namespace TelnetNegotiationCore
 		/// Internal Terminal Type Byte Index
 		/// </summary>
 		private int _ttypeIndex = 0;
+
+		/// <summary>
+		/// A dictionary for MTTS support.
+		/// </summary>
+		private static readonly Dictionary<int, string> _MTTS = new Dictionary<int, string>()
+		{
+			{1, "ANSI"},
+			{2, "VT100"},
+			{4, "UTF8"},
+			{8, "256 COLORS"},
+			{16, "MOUSE_TRACKING"},
+			{32, "OSC_COLOR_PALETTE"},
+			{64, "SCREEN_READER"},
+			{128, "PROXY"},
+			{256, "TRUECOLOR"},
+			{512, "MNES"},
+			{1024, "MSLP"}
+		};
 
 		/// <summary>
 		/// Support for Client & Server Terminal Type negotiation
@@ -126,8 +145,17 @@ namespace TelnetNegotiationCore
 			var ttype = ascii.GetString(_ttypeByteState, 0, _ttypeIndex);
 			if (TerminalTypes.Contains(ttype))
 			{
-				_Logger.Debug("Connection: {connectionStatus}: {@ttypes}", "Completing Terminal Type negotiation. List as follows", TerminalTypes);
 				_CurrentTerminalType = (_CurrentTerminalType + 1) % TerminalTypes.Count;
+				var mtts = TerminalTypes.FirstOrDefault(x => x.StartsWith("MTTS"));
+				if (mtts != default(string))
+				{
+					var mttsVal = int.Parse(mtts.Remove(0, 5));
+
+					TerminalTypes.AddRange(_MTTS.Where(x => (mttsVal & x.Key) != 0).Select(x => x.Value));
+				}
+
+				TerminalTypes.Remove(mtts);
+				_Logger.Debug("Connection: {connectionStatus}: {@ttypes}", "Completing Terminal Type negotiation. List as follows", TerminalTypes);
 			}
 			else
 			{
