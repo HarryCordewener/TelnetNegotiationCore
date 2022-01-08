@@ -177,7 +177,7 @@ namespace TelnetNegotiationCore.Interpretors
 		private async Task WillDoTerminalTypeAsync()
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Telling the Client, Willing to do Terminal Type.");
-			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE });
+			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE });
 		}
 
 		/// <summary>
@@ -186,7 +186,7 @@ namespace TelnetNegotiationCore.Interpretors
 		private async Task SendDoTerminalTypeAsync()
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Telling the Client, to do Terminal Type.");
-			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE });
+			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE });
 		}
 
 		/// <summary>
@@ -195,7 +195,7 @@ namespace TelnetNegotiationCore.Interpretors
 		public async Task RequestTerminalTypeAsync()
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Telling the Client, to send Terminal Type.");
-			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE });
+			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE });
 		}
 	}
 }

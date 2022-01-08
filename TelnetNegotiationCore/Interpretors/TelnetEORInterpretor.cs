@@ -41,7 +41,7 @@ namespace TelnetNegotiationCore.Interpretors
 		private async Task WillingEORAsync()
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Announcing willingness to EOR!");
-			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
+			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
 		}
 
 		/// <summary>
@@ -61,8 +61,8 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <returns>A completed Task</returns>
 		public async Task SendPromptAsync(byte[] send)
 		{
-			await _OutputStream.BaseStream.WriteAsync(send);
-			if(_doEOR) await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
+			await CallbackNegotiation(send);
+			if(_doEOR) await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
 		}
 	}
 }

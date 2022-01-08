@@ -43,7 +43,7 @@ namespace TelnetNegotiationCore.Interpretors
 							.OnEntryFromAsync(trigger, async () =>
 							{
 								_Logger.Debug("Connection: {connectionStatus}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
-								await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger });
+								await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger });
 							});
 					}
 					else if (state is State.Willing)
@@ -52,7 +52,7 @@ namespace TelnetNegotiationCore.Interpretors
 							.OnEntryFromAsync(trigger, async () =>
 							{
 								_Logger.Debug("Connection: {connectionStatus}", $"Telling the Client, Don't send {trigger}.");
-								await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger });
+								await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger });
 							});
 					}
 				}

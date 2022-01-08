@@ -45,7 +45,7 @@ namespace TelnetNegotiationCore.Interpretors
 		private async Task WillingMSSPAsync()
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Announcing willingness to MSSP!");
-			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP });
+			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP });
 		}
 
 		/// <summary>
@@ -54,7 +54,7 @@ namespace TelnetNegotiationCore.Interpretors
 		private async Task OnDoMSSPAsync(StateMachine<State, Trigger>.Transition _)
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Writing MSSP output");
-			await _OutputStream.BaseStream.WriteAsync(ReportMSSP(_msspConfig).ToArray());
+			await CallbackNegotiation(ReportMSSP(_msspConfig).ToArray());
 		}
 
 		/// <summary>

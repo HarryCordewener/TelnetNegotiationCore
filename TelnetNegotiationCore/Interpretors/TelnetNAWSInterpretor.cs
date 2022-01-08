@@ -36,7 +36,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <summary>
 		/// NAWS Callback function to alert server of Width & Height negotiation
 		/// </summary>
-		private Func<int, int, Task> _NAWSCallback;
+		public Func<int, int, Task> NAWSCallback { get; init; }
 
 		/// <summary>
 		/// This exists to avoid an infinite loop with badly conforming clients.
@@ -110,14 +110,15 @@ namespace TelnetNegotiationCore.Interpretors
 		}
 
 		/// <summary>
-		/// Request NAWS from a client.
+		/// Request NAWS from a client
 		/// </summary>
 		public async Task RequestNAWSAsync(StateMachine<State, Trigger>.Transition _)
 		{
 			if(!_ClientWillingToDoNAWS)
 			{
 				_Logger.Debug("Connection: {connectionStatus}", "Requesting NAWS details from Client");
-				await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
+
+				await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
 				_ClientWillingToDoNAWS = true;
 			}
 		}
@@ -146,13 +147,7 @@ namespace TelnetNegotiationCore.Interpretors
 		private async Task WontNAWSAsync()
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Announcing refusing to send NAWS, this is a Server!");
-			await _OutputStream.BaseStream.WriteAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
-		}
-
-		public TelnetInterpretor RegisterNAWSCallback(Func<int, int, Task> cb)
-		{
-			_NAWSCallback = cb;
-			return this;
+			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
 		}
 
 		/// <summary>
@@ -174,7 +169,7 @@ namespace TelnetNegotiationCore.Interpretors
 			ClientHeight = BitConverter.ToInt16(height);
 
 			_Logger.Debug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
-			_NAWSCallback?.Invoke(ClientHeight, ClientWidth);
+			NAWSCallback?.Invoke(ClientHeight, ClientWidth);
 		}
 	}
 }

@@ -11,17 +11,12 @@ using MoreLinq;
 
 namespace TelnetNegotiationCore.Interpretors
 {
+	/// <summary>
+	/// TODO: Telnet Interpretor should take in a simple Interface object that can Read & Write from / to a Stream!
+	/// Read Byte, Write Byte, and a Buffer Size. That way we can test it.
+	/// </summary>
 	public partial class TelnetInterpretor
 	{
-		public enum TelnetMode
-		{
-			[Obsolete("Not yet supported")]
-			Client = 0,
-			Server = 1
-		};
-
-		public TelnetMode Mode { get; }
-
 		/// <summary>
 		/// A list of functions to call at the start.
 		/// </summary>
@@ -36,23 +31,6 @@ namespace TelnetNegotiationCore.Interpretors
 		/// Telnet state machine
 		/// </summary>
 		private readonly StateMachine<State, Trigger> _TelnetStateMachine;
-
-		/// <summary>
-		/// Input Stream
-		/// </summary>
-		private StreamReader _InputStream;
-
-		/// <summary>
-		/// Output Stream
-		/// </summary>
-		private StreamWriter _OutputStream;
-
-		private Func<byte[], Encoding, Task> _Callback;
-
-		/// <summary>
-		/// Identifier for the connection.
-		/// </summary>
-		private string _Identifier;
 
 		/// <summary>
 		/// Local buffer. We only take up to 5mb in buffer space. 
@@ -77,6 +55,30 @@ namespace TelnetNegotiationCore.Interpretors
 		/// </summary>
 		private readonly ILogger _Logger;
 
+		public enum TelnetMode
+		{
+			[Obsolete("Not yet supported")]
+			Client = 0,
+			Server = 1
+		};
+
+		public TelnetMode Mode { get; init; }
+
+		/// <summary>
+		/// Callback to run on a submission (linefeed)
+		/// </summary>
+		public Func<byte[], Encoding, Task> CallbackOnSubmit { get; init; }
+
+		/// <summary>
+		/// Callback to the output stream directly for negotiation.
+		/// </summary>
+		public Func<byte[], Task> CallbackNegotiation { get; init; }
+
+		/// <summary>
+		/// Callback per byte.
+		/// </summary>
+		public Func<byte, Encoding, Task> CallbackOnByte { get; init; }
+
 		/// <summary>
 		/// Constructor, sets up for standard Telnet protocol with NAWS and Character Set support.
 		/// </summary>
@@ -84,14 +86,13 @@ namespace TelnetNegotiationCore.Interpretors
 		/// After calling this constructor, one should subscribe to the Triggers, register a Stream, and then run Process()
 		/// </remarks>
 		/// <param name="logger">A Serilog Logger. If null, we will use the default one with a Context of the Telnet Interpretor.</param>
-		public TelnetInterpretor(TelnetMode mode, ILogger logger = null)
+		public TelnetInterpretor(ILogger logger = null)
 		{
 			_Logger = logger ?? Log.Logger.ForContext<TelnetInterpretor>();
 			_InitialWilling = new List<Func<Task>>();
-
-			Mode = mode;
-
 			_TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
+
+			SupportedCharacterSets = new Lazy<byte[]>(CharacterSets, true);
 
 			var li = new List<Func<StateMachine<State, Trigger>, StateMachine<State, Trigger>>> {
 				SetupSafeNegotiation, SetupEORNegotiation, SetupMSSPNegotiation, SetupTelnetTerminalType, SetupCharsetNegotiation, SetupNAWS, SetupStandardProtocol
@@ -102,6 +103,15 @@ namespace TelnetNegotiationCore.Interpretors
 				_TelnetStateMachine.OnTransitioned((transition) => _Logger.Verbose("Telnet Statemachine: {source} --[{trigger}({triggerbyte})]--> {destination}",
 					transition.Source, transition.Trigger, transition.Parameters[0], transition.Destination));
 			}
+		}
+
+		public async Task<TelnetInterpretor> Build()
+		{
+			foreach (var t in _InitialWilling)
+			{
+				await t();
+			}
+			return this;
 		}
 
 		/// <summary>
@@ -157,33 +167,6 @@ namespace TelnetNegotiationCore.Interpretors
 		}
 
 		/// <summary>
-		/// Register the Buffered Stream to read and write to for Telnet negotiation.
-		/// </summary>
-		/// <param name="input">A StreamReader wrapped around a Network Stream</param>
-		/// <param name="output">A StreamWriter wrapped around a Network Stream</param>
-		/// <param name="identifier">An identifier for the client stream. Doesn't need to be unique, but is used for logging.</param>
-		public TelnetInterpretor RegisterStream(StreamReader input, StreamWriter output, string identifier = null)
-		{
-			_Identifier = identifier ?? Guid.NewGuid().ToString();
-			LogContext.PushProperty("identifier", _Identifier);
-
-			_InputStream = input;
-			_OutputStream = output;
-			return this;
-		}
-
-		/// <summary>
-		/// The main method through which the Client/Server is informed what has been sent.
-		/// </summary>
-		/// <param name="wb">The callback function</param>
-		/// <returns>This interpretor</returns>
-		public TelnetInterpretor RegisterCallback(Func<byte[], Encoding, Task> wb)
-		{
-			_Callback = wb;
-			return this;
-		}
-
-		/// <summary>
 		/// Write the character into a buffer.
 		/// </summary>
 		/// <param name="b">A useful byte for the Client/Server</param>
@@ -193,28 +176,30 @@ namespace TelnetNegotiationCore.Interpretors
 			_Logger.Verbose("Debug: Writing into buffer: {byte}", b);
 			buffer[bufferposition] = b;
 			bufferposition++;
+			CallbackOnByte?.Invoke(b, _CurrentEncoding);
 		}
 
 		/// <summary>
 		/// Write it to output - this should become an Event.
 		/// </summary>
-		/// <remarks>
 		private void WriteToOutput()
 		{
 			byte[] cp = new byte[bufferposition];
 			Array.Copy(buffer, cp, bufferposition);
-			_Callback.Invoke(cp, _CurrentEncoding);
 			bufferposition = 0;
+			CallbackOnSubmit.Invoke(cp, _CurrentEncoding);
 		}
 
 		/// <summary>
 		/// Validates the object is ready to process.
 		/// </summary>
-		private void Validate()
+		public TelnetInterpretor Validate()
 		{
-			if (_Callback == null) throw new ApplicationException("Writeback Function is null or has not been registered.");
-			if (_InputStream == null) throw new ApplicationException("Input Stream is null or has not been registered.");
-			if (_OutputStream == null) throw new ApplicationException("Output Stream is null or has not been registered.");
+			if (CallbackOnSubmit == null && CallbackOnByte == null) 
+				throw new ApplicationException($"Writeback Functions ({CallbackOnSubmit}, {CallbackOnByte}) are null or have not been registered.");
+			if (CallbackNegotiation == null) throw new ApplicationException($"{CallbackNegotiation} is null and has not been registered.");
+
+			return this;
 		}
 
 		private void RegisterInitialWilling(Func<Task> fun)
@@ -223,37 +208,20 @@ namespace TelnetNegotiationCore.Interpretors
 		}
 
 		/// <summary>
-		/// Start processing the inbound stream.
+		/// Interprets the next byte in an asynchronous way.
 		/// </summary>
-		public async Task ProcessAsync()
+		/// <param name="bt">An integer representation of a byte.</param>
+		/// <returns>Awaitable Task</returns>
+		public async Task Interpret(byte bt)
 		{
-			_Logger.Information("Connection: {connectionState}", "Connected");
-
-			Validate();
-
-			foreach (var t in _InitialWilling)
+			if (Enum.IsDefined(typeof(Trigger), (short)bt))
 			{
-				await t();
+				await _TelnetStateMachine.FireAsync(BTrigger((Trigger)bt), bt);
 			}
-
-			int currentByte;
-
-			while ((currentByte = _InputStream.BaseStream.ReadByte()) != -1)
+			else
 			{
-				if (Enum.IsDefined(typeof(Trigger), currentByte))
-				{
-					await _TelnetStateMachine.FireAsync(BTrigger((Trigger)currentByte), (byte)currentByte);
-					continue;
-				}
-				await _TelnetStateMachine.FireAsync(BTrigger(Trigger.ReadNextCharacter), (byte)currentByte);
+				await _TelnetStateMachine.FireAsync(BTrigger(Trigger.ReadNextCharacter), bt);
 			}
-
-			_Logger.Information("Connection: {connectionState}", "Connection Closed");
-		}
-
-		public async Task SendLineAsync(byte[] send)
-		{
-			await _OutputStream.BaseStream.WriteAsync(send);
 		}
 	}
 }

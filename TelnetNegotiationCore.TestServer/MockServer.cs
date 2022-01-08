@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Interpretors;
 using TelnetNegotiationCore.Models;
+using System.Text.RegularExpressions;
 
 namespace TelnetNegotiationCore.TestServer
 {
@@ -37,7 +38,7 @@ namespace TelnetNegotiationCore.TestServer
 				{
 					_Logger.Information("Waiting for a connection...");
 					TcpClient client = server.AcceptTcpClient();
-					Thread t = new Thread(new ParameterizedThreadStart(HandleDevice));
+					var t = new Thread(new ParameterizedThreadStart(HandleDevice));
 					t.Start(client);
 				}
 			}
@@ -48,11 +49,12 @@ namespace TelnetNegotiationCore.TestServer
 			}
 		}
 
+		private async Task WriteToOutputStream(byte[] arg, StreamWriter writer) => await writer.BaseStream.WriteAsync(arg);
+
 		public Task WriteBack(byte[] writeback, Encoding encoding)
 		{
-			// The Regex removes control characters.
-			// Regex.Replace(writeback, @"\p{Cc}+", String.Empty);
 			string str = encoding.GetString(writeback);
+			Regex.Replace(str, @"\p{Cc}+", string.Empty);
 			_Logger.Information("Writeback: {writeBack}", str);
 			return Task.CompletedTask;
 		}
@@ -78,11 +80,14 @@ namespace TelnetNegotiationCore.TestServer
 				using var input = new StreamReader(stream);
 				using var output = new StreamWriter(stream) { AutoFlush = true };
 
-				telnet = new TelnetInterpretor(TelnetInterpretor.TelnetMode.Server, _Logger.ForContext<TelnetInterpretor>())
-					.RegisterStream(input, output)
-					.RegisterCallback(WriteBack)
-					.RegisterNAWSCallback(SignalNAWS)
-					.RegisterCharsetOrder(new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") })
+				telnet = new TelnetInterpretor(_Logger.ForContext<TelnetInterpretor>())
+				{
+					CallbackOnSubmit = WriteBack,
+					CallbackNegotiation = (x) => WriteToOutputStream(x, output),
+					NAWSCallback = SignalNAWS,
+					Mode = TelnetInterpretor.TelnetMode.Server,
+					CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
+				}
 					.RegisterMSSPConfig(new MSSPConfig
 					{
 						Name = () => "My Telnet Negotiated Server",
@@ -93,10 +98,18 @@ namespace TelnetNegotiationCore.TestServer
 						{ "Foo", () => "Bar"},
 						{ "Baz", () => new [] {"Moo", "Meow" }}
 					}
-					});
+					}).Validate().Build().GetAwaiter().GetResult();
 
 				Clients.TryAdd(port, telnet);
-				telnet.ProcessAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+
+				_Logger.Information("Connection: {connectionState}", "Connected");
+
+				for(int currentByte = 0; currentByte != -1; currentByte = input.BaseStream.ReadByte())
+				{
+					telnet.Interpret((byte)currentByte).GetAwaiter().GetResult();
+				}
+
+				_Logger.Information("Connection: {connectionState}", "Connection Closed");
 			}
 			catch (Exception ex)
 			{

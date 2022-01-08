@@ -46,7 +46,7 @@ namespace TelnetNegotiationCore.Models
 			=> AllTriggers.Except(except).ForEach(f);
 	}
 
-	public enum Trigger
+	public enum Trigger : short
 	{
 		/// <summary>
 		/// Sub-negotiation IS command.	

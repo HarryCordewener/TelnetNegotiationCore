@@ -1,6 +1,6 @@
 ﻿namespace TelnetNegotiationCore.Models
 {
-	public enum State
+	public enum State : sbyte
 	{
 		#region Standard Negotiation
 		Accepting,
