@@ -17,6 +17,8 @@
 		#region MSSP Negotiation
         DoMSSP,
         DontMSSP,
+				WontMSSP,
+				WillMSSP,
 		#endregion MSSP Negotiation
 		#region Window Size Negotiation
 		WillDoNAWS,
@@ -70,6 +72,8 @@
 		#region End of Record Negotiation
 		DoEOR,
 		DontEOR,
+		WontEOR,
+		WillEOR,
 		#endregion End of Record Negotiation
 	}
 }

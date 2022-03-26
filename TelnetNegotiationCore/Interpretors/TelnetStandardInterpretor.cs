@@ -20,7 +20,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <summary>
 		/// A list of functions to call at the start.
 		/// </summary>
-		private readonly List<Func<Task>> _InitialWilling;
+		private readonly List<Func<Task>> _InitialCall;
 
 		/// <summary>
 		/// The current Encoding used for interpretting incoming non-negotiation text, and what we should send on outbound.
@@ -89,14 +89,14 @@ namespace TelnetNegotiationCore.Interpretors
 		public TelnetInterpretor(ILogger logger = null)
 		{
 			_Logger = logger ?? Log.Logger.ForContext<TelnetInterpretor>();
-			_InitialWilling = new List<Func<Task>>();
+			_InitialCall = new List<Func<Task>>();
 			_TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
 
 			SupportedCharacterSets = new Lazy<byte[]>(CharacterSets, true);
 
 			var li = new List<Func<StateMachine<State, Trigger>, StateMachine<State, Trigger>>> {
 				SetupSafeNegotiation, SetupEORNegotiation, SetupMSSPNegotiation, SetupTelnetTerminalType, SetupCharsetNegotiation, SetupNAWS, SetupStandardProtocol
-			}.AggregateRight(_TelnetStateMachine, (x, y) => x(y));
+			}.AggregateRight(_TelnetStateMachine, (func, statemachine) => func(statemachine));
 
 			if (_Logger.IsEnabled(Serilog.Events.LogEventLevel.Verbose))
 			{
@@ -107,7 +107,7 @@ namespace TelnetNegotiationCore.Interpretors
 
 		public async Task<TelnetInterpretor> Build()
 		{
-			foreach (var t in _InitialWilling)
+			foreach (var t in _InitialCall)
 			{
 				await t();
 			}
@@ -204,7 +204,7 @@ namespace TelnetNegotiationCore.Interpretors
 
 		private void RegisterInitialWilling(Func<Task> fun)
 		{
-			_InitialWilling.Add(fun);
+			_InitialCall.Add(fun);
 		}
 
 		/// <summary>

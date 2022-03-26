@@ -188,7 +188,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <param name="_">Ignored</param>
 		private async Task CompleteCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			if (charsetoffered)
+			if (charsetoffered && Mode == TelnetMode.Server)
 			{
 				await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
 				return;
@@ -197,9 +197,26 @@ namespace TelnetNegotiationCore.Interpretors
 			char? sep = ascii.GetString(_charsetByteState, 0, 1)?[0];
 			string[] charsetsOffered = ascii.GetString(_charsetByteState, 1, _charsetByteIndex).Split(sep ?? ' ');
 
-			// TODO: Accept the first one we like.
-
 			_Logger.Debug("Charsets offered to us: {@charsetResultDebug}", charsetsOffered);
+
+			var encodingDict = Encoding.GetEncodings().ToDictionary(x => x.GetEncoding().WebName);
+			var offeredEncodingInfo = charsetsOffered.Select(x => { try { return encodingDict[Encoding.GetEncoding(x).WebName]; } catch { return null; } }).Where(x => x != null);
+			var preferredEncoding = _charsetorder(offeredEncodingInfo);
+			var chosenEncoding = preferredEncoding.FirstOrDefault();
+
+			if (chosenEncoding == null)
+			{
+				await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+				return;
+			}
+
+			_Logger.Debug("Charsets chosen by us: {@charsetResultDebug}", chosenEncoding);
+
+			var preamble = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED };
+			var charsetAscii = ascii.GetBytes(chosenEncoding.WebName);
+			var postamble = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };
+
+			await CallbackNegotiation(preamble.Concat(charsetAscii).Concat(postamble).ToArray());
 		}
 
 		/// <summary>
@@ -266,7 +283,7 @@ namespace TelnetNegotiationCore.Interpretors
 		{
 			byte[] pre = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.SEND };
 			byte[] post = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };
-			byte[] defaultcharsets = Encoding.ASCII.GetBytes(";" + string.Join(";", _charsetorder(Encoding.GetEncodings()).Select(x => x.WebName)));
+			byte[] defaultcharsets = ascii.GetBytes($";{(string.Join(";", _charsetorder(Encoding.GetEncodings()).Select(x => x.WebName)))}");
 			return pre.Concat(defaultcharsets).Concat(post).ToArray();
 		}
 	}
