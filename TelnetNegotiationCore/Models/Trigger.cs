@@ -2,7 +2,6 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
-using MoreLinq;
 
 namespace TelnetNegotiationCore.Models
 {
@@ -20,7 +19,7 @@ namespace TelnetNegotiationCore.Models
 
 		public static StateMachine<State, Trigger>.TriggerWithParameters<byte> ByteTrigger(StateMachine<State, Trigger> stm, Trigger t)
 		{
-			if(!_cache.ContainsKey(t))
+			if (!_cache.ContainsKey(t))
 			{
 				_cache.Add(t, stm.SetTriggerParameters<byte>(t));
 			}
@@ -33,17 +32,17 @@ namespace TelnetNegotiationCore.Models
 	/// </summary>
 	public static class TriggerHelper
 	{
-		public static IEnumerable<Trigger> AllTriggers = ((IEnumerable<Trigger>)Enum.GetValues(typeof(Trigger))).Distinct();
-		public static IEnumerable<Trigger> AllTriggersButIAC = AllTriggers.Except(new[] { Trigger.IAC }).ToArray();
+		public static IEnumerable<Trigger> AllTriggers = ((IEnumerable<Trigger>)Enum.GetValues(typeof(Trigger))).Distinct().ToHashSet();
+		public static IEnumerable<Trigger> AllTriggersButIAC = AllTriggers.Except(new[] { Trigger.IAC }).ToHashSet();
 
-		public static void ForAllTriggers(Action<Trigger> f) 
-			=> AllTriggers.ForEach(f);
+		public static void ForAllTriggers(Action<Trigger> f)
+			=> MoreLinq.MoreEnumerable.ForEach(AllTriggers, f);
 
 		public static void ForAllTriggersButIAC(Action<Trigger> f)
-			=> AllTriggersButIAC.ForEach(f);
+			=> MoreLinq.MoreEnumerable.ForEach(AllTriggersButIAC, f);
 
 		public static void ForAllTriggersExcept(IEnumerable<Trigger> except, Action<Trigger> f)
-			=> AllTriggers.Except(except).ForEach(f);
+			=> MoreLinq.MoreEnumerable.ForEach(AllTriggers.Except(except), f);
 	}
 
 	public enum Trigger : short
