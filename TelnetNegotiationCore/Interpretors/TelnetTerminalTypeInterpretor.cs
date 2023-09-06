@@ -14,7 +14,7 @@ namespace TelnetNegotiationCore.Interpretors
 	/// https://datatracker.ietf.org/doc/html/rfc1091
 	/// https://tintin.mudhalla.net/protocols/mtts/
 	/// 
-	/// TODO: Allow the end-user to set TerminalTypes in Client Mode. It must repeat the last item twice!
+	/// TODO: Allow the end-user to set TerminalTypes in Client Mode.
 	/// TODO: Optimize byte array allocations that get commonly used.
 	/// </summary>
 	public partial class TelnetInterpretor
@@ -27,7 +27,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <summary>
 		/// The current selected Terminal Type. Use RequestTerminalTypeAsync if you want the client to switch to the next mode.
 		/// </summary>
-		public string CurrentTerminalType => _CurrentTerminalType == -1 ? "unknown" : TerminalTypes[_CurrentTerminalType];
+		public string CurrentTerminalType => _CurrentTerminalType == -1 ? "unknown" : TerminalTypes[Math.Min(_CurrentTerminalType, TerminalTypes.Count - 1)];
 
 		/// <summary>
 		/// Currently selected Terminal Type index.
@@ -99,6 +99,7 @@ namespace TelnetNegotiationCore.Interpretors
 		private StateMachine<State, Trigger> SetupTelnetTerminalTypeAsClient(StateMachine<State, Trigger> tsm)
 		{
 			_CurrentTerminalType = -1;
+			TerminalTypes = TerminalTypes.AddRange(new[] { "TNC", "XTERM", "MTTS 3853" });
 
 			tsm.Configure(State.DoTType)
 				.SubstateOf(State.Accepting)
@@ -253,11 +254,7 @@ namespace TelnetNegotiationCore.Interpretors
 
 		private async Task ReportNextAvailableTerminalTypeAsync()
 		{
-			if (TerminalTypes.Any())
-			{
-				_CurrentTerminalType += 1 % TerminalTypes.Count;
-			}
-
+			_CurrentTerminalType = (_CurrentTerminalType + 1) % (TerminalTypes.Count + 1);
 			_Logger.Debug("Connection: {connectionStatus}", "Reporting the next Terminal Type to the server.");
 			byte[] negotiationPrepend = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS };
 			byte[] negotationAppend = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };

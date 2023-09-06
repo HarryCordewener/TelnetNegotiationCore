@@ -9,6 +9,11 @@ using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.Interpretors
 {
+	/// <summary>
+	/// Implements RFC 2066: 
+	///
+	/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+	/// </summary>
 	public partial class TelnetInterpretor
 	{
 		/// <summary>

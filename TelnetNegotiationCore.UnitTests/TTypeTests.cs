@@ -1,6 +1,5 @@
 using NUnit.Framework;
 using Serilog;
-using Serilog.Formatting.Compact;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -32,7 +31,6 @@ namespace TelnetNegotiationCore.UnitTests
 			var log = new LoggerConfiguration()
 				.Enrich.FromLogContext()
 				.WriteTo.Console()
-				.WriteTo.File(new CompactJsonFormatter(), "logresult.log")
 				.MinimumLevel.Verbose()
 				.CreateLogger();
 
@@ -126,14 +124,20 @@ namespace TelnetNegotiationCore.UnitTests
 					{
 						new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE },
 						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
+						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
+						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
+						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
 						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE }
 					},
 					new[]
 					{
 						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE },
-						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'u', (byte)'n', (byte)'k', (byte)'n', (byte)'o', (byte)'w', (byte)'n', (byte)Trigger.IAC, (byte)Trigger.SE },
-						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'u', (byte)'n', (byte)'k', (byte)'n', (byte)'o', (byte)'w', (byte)'n', (byte)Trigger.IAC, (byte)Trigger.SE },
-					}).SetName("Capable of sending a TType");
+						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'T', (byte)'N', (byte)'C', (byte)Trigger.IAC, (byte)Trigger.SE },
+						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'X', (byte)'T', (byte)'E', (byte)'R', (byte)'M', (byte)Trigger.IAC, (byte)Trigger.SE },
+						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'M', (byte)'T', (byte)'T', (byte)'S', (byte)' ', (byte)'3', (byte)'8', (byte)'5', (byte)'3', (byte)Trigger.IAC, (byte)Trigger.SE },
+						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'M', (byte)'T', (byte)'T', (byte)'S', (byte)' ', (byte)'3', (byte)'8', (byte)'5', (byte)'3', (byte)Trigger.IAC, (byte)Trigger.SE },
+						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'T', (byte)'N', (byte)'C', (byte)Trigger.IAC, (byte)Trigger.SE }
+					}).SetName("Capable of sending a TType in a cycling manner, with a repeat for the last item");
 			}
 		}
 

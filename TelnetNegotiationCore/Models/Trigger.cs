@@ -71,18 +71,20 @@ namespace TelnetNegotiationCore.Models
 		/// <remarks>
 		/// RFC 855: http://www.faqs.org/rfcs/rfc855.html
 		/// RFC 857: http://www.faqs.org/rfcs/rfc857.html
+		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
 		/// </remarks>
 		ECHO = 1,
 		MSSP_VAR = 1,
 		SEND = 1,
+		REQUEST = 1,
 		/// <summary>
 		/// Sub-negotiation ACCEPTED command.	
 		/// Sub-negotiation MSSP_VAR
 		/// </summary>
 		/// <remarks>
-		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
+		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// </remarks>
 		MSSP_VAL = 2,
 		ACCEPTED = 2,
@@ -91,8 +93,8 @@ namespace TelnetNegotiationCore.Models
 		/// Suppress Go Ahead
 		/// </summary>
 		/// <remarks>
-		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// RFC 858: http://www.faqs.org/rfcs/rfc858.html
+		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// </remarks>
 		SUPPRESSGOAHEAD = 3,
 		REJECTED = 3,
