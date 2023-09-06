@@ -2,26 +2,34 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using OneOf;
 
 namespace TelnetNegotiationCore.Models
 {
 	/// <summary>
 	/// Helper class to create TriggerWithParameter objects.
 	/// </summary>
-	public static class ParameterizedTriggers
+	public class ParameterizedTriggers
 	{
-		private readonly static Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<byte>> _cache;
+		private readonly Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte,Trigger>>> _cache;
 
-		static ParameterizedTriggers()
+		internal ParameterizedTriggers()
 		{
-			_cache = new Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<byte>>();
+			_cache = new Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>>>();
 		}
 
-		public static StateMachine<State, Trigger>.TriggerWithParameters<byte> ByteTrigger(StateMachine<State, Trigger> stm, Trigger t)
+		/// <summary>
+		/// Returns a (cached) Parameterized Trigger. 
+		/// </summary>
+		/// <param name="stm">State Machine</param>
+		/// <param name="t">The Trigger</param>
+		/// <returns>One of Byte or Trigger, allowing both the 255 byte range excluding standard triggers, and Triggers above the number</returns>
+		public StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParametarizedTrigger(StateMachine<State, Trigger> stm, Trigger t)
 		{
 			if (!_cache.ContainsKey(t))
 			{
-				_cache.Add(t, stm.SetTriggerParameters<byte>(t));
+				_cache.Add(t, stm.SetTriggerParameters<OneOf<byte, Trigger>>(t));
 			}
 			return _cache[t];
 		}
@@ -32,8 +40,8 @@ namespace TelnetNegotiationCore.Models
 	/// </summary>
 	public static class TriggerHelper
 	{
-		public static IEnumerable<Trigger> AllTriggers = ((IEnumerable<Trigger>)Enum.GetValues(typeof(Trigger))).Distinct().ToHashSet();
-		public static IEnumerable<Trigger> AllTriggersButIAC = AllTriggers.Except(new[] { Trigger.IAC }).ToHashSet();
+		public static readonly ImmutableHashSet<Trigger> AllTriggers = ImmutableHashSet<Trigger>.Empty.Union(((IEnumerable<Trigger>)Enum.GetValues(typeof(Trigger))).Distinct());
+		public static readonly ImmutableHashSet<Trigger> AllTriggersButIAC = AllTriggers.Except(new[] { Trigger.IAC });
 
 		public static void ForAllTriggers(Action<Trigger> f)
 			=> MoreLinq.MoreEnumerable.ForEach(AllTriggers, f);
@@ -45,6 +53,7 @@ namespace TelnetNegotiationCore.Models
 			=> MoreLinq.MoreEnumerable.ForEach(AllTriggers.Except(except), f);
 	}
 
+#pragma warning disable CA1069 // Enums values should not be duplicated
 	public enum Trigger : short
 	{
 		/// <summary>
@@ -240,6 +249,12 @@ namespace TelnetNegotiationCore.Models
 		/// </remarks>
 		MCCP2 = 86,
 		MCCP3 = 87,
+		/// Generic Mud Communication Protocol	
+		/// </summary>
+		/// <remarks>
+		/// GMCP: https://tintin.mudhalla.net/protocols/gmcp/
+		/// </remarks>
+		GMCP = 201,
 		/// <summary>
 		/// End of Record
 		/// </summary>
@@ -249,12 +264,6 @@ namespace TelnetNegotiationCore.Models
 		/// </remarks>
 		/// <summary>
 		EOR = 239,
-		/// Generic Mud Communication Protocol	
-		/// </summary>
-		/// <remarks>
-		/// GMCP: https://tintin.mudhalla.net/protocols/gmcp/
-		/// </remarks>
-		GMCP = 240,
 		/// <summary>
 		/// The end of sub-negotiation options.	
 		/// </summary>
@@ -320,4 +329,5 @@ namespace TelnetNegotiationCore.Models
 		/// </summary>
 		Error = 257
 	}
+#pragma warning restore CA1069 // Enums values should not be duplicated
 }

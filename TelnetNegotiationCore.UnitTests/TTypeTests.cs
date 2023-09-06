@@ -1,4 +1,6 @@
 using NUnit.Framework;
+using Serilog;
+using Serilog.Formatting.Compact;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,7 +14,8 @@ namespace TelnetNegotiationCore.UnitTests
 	[TestFixture]
 	public class TTypeTests
 	{
-		private TelnetInterpretor _ti;
+		private TelnetInterpretor _server_ti;
+		private TelnetInterpretor _client_ti;
 		private byte[] _negotiationOutput;
 
 		private Task WriteBackToOutput(byte[] arg1, Encoding arg2) => throw new NotImplementedException();
@@ -26,45 +29,115 @@ namespace TelnetNegotiationCore.UnitTests
 		[SetUp]
 		public async Task Setup()
 		{
-			_ti = await new TelnetInterpretor()
+			var log = new LoggerConfiguration()
+				.Enrich.FromLogContext()
+				.WriteTo.Console()
+				.WriteTo.File(new CompactJsonFormatter(), "logresult.log")
+				.MinimumLevel.Verbose()
+				.CreateLogger();
+
+			Log.Logger = log;
+
+			_server_ti = await new TelnetInterpretor(TelnetInterpretor.TelnetMode.Server)
 			{
 				CallbackNegotiation = WriteBackToNegotiate,
 				CallbackOnSubmit = WriteBackToOutput,
 				CallbackOnByte = (x, y) => Task.CompletedTask,
-				Mode = TelnetInterpretor.TelnetMode.Server
-			}
-				.RegisterMSSPConfig(new MSSPConfig
-				{
-					Name = () => "My Telnet Negotiated Server",
-					UTF_8 = () => true,
-					Gameplay = () => new[] { "ABC", "DEF" },
-					Extended = new Dictionary<string, Func<dynamic>>
+			}.RegisterMSSPConfig(new MSSPConfig
+			{
+				Name = () => "My Telnet Negotiated Server",
+				UTF_8 = () => true,
+				Gameplay = () => new[] { "ABC", "DEF" },
+				Extended = new Dictionary<string, Func<dynamic>>
 				{
 					{ "Foo", () => "Bar"},
 					{ "Baz", () => new [] {"Moo", "Meow" }}
 				}
-				}).Validate().Build();
+			}).Validate().Build();
+
+			_client_ti = await new TelnetInterpretor(TelnetInterpretor.TelnetMode.Client)
+			{
+				CallbackNegotiation = WriteBackToNegotiate,
+				CallbackOnSubmit = WriteBackToOutput,
+				CallbackOnByte = (x, y) => Task.CompletedTask,
+			}.RegisterMSSPConfig(new MSSPConfig
+			{
+				Name = () => "My Telnet Negotiated Client",
+				UTF_8 = () => true,
+				Gameplay = () => new[] { "ABC", "DEF" },
+				Extended = new Dictionary<string, Func<dynamic>>
+				{
+					{ "Foo", () => "Bar"},
+					{ "Baz", () => new [] {"Moo", "Meow" }}
+				}
+			}).Validate().Build();
 		}
 
-		[TestCaseSource(nameof(TTypeSequences))]
-		public async Task EvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<string[]> RegisteredTTypes)
+		[TestCaseSource(nameof(ServerTTypeSequences))]
+		public async Task ServerEvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<string[]> RegisteredTTypes)
 		{
 			if (clientSends.Count() != serverShouldRespondWith.Count())
 				throw new Exception("Invalid Testcase.");
 
-			foreach((var clientSend, var serverShouldRespond, var shouldHaveTTypeList) in clientSends.Zip(serverShouldRespondWith, RegisteredTTypes))
+			foreach ((var clientSend, var serverShouldRespond, var shouldHaveTTypeList) in clientSends.Zip(serverShouldRespondWith, RegisteredTTypes))
 			{
 				_negotiationOutput = null;
 				foreach (var x in clientSend ?? Enumerable.Empty<byte>())
 				{
-					await _ti.Interpret(x);
+					await _server_ti.InterpretAsync(x);
 				}
-				CollectionAssert.AreEqual(shouldHaveTTypeList ?? Enumerable.Empty<string>(), _ti.TerminalTypes);
+				CollectionAssert.AreEqual(shouldHaveTTypeList ?? Enumerable.Empty<string>(), _server_ti.TerminalTypes);
 				CollectionAssert.AreEqual(serverShouldRespond, _negotiationOutput);
 			}
 		}
 
-		public static IEnumerable<TestCaseData> TTypeSequences
+		[TestCaseSource(nameof(ClientTTypeSequences))]
+		public async Task ClientEvaluationCheck(IEnumerable<byte[]> serverSends, IEnumerable<byte[]> serverShouldRespondWith)
+		{
+			if (serverSends.Count() != serverShouldRespondWith.Count())
+				throw new Exception("Invalid Testcase.");
+
+			foreach ((var serverSend, var clientShouldRespond) in serverSends.Zip(serverShouldRespondWith))
+			{
+				_negotiationOutput = null;
+				foreach (var x in serverSend ?? Enumerable.Empty<byte>())
+				{
+					await _client_ti.InterpretAsync(x);
+				}
+				CollectionAssert.AreEqual(clientShouldRespond, _negotiationOutput);
+			}
+		}
+
+		public static IEnumerable<TestCaseData> ClientTTypeSequences
+		{
+			get
+			{
+				yield return new TestCaseData(
+					new[]
+					{
+						new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE }
+					},
+					new[]
+					{
+						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE }
+					}).SetName("Basic responds to Server TType DO");
+				yield return new TestCaseData(
+					new[]
+					{
+						new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE },
+						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
+						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE }
+					},
+					new[]
+					{
+						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE },
+						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'u', (byte)'n', (byte)'k', (byte)'n', (byte)'o', (byte)'w', (byte)'n', (byte)Trigger.IAC, (byte)Trigger.SE },
+						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'u', (byte)'n', (byte)'k', (byte)'n', (byte)'o', (byte)'w', (byte)'n', (byte)Trigger.IAC, (byte)Trigger.SE },
+					}).SetName("Capable of sending a TType");
+			}
+		}
+
+		public static IEnumerable<TestCaseData> ServerTTypeSequences
 		{
 			get
 			{
@@ -75,9 +148,9 @@ namespace TelnetNegotiationCore.UnitTests
 					new[] { // Server Should Respond With
 						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
 					},
-					new [] // Registered TType List After Negotiation
+					new[] // Registered TType List After Negotiation
 					{
-						new string[] { }
+						Array.Empty<string>()
 					}).SetName("Basic responds to Client TType Willing");
 				yield return new TestCaseData(
 					new[] { // Client Sends
@@ -94,7 +167,7 @@ namespace TelnetNegotiationCore.UnitTests
 					},
 					new[] // Registered TType List After Negotiation
 					{
-						new string[] { },
+						Array.Empty<string>(),
 						new string[] { "ANSI"},
 						new string[] { "ANSI", "VT100"},
 						new string[] { "ANSI", "VT100"}

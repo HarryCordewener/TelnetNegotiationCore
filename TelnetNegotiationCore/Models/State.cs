@@ -15,10 +15,10 @@
 		Refusing,
 		#endregion Standard Negotiation
 		#region MSSP Negotiation
-        DoMSSP,
-        DontMSSP,
-				WontMSSP,
-				WillMSSP,
+		DoMSSP,
+		DontMSSP,
+		WontMSSP,
+		WillMSSP,
 		#endregion MSSP Negotiation
 		#region Window Size Negotiation
 		WillDoNAWS,
@@ -61,8 +61,8 @@
 		#endregion Terminal Type Negotiation
 		#region Safe Negotiation
 		BadWilling,
-		BadRefusing, 
-		BadDo, 
+		BadRefusing,
+		BadDo,
 		BadDont,
 		BadSubNegotiation,
 		BadSubNegotiationEscaping,

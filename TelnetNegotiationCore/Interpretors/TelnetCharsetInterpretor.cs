@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
 
@@ -122,8 +123,8 @@ namespace TelnetNegotiationCore.Interpretors
 			tsm.Configure(State.EvaluatingAcceptedCharsetValue)
 				.Permit(Trigger.IAC, State.EscapingAcceptedCharsetValue);
 
-			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingCharset).OnEntryFrom(BTrigger(t), CaptureCharset));
-			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingAcceptedCharsetValue).OnEntryFrom(BTrigger(t), CaptureAcceptedCharset));
+			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingCharset).OnEntryFrom(ParametarizedTrigger(t), CaptureCharset));
+			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingAcceptedCharsetValue).OnEntryFrom(ParametarizedTrigger(t), CaptureAcceptedCharset));
 
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.EvaluatingCharset).PermitReentry(t));
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.EvaluatingAcceptedCharsetValue).PermitReentry(t));
@@ -165,10 +166,10 @@ namespace TelnetNegotiationCore.Interpretors
 		/// Read the Charset state values and finalize it and prepare to respond.
 		/// </summary>
 		/// <param name="_">Ignored</param>
-		private void CaptureCharset(byte b)
+		private void CaptureCharset(OneOf<byte, Trigger> b)
 		{
 			if (_charsetByteIndex > _charsetByteState.Length) return;
-			_charsetByteState[_charsetByteIndex] = b;
+			_charsetByteState[_charsetByteIndex] = b.AsT0;
 			_charsetByteIndex++;
 		}
 
@@ -176,9 +177,9 @@ namespace TelnetNegotiationCore.Interpretors
 		/// Read the Charset state values and finalize it and prepare to respond.
 		/// </summary>
 		/// <param name="_">Ignored</param>
-		private void CaptureAcceptedCharset(byte b)
+		private void CaptureAcceptedCharset(OneOf<byte, Trigger> b)
 		{
-			_acceptedCharsetByteState[_acceptedCharsetByteIndex] = b;
+			_acceptedCharsetByteState[_acceptedCharsetByteIndex] = b.AsT0;
 			_acceptedCharsetByteIndex++;
 		}
 

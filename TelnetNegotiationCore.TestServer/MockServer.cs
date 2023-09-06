@@ -19,7 +19,7 @@ namespace TelnetNegotiationCore.TestServer
 		readonly TcpListener server = null;
 		readonly ILogger _Logger;
 
-		private readonly ConcurrentDictionary<int, TelnetInterpretor> Clients = new ConcurrentDictionary<int, TelnetInterpretor>();
+		private readonly ConcurrentDictionary<int, TelnetInterpretor> Clients = new();
 
 		public MockServer(string ip, int port, ILogger logger = null)
 		{
@@ -49,7 +49,7 @@ namespace TelnetNegotiationCore.TestServer
 			}
 		}
 
-		private async Task WriteToOutputStream(byte[] arg, StreamWriter writer) => await writer.BaseStream.WriteAsync(arg);
+		private static async Task WriteToOutputStream(byte[] arg, StreamWriter writer) => await writer.BaseStream.WriteAsync(arg);
 
 		public Task WriteBack(byte[] writeback, Encoding encoding)
 		{
@@ -80,12 +80,11 @@ namespace TelnetNegotiationCore.TestServer
 				using var input = new StreamReader(stream);
 				using var output = new StreamWriter(stream) { AutoFlush = true };
 
-				telnet = new TelnetInterpretor(_Logger.ForContext<TelnetInterpretor>())
+				telnet = new TelnetInterpretor(TelnetInterpretor.TelnetMode.Server, _Logger.ForContext<TelnetInterpretor>())
 				{
 					CallbackOnSubmit = WriteBack,
 					CallbackNegotiation = (x) => WriteToOutputStream(x, output),
 					NAWSCallback = SignalNAWS,
-					Mode = TelnetInterpretor.TelnetMode.Server,
 					CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
 				}
 					.RegisterMSSPConfig(new MSSPConfig
@@ -106,7 +105,7 @@ namespace TelnetNegotiationCore.TestServer
 
 				for(int currentByte = 0; currentByte != -1; currentByte = input.BaseStream.ReadByte())
 				{
-					telnet.Interpret((byte)currentByte).GetAwaiter().GetResult();
+					telnet.InterpretAsync((byte)currentByte).GetAwaiter().GetResult();
 				}
 
 				_Logger.Information("Connection: {connectionState}", "Connection Closed");

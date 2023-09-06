@@ -1,13 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Serilog;
-using Serilog.Context;
 using Stateless;
 using TelnetNegotiationCore.Models;
 using MoreLinq;
+using OneOf;
 
 namespace TelnetNegotiationCore.Interpretors
 {
@@ -31,6 +30,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// Telnet state machine
 		/// </summary>
 		private readonly StateMachine<State, Trigger> _TelnetStateMachine;
+		private readonly ParameterizedTriggers _parameterizedTriggers;
 
 		/// <summary>
 		/// Local buffer. We only take up to 5mb in buffer space. 
@@ -47,8 +47,8 @@ namespace TelnetNegotiationCore.Interpretors
 		/// </summary>
 		/// <param name="t">The Trigger</param>
 		/// <returns>A Parameterized trigger</returns>
-		private StateMachine<State, Trigger>.TriggerWithParameters<byte> BTrigger(Trigger t)
-			=> ParameterizedTriggers.ByteTrigger(_TelnetStateMachine, t);
+		private StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParametarizedTrigger(Trigger t)
+			=> _parameterizedTriggers.ParametarizedTrigger(_TelnetStateMachine, t);
 
 		/// <summary>
 		/// The Serilog style Logger
@@ -57,12 +57,12 @@ namespace TelnetNegotiationCore.Interpretors
 
 		public enum TelnetMode
 		{
-			[Obsolete("Not yet supported")]
-			Client = 0,
-			Server = 1
+			Error = 0,
+			Client = 1,
+			Server = 2
 		};
 
-		public TelnetMode Mode { get; init; }
+		public readonly TelnetMode Mode;
 
 		/// <summary>
 		/// Callback to run on a submission (linefeed)
@@ -86,11 +86,13 @@ namespace TelnetNegotiationCore.Interpretors
 		/// After calling this constructor, one should subscribe to the Triggers, register a Stream, and then run Process()
 		/// </remarks>
 		/// <param name="logger">A Serilog Logger. If null, we will use the default one with a Context of the Telnet Interpretor.</param>
-		public TelnetInterpretor(ILogger logger = null)
+		public TelnetInterpretor(TelnetMode mode, ILogger logger = null)
 		{
+			Mode = mode;
 			_Logger = logger ?? Log.Logger.ForContext<TelnetInterpretor>();
 			_InitialCall = new List<Func<Task>>();
 			_TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
+			_parameterizedTriggers = new ParameterizedTriggers();
 
 			SupportedCharacterSets = new Lazy<byte[]>(CharacterSets, true);
 
@@ -129,7 +131,7 @@ namespace TelnetNegotiationCore.Interpretors
 				.SubstateOf(State.Accepting)
 				.Permit(Trigger.NEWLINE, State.Act);
 
-			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.ReadingCharacters).OnEntryFrom(BTrigger(t), WriteToBufferAndAdvance));
+			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.ReadingCharacters).OnEntryFrom(ParametarizedTrigger(t), WriteToBufferAndAdvance));
 
 			// We've gotten a newline. We interpret this as time to act and send a signal back.
 			tsm.Configure(State.Act)
@@ -150,9 +152,12 @@ namespace TelnetNegotiationCore.Interpretors
 				.Permit(Trigger.SB, State.SubNegotiation)
 				.OnEntry(x => _Logger.Debug("Connection: {connectionState}", "Starting Negotiation"));
 
+			// As a general documentation, negotiation means a Do followed by a Will, or a Will followed by a Do.
+			// Do followed by Refusing or Will followed by Don't indicate negative negotiation.
 			tsm.Configure(State.Willing);
-
 			tsm.Configure(State.Refusing);
+			tsm.Configure(State.Do);
+			tsm.Configure(State.Dont);
 
 			tsm.Configure(State.ReadingCharacters)
 				.OnEntryFrom(Trigger.IAC, x => _Logger.Debug("Connection: {connectionState}", "Canceling negotation"));
@@ -170,13 +175,13 @@ namespace TelnetNegotiationCore.Interpretors
 		/// Write the character into a buffer.
 		/// </summary>
 		/// <param name="b">A useful byte for the Client/Server</param>
-		private void WriteToBufferAndAdvance(byte b)
+		private void WriteToBufferAndAdvance(OneOf<byte, Trigger> b)
 		{
-			if (b == (byte)Trigger.CARRIAGERETURN) return;
-			_Logger.Verbose("Debug: Writing into buffer: {byte}", b);
-			buffer[bufferposition] = b;
+			if (b.AsT0 == (byte)Trigger.CARRIAGERETURN) return;
+			_Logger.Verbose("Debug: Writing into buffer: {byte}", b.AsT0);
+			buffer[bufferposition] = b.AsT0;
 			bufferposition++;
-			CallbackOnByte?.Invoke(b, _CurrentEncoding);
+			CallbackOnByte?.Invoke(b.AsT0, _CurrentEncoding);
 		}
 
 		/// <summary>
@@ -195,9 +200,14 @@ namespace TelnetNegotiationCore.Interpretors
 		/// </summary>
 		public TelnetInterpretor Validate()
 		{
-			if (CallbackOnSubmit == null && CallbackOnByte == null) 
+			if (CallbackOnSubmit == null && CallbackOnByte == null)
+			{
 				throw new ApplicationException($"Writeback Functions ({CallbackOnSubmit}, {CallbackOnByte}) are null or have not been registered.");
-			if (CallbackNegotiation == null) throw new ApplicationException($"{CallbackNegotiation} is null and has not been registered.");
+			}
+			if (CallbackNegotiation == null)
+			{
+				throw new ApplicationException($"{CallbackNegotiation} is null and has not been registered.");
+			}
 
 			return this;
 		}
@@ -209,18 +219,19 @@ namespace TelnetNegotiationCore.Interpretors
 
 		/// <summary>
 		/// Interprets the next byte in an asynchronous way.
+		/// TODO: Cache the value of IsDefined, or get a way to compile this down to a faster call that doesn't require reflection each time.
 		/// </summary>
 		/// <param name="bt">An integer representation of a byte.</param>
 		/// <returns>Awaitable Task</returns>
-		public async Task Interpret(byte bt)
+		public async Task InterpretAsync(byte bt)
 		{
 			if (Enum.IsDefined(typeof(Trigger), (short)bt))
 			{
-				await _TelnetStateMachine.FireAsync(BTrigger((Trigger)bt), bt);
+				await _TelnetStateMachine.FireAsync(ParametarizedTrigger((Trigger)bt), bt);
 			}
 			else
 			{
-				await _TelnetStateMachine.FireAsync(BTrigger(Trigger.ReadNextCharacter), bt);
+				await _TelnetStateMachine.FireAsync(ParametarizedTrigger(Trigger.ReadNextCharacter), bt);
 			}
 		}
 	}

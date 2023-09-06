@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading.Tasks;
+using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
 
@@ -93,7 +94,7 @@ namespace TelnetNegotiationCore.Interpretors
 			tsm.Configure(State.EvaluatingNAWS)
 				.PermitDynamic(Trigger.IAC, () => _nawsIndex < 4 ? State.EscapingNAWSValue : State.CompletingNAWS);
 
-			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingNAWS).OnEntryFrom(BTrigger(t), CaptureNAWS));
+			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingNAWS).OnEntryFrom(ParametarizedTrigger(t), CaptureNAWS));
 
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.EvaluatingNAWS).PermitReentry(t));
 
@@ -127,10 +128,10 @@ namespace TelnetNegotiationCore.Interpretors
 		/// Capture a byte and write it into the NAWS buffer
 		/// </summary>
 		/// <param name="b">The current byte</param>
-		private void CaptureNAWS(byte b)
+		private void CaptureNAWS(OneOf<byte, Trigger> b)
 		{
 			if(_nawsIndex > _nawsByteState.Length) return;
-			_nawsByteState[_nawsIndex] = b;
+			_nawsByteState[_nawsIndex] = b.AsT0;
 			_nawsIndex++;
 		}
 

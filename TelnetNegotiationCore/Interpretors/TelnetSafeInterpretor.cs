@@ -84,18 +84,20 @@ namespace TelnetNegotiationCore.Interpretors
 			var states = tsm.GetInfo().States;
 			var acceptingStateInfo = states.Where(x => (State)x.UnderlyingState == State.Accepting);
 
-			foreach (var state in states
-				.Except(acceptingStateInfo)
-				.Where(x => x.Transitions.Any(x => (Trigger)x.Trigger.UnderlyingTrigger == Trigger.Error)))
+			var statesAllowingForErrorTransitions = states
+				.Except(acceptingStateInfo);
+				//.Where(x => x.Transitions.Any(x => (Trigger)x.Trigger.UnderlyingTrigger == Trigger.Error));
+
+			foreach (var state in statesAllowingForErrorTransitions)
 			{
 				tsm.Configure((State)state.UnderlyingState)
 					.Permit(Trigger.Error, State.Accepting);
 			}
 
-			tsm.OnUnhandledTrigger(async (state, trigger) =>
+			tsm.OnUnhandledTrigger(async (state, trigger, unmetguards) =>
 			{
-				_Logger.Fatal("Bad transition from {@state} with trigger {@trigger}. Cannot recover. Ignoring character and attempting to recover.", state, trigger);
-				await tsm.FireAsync(Trigger.Error);
+				_Logger.Fatal("Bad transition from {@state} with trigger {@trigger} due to unmet guards: {@unmetguards}. Cannot recover. Ignoring character and attempting to recover.", state, trigger, unmetguards);
+				await tsm.FireAsync(ParametarizedTrigger(Trigger.Error), Trigger.Error);
 			});
 
 			return tsm;
