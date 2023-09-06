@@ -149,18 +149,17 @@ namespace TelnetNegotiationCore.UnitTests
 				yield return new TestCaseData(
 					new[] { // Client Sends
 						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET },
-						new [] { (byte)Trigger.IAC, (byte)Trigger.REQUEST, (byte)';', (byte)'U', (byte)'T', (byte)'F', (byte)'-', (byte)'8', (byte)Trigger.IAC, (byte)Trigger.SE }
+						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST, (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8', (byte)Trigger.IAC, (byte)Trigger.SE }
 					},
 					new[] { // Server Should Respond With
 						new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET },
-						new [] { (byte)Trigger.IAC, (byte)Trigger.ACCEPTED, (byte)'U', (byte)'T', (byte)'F', (byte)'-', (byte)'8', (byte)Trigger.IAC, (byte)Trigger.SE }
+						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED, (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8', (byte)Trigger.IAC, (byte)Trigger.SE }
 					},
 					new[] // Registered CHARSET List After Negotiation
 					{
 						Array.Empty<string>(),
-						new string[] { "ANSI"},
-						new string[] { "ANSI", "VT100"},
-						new string[] { "ANSI", "VT100"}
+						new string[] { },
+						new string[] { "UTF-8"}
 					}).SetName("Long response to Client CHARSET Willing");
 			}
 		}

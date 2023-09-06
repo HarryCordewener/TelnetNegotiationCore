@@ -201,7 +201,7 @@ namespace TelnetNegotiationCore.Interpretors
 			}
 
 			char? sep = ascii.GetString(_charsetByteState, 0, 1)?[0];
-			string[] charsetsOffered = ascii.GetString(_charsetByteState, 1, _charsetByteIndex).Split(sep ?? ' ');
+			string[] charsetsOffered = ascii.GetString(_charsetByteState, 1, _charsetByteIndex - 1).Split(sep ?? ' ');
 
 			_Logger.Debug("Charsets offered to us: {@charsetResultDebug}", charsetsOffered);
 
@@ -216,7 +216,7 @@ namespace TelnetNegotiationCore.Interpretors
 				return;
 			}
 
-			_Logger.Debug("Charsets chosen by us: {@charsetResultDebug}", chosenEncoding);
+			_Logger.Debug("Charsets chosen by us: {@charsetWebName} (CP: {@cp})", chosenEncoding.WebName, chosenEncoding.CodePage);
 
 			var preamble = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED };
 			var charsetAscii = ascii.GetBytes(chosenEncoding.WebName);
@@ -287,7 +287,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <returns>A byte array representing the charset offering.</returns>
 		private byte[] CharacterSets()
 		{
-			byte[] pre = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.SEND };
+			byte[] pre = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST };
 			byte[] post = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };
 			byte[] defaultcharsets = ascii.GetBytes($";{(string.Join(";", _charsetorder(Encoding.GetEncodings()).Select(x => x.WebName)))}");
 			return pre.Concat(defaultcharsets).Concat(post).ToArray();
