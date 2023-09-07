@@ -58,6 +58,7 @@ namespace TelnetNegotiationCore.UnitTests
 				CallbackNegotiation = WriteBackToNegotiate,
 				CallbackOnSubmit = WriteBackToOutput,
 				CallbackOnByte = (x, y) => Task.CompletedTask,
+				CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
 			}.RegisterMSSPConfig(new MSSPConfig
 			{
 				Name = () => "My Telnet Negotiated Client",
@@ -122,11 +123,24 @@ namespace TelnetNegotiationCore.UnitTests
 				yield return new TestCaseData(
 					new[]
 					{
-						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET }
+						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET },
+						new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET },
+						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED, (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8', (byte)Trigger.IAC, (byte)Trigger.SE }
+
 					},
 					new[]
 					{
-						new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET }
+						new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET },
+						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
+							(byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8',
+							(byte)';', (byte)'i', (byte)'s', (byte)'o', (byte)'-', (byte)'8', (byte)'8',(byte)'5', (byte)'9',(byte)'-', (byte)'1',
+							(byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6',
+							(byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6',(byte)'B', (byte)'E',
+							(byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'3', (byte)'2',
+							(byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'3', (byte)'2',(byte)'B', (byte)'E',
+							(byte)';', (byte)'u', (byte)'s', (byte)'-', (byte)'a', (byte)'s', (byte)'c',(byte)'i', (byte)'i',
+							(byte)Trigger.IAC, (byte)Trigger.SE },
+						null
 					}).SetName("Capable of sending a CHARSET list");
 			}
 		}
@@ -149,7 +163,33 @@ namespace TelnetNegotiationCore.UnitTests
 				yield return new TestCaseData(
 					new[] { // Client Sends
 						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET },
-						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST, (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8', (byte)Trigger.IAC, (byte)Trigger.SE }
+						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
+							(byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6',
+							(byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6',(byte)'B', (byte)'E',
+							(byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'3', (byte)'2',(byte)'B', (byte)'E',
+							(byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'3', (byte)'2',
+							(byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8',
+							(byte)';', (byte)'i', (byte)'s', (byte)'o', (byte)'-', (byte)'8', (byte)'8',(byte)'5', (byte)'9',(byte)'-', (byte)'1',
+							(byte)';', (byte)'u', (byte)'s', (byte)'-', (byte)'a', (byte)'s', (byte)'c',(byte)'i', (byte)'i',
+							(byte)Trigger.IAC, (byte)Trigger.SE }
+					},
+					new[] { // Server Should Respond With
+						new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET },
+						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED, (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6', (byte)Trigger.IAC, (byte)Trigger.SE }
+					},
+					new[] // Registered CHARSET List After Negotiation
+					{
+						Array.Empty<string>(),
+						Array.Empty<string>(),
+						new string[] { "UTF-8"}
+					}).SetName("Basic response to Client Negotiation with one option");
+				yield return new TestCaseData(
+					new[] { // Client Sends
+						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET },
+						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
+							(byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8',
+							(byte)';', (byte)'a', (byte)'n', (byte)'s', (byte)'i',
+							(byte)Trigger.IAC, (byte)Trigger.SE }
 					},
 					new[] { // Server Should Respond With
 						new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET },
@@ -158,9 +198,9 @@ namespace TelnetNegotiationCore.UnitTests
 					new[] // Registered CHARSET List After Negotiation
 					{
 						Array.Empty<string>(),
-						new string[] { },
+						Array.Empty<string>(),
 						new string[] { "UTF-8"}
-					}).SetName("Long response to Client CHARSET Willing");
+					}).SetName("Basic response to Client Negotiation with two options");
 			}
 		}
 	}

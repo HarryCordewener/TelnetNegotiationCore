@@ -38,7 +38,7 @@ namespace TelnetNegotiationCore.Interpretors
 
 		private bool charsetoffered = false;
 
-		private Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetorder = (x) => x.Select(x => x.GetEncoding()).OrderBy(z => z);
+		private Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetorder = (x) => x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
 
 		public Lazy<byte[]> SupportedCharacterSets { get; }
 
@@ -96,7 +96,7 @@ namespace TelnetNegotiationCore.Interpretors
 				.Permit(Trigger.CHARSET, State.AlmostNegotiatingCharset);
 
 			tsm.Configure(State.AlmostNegotiatingCharset)
-				.Permit(Trigger.SEND, State.NegotiatingCharset)
+				.Permit(Trigger.REQUEST, State.NegotiatingCharset)
 				.Permit(Trigger.REJECTED, State.EndingCharsetSubnegotiation)
 				.Permit(Trigger.ACCEPTED, State.NegotiatingAcceptedCharset);
 
