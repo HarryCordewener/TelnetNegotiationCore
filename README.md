@@ -5,6 +5,7 @@ This is done with an eye on MUDs at this time, but may improve to support more t
 
 ## Support
 | RFC                                         | Description                        | Supported  | Comments          |
+| ------------------------------------------- | ---------------------------------- |------------| ----------------- |
 | http://www.faqs.org/rfcs/rfc855.html        | Telnet Option Specification        | Full       |                   |
 | http://www.faqs.org/rfcs/rfc858.html        | Suppress GOAHEAD Negotiation       | Full       | Untested          |
 | http://www.faqs.org/rfcs/rfc1091.html       | Terminal Type Negotiation          | Full       |                   |
