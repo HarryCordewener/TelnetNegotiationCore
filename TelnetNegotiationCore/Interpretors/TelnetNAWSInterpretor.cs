@@ -6,6 +6,12 @@ using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.Interpretors
 {
+	/// <summary>
+	/// Implements http://www.faqs.org/rfcs/rfc1073.html
+	/// </summary>
+	/// <remarks>
+	/// TODO: Implement Client Side
+	/// </remarks>
 	public partial class TelnetInterpretor
 	{
 		/// <summary>

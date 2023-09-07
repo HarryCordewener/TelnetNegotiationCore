@@ -23,11 +23,11 @@ namespace TelnetNegotiationCore.TestServer
 
 		public MockServer(string ip, int port, ILogger logger = null)
 		{
+			Console.OutputEncoding = System.Text.Encoding.UTF8;
 			_Logger = logger ?? Log.Logger.ForContext<MockServer>();
 			IPAddress localAddr = IPAddress.Parse(ip);
 			server = new TcpListener(localAddr, port);
 			server.Start();
-			StartListener();
 		}
 
 		public void StartListener()
@@ -54,7 +54,7 @@ namespace TelnetNegotiationCore.TestServer
 		public Task WriteBack(byte[] writeback, Encoding encoding)
 		{
 			string str = encoding.GetString(writeback);
-			Regex.Replace(str, @"\p{Cc}+", string.Empty);
+			// Regex.Replace(str, @"\p{Cc}+", string.Empty);
 			_Logger.Information("Writeback: {writeBack}", str);
 			return Task.CompletedTask;
 		}
