@@ -47,7 +47,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <summary>
 		/// A dictionary for MTTS support.
 		/// </summary>
-		private static readonly Dictionary<int, string> _MTTS = new()
+		private readonly Dictionary<int, string> _MTTS = new()
 		{
 			{1, "ANSI"},
 			{2, "VT100"},

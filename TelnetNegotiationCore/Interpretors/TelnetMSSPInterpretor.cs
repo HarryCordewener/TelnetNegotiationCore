@@ -143,13 +143,13 @@ namespace TelnetNegotiationCore.Interpretors
 
 			if (val is string || val is int)
 			{
-				_Logger.Verbose("MSSP Announcement: {msspkey}: {msspval}", name, val);
+				_Logger.Debug("MSSP Announcement: {msspkey}: {msspval}", name, val);
 				return bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
 					.Concat(ascii.GetBytes((string)val.ToString()));
 			}
 			else if (val is bool boolean)
 			{
-				_Logger.Verbose("MSSP Announcement: {msspkey}: {msspval}", name, val);
+				_Logger.Debug("MSSP Announcement: {msspkey}: {msspval}", name, val);
 				return bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
 					.Concat(ascii.GetBytes(boolean ? "1" : "0"));
 			}
@@ -157,7 +157,7 @@ namespace TelnetNegotiationCore.Interpretors
 			{
 				foreach (var item in val as IEnumerable<string>)
 				{
-					_Logger.Verbose("MSSP Announcement: {msspkey}[]: {msspval}", name, item);
+					_Logger.Debug("MSSP Announcement: {msspkey}[]: {msspval}", name, item);
 					bt = bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
 						.Concat(ascii.GetBytes(item));
 				}

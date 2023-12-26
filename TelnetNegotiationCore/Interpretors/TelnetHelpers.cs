@@ -4,6 +4,6 @@ namespace TelnetNegotiationCore.Interpretors
 {
 	public partial class TelnetInterpretor
 	{
-		private static readonly ASCIIEncoding ascii = new ASCIIEncoding();
+		private readonly ASCIIEncoding ascii = new();
 	}
 }

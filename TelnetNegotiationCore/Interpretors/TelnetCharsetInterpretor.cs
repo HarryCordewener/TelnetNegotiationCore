@@ -222,6 +222,8 @@ namespace TelnetNegotiationCore.Interpretors
 			var charsetAscii = ascii.GetBytes(chosenEncoding.WebName);
 			var postamble = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };
 
+			CurrentEncoding = chosenEncoding;
+
 			await CallbackNegotiation(preamble.Concat(charsetAscii).Concat(postamble).ToArray());
 		}
 
@@ -233,14 +235,14 @@ namespace TelnetNegotiationCore.Interpretors
 		{
 			try
 			{
-				_CurrentEncoding = Encoding.GetEncoding(ascii.GetString(_acceptedCharsetByteState, 1, _acceptedCharsetByteIndex - 1).Trim());
+				CurrentEncoding = Encoding.GetEncoding(ascii.GetString(_acceptedCharsetByteState, 1, _acceptedCharsetByteIndex - 1).Trim());
 			}
 			catch (Exception ex1)
 			{
 				_Logger.Warning(ex1, "Potentially expected error during Accepting Charset Negotiation. Seperator not passed back. Trying without seperator.");
 				try
 				{
-					_CurrentEncoding = Encoding.GetEncoding(ascii.GetString(_acceptedCharsetByteState, 0, _acceptedCharsetByteIndex).Trim());
+					CurrentEncoding = Encoding.GetEncoding(ascii.GetString(_acceptedCharsetByteState, 0, _acceptedCharsetByteIndex).Trim());
 				}
 				catch (Exception ex2)
 				{
@@ -248,7 +250,7 @@ namespace TelnetNegotiationCore.Interpretors
 					await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
 				}
 			}
-			_Logger.Information("Connection: Accepted Charset Negotiation for: {charset}", _CurrentEncoding.WebName);
+			_Logger.Information("Connection: Accepted Charset Negotiation for: {charset}", CurrentEncoding.WebName);
 			charsetoffered = false;
 		}
 

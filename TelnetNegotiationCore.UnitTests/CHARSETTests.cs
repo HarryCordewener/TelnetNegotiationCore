@@ -13,32 +13,42 @@ namespace TelnetNegotiationCore.UnitTests
 	[TestFixture]
 	public class CHARSETTests
 	{
-		private TelnetInterpretor _server_ti;
-		private TelnetInterpretor _client_ti;
 		private byte[] _negotiationOutput;
 
 		private Task WriteBackToOutput(byte[] arg1, Encoding arg2) => throw new NotImplementedException();
 
-		private Task WriteBackToNegotiate(byte[] arg1)
+		private Task ClientWriteBackToNegotiate(byte[] arg1)
+		{
+			_negotiationOutput = arg1;
+			return Task.CompletedTask;
+		}
+
+		private Task ServerWriteBackToNegotiate(byte[] arg1)
 		{
 			_negotiationOutput = arg1;
 			return Task.CompletedTask;
 		}
 
 		[SetUp]
-		public async Task Setup()
+		public void Setup()
 		{
+			_negotiationOutput = null;
+
 			var log = new LoggerConfiguration()
 				.Enrich.FromLogContext()
-				.WriteTo.Console()
+				.WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] ({TelnetMode}) {Message:lj}{NewLine}{Exception}")
 				.MinimumLevel.Verbose()
 				.CreateLogger();
 
 			Log.Logger = log;
+		}
 
-			_server_ti = await new TelnetInterpretor(TelnetInterpretor.TelnetMode.Server)
+		[TestCaseSource(nameof(ServerCHARSETSequences), Category = nameof(TelnetInterpretor.TelnetMode.Server))]
+		public async Task ServerEvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<Encoding> currentEncoding)
+		{
+			var server_ti = await new TelnetInterpretor(TelnetInterpretor.TelnetMode.Server)
 			{
-				CallbackNegotiation = WriteBackToNegotiate,
+				CallbackNegotiation = ServerWriteBackToNegotiate,
 				CallbackOnSubmit = WriteBackToOutput,
 				CallbackOnByte = (x, y) => Task.CompletedTask,
 			}.RegisterMSSPConfig(new MSSPConfig
@@ -53,9 +63,28 @@ namespace TelnetNegotiationCore.UnitTests
 				}
 			}).Validate().Build();
 
-			_client_ti = await new TelnetInterpretor(TelnetInterpretor.TelnetMode.Client)
+			if (clientSends.Count() != serverShouldRespondWith.Count())
+				throw new Exception("Invalid Testcase.");
+
+			foreach ((var clientSend, var serverShouldRespond, var shouldHaveCurrentEncoding) in clientSends.Zip(serverShouldRespondWith, currentEncoding))
 			{
-				CallbackNegotiation = WriteBackToNegotiate,
+				_negotiationOutput = null;
+				foreach (var x in clientSend ?? Enumerable.Empty<byte>())
+				{
+					await server_ti.InterpretAsync(x);
+				}
+
+				Assert.AreEqual(shouldHaveCurrentEncoding, server_ti.CurrentEncoding);
+				CollectionAssert.AreEqual(serverShouldRespond, _negotiationOutput);
+			}
+		}
+
+		[TestCaseSource(nameof(ClientCHARSETSequences), Category = nameof(TelnetInterpretor.TelnetMode.Client))]
+		public async Task ClientEvaluationCheck(IEnumerable<byte[]> serverSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<Encoding> currentEncoding)
+		{
+			var client_ti = await new TelnetInterpretor(TelnetInterpretor.TelnetMode.Client)
+			{
+				CallbackNegotiation = ClientWriteBackToNegotiate,
 				CallbackOnSubmit = WriteBackToOutput,
 				CallbackOnByte = (x, y) => Task.CompletedTask,
 				CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
@@ -70,39 +99,18 @@ namespace TelnetNegotiationCore.UnitTests
 					{ "Baz", () => new [] {"Moo", "Meow" }}
 				}
 			}).Validate().Build();
-		}
 
-		[TestCaseSource(nameof(ServerCHARSETSequences))]
-		public async Task ServerEvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<string[]> RegisteredCHARSETS)
-		{
-			if (clientSends.Count() != serverShouldRespondWith.Count())
-				throw new Exception("Invalid Testcase.");
-
-			foreach ((var clientSend, var serverShouldRespond, var shouldHaveCHARSETList) in clientSends.Zip(serverShouldRespondWith, RegisteredCHARSETS))
-			{
-				_negotiationOutput = null;
-				foreach (var x in clientSend ?? Enumerable.Empty<byte>())
-				{
-					await _server_ti.InterpretAsync(x);
-				}
-				CollectionAssert.AreEqual(shouldHaveCHARSETList ?? Enumerable.Empty<string>(), _server_ti.TerminalTypes);
-				CollectionAssert.AreEqual(serverShouldRespond, _negotiationOutput);
-			}
-		}
-
-		[TestCaseSource(nameof(ClientCHARSETSequences))]
-		public async Task ClientEvaluationCheck(IEnumerable<byte[]> serverSends, IEnumerable<byte[]> serverShouldRespondWith)
-		{
 			if (serverSends.Count() != serverShouldRespondWith.Count())
 				throw new Exception("Invalid Testcase.");
 
-			foreach ((var serverSend, var clientShouldRespond) in serverSends.Zip(serverShouldRespondWith))
+			foreach ((var serverSend, var clientShouldRespond, var shouldHaveCurrentEncoding) in serverSends.Zip(serverShouldRespondWith, currentEncoding))
 			{
 				_negotiationOutput = null;
 				foreach (var x in serverSend ?? Enumerable.Empty<byte>())
 				{
-					await _client_ti.InterpretAsync(x);
+					await client_ti.InterpretAsync(x);
 				}
+				Assert.AreEqual(shouldHaveCurrentEncoding, client_ti.CurrentEncoding);
 				CollectionAssert.AreEqual(clientShouldRespond, _negotiationOutput);
 			}
 		}
@@ -119,6 +127,10 @@ namespace TelnetNegotiationCore.UnitTests
 					new[]
 					{
 						new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET }
+					},
+					new[] // Registered CHARSET List After Negotiation
+					{
+						Encoding.GetEncoding("ISO-8859-1"),
 					}).SetName("Basic responds to Server CHARSET WILL");
 				yield return new TestCaseData(
 					new[]
@@ -141,6 +153,12 @@ namespace TelnetNegotiationCore.UnitTests
 							(byte)';', (byte)'u', (byte)'s', (byte)'-', (byte)'a', (byte)'s', (byte)'c',(byte)'i', (byte)'i',
 							(byte)Trigger.IAC, (byte)Trigger.SE },
 						null
+					},
+					new[] // Registered CHARSET List After Negotiation
+					{
+						Encoding.GetEncoding("ISO-8859-1"),
+						Encoding.GetEncoding("ISO-8859-1"),
+						Encoding.UTF8
 					}).SetName("Capable of sending a CHARSET list");
 			}
 		}
@@ -158,7 +176,7 @@ namespace TelnetNegotiationCore.UnitTests
 					},
 					new[] // Registered CHARSET List After Negotiation
 					{
-						Array.Empty<string>()
+						Encoding.GetEncoding("ISO-8859-1")
 					}).SetName("Basic responds to Client CHARSET Willing");
 				yield return new TestCaseData(
 					new[] { // Client Sends
@@ -179,10 +197,9 @@ namespace TelnetNegotiationCore.UnitTests
 					},
 					new[] // Registered CHARSET List After Negotiation
 					{
-						Array.Empty<string>(),
-						Array.Empty<string>(),
-						new string[] { "UTF-8"}
-					}).SetName("Basic response to Client Negotiation with one option");
+						Encoding.GetEncoding("ISO-8859-1"),
+						Encoding.Unicode
+					}).SetName("Basic response to Client Negotiation with many options");
 				yield return new TestCaseData(
 					new[] { // Client Sends
 						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET },
@@ -197,9 +214,8 @@ namespace TelnetNegotiationCore.UnitTests
 					},
 					new[] // Registered CHARSET List After Negotiation
 					{
-						Array.Empty<string>(),
-						Array.Empty<string>(),
-						new string[] { "UTF-8"}
+						Encoding.GetEncoding("ISO-8859-1"),
+						Encoding.UTF8
 					}).SetName("Basic response to Client Negotiation with two options");
 			}
 		}

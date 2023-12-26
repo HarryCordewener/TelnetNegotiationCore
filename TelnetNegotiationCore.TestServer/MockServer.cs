@@ -49,12 +49,11 @@ namespace TelnetNegotiationCore.TestServer
 			}
 		}
 
-		private static async Task WriteToOutputStream(byte[] arg, StreamWriter writer) => await writer.BaseStream.WriteAsync(arg);
+		private async Task WriteToOutputStream(byte[] arg, StreamWriter writer) => await writer.BaseStream.WriteAsync(arg);
 
 		public Task WriteBack(byte[] writeback, Encoding encoding)
 		{
 			string str = encoding.GetString(writeback);
-			// Regex.Replace(str, @"\p{Cc}+", string.Empty);
 			_Logger.Information("Writeback: {writeBack}", str);
 			return Task.CompletedTask;
 		}

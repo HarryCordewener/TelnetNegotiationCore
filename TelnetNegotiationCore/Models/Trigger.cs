@@ -12,12 +12,7 @@ namespace TelnetNegotiationCore.Models
 	/// </summary>
 	public class ParameterizedTriggers
 	{
-		private readonly Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte,Trigger>>> _cache;
-
-		internal ParameterizedTriggers()
-		{
-			_cache = new Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>>>();
-		}
+		private readonly Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte,Trigger>>> _cache = new();
 
 		/// <summary>
 		/// Returns a (cached) Parameterized Trigger. 
@@ -40,17 +35,16 @@ namespace TelnetNegotiationCore.Models
 	/// </summary>
 	public static class TriggerHelper
 	{
-		public static readonly ImmutableHashSet<Trigger> AllTriggers = ImmutableHashSet<Trigger>.Empty.Union(((IEnumerable<Trigger>)Enum.GetValues(typeof(Trigger))).Distinct());
-		public static readonly ImmutableHashSet<Trigger> AllTriggersButIAC = AllTriggers.Except(new[] { Trigger.IAC });
+		private static readonly ImmutableHashSet<Trigger> AllTriggers = ImmutableHashSet<Trigger>.Empty.Union(((IEnumerable<Trigger>)Enum.GetValues(typeof(Trigger))).Distinct());
 
 		public static void ForAllTriggers(Action<Trigger> f)
 			=> MoreLinq.MoreEnumerable.ForEach(AllTriggers, f);
 
-		public static void ForAllTriggersButIAC(Action<Trigger> f)
-			=> MoreLinq.MoreEnumerable.ForEach(AllTriggersButIAC, f);
-
 		public static void ForAllTriggersExcept(IEnumerable<Trigger> except, Action<Trigger> f)
 			=> MoreLinq.MoreEnumerable.ForEach(AllTriggers.Except(except), f);
+
+		public static void ForAllTriggersButIAC(Action<Trigger> f)
+			=> ForAllTriggersExcept(new[] { Trigger.IAC }, f);
 	}
 
 #pragma warning disable CA1069 // Enums values should not be duplicated

@@ -24,7 +24,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <summary>
 		/// The current Encoding used for interpretting incoming non-negotiation text, and what we should send on outbound.
 		/// </summary>
-		private Encoding _CurrentEncoding = Encoding.GetEncoding("ISO-8859-1");
+		public Encoding CurrentEncoding { get; private set;} = Encoding.GetEncoding("ISO-8859-1");
 
 		/// <summary>
 		/// Telnet state machine
@@ -89,7 +89,7 @@ namespace TelnetNegotiationCore.Interpretors
 		public TelnetInterpretor(TelnetMode mode, ILogger logger = null)
 		{
 			Mode = mode;
-			_Logger = logger ?? Log.Logger.ForContext<TelnetInterpretor>();
+			_Logger = logger ?? Log.Logger.ForContext<TelnetInterpretor>().ForContext("TelnetMode", mode);
 			_InitialCall = new List<Func<Task>>();
 			_TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
 			_parameterizedTriggers = new ParameterizedTriggers();
@@ -181,7 +181,7 @@ namespace TelnetNegotiationCore.Interpretors
 			_Logger.Verbose("Debug: Writing into buffer: {byte}", b.AsT0);
 			buffer[bufferposition] = b.AsT0;
 			bufferposition++;
-			CallbackOnByte?.Invoke(b.AsT0, _CurrentEncoding);
+			CallbackOnByte?.Invoke(b.AsT0, CurrentEncoding);
 		}
 
 		/// <summary>
@@ -192,7 +192,7 @@ namespace TelnetNegotiationCore.Interpretors
 			byte[] cp = new byte[bufferposition];
 			Array.Copy(buffer, cp, bufferposition);
 			bufferposition = 0;
-			CallbackOnSubmit.Invoke(cp, _CurrentEncoding);
+			CallbackOnSubmit.Invoke(cp, CurrentEncoding);
 		}
 
 		/// <summary>
