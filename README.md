@@ -3,6 +3,8 @@
 This project is intended to be a library that implements basic telnet functionality. 
 This is done with an eye on MUDs at this time, but may improve to support more terminal capabilities as time permits.
 
+At this time, this repository is in a rough state and does not yet implement some common modern code standards. 
+
 ## Support
 | RFC                                         | Description                        | Supported  | Comments           |
 | ------------------------------------------- | ---------------------------------- |------------| ------------------ |
@@ -36,5 +38,4 @@ Being a Telnet Negotiation Library, this library doesn't give support for extens
 
 # Todo
 * Create a Changelog
-* Use Github Actions to run Unit Tests
 * Use Github Actions to create Nuget Package

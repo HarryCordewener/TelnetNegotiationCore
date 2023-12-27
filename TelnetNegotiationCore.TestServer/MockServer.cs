@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Interpretors;
 using TelnetNegotiationCore.Models;
+using Stateless.Graph;
 
 namespace TelnetNegotiationCore.TestServer
 {
@@ -98,7 +99,7 @@ namespace TelnetNegotiationCore.TestServer
 					}).Validate().Build().GetAwaiter().GetResult();
 
 				Clients.TryAdd(port, telnet);
-
+				
 				_Logger.Information("Connection: {connectionState}", "Connected");
 
 				for(int currentByte = 0; currentByte != -1; currentByte = input.BaseStream.ReadByte())

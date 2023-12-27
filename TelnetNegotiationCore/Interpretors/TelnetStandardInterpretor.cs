@@ -24,12 +24,16 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <summary>
 		/// The current Encoding used for interpretting incoming non-negotiation text, and what we should send on outbound.
 		/// </summary>
-		public Encoding CurrentEncoding { get; private set;} = Encoding.GetEncoding("ISO-8859-1");
+		public Encoding CurrentEncoding { get; private set; } = Encoding.GetEncoding("ISO-8859-1");
 
 		/// <summary>
 		/// Telnet state machine
 		/// </summary>
-		private readonly StateMachine<State, Trigger> _TelnetStateMachine;
+		public StateMachine<State, Trigger> TelnetStateMachine { get; private set; }
+
+		/// <summary>
+		/// A cache of parameterized triggers.
+		/// </summary>
 		private readonly ParameterizedTriggers _parameterizedTriggers;
 
 		/// <summary>
@@ -48,7 +52,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <param name="t">The Trigger</param>
 		/// <returns>A Parameterized trigger</returns>
 		private StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParametarizedTrigger(Trigger t)
-			=> _parameterizedTriggers.ParametarizedTrigger(_TelnetStateMachine, t);
+			=> _parameterizedTriggers.ParametarizedTrigger(TelnetStateMachine, t);
 
 		/// <summary>
 		/// The Serilog style Logger
@@ -91,18 +95,18 @@ namespace TelnetNegotiationCore.Interpretors
 			Mode = mode;
 			_Logger = logger ?? Log.Logger.ForContext<TelnetInterpretor>().ForContext("TelnetMode", mode);
 			_InitialCall = new List<Func<Task>>();
-			_TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
+			TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
 			_parameterizedTriggers = new ParameterizedTriggers();
 
 			SupportedCharacterSets = new Lazy<byte[]>(CharacterSets, true);
 
 			var li = new List<Func<StateMachine<State, Trigger>, StateMachine<State, Trigger>>> {
 				SetupSafeNegotiation, SetupEORNegotiation, SetupMSSPNegotiation, SetupTelnetTerminalType, SetupCharsetNegotiation, SetupNAWS, SetupStandardProtocol
-			}.AggregateRight(_TelnetStateMachine, (func, statemachine) => func(statemachine));
+			}.AggregateRight(TelnetStateMachine, (func, statemachine) => func(statemachine));
 
 			if (_Logger.IsEnabled(Serilog.Events.LogEventLevel.Verbose))
 			{
-				_TelnetStateMachine.OnTransitioned((transition) => _Logger.Verbose("Telnet Statemachine: {source} --[{trigger}({triggerbyte})]--> {destination}",
+				TelnetStateMachine.OnTransitioned((transition) => _Logger.Verbose("Telnet Statemachine: {source} --[{trigger}({triggerbyte})]--> {destination}",
 					transition.Source, transition.Trigger, transition.Parameters[0], transition.Destination));
 			}
 		}
@@ -227,11 +231,11 @@ namespace TelnetNegotiationCore.Interpretors
 		{
 			if (Enum.IsDefined(typeof(Trigger), (short)bt))
 			{
-				await _TelnetStateMachine.FireAsync(ParametarizedTrigger((Trigger)bt), bt);
+				await TelnetStateMachine.FireAsync(ParametarizedTrigger((Trigger)bt), bt);
 			}
 			else
 			{
-				await _TelnetStateMachine.FireAsync(ParametarizedTrigger(Trigger.ReadNextCharacter), bt);
+				await TelnetStateMachine.FireAsync(ParametarizedTrigger(Trigger.ReadNextCharacter), bt);
 			}
 		}
 	}
