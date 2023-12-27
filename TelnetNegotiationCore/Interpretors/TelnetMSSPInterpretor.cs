@@ -136,6 +136,7 @@ namespace TelnetNegotiationCore.Interpretors
 			return msspBytes;
 		}
 
+		// TODO: Cache this. This value shouldn't change.
 		private IEnumerable<byte> ConvertToMSSP(string name, dynamic val)
 		{
 			IEnumerable<byte> bt = Array.Empty<byte>()
