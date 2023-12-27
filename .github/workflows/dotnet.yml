@@ -23,11 +23,13 @@ jobs:
       run: dotnet build --no-restore
     - name: Test
       run: dotnet test --no-build --verbosity normal
-    - name: Store Graphviz Graphs
+    - name: Store Graphviz Graph for Server
       uses: actions/upload-artifact@v3
       with:
         name: server-dot
         path: TelnetNegotiationCore.UnitTests\bin\Debug\ServerDotGraph.dot
+    - name: Store Graphviz Graph for Client
+      uses: actions/upload-artifact@v3
       with:
         name: client-dot
         path: TelnetNegotiationCore.UnitTests\bin\Debug\ClientDotGraph.dot
