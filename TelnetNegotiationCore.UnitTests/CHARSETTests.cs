@@ -198,7 +198,7 @@ namespace TelnetNegotiationCore.UnitTests
 					new[] // Registered CHARSET List After Negotiation
 					{
 						Encoding.GetEncoding("ISO-8859-1"),
-						Encoding.Unicode
+						Encoding.GetEncoding("UTF-16")
 					}).SetName("Basic response to Client Negotiation with many options");
 				yield return new TestCaseData(
 					new[] { // Client Sends
