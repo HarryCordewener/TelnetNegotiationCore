@@ -224,6 +224,9 @@ namespace TelnetNegotiationCore.Interpretors
 
 			CurrentEncoding = chosenEncoding;
 
+			// TODO: The implementing Server or Client needs to be warned when CurrentEncoding is set!
+			// This would allow, for instance, the Console to ensure it displays Unicode correctly.
+
 			await CallbackNegotiation(preamble.Concat(charsetAscii).Concat(postamble).ToArray());
 		}
 

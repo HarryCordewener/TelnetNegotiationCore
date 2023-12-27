@@ -1,5 +1,4 @@
-﻿using System;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Stateless;
 using TelnetNegotiationCore.Models;
 
@@ -7,7 +6,7 @@ namespace TelnetNegotiationCore.Interpretors
 {
 	public partial class TelnetInterpretor
 	{
-		private bool _doEOR = false;
+		private bool? _doEOR = null;
 
 		/// <summary>
 		/// Character set Negotiation will set the Character Set and Character Page Server & Client have agreed to.
@@ -30,7 +29,7 @@ namespace TelnetNegotiationCore.Interpretors
 
 				tsm.Configure(State.DontEOR)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Client won't do EOR - do nothing"));
+					.OnEntryAsync(OnDontEORAsync);
 
 				RegisterInitialWilling(WillingEORAsync);
 			}
@@ -44,7 +43,7 @@ namespace TelnetNegotiationCore.Interpretors
 
 				tsm.Configure(State.WontEOR)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Server  won't do EOR - do nothing"));
+					.OnEntryAsync(WontEORAsync);
 
 				tsm.Configure(State.WillEOR)
 					.SubstateOf(State.Accepting)
@@ -52,6 +51,20 @@ namespace TelnetNegotiationCore.Interpretors
 			}
 
 			return tsm;
+		}
+
+		private async Task OnDontEORAsync()
+		{
+			_Logger.Debug("Connection: {connectionStatus}", "Client won't do EOR - do nothing");
+			_doEOR = false;
+			await Task.CompletedTask;
+		}
+
+		private async Task WontEORAsync()
+		{
+			_Logger.Debug("Connection: {connectionStatus}", "Server  won't do EOR - do nothing");
+			_doEOR = false;
+			await Task.CompletedTask;
 		}
 
 		/// <summary>
@@ -90,8 +103,11 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <returns>A completed Task</returns>
 		public async Task SendPromptAsync(byte[] send)
 		{
-			await CallbackNegotiation(send);
-			if (_doEOR)
+			if (_doEOR is null or false)
+			{
+				await CallbackNegotiation(send);
+			}
+			else
 			{
 				await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
 			}
