@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Threading.Tasks;
 using MoreLinq;
+using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
 
@@ -141,32 +142,40 @@ namespace TelnetNegotiationCore.Interpretors
 				.Concat(new byte[] { (byte)Trigger.MSSP_VAR })
 				.Concat(ascii.GetBytes(name));
 
-			if (val is string || val is int)
+			switch (val)
 			{
-				_Logger.Debug("MSSP Announcement: {msspkey}: {msspval}", name, val);
-				return bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
-					.Concat(ascii.GetBytes((string)val.ToString()));
-			}
-			else if (val is bool boolean)
-			{
-				_Logger.Debug("MSSP Announcement: {msspkey}: {msspval}", name, val);
-				return bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
-					.Concat(ascii.GetBytes(boolean ? "1" : "0"));
-			}
-			else if (val is IEnumerable<string>)
-			{
-				foreach (var item in val as IEnumerable<string>)
-				{
-					_Logger.Debug("MSSP Announcement: {msspkey}[]: {msspval}", name, item);
-					bt = bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
-						.Concat(ascii.GetBytes(item));
-				}
-
-				return bt;
-			}
-			else
-			{
-				return Array.Empty<byte>();
+				case string s:
+					{
+						_Logger.Debug("MSSP Announcement: {msspkey}: {msspval}", name, s);
+						return bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
+							.Concat(ascii.GetBytes(s));
+					}
+				case int i:
+					{
+						_Logger.Debug("MSSP Announcement: {msspkey}: {msspval}", name, i.ToString());
+						return bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
+							.Concat(ascii.GetBytes(i.ToString()));
+					}
+				case bool boolean:
+					{
+						_Logger.Debug("MSSP Announcement: {msspkey}: {msspval}", name, boolean);
+						return bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
+							.Concat(ascii.GetBytes(boolean ? "1" : "0"));
+					}
+				case IEnumerable<string> list:
+					{
+						foreach (var item in list)
+						{
+							_Logger.Debug("MSSP Announcement: {msspkey}[]: {msspval}", name, item);
+							bt = bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
+								.Concat(ascii.GetBytes(item));
+						}
+						return bt;
+					}
+				default:
+					{
+						return Array.Empty<byte>();
+					}
 			}
 		}
 	}

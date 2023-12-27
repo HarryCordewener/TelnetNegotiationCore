@@ -10,7 +10,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Interpretors;
 using TelnetNegotiationCore.Models;
-using System.Text.RegularExpressions;
 
 namespace TelnetNegotiationCore.TestServer
 {
@@ -23,7 +22,7 @@ namespace TelnetNegotiationCore.TestServer
 
 		public MockServer(string ip, int port, ILogger logger = null)
 		{
-			Console.OutputEncoding = System.Text.Encoding.UTF8;
+			Console.OutputEncoding = Encoding.UTF8;
 			_Logger = logger ?? Log.Logger.ForContext<MockServer>();
 			IPAddress localAddr = IPAddress.Parse(ip);
 			server = new TcpListener(localAddr, port);
