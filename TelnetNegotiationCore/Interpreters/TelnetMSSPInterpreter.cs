@@ -253,6 +253,7 @@ namespace TelnetNegotiationCore.Interpreters
 		public TelnetInterpreter RegisterMSSPConfig(Func<MSSPConfig> config)
 		{
 			_msspConfig = config;
+			_Logger.Debug("Registering MSSP Config. Currently evaluates to: {@msspConfig}", config());
 			return this;
 		}
 
@@ -260,7 +261,7 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			IEnumerable<byte> msspBytes = Array.Empty<byte>();
 
-			var fields = typeof(MSSPConfig).GetFields();
+			var fields = typeof(MSSPConfig).GetProperties();
 			var knownFields = fields.Where(field => Attribute.IsDefined(field, typeof(NameAttribute)));
 
 			foreach (var field in knownFields)
@@ -276,7 +277,7 @@ namespace TelnetNegotiationCore.Interpreters
 			foreach (var item in config.Extended ?? new Dictionary<string, dynamic>())
 			{
 				if (item.Value == null) continue;
-				msspBytes = msspBytes.Concat(ConvertToMSSP(item.Key, item.Value()) as IEnumerable<byte>);
+				msspBytes = msspBytes.Concat(ConvertToMSSP(item.Key, item.Value) as IEnumerable<byte>);
 			}
 
 			return msspBytes;
