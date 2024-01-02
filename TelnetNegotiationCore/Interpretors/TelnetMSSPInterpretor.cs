@@ -20,6 +20,12 @@ namespace TelnetNegotiationCore.Interpretors
 		private List<byte> _currentValue;
 		private List<List<byte>> _currentVariableList;
 
+		private IImmutableDictionary<string, (MemberInfo Member, MSSPConfig.NameAttribute Attribute)> MSSPAttributeMembers = typeof(MSSPConfig)
+			.GetMembers()
+			.Select(x => (Member: x, Attribute: x.GetCustomAttribute<MSSPConfig.NameAttribute>()))
+			.Where(x => x.Attribute != null)
+			.ToImmutableDictionary(x => x.Attribute.Name.ToUpper());
+
 		/// <summary>
 		/// Mud Server Status Protocol will provide information to the requestee about the server's contents.
 		/// </summary>
@@ -95,8 +101,8 @@ namespace TelnetNegotiationCore.Interpretors
 					.SubstateOf(State.Accepting)
 					.OnEntryAsync(ReadMSSPValues);
 
-				TriggerHelper.ForAllTriggersExcept(new[] { Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC }, t => tsm.Configure(State.EvaluatingMSSPVal).OnEntryFrom(ParametarizedTrigger(t), CaptureValue));
-				TriggerHelper.ForAllTriggersExcept(new[] { Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC }, t => tsm.Configure(State.EvaluatingMSSPVar).OnEntryFrom(ParametarizedTrigger(t), CaptureVariable));
+				TriggerHelper.ForAllTriggersExcept(new[] { Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC }, t => tsm.Configure(State.EvaluatingMSSPVal).OnEntryFrom(ParametarizedTrigger(t), CaptureMSSPValue));
+				TriggerHelper.ForAllTriggersExcept(new[] { Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC }, t => tsm.Configure(State.EvaluatingMSSPVar).OnEntryFrom(ParametarizedTrigger(t), CaptureMSSPVariable));
 
 				TriggerHelper.ForAllTriggersExcept(new[] { Trigger.IAC, Trigger.MSSP_VAR },
 					t => tsm.Configure(State.EvaluatingMSSPVal).PermitReentry(t));
@@ -128,9 +134,9 @@ namespace TelnetNegotiationCore.Interpretors
 			RegisterMSSPVal();
 			RegisterMSSPVar();
 
-			var vv = _currentVariableList.Zip(_currentValueList);
-
-			var grouping = vv.GroupBy(x => CurrentEncoding.GetString(x.First.ToArray()));
+			var grouping = _currentVariableList
+				.Zip(_currentValueList)
+				.GroupBy(x => CurrentEncoding.GetString(x.First.ToArray()));
 
 			foreach (var group in grouping)
 			{
@@ -145,20 +151,13 @@ namespace TelnetNegotiationCore.Interpretors
 		/// </summary>
 		/// <param name="variable"></param>
 		/// <param name="value"></param>
-		/// TODO: This is slow. We can and should cache this!
 		private void StoreClientMSSPDetails(string variable, IEnumerable<string> value)
 		{
-			var members = _msspConfig.GetType().GetMembers();
-			var attributeMembers = members
-				.Select(x => (Member: x, Attribute: x.GetCustomAttribute<MSSPConfig.NameAttribute>()))
-				.Where(x => x.Attribute != null);
-
-			var foundAttribute = attributeMembers.FirstOrDefault(x => x.Attribute.Name.ToUpper() == variable.ToUpper());
-			var fieldInfo = (FieldInfo)foundAttribute.Member;
-
-
-			if (foundAttribute != default)
+			if (MSSPAttributeMembers.ContainsKey(variable.ToUpper()))
 			{
+				var foundAttribute = MSSPAttributeMembers[variable.ToUpper()];
+				var fieldInfo = (FieldInfo)foundAttribute.Member;
+
 				if (fieldInfo.FieldType == typeof(Func<string>))
 				{
 					fieldInfo.SetValue(_msspConfig, () => value.First());
@@ -190,15 +189,17 @@ namespace TelnetNegotiationCore.Interpretors
 		 * The value can be an empty string unless a numeric value is expected in which case the default value should be 0. 
 		 * If your Mud can't calculate one of the numeric values for the World variables you can use "-1" to indicate that the data is not available. 
 		 * If a list of responses is provided try to pick from the list, unless "Etc" is specified, which means it's open ended.
+		 * 
+		 * TODO: Support -1 on reporting.
 		 */
-		private void CaptureVariable(OneOf<byte, Trigger> b)
+		private void CaptureMSSPVariable(OneOf<byte, Trigger> b)
 		{
 			// We could increment here based on having switched... Somehow?
 			// We need a better state tracking for this, to indicate the transition.
 			_currentVariable.Add(b.AsT0);
 		}
 
-		private void CaptureValue(OneOf<byte, Trigger> b)
+		private void CaptureMSSPValue(OneOf<byte, Trigger> b)
 		{
 			// We could increment here based on having switched... Somehow?
 			// We need a better state tracking for this, to indicate the transition.
