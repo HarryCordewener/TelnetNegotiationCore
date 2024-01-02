@@ -15,8 +15,8 @@ namespace TelnetNegotiationCore.TestClient
 		{
 			Console.OutputEncoding = Encoding.UTF8;
 			_Logger = logger ?? Log.Logger.ForContext<MockClient>();
-			IPAddress localAddr = IPAddress.Parse(ip);
-			client = new TcpClient(localAddr.ToString(), port);
+			IPAddress localAddress = IPAddress.Parse(ip);
+			client = new TcpClient(localAddress.ToString(), port);
 			Handle(client);
 		}
 		

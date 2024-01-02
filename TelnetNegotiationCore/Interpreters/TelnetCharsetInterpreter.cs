@@ -36,9 +36,9 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private int _acceptedCharsetByteIndex = 0;
 
-		private bool charsetoffered = false;
+		private bool charsetOffered = false;
 
-		private Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetorder = (x) => x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
+		private Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetOrder = (x) => x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
 
 		public Lazy<byte[]> SupportedCharacterSets { get; }
 
@@ -53,7 +53,7 @@ namespace TelnetNegotiationCore.Interpreters
 			init
 			{
 				var ordered = value.Reverse().ToList();
-				_charsetorder = (x) => x.Select(x => x.GetEncoding()).OrderByDescending(z => ordered.IndexOf(z));
+				_charsetOrder = (x) => x.Select(x => x.GetEncoding()).OrderByDescending(z => ordered.IndexOf(z));
 			}
 		}
 
@@ -194,7 +194,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <param name="_">Ignored</param>
 		private async Task CompleteCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			if (charsetoffered && Mode == TelnetMode.Server)
+			if (charsetOffered && Mode == TelnetMode.Server)
 			{
 				await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
 				return;
@@ -207,7 +207,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			var encodingDict = Encoding.GetEncodings().ToDictionary(x => x.GetEncoding().WebName);
 			var offeredEncodingInfo = charsetsOffered.Select(x => { try { return encodingDict[Encoding.GetEncoding(x).WebName]; } catch { return null; } }).Where(x => x != null);
-			var preferredEncoding = _charsetorder(offeredEncodingInfo);
+			var preferredEncoding = _charsetOrder(offeredEncodingInfo);
 			var chosenEncoding = preferredEncoding.FirstOrDefault();
 
 			if (chosenEncoding == null)
@@ -246,7 +246,7 @@ namespace TelnetNegotiationCore.Interpreters
 				await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
 			}
 			_Logger.Information("Connection: Accepted Charset Negotiation for: {charset}", CurrentEncoding.WebName);
-			charsetoffered = false;
+			charsetOffered = false;
 		}
 
 		/// <summary>
@@ -256,7 +256,7 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Request charset negotiation from Client");
 			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET });
-			charsetoffered = false;
+			charsetOffered = false;
 		}
 
 		/// <summary>
@@ -273,9 +273,9 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Charsets String: {charsetlist}", ";" + string.Join(";", _charsetorder(Encoding.GetEncodings()).Select(x => x.WebName)));
+			_Logger.Debug("Charsets String: {charsetlist}", ";" + string.Join(";", _charsetOrder(Encoding.GetEncodings()).Select(x => x.WebName)));
 			await CallbackNegotiation(SupportedCharacterSets.Value);
-			charsetoffered = true;
+			charsetOffered = true;
 		}
 
 		/// <summary>
@@ -286,8 +286,8 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			byte[] pre = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST };
 			byte[] post = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };
-			byte[] defaultcharsets = ascii.GetBytes($";{string.Join(";", _charsetorder(Encoding.GetEncodings()).Select(x => x.WebName))}");
-			return pre.Concat(defaultcharsets).Concat(post).ToArray();
+			byte[] defaultCharsets = ascii.GetBytes($";{string.Join(";", _charsetOrder(Encoding.GetEncodings()).Select(x => x.WebName))}");
+			return pre.Concat(defaultCharsets).Concat(post).ToArray();
 		}
 	}
 }

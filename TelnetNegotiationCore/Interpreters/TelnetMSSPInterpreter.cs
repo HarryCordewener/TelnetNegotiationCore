@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
 using System.Threading.Tasks;
 using MoreLinq;
-using Newtonsoft.Json;
 using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
@@ -26,6 +26,8 @@ namespace TelnetNegotiationCore.Interpreters
 			.Select(x => (Member: x, Attribute: x.GetCustomAttribute<NameAttribute>()))
 			.Where(x => x.Attribute != null)
 			.ToImmutableDictionary(x => x.Attribute.Name.ToUpper());
+
+		private JsonSerializerOptions _serializerOptions = new JsonSerializerOptions() { IncludeFields = true };
 
 		/// <summary>
 		/// Mud Server Status Protocol will provide information to the requestee about the server's contents.
@@ -144,7 +146,7 @@ namespace TelnetNegotiationCore.Interpreters
 				StoreClientMSSPDetails(group.Key, group.Select(x => CurrentEncoding.GetString(x.Second.ToArray())));
 			}
 
-			_Logger.Debug("Registering MSSP: {$msspConfig}", JsonConvert.SerializeObject(_msspConfig()));
+			_Logger.Debug("Registering MSSP: {@msspConfig}", JsonSerializer.Serialize<MSSPConfig>(_msspConfig(), _serializerOptions));
 
 			await Task.CompletedTask;
 		}
