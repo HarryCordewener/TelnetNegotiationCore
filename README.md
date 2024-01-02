@@ -16,7 +16,7 @@ At this time, this repository is in a rough state and does not yet implement som
 | https://tintin.mudhalla.net/protocols/eor   | End Of Record Negotiation          | Full       | Untested           |
 | http://www.faqs.org/rfcs/rfc1073.html       | Window Size Negotiation (NAWS)     | Full       |                    |
 | http://www.faqs.org/rfcs/rfc2066.html       | Charset Negotiation                | Partial    | No TTABLE support  |
-| https://tintin.mudhalla.net/protocols/mssp  | MSSP Negotiation (Extents 855)     | Serverside | Planned & Untested |
+| https://tintin.mudhalla.net/protocols/mssp  | MSSP Negotiation (Extents 855)     | Full       | Untested           |
 | http://www.faqs.org/rfcs/rfc1572.html       | New Environment Negotiation        | No         | Planned            |
 | https://tintin.mudhalla.net/protocols/mnes  | Mud New Environment Negotiation    | No         | Planned            |
 | https://tintin.mudhalla.net/protocols/msdp  | Mud Server Data Protocol           | No         | Planned            |

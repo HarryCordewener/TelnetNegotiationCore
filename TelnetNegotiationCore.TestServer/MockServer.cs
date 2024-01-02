@@ -10,7 +10,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Interpretors;
 using TelnetNegotiationCore.Models;
-using Stateless.Graph;
 
 namespace TelnetNegotiationCore.TestServer
 {

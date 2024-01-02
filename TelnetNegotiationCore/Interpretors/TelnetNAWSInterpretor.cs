@@ -72,13 +72,27 @@ namespace TelnetNegotiationCore.Interpretors
 			tsm.Configure(State.Do)
 				.Permit(Trigger.NAWS, State.DoNAWS);
 
-			tsm.Configure(State.DontNAWS)
-				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Client won't do NAWS - do nothing"));
+			if (Mode == TelnetMode.Server)
+			{
+				tsm.Configure(State.DontNAWS)
+					.SubstateOf(State.Accepting)
+					.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Client won't do NAWS - do nothing"));
 
-			tsm.Configure(State.DoNAWS)
-				.SubstateOf(State.Accepting)
-				.OnEntryAsync(WontNAWSAsync);
+				tsm.Configure(State.DoNAWS)
+					.SubstateOf(State.Accepting)
+					.OnEntryAsync(ServerWontNAWSAsync);
+			}
+
+			if (Mode == TelnetMode.Client)
+			{
+				tsm.Configure(State.DontNAWS)
+					.SubstateOf(State.Accepting)
+					.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Server won't do NAWS - do nothing"));
+
+				tsm.Configure(State.DoNAWS)
+					.SubstateOf(State.Accepting);
+				// Fix this. We are a client.
+			}
 
 			tsm.Configure(State.WillDoNAWS)
 				.SubstateOf(State.Accepting)
@@ -121,7 +135,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// </summary>
 		public async Task RequestNAWSAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			if(!_ClientWillingToDoNAWS)
+			if (!_ClientWillingToDoNAWS)
 			{
 				_Logger.Debug("Connection: {connectionStatus}", "Requesting NAWS details from Client");
 
@@ -136,7 +150,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <param name="b">The current byte</param>
 		private void CaptureNAWS(OneOf<byte, Trigger> b)
 		{
-			if(_nawsIndex > _nawsByteState.Length) return;
+			if (_nawsIndex > _nawsByteState.Length) return;
 			_nawsByteState[_nawsIndex] = b.AsT0;
 			_nawsIndex++;
 		}
@@ -151,7 +165,7 @@ namespace TelnetNegotiationCore.Interpretors
 			_nawsIndex = 0;
 		}
 
-		private async Task WontNAWSAsync()
+		private async Task ServerWontNAWSAsync()
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Announcing refusing to send NAWS, this is a Server!");
 			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });

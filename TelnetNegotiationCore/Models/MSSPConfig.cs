@@ -6,7 +6,7 @@ namespace TelnetNegotiationCore.Models
 	/// <summary>
 	/// The MSSP Configuration. Takes Functions for its inputs for the purpose of re-evaluation.
 	/// </summary>
-	public class MSSPConfig 
+	public class MSSPConfig
 	{
 		/// <summary>
 		/// Indicates the MSSP-safe name to send.
@@ -89,7 +89,7 @@ namespace TelnetNegotiationCore.Models
 		public Func<string> Location;
 						
 		/// <summary>MINIMUM AGE: Current minimum age requirement, omit if not applicable.</summary>
-		[Name("MINIMUM_AGE"), Official(true)]
+		[Name("MINIMUM AGE"), Official(true)]
 		public Func<string> Minimum_Age;
 
 		/// <summary>PORT: Current or new port number. Can be used multiple times, most important port last.</summary>
@@ -99,6 +99,10 @@ namespace TelnetNegotiationCore.Models
 		/// <summary>REFERRAL: A list of other MSSP enabled MUDs for the crawler to check using the host port format and array notation. Adding referrals is important to make MSSP decentralized. Make sure to separate the host and port with a space rather than : because IPv6 addresses contain colons.</summary>
 		[Name("REFERRAL"), Official(true)]
 		public Func<IEnumerable<string>> Referral;
+
+		/// <summary>The port number for a SSL (Secure Socket Layer) encrypted connection.</summary>
+		[Name("SSL"), Official(true)]
+		public Func<string> Ssl;
 
 		/// <summary>WEBSITE: URL to MUD website, this should include the http:// or https:// prefix.</summary>
 		[Name("WEBSITE"), Official(true)]
@@ -200,27 +204,27 @@ namespace TelnetNegotiationCore.Models
 		public Func<bool> VT100;
 
 		/// <summary>XTERM: 256 COLORS   Supports xterm 256 colors ?  1 or 0</summary>
-		[Name("XTERM: 256 COLORS"), Official(true)]
+		[Name("XTERM 256 COLORS"), Official(true)]
 		public Func<bool> XTerm_256_Colors;
 
 		/// <summary>XTERM: TRUE COLORS  Supports xterm 24 bit colors ? 1 or 0</summary>
-		[Name("XTERM: TRUE COLORS"), Official(true)]
+		[Name("XTERM TRUE COLORS"), Official(true)]
 		public Func<bool> XTerm_True_Colors;
 
 		/// <summary>PAY: TO PLAY        Pay to play ? 1 or 0</summary>
-		[Name("PAY: TO PLAY"), Official(true)]
+		[Name("PAY TO PLAY"), Official(true)]
 		public Func<bool> Pay_To_Play;
 
 		/// <summary>PAY: FOR PERKS      Pay for perks ? 1 or 0</summary>
-		[Name("PAY: FOR PERKS"), Official(true)]
+		[Name("PAY FOR PERKS"), Official(true)]
 		public Func<bool> Pay_For_Perks;
 
 		/// <summary>HIRING: BUILDERS    Game is hiring builders ? 1 or 0</summary>
-		[Name("HIRING: BUILDERS"), Official(true)]
+		[Name("HIRING BUILDERS"), Official(true)]
 		public Func<bool> Hiring_Builders;
 
 		/// <summary>HIRING: CODERS      Game is hiring coders ? 1 or 0</summary>
-		[Name("HIRING: CODERS"), Official(true)]
+		[Name("HIRING CODERS"), Official(true)]
 		public Func<bool> Hiring_Coders;
 
 		/// <summary>Additional information. 
@@ -229,6 +233,6 @@ namespace TelnetNegotiationCore.Models
 		/// Dictionary Value.type serves as the MSSP Value Type for unboxing
 		/// We only support IEnumerable<string>, bool, int and string at this time</summary>
 		[Official(false)]
-		public IDictionary<string, Func<dynamic>> Extended = null;
+		public Dictionary<string, Func<dynamic>> Extended = new();
 	}
 }

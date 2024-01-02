@@ -286,7 +286,7 @@ namespace TelnetNegotiationCore.Interpretors
 		{
 			byte[] pre = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST };
 			byte[] post = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };
-			byte[] defaultcharsets = ascii.GetBytes($";{(string.Join(";", _charsetorder(Encoding.GetEncodings()).Select(x => x.WebName)))}");
+			byte[] defaultcharsets = ascii.GetBytes($";{string.Join(";", _charsetorder(Encoding.GetEncodings()).Select(x => x.WebName))}");
 			return pre.Concat(defaultcharsets).Concat(post).ToArray();
 		}
 	}

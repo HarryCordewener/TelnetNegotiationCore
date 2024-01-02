@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using MoreLinq;
 using OneOf;
@@ -12,10 +13,12 @@ namespace TelnetNegotiationCore.Interpretors
 {
 	public partial class TelnetInterpretor
 	{
-		private MSSPConfig _msspConfig;
+		private MSSPConfig _msspConfig = new();
 
 		private List<byte> _currentVariable;
+		private List<List<byte>> _currentValueList;
 		private List<byte> _currentValue;
+		private List<List<byte>> _currentVariableList;
 
 		/// <summary>
 		/// Mud Server Status Protocol will provide information to the requestee about the server's contents.
@@ -60,9 +63,12 @@ namespace TelnetNegotiationCore.Interpretors
 
 				tsm.Configure(State.SubNegotiation)
 					.Permit(Trigger.MSSP, State.AlmostNegotiatingMSSP)
-					.OnEntry(() => {
+					.OnEntry(() =>
+					{
 						_currentValue = new List<byte>();
 						_currentVariable = new List<byte>();
+						_currentValueList = new List<List<byte>>();
+						_currentVariableList = new List<List<byte>>();
 					});
 
 				tsm.Configure(State.AlmostNegotiatingMSSP)
@@ -70,14 +76,16 @@ namespace TelnetNegotiationCore.Interpretors
 
 				tsm.Configure(State.EvaluatingMSSPVar)
 					.Permit(Trigger.MSSP_VAL, State.EvaluatingMSSPVal)
-					.Permit(Trigger.IAC, State.EscapingMSSPVar);
+					.Permit(Trigger.IAC, State.EscapingMSSPVar)
+					.OnEntryFrom(Trigger.MSSP_VAR, RegisterMSSPVal);
 
 				tsm.Configure(State.EscapingMSSPVar)
 					.Permit(Trigger.IAC, State.EvaluatingMSSPVar);
 
 				tsm.Configure(State.EvaluatingMSSPVal)
 					.Permit(Trigger.MSSP_VAR, State.EvaluatingMSSPVar)
-					.Permit(Trigger.IAC, State.EscapingMSSPVal);
+					.Permit(Trigger.IAC, State.EscapingMSSPVal)
+					.OnEntryFrom(Trigger.MSSP_VAL, RegisterMSSPVar);
 
 				tsm.Configure(State.EscapingMSSPVal)
 					.Permit(Trigger.IAC, State.EvaluatingMSSPVal)
@@ -87,21 +95,94 @@ namespace TelnetNegotiationCore.Interpretors
 					.SubstateOf(State.Accepting)
 					.OnEntryAsync(ReadMSSPValues);
 
-				TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingMSSPVal).OnEntryFrom(ParametarizedTrigger(t), CaptureValue));
-				TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingMSSPVar).OnEntryFrom(ParametarizedTrigger(t), CaptureVariable));
+				TriggerHelper.ForAllTriggersExcept(new[] { Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC }, t => tsm.Configure(State.EvaluatingMSSPVal).OnEntryFrom(ParametarizedTrigger(t), CaptureValue));
+				TriggerHelper.ForAllTriggersExcept(new[] { Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC }, t => tsm.Configure(State.EvaluatingMSSPVar).OnEntryFrom(ParametarizedTrigger(t), CaptureVariable));
+
+				TriggerHelper.ForAllTriggersExcept(new[] { Trigger.IAC, Trigger.MSSP_VAR },
+					t => tsm.Configure(State.EvaluatingMSSPVal).PermitReentry(t));
+				TriggerHelper.ForAllTriggersExcept(new[] { Trigger.IAC, Trigger.MSSP_VAL },
+					t => tsm.Configure(State.EvaluatingMSSPVar).PermitReentry(t));
 			}
 
 			return tsm;
 		}
 
+		private void RegisterMSSPVal()
+		{
+			if (!_currentValue.Any()) return;
+
+			_currentValueList.Add(_currentValue);
+			_currentValue = new List<byte>();
+		}
+
+		private void RegisterMSSPVar()
+		{
+			if (!_currentVariable.Any()) return;
+
+			_currentVariableList.Add(_currentVariable);
+			_currentVariable = new List<byte>();
+		}
+
 		private async Task ReadMSSPValues()
 		{
-			var variableList = _currentVariable.Split((byte)Trigger.MSSP_VAR);
-			var valueList = _currentVariable.Split((byte)Trigger.MSSP_VAL);
+			RegisterMSSPVal();
+			RegisterMSSPVar();
 
-			var vv = variableList.Zip(valueList);
+			var vv = _currentVariableList.Zip(_currentValueList);
+
+			var grouping = vv.GroupBy(x => CurrentEncoding.GetString(x.First.ToArray()));
+
+			foreach (var group in grouping)
+			{
+				StoreClientMSSPDetails(group.Key, group.Select(x => CurrentEncoding.GetString(x.Second.ToArray())));
+			}
 
 			await Task.CompletedTask;
+		}
+
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <param name="variable"></param>
+		/// <param name="value"></param>
+		/// TODO: This is slow. We can and should cache this!
+		private void StoreClientMSSPDetails(string variable, IEnumerable<string> value)
+		{
+			var members = _msspConfig.GetType().GetMembers();
+			var attributeMembers = members
+				.Select(x => (Member: x, Attribute: x.GetCustomAttribute<MSSPConfig.NameAttribute>()))
+				.Where(x => x.Attribute != null);
+
+			var foundAttribute = attributeMembers.FirstOrDefault(x => x.Attribute.Name.ToUpper() == variable.ToUpper());
+			var fieldInfo = (FieldInfo)foundAttribute.Member;
+
+
+			if (foundAttribute != default)
+			{
+				if (fieldInfo.FieldType == typeof(Func<string>))
+				{
+					fieldInfo.SetValue(_msspConfig, () => value.First());
+				}
+				else if (fieldInfo.FieldType == typeof(Func<int>))
+				{
+					var val = int.Parse(value.First());
+					fieldInfo.SetValue(_msspConfig, () => val);
+				}
+				else if (fieldInfo.FieldType == typeof(Func<bool>))
+				{
+					var val = value.First() == "1";
+					fieldInfo.SetValue(_msspConfig, () => val);
+				}
+				else if (fieldInfo.FieldType == typeof(Func<IEnumerable<string>>))
+				{
+					fieldInfo.SetValue(_msspConfig, () => value);
+				}
+			}
+			else
+			{
+				// We are using the Extended section.
+				_msspConfig.Extended.Add(variable, () => value.Count() > 1 ? value : value.First() );
+			}
 		}
 
 		/*
@@ -121,7 +202,7 @@ namespace TelnetNegotiationCore.Interpretors
 		{
 			// We could increment here based on having switched... Somehow?
 			// We need a better state tracking for this, to indicate the transition.
-			_currentVariable.Add(b.AsT0);
+			_currentValue.Add(b.AsT0);
 		}
 
 		/// <summary>
@@ -190,7 +271,7 @@ namespace TelnetNegotiationCore.Interpretors
 				msspBytes = msspBytes.Concat(ConvertToMSSP(attr.Name, e) as IEnumerable<byte>);
 			}
 
-			foreach (var item in config.Extended ?? ImmutableDictionary<string, Func<dynamic>>.Empty)
+			foreach (var item in config.Extended ?? new Dictionary<string, Func<dynamic>>())
 			{
 				if (item.Value == null) continue;
 				msspBytes = msspBytes.Concat(ConvertToMSSP(item.Key, item.Value()) as IEnumerable<byte>);
