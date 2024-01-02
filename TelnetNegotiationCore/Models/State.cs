@@ -19,6 +19,12 @@
 		DontMSSP,
 		WontMSSP,
 		WillMSSP,
+		AlmostNegotiatingMSSP,
+		EvaluatingMSSPVar,
+		EvaluatingMSSPVal,
+		EscapingMSSPVar,
+		EscapingMSSPVal,
+		CompletingMSSP,
 		#endregion MSSP Negotiation
 		#region Window Size Negotiation
 		WillDoNAWS,

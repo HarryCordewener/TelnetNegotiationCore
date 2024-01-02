@@ -14,6 +14,9 @@ namespace TelnetNegotiationCore.Interpretors
 	{
 		private MSSPConfig _msspConfig;
 
+		private List<byte> _currentVariable;
+		private List<byte> _currentValue;
+
 		/// <summary>
 		/// Mud Server Status Protocol will provide information to the requestee about the server's contents.
 		/// </summary>
@@ -55,10 +58,70 @@ namespace TelnetNegotiationCore.Interpretors
 					.SubstateOf(State.Accepting)
 					.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Server won't do MSSP - do nothing"));
 
-				/// TODO: Accept MSSP and interpret it into a structure.
+				tsm.Configure(State.SubNegotiation)
+					.Permit(Trigger.MSSP, State.AlmostNegotiatingMSSP)
+					.OnEntry(() => {
+						_currentValue = new List<byte>();
+						_currentVariable = new List<byte>();
+					});
+
+				tsm.Configure(State.AlmostNegotiatingMSSP)
+					.Permit(Trigger.MSSP_VAR, State.EvaluatingMSSPVar);
+
+				tsm.Configure(State.EvaluatingMSSPVar)
+					.Permit(Trigger.MSSP_VAL, State.EvaluatingMSSPVal)
+					.Permit(Trigger.IAC, State.EscapingMSSPVar);
+
+				tsm.Configure(State.EscapingMSSPVar)
+					.Permit(Trigger.IAC, State.EvaluatingMSSPVar);
+
+				tsm.Configure(State.EvaluatingMSSPVal)
+					.Permit(Trigger.MSSP_VAR, State.EvaluatingMSSPVar)
+					.Permit(Trigger.IAC, State.EscapingMSSPVal);
+
+				tsm.Configure(State.EscapingMSSPVal)
+					.Permit(Trigger.IAC, State.EvaluatingMSSPVal)
+					.Permit(Trigger.SE, State.CompletingMSSP);
+
+				tsm.Configure(State.CompletingMSSP)
+					.SubstateOf(State.Accepting)
+					.OnEntryAsync(ReadMSSPValues);
+
+				TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingMSSPVal).OnEntryFrom(ParametarizedTrigger(t), CaptureValue));
+				TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingMSSPVar).OnEntryFrom(ParametarizedTrigger(t), CaptureVariable));
 			}
 
 			return tsm;
+		}
+
+		private async Task ReadMSSPValues()
+		{
+			var variableList = _currentVariable.Split((byte)Trigger.MSSP_VAR);
+			var valueList = _currentVariable.Split((byte)Trigger.MSSP_VAL);
+
+			var vv = variableList.Zip(valueList);
+
+			await Task.CompletedTask;
+		}
+
+		/*
+		 * For ease of parsing, variables and values cannot contain the MSSP_VAL, MSSP_VAR, IAC, or NUL byte. 
+		 * The value can be an empty string unless a numeric value is expected in which case the default value should be 0. 
+		 * If your Mud can't calculate one of the numeric values for the World variables you can use "-1" to indicate that the data is not available. 
+		 * If a list of responses is provided try to pick from the list, unless "Etc" is specified, which means it's open ended.
+		 */
+		private void CaptureVariable(OneOf<byte, Trigger> b)
+		{
+			// We could increment here based on having switched... Somehow?
+			// We need a better state tracking for this, to indicate the transition.
+			_currentVariable.Add(b.AsT0);
+		}
+
+		private void CaptureValue(OneOf<byte, Trigger> b)
+		{
+			// We could increment here based on having switched... Somehow?
+			// We need a better state tracking for this, to indicate the transition.
+			_currentVariable.Add(b.AsT0);
 		}
 
 		/// <summary>
