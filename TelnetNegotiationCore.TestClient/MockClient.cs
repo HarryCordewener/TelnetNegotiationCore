@@ -2,7 +2,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using TelnetNegotiationCore.Interpretors;
+using TelnetNegotiationCore.Interpreters;
 
 namespace TelnetNegotiationCore.TestClient
 {
@@ -38,7 +38,7 @@ namespace TelnetNegotiationCore.TestClient
 		public void Handle(TcpClient client)
 		{
 			int port = -1;
-			TelnetInterpretor? telnet = null;
+			TelnetInterpreter? telnet = null;
 
 			try
 			{
@@ -48,7 +48,7 @@ namespace TelnetNegotiationCore.TestClient
 				using var input = new StreamReader(stream);
 				using var output = new StreamWriter(stream) { AutoFlush = true };
 
-				telnet = new TelnetInterpretor(TelnetInterpretor.TelnetMode.Client, _Logger.ForContext<TelnetInterpretor>())
+				telnet = new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, _Logger.ForContext<TelnetInterpreter>())
 				{
 					CallbackOnSubmit = WriteBack,
 					CallbackNegotiation = (x) => WriteToOutputStream(x, output),

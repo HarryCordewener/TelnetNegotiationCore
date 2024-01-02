@@ -7,7 +7,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Models;
 
-namespace TelnetNegotiationCore.Interpretors
+namespace TelnetNegotiationCore.Interpreters
 {
 	/// <summary>
 	/// Implements RFC 1091 and MTTS
@@ -17,7 +17,7 @@ namespace TelnetNegotiationCore.Interpretors
 	/// TODO: Allow the end-user to set TerminalTypes in Client Mode.
 	/// TODO: Optimize byte array allocations that get commonly used.
 	/// </summary>
-	public partial class TelnetInterpretor
+	public partial class TelnetInterpreter
 	{
 		/// <summary>
 		/// A list of terminal types for this connection.

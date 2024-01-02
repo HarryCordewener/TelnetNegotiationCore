@@ -8,7 +8,7 @@ using System.Text;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
-using TelnetNegotiationCore.Interpretors;
+using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.TestServer
@@ -18,7 +18,7 @@ namespace TelnetNegotiationCore.TestServer
 		readonly TcpListener server = null;
 		readonly ILogger _Logger;
 
-		private readonly ConcurrentDictionary<int, TelnetInterpretor> Clients = new();
+		private readonly ConcurrentDictionary<int, TelnetInterpreter> Clients = new();
 
 		public MockServer(string ip, int port, ILogger logger = null)
 		{
@@ -66,7 +66,7 @@ namespace TelnetNegotiationCore.TestServer
 		public void HandleDevice(object obj)
 		{
 			int port = -1;
-			TelnetInterpretor telnet = null;
+			TelnetInterpreter telnet = null;
 			TcpClient client = null;
 
 			try
@@ -78,22 +78,22 @@ namespace TelnetNegotiationCore.TestServer
 				using var input = new StreamReader(stream);
 				using var output = new StreamWriter(stream) { AutoFlush = true };
 
-				telnet = new TelnetInterpretor(TelnetInterpretor.TelnetMode.Server, _Logger.ForContext<TelnetInterpretor>())
+				telnet = new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, _Logger.ForContext<TelnetInterpreter>())
 				{
 					CallbackOnSubmit = WriteBack,
 					CallbackNegotiation = (x) => WriteToOutputStream(x, output),
 					NAWSCallback = SignalNAWS,
 					CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
 				}
-					.RegisterMSSPConfig(new MSSPConfig
+					.RegisterMSSPConfig(() => new MSSPConfig
 					{
-						Name = () => "My Telnet Negotiated Server",
-						UTF_8 = () => true,
-						Gameplay = () => new[] { "ABC", "DEF" },
-						Extended = new Dictionary<string, Func<dynamic>>
+						Name =  "My Telnet Negotiated Server",
+						UTF_8 =  true,
+						Gameplay =  new[] { "ABC", "DEF" },
+						Extended = new Dictionary<string, dynamic>
 					{
-						{ "Foo", () => "Bar"},
-						{ "Baz", () => new [] {"Moo", "Meow" }}
+						{ "Foo",  "Bar"},
+						{ "Baz",  new [] {"Moo", "Meow" }}
 					}
 					}).Validate().Build().GetAwaiter().GetResult();
 

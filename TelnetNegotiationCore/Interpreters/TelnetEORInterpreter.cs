@@ -2,9 +2,9 @@
 using Stateless;
 using TelnetNegotiationCore.Models;
 
-namespace TelnetNegotiationCore.Interpretors
+namespace TelnetNegotiationCore.Interpreters
 {
-	public partial class TelnetInterpretor
+	public partial class TelnetInterpreter
 	{
 		private bool? _doEOR = null;
 

@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using TelnetNegotiationCore.Interpretors;
+using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.UnitTests
@@ -13,8 +13,8 @@ namespace TelnetNegotiationCore.UnitTests
 	[TestFixture]
 	public class TTypeTests
 	{
-		private TelnetInterpretor _server_ti;
-		private TelnetInterpretor _client_ti;
+		private TelnetInterpreter _server_ti;
+		private TelnetInterpreter _client_ti;
 		private byte[] _negotiationOutput;
 
 		private Task WriteBackToOutput(byte[] arg1, Encoding arg2) => throw new NotImplementedException();
@@ -36,37 +36,37 @@ namespace TelnetNegotiationCore.UnitTests
 
 			Log.Logger = log;
 
-			_server_ti = await new TelnetInterpretor(TelnetInterpretor.TelnetMode.Server)
+			_server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server)
 			{
 				CallbackNegotiation = WriteBackToNegotiate,
 				CallbackOnSubmit = WriteBackToOutput,
 				CallbackOnByte = (x, y) => Task.CompletedTask,
-			}.RegisterMSSPConfig(new MSSPConfig
+			}.RegisterMSSPConfig(() => new MSSPConfig
 			{
-				Name = () => "My Telnet Negotiated Server",
-				UTF_8 = () => true,
-				Gameplay = () => new[] { "ABC", "DEF" },
-				Extended = new Dictionary<string, Func<dynamic>>
+				Name = "My Telnet Negotiated Server",
+				UTF_8 = true,
+				Gameplay = new[] { "ABC", "DEF" },
+				Extended = new Dictionary<string, dynamic>
 				{
-					{ "Foo", () => "Bar"},
-					{ "Baz", () => new [] {"Moo", "Meow" }}
+					{ "Foo", "Bar"},
+					{ "Baz", new [] {"Moo", "Meow" }}
 				}
 			}).Validate().Build();
 
-			_client_ti = await new TelnetInterpretor(TelnetInterpretor.TelnetMode.Client)
+			_client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client)
 			{
 				CallbackNegotiation = WriteBackToNegotiate,
 				CallbackOnSubmit = WriteBackToOutput,
 				CallbackOnByte = (x, y) => Task.CompletedTask,
-			}.RegisterMSSPConfig(new MSSPConfig
+			}.RegisterMSSPConfig(() => new MSSPConfig
 			{
-				Name = () => "My Telnet Negotiated Client",
-				UTF_8 = () => true,
-				Gameplay = () => new[] { "ABC", "DEF" },
-				Extended = new Dictionary<string, Func<dynamic>>
+				Name = "My Telnet Negotiated Client",
+				UTF_8 = true,
+				Gameplay = new[] { "ABC", "DEF" },
+				Extended = new Dictionary<string, dynamic>
 				{
-					{ "Foo", () => "Bar"},
-					{ "Baz", () => new [] {"Moo", "Meow" }}
+					{ "Foo", "Bar"},
+					{ "Baz", new [] {"Moo", "Meow" }}
 				}
 			}).Validate().Build();
 		}

@@ -5,24 +5,25 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using MoreLinq;
+using Newtonsoft.Json;
 using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
 
-namespace TelnetNegotiationCore.Interpretors
+namespace TelnetNegotiationCore.Interpreters
 {
-	public partial class TelnetInterpretor
+	public partial class TelnetInterpreter
 	{
-		private MSSPConfig _msspConfig = new();
+		private Func<MSSPConfig> _msspConfig = () => new();
 
 		private List<byte> _currentVariable;
 		private List<List<byte>> _currentValueList;
 		private List<byte> _currentValue;
 		private List<List<byte>> _currentVariableList;
 
-		private IImmutableDictionary<string, (MemberInfo Member, MSSPConfig.NameAttribute Attribute)> MSSPAttributeMembers = typeof(MSSPConfig)
+		private IImmutableDictionary<string, (MemberInfo Member, NameAttribute Attribute)> MSSPAttributeMembers = typeof(MSSPConfig)
 			.GetMembers()
-			.Select(x => (Member: x, Attribute: x.GetCustomAttribute<MSSPConfig.NameAttribute>()))
+			.Select(x => (Member: x, Attribute: x.GetCustomAttribute<NameAttribute>()))
 			.Where(x => x.Attribute != null)
 			.ToImmutableDictionary(x => x.Attribute.Name.ToUpper());
 
@@ -143,6 +144,8 @@ namespace TelnetNegotiationCore.Interpretors
 				StoreClientMSSPDetails(group.Key, group.Select(x => CurrentEncoding.GetString(x.Second.ToArray())));
 			}
 
+			_Logger.Debug("Registering MSSP: {$msspConfig}", JsonConvert.SerializeObject(_msspConfig()));
+
 			await Task.CompletedTask;
 		}
 
@@ -160,27 +163,27 @@ namespace TelnetNegotiationCore.Interpretors
 
 				if (fieldInfo.FieldType == typeof(Func<string>))
 				{
-					fieldInfo.SetValue(_msspConfig, () => value.First());
+					fieldInfo.SetValue(_msspConfig(), value.First());
 				}
 				else if (fieldInfo.FieldType == typeof(Func<int>))
 				{
 					var val = int.Parse(value.First());
-					fieldInfo.SetValue(_msspConfig, () => val);
+					fieldInfo.SetValue(_msspConfig(), val);
 				}
 				else if (fieldInfo.FieldType == typeof(Func<bool>))
 				{
 					var val = value.First() == "1";
-					fieldInfo.SetValue(_msspConfig, () => val);
+					fieldInfo.SetValue(_msspConfig(), val);
 				}
 				else if (fieldInfo.FieldType == typeof(Func<IEnumerable<string>>))
 				{
-					fieldInfo.SetValue(_msspConfig, () => value);
+					fieldInfo.SetValue(_msspConfig(), value);
 				}
 			}
 			else
 			{
 				// We are using the Extended section.
-				_msspConfig.Extended.Add(variable, () => value.Count() > 1 ? value : value.First() );
+				_msspConfig().Extended.Add(variable, value.Count() > 1 ? value : value.First());
 			}
 		}
 
@@ -221,7 +224,7 @@ namespace TelnetNegotiationCore.Interpretors
 		private async Task OnDoMSSPAsync(StateMachine<State, Trigger>.Transition _)
 		{
 			_Logger.Debug("Connection: {connectionStatus}", "Writing MSSP output");
-			await CallbackNegotiation(ReportMSSP(_msspConfig).ToArray());
+			await CallbackNegotiation(ReportMSSP(_msspConfig()).ToArray());
 		}
 
 		/// <summary>
@@ -245,7 +248,7 @@ namespace TelnetNegotiationCore.Interpretors
 			return prefix.Concat(MSSPReadConfig(config)).Concat(postfix);
 		}
 
-		public TelnetInterpretor RegisterMSSPConfig(MSSPConfig config)
+		public TelnetInterpreter RegisterMSSPConfig(Func<MSSPConfig> config)
 		{
 			_msspConfig = config;
 			return this;
@@ -256,23 +259,19 @@ namespace TelnetNegotiationCore.Interpretors
 			IEnumerable<byte> msspBytes = Array.Empty<byte>();
 
 			var fields = typeof(MSSPConfig).GetFields();
-			var knownFields = fields.Where(field => Attribute.IsDefined(field, typeof(MSSPConfig.NameAttribute)));
+			var knownFields = fields.Where(field => Attribute.IsDefined(field, typeof(NameAttribute)));
 
 			foreach (var field in knownFields)
 			{
-				var b = field.GetValue(config)?.GetType();
-				dynamic e = b?
-					.GetMethod("Invoke")?
-					.Invoke(field.GetValue(config), null);
+				var b = field.GetValue(config);
+				if (b == null) continue;
 
-				if (e == null) continue;
+				var attr = Attribute.GetCustomAttribute(field, typeof(NameAttribute)) as NameAttribute;
 
-				var attr = Attribute.GetCustomAttribute(field, typeof(MSSPConfig.NameAttribute)) as MSSPConfig.NameAttribute;
-
-				msspBytes = msspBytes.Concat(ConvertToMSSP(attr.Name, e) as IEnumerable<byte>);
+				msspBytes = msspBytes.Concat(ConvertToMSSP(attr.Name, b));
 			}
 
-			foreach (var item in config.Extended ?? new Dictionary<string, Func<dynamic>>())
+			foreach (var item in config.Extended ?? new Dictionary<string, dynamic>())
 			{
 				if (item.Value == null) continue;
 				msspBytes = msspBytes.Concat(ConvertToMSSP(item.Key, item.Value()) as IEnumerable<byte>);

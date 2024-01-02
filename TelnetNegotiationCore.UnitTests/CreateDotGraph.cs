@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
-using TelnetNegotiationCore.Interpretors;
+using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.UnitTests
@@ -26,7 +26,7 @@ namespace TelnetNegotiationCore.UnitTests
 		[Test]
 		public async Task WriteClientDotGraph()
 		{
-			var telnet = await new TelnetInterpretor(TelnetInterpretor.TelnetMode.Client, _Logger.ForContext<TelnetInterpretor>())
+			var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, _Logger.ForContext<TelnetInterpreter>())
 			{
 				CallbackOnSubmit = WriteBack,
 				CallbackNegotiation = WriteToOutputStream,
@@ -41,22 +41,22 @@ namespace TelnetNegotiationCore.UnitTests
 		[Test]
 		public async Task WriteServerDotGraph()
 		{
-			var telnet = await new TelnetInterpretor(TelnetInterpretor.TelnetMode.Server, _Logger.ForContext<TelnetInterpretor>())
+			var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, _Logger.ForContext<TelnetInterpreter>())
 			{
 				CallbackOnSubmit = WriteBack,
 				CallbackNegotiation = WriteToOutputStream,
 				NAWSCallback = SignalNAWS,
 				CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
 			}
-			.RegisterMSSPConfig(new MSSPConfig
+			.RegisterMSSPConfig(() => new MSSPConfig
 			{
-				Name = () => "My Telnet Negotiated Server",
-				UTF_8 = () => true,
-				Gameplay = () => new[] { "ABC", "DEF" },
-				Extended = new Dictionary<string, Func<dynamic>>
+				Name =  "My Telnet Negotiated Server",
+				UTF_8 =  true,
+				Gameplay =  new[] { "ABC", "DEF" },
+				Extended = new Dictionary<string, dynamic>
 			{
-								{ "Foo", () => "Bar"},
-								{ "Baz", () => new [] {"Moo", "Meow" }}
+								{ "Foo",  "Bar"},
+								{ "Baz",  new [] {"Moo", "Meow" }}
 			}
 			}).Validate().Build();
 

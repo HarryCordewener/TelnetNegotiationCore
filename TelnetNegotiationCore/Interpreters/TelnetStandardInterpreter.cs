@@ -8,13 +8,13 @@ using TelnetNegotiationCore.Models;
 using MoreLinq;
 using OneOf;
 
-namespace TelnetNegotiationCore.Interpretors
+namespace TelnetNegotiationCore.Interpreters
 {
 	/// <summary>
-	/// TODO: Telnet Interpretor should take in a simple Interface object that can Read & Write from / to a Stream!
+	/// TODO: Telnet Interpreter should take in a simple Interface object that can Read & Write from / to a Stream!
 	/// Read Byte, Write Byte, and a Buffer Size. That way we can test it.
 	/// </summary>
-	public partial class TelnetInterpretor
+	public partial class TelnetInterpreter
 	{
 		/// <summary>
 		/// A list of functions to call at the start.
@@ -89,11 +89,11 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <remarks>
 		/// After calling this constructor, one should subscribe to the Triggers, register a Stream, and then run Process()
 		/// </remarks>
-		/// <param name="logger">A Serilog Logger. If null, we will use the default one with a Context of the Telnet Interpretor.</param>
-		public TelnetInterpretor(TelnetMode mode, ILogger logger = null)
+		/// <param name="logger">A Serilog Logger. If null, we will use the default one with a Context of the Telnet Interpreter.</param>
+		public TelnetInterpreter(TelnetMode mode, ILogger logger = null)
 		{
 			Mode = mode;
-			_Logger = logger ?? Log.Logger.ForContext<TelnetInterpretor>().ForContext("TelnetMode", mode);
+			_Logger = logger ?? Log.Logger.ForContext<TelnetInterpreter>().ForContext("TelnetMode", mode);
 			_InitialCall = new List<Func<Task>>();
 			TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
 			_parameterizedTriggers = new ParameterizedTriggers();
@@ -111,7 +111,7 @@ namespace TelnetNegotiationCore.Interpretors
 			}
 		}
 
-		public async Task<TelnetInterpretor> Build()
+		public async Task<TelnetInterpreter> Build()
 		{
 			foreach (var t in _InitialCall)
 			{
@@ -202,7 +202,7 @@ namespace TelnetNegotiationCore.Interpretors
 		/// <summary>
 		/// Validates the object is ready to process.
 		/// </summary>
-		public TelnetInterpretor Validate()
+		public TelnetInterpreter Validate()
 		{
 			if (CallbackOnSubmit == null && CallbackOnByte == null)
 			{

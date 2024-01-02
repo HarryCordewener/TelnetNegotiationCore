@@ -5,12 +5,12 @@ using MoreLinq;
 using System;
 using TelnetNegotiationCore.Models;
 
-namespace TelnetNegotiationCore.Interpretors
+namespace TelnetNegotiationCore.Interpreters
 {
 	/// <summary>
-	/// The Safe Interpretor, providing ways to not crash the system when we are given a STATE we were not expecting.
+	/// The Safe Interpreter, providing ways to not crash the system when we are given a STATE we were not expecting.
 	/// </summary>
-	public partial class TelnetInterpretor
+	public partial class TelnetInterpreter
 	{
 		/// <summary>
 		/// Protect against State Transitions and Telnet Negotiations we do not recognize.

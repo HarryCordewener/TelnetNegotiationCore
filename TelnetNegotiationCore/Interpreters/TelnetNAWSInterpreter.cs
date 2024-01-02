@@ -4,7 +4,7 @@ using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
 
-namespace TelnetNegotiationCore.Interpretors
+namespace TelnetNegotiationCore.Interpreters
 {
 	/// <summary>
 	/// Implements http://www.faqs.org/rfcs/rfc1073.html
@@ -12,7 +12,7 @@ namespace TelnetNegotiationCore.Interpretors
 	/// <remarks>
 	/// TODO: Implement Client Side
 	/// </remarks>
-	public partial class TelnetInterpretor
+	public partial class TelnetInterpreter
 	{
 		/// <summary>
 		/// Internal NAWS Byte State

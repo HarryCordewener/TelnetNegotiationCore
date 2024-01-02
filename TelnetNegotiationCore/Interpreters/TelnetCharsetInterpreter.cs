@@ -7,14 +7,14 @@ using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
 
-namespace TelnetNegotiationCore.Interpretors
+namespace TelnetNegotiationCore.Interpreters
 {
 	/// <summary>
 	/// Implements RFC 2066: 
 	///
 	/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 	/// </summary>
-	public partial class TelnetInterpretor
+	public partial class TelnetInterpreter
 	{
 		/// <summary>
 		/// Internal Charset Byte State
