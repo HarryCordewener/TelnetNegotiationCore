@@ -27,8 +27,6 @@ namespace TelnetNegotiationCore.Interpreters
 			.Where(x => x.Attribute != null)
 			.ToImmutableDictionary(x => x.Attribute.Name.ToUpper());
 
-		private JsonSerializerOptions _serializerOptions = new JsonSerializerOptions() { IncludeFields = true };
-
 		/// <summary>
 		/// Mud Server Status Protocol will provide information to the requestee about the server's contents.
 		/// </summary>
@@ -146,7 +144,7 @@ namespace TelnetNegotiationCore.Interpreters
 				StoreClientMSSPDetails(group.Key, group.Select(x => CurrentEncoding.GetString(x.Second.ToArray())));
 			}
 
-			_Logger.Debug("Registering MSSP: {@msspConfig}", JsonSerializer.Serialize<MSSPConfig>(_msspConfig(), _serializerOptions));
+			_Logger.Debug("Registering MSSP: {@msspConfig}", _msspConfig());
 
 			await Task.CompletedTask;
 		}
@@ -161,26 +159,28 @@ namespace TelnetNegotiationCore.Interpreters
 			if (MSSPAttributeMembers.ContainsKey(variable.ToUpper()))
 			{
 				var foundAttribute = MSSPAttributeMembers[variable.ToUpper()];
-				var fieldInfo = (FieldInfo)foundAttribute.Member;
+				var fieldInfo = (PropertyInfo)foundAttribute.Member;
 
-				if (fieldInfo.FieldType == typeof(Func<string>))
+				var msspConfig = _msspConfig();
+				if (fieldInfo.PropertyType == typeof(string))
 				{
-					fieldInfo.SetValue(_msspConfig(), value.First());
+					fieldInfo.SetValue(msspConfig, value.First());
 				}
-				else if (fieldInfo.FieldType == typeof(Func<int>))
+				else if (fieldInfo.PropertyType == typeof(int))
 				{
 					var val = int.Parse(value.First());
 					fieldInfo.SetValue(_msspConfig(), val);
 				}
-				else if (fieldInfo.FieldType == typeof(Func<bool>))
+				else if (fieldInfo.PropertyType == typeof(bool))
 				{
 					var val = value.First() == "1";
 					fieldInfo.SetValue(_msspConfig(), val);
 				}
-				else if (fieldInfo.FieldType == typeof(Func<IEnumerable<string>>))
+				else if (fieldInfo.PropertyType == typeof(IEnumerable<string>))
 				{
 					fieldInfo.SetValue(_msspConfig(), value);
 				}
+				_msspConfig = () => msspConfig;
 			}
 			else
 			{
