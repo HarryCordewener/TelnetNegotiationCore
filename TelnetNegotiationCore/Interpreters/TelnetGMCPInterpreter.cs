@@ -62,8 +62,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			TriggerHelper.ForAllTriggersButIAC(t => tsm
 					.Configure(State.AlmostNegotiatingGMCP)
-					.Permit(t, State.EvaluatingGMCPValue)
-					.OnEntryFrom(ParametarizedTrigger(t), RegisterGMCPValue));
+					.Permit(t, State.EvaluatingGMCPValue));
 
 			tsm.Configure(State.EvaluatingGMCPValue)
 				.Permit(Trigger.IAC, State.EscapingGMCPValue);
@@ -118,7 +117,7 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			var space = CurrentEncoding.GetBytes(" ").First();
 			var firstSpace = _gmcpBytes.FindIndex(x => x == space);
-			var packageBytes = _gmcpBytes.Skip(1).Take(firstSpace - 1).ToArray();
+			var packageBytes = _gmcpBytes.Take(firstSpace).ToArray();
 			var rest = _gmcpBytes.Skip(firstSpace + 1).ToArray();
 			await CallbackOnGMCP((Package: CurrentEncoding.GetString(packageBytes), Info: rest), CurrentEncoding);
 		}
