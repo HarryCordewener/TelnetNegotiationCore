@@ -10,12 +10,13 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Files", "Solution Files", "{444703E8-4E7D-48CE-9F96-E510E3A99FA5}"
 	ProjectSection(SolutionItems) = preProject
 		CHANGELOG.md = CHANGELOG.md
+		LICENSE = LICENSE
 		README.md = README.md
 	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TelnetNegotiationCore.UnitTests", "TelnetNegotiationCore.UnitTests\TelnetNegotiationCore.UnitTests.csproj", "{0EC8EB89-8596-4426-83B0-29354F5B8938}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TelnetNegotiationCore.TestClient", "TelnetNegotiationCore.TestClient\TelnetNegotiationCore.TestClient.csproj", "{E1A76C78-8246-472F-824E-9F7F9B3778B7}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TelnetNegotiationCore.TestClient", "TelnetNegotiationCore.TestClient\TelnetNegotiationCore.TestClient.csproj", "{E1A76C78-8246-472F-824E-9F7F9B3778B7}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

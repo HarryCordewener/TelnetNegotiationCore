@@ -9,6 +9,7 @@
 		EndNegotiation,
 		SubNegotiation,
 		EndSubNegotiation,
+		DoNothing,
 		Do,
 		Dont,
 		Willing,

@@ -61,58 +61,74 @@ namespace TelnetNegotiationCore.Models
 		/// Sub-negotiation SEND command
 		/// ECHO negotiation (Unsupported)
 		/// Sub-negotiation MSSP_VAR
+		/// Sub-negotiation MSDP_VAR
 		/// </summary>
 		/// <remarks>
 		/// RFC 855: http://www.faqs.org/rfcs/rfc855.html
 		/// RFC 857: http://www.faqs.org/rfcs/rfc857.html
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
+		/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
 		/// </remarks>
 		ECHO = 1,
 		MSSP_VAR = 1,
+		MSDP_VAR = 1,
 		SEND = 1,
 		REQUEST = 1,
 		/// <summary>
 		/// Sub-negotiation ACCEPTED command.	
-		/// Sub-negotiation MSSP_VAR
+		/// Sub-negotiation MSSP_VAL
+		/// Sub-negotiation MSDP_VAL
 		/// </summary>
 		/// <remarks>
 		/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+		/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
 		/// </remarks>
 		MSSP_VAL = 2,
+		MSDP_VAL = 2,
 		ACCEPTED = 2,
 		/// <summary>
 		/// Sub-negotiation REJECTED command.	
 		/// Suppress Go Ahead
+		/// Sub-negotiation MSDP_TABLE_OPEN
 		/// </summary>
 		/// <remarks>
 		/// RFC 858: http://www.faqs.org/rfcs/rfc858.html
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+		/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
 		/// </remarks>
 		SUPPRESSGOAHEAD = 3,
 		REJECTED = 3,
+		MSDP_TABLE_OPEN = 3,
 		/// <summary>
 		/// Sub-negotiation TTABLE-IS command. (Unsupported)
+		/// Sub-negotiation MSDP_TABLE_CLOSE
 		/// </summary>
 		/// <remarks>
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+		/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
 		/// </remarks>
 		TTABLE_IS = 4,
+		MSDP_TABLE_CLOSE = 4,
 		/// <summary>
 		/// Sub-negotiation TTABLE_REJECTED command. (Unsupported)
+		/// Sub-negotiation MSDP_ARRAY_OPEN
 		/// </summary>
 		/// <remarks>
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// </remarks>
 		TTABLE_REJECTED = 5,
+		MSDP_ARRAY_OPEN = 5,
 		/// <summary>
 		/// Sub-negotiation TTABLE_ACK command. (Unsupported)
+		/// Sub-negotiation MSDP_ARRAY_CLOSE   
 		/// </summary>
 		/// <remarks>
 		/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 		/// </remarks>
 		TTABLE_ACK = 6,
+		MSDP_ARRAY_CLOSE = 6,
 		/// <summary>
 		/// Sub-negotiation TTABLE_NAK command. (Unsupported)
 		/// </summary>

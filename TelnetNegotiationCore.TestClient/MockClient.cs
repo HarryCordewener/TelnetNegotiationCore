@@ -25,7 +25,7 @@ namespace TelnetNegotiationCore.TestClient
 
 			while (true)
 			{
-				var read = Console.ReadLine() + "\n\r" + "\r\n";
+				var read = Console.ReadLine() + "\n\r";
 				telnet?.SendPromptAsync(telnet?.CurrentEncoding.GetBytes(read)).GetAwaiter().GetResult();
 			}
 		}
@@ -35,7 +35,7 @@ namespace TelnetNegotiationCore.TestClient
 		public Task WriteBack(byte[] writeback, Encoding encoding)
 		{
 			string str = encoding.GetString(writeback);
-			_Logger.Information("Writeback: {writeBack}", str);
+			Console.WriteLine(str);
 			return Task.CompletedTask;
 		}
 
@@ -52,7 +52,7 @@ namespace TelnetNegotiationCore.TestClient
 			return Task.CompletedTask;
 		}
 
-		public void Handle(object obj)
+		public void Handle(object? obj)
 		{
 			var client = (TcpClient)obj;
 			int port = -1;

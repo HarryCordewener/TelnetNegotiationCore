@@ -156,6 +156,13 @@ namespace TelnetNegotiationCore.Interpreters
 				.Permit(Trigger.SB, State.SubNegotiation)
 				.OnEntry(x => _Logger.Debug("Connection: {connectionState}", "Starting Negotiation"));
 
+			tsm.Configure(State.StartNegotiation)
+				.Permit(Trigger.NOP, State.DoNothing);
+
+			tsm.Configure(State.DoNothing)
+				.SubstateOf(State.Accepting)
+				.OnEntry(() => _Logger.Debug("Connection: {connectionState}", "NOP call. Do nothing."));
+
 			// As a general documentation, negotiation means a Do followed by a Will, or a Will followed by a Do.
 			// Do followed by Refusing or Will followed by Don't indicate negative negotiation.
 			tsm.Configure(State.Willing);
