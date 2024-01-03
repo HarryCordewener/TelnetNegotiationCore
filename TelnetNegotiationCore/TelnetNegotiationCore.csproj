@@ -17,6 +17,7 @@
 		<PackageTags>telnet</PackageTags>
 		<PackageLicenseFile>LICENSE</PackageLicenseFile>
 	  <PackageReleaseNotes>$([System.IO.File]::ReadAllText("CHANGELOG.md"))</PackageReleaseNotes>
+    <Copyright>Copyright © TelnetNegotiationCore Contributors 2024-$([System.DateTime]::Now.ToString(yyyy))</Copyright>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -34,7 +35,7 @@
     </None>
   </ItemGroup>
 	<ItemGroup>
-		<None Include="..\LICENSE" Pack="true" PackagePath=""/>
+		<None Include="..\LICENSE" Pack="true" PackagePath="" />
 	</ItemGroup>
 	
   <ItemGroup>
