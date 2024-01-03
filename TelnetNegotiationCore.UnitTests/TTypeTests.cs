@@ -2,6 +2,7 @@ using NUnit.Framework;
 using Serilog;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -25,7 +26,7 @@ namespace TelnetNegotiationCore.UnitTests
 			return Task.CompletedTask;
 		}
 
-		private Task WriteBackToGMCP((string Package, byte[] Info) tuple, Encoding encoding)
+		private Task WriteBackToGMCP((string Package, string Info) tuple, Encoding encoding)
 		{
 			throw new NotImplementedException();
 		}
@@ -43,10 +44,10 @@ namespace TelnetNegotiationCore.UnitTests
 
 			_server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server)
 			{
-				CallbackNegotiation = WriteBackToNegotiate,
-				CallbackOnSubmit = WriteBackToOutput,
-				CallbackOnGMCP = WriteBackToGMCP,
-				CallbackOnByte = (x, y) => Task.CompletedTask,
+				CallbackNegotiationAsync = WriteBackToNegotiate,
+				CallbackOnSubmitAsync = WriteBackToOutput,
+				SignalOnGMCPAsync = WriteBackToGMCP,
+				CallbackOnByteAsync = (x, y) => Task.CompletedTask,
 			}.RegisterMSSPConfig(() => new MSSPConfig
 			{
 				Name = "My Telnet Negotiated Server",
@@ -57,14 +58,14 @@ namespace TelnetNegotiationCore.UnitTests
 					{ "Foo", "Bar"},
 					{ "Baz", new [] {"Moo", "Meow" }}
 				}
-			}).Validate().Build();
+			}).BuildAsync();
 
 			_client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client)
 			{
-				CallbackNegotiation = WriteBackToNegotiate,
-				CallbackOnSubmit = WriteBackToOutput,
-				CallbackOnGMCP = WriteBackToGMCP,
-				CallbackOnByte = (x, y) => Task.CompletedTask,
+				CallbackNegotiationAsync = WriteBackToNegotiate,
+				CallbackOnSubmitAsync = WriteBackToOutput,
+				SignalOnGMCPAsync = WriteBackToGMCP,
+				CallbackOnByteAsync = (x, y) => Task.CompletedTask,
 			}.RegisterMSSPConfig(() => new MSSPConfig
 			{
 				Name = "My Telnet Negotiated Client",
@@ -75,10 +76,10 @@ namespace TelnetNegotiationCore.UnitTests
 					{ "Foo", "Bar"},
 					{ "Baz", new [] {"Moo", "Meow" }}
 				}
-			}).Validate().Build();
+			}).BuildAsync();
 		}
 
-		[TestCaseSource(nameof(ServerTTypeSequences))]
+		[TestCaseSource(nameof(ServerTTypeSequences), Category = nameof(TelnetInterpreter.TelnetMode.Server))]
 		public async Task ServerEvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<string[]> RegisteredTTypes)
 		{
 			if (clientSends.Count() != serverShouldRespondWith.Count())
@@ -96,7 +97,7 @@ namespace TelnetNegotiationCore.UnitTests
 			}
 		}
 
-		[TestCaseSource(nameof(ClientTTypeSequences))]
+		[TestCaseSource(nameof(ClientTTypeSequences), Category = nameof(TelnetInterpreter.TelnetMode.Client))]
 		public async Task ClientEvaluationCheck(IEnumerable<byte[]> serverSends, IEnumerable<byte[]> serverShouldRespondWith)
 		{
 			if (serverSends.Count() != serverShouldRespondWith.Count())

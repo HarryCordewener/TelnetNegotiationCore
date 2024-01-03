@@ -42,8 +42,8 @@ namespace TelnetNegotiationCore.Interpreters
 						tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
 							.OnEntryFromAsync(trigger, async () =>
 							{
-								_Logger.Debug("Connection: {connectionStatus}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
-								await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger });
+								_Logger.Debug("Connection: {ConnectionState}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
+								await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger });
 							});
 					}
 					else if (state is State.Willing)
@@ -51,8 +51,8 @@ namespace TelnetNegotiationCore.Interpreters
 						tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
 							.OnEntryFromAsync(trigger, async () =>
 							{
-								_Logger.Debug("Connection: {connectionStatus}", $"Telling the Client, Don't send {trigger}.");
-								await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger });
+								_Logger.Debug("Connection: {ConnectionState}", $"Telling the Client, Don't send {trigger}.");
+								await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger });
 							});
 					}
 				}
@@ -73,7 +73,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			tsm.Configure(State.BadSubNegotiation)
 				.Permit(Trigger.IAC, State.BadSubNegotiationEscaping)
-				.OnEntry(() => _Logger.Debug("Connection: {connectionState}", $"Unsupported subnegotiation."));
+				.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", $"Unsupported subnegotiation."));
 			tsm.Configure(State.BadSubNegotiationEscaping)
 				.Permit(Trigger.IAC, State.BadSubNegotiationEvaluating)
 				.Permit(Trigger.SE, State.BadSubNegotiationCompleting);
@@ -97,7 +97,7 @@ namespace TelnetNegotiationCore.Interpreters
 			tsm.OnUnhandledTrigger(async (state, trigger, unmetguards) =>
 			{
 				_Logger.Fatal("Bad transition from {@state} with trigger {@trigger} due to unmet guards: {@unmetguards}. Cannot recover. Ignoring character and attempting to recover.", state, trigger, unmetguards);
-				await tsm.FireAsync(ParametarizedTrigger(Trigger.Error), Trigger.Error);
+				await tsm.FireAsync(ParameterizedTrigger(Trigger.Error), Trigger.Error);
 			});
 
 			return tsm;

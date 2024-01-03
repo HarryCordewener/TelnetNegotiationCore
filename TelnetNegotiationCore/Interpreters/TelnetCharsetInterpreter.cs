@@ -43,7 +43,7 @@ namespace TelnetNegotiationCore.Interpreters
 		public Lazy<byte[]> SupportedCharacterSets { get; }
 
 		/// <summary>
-		/// Sets the Characterset Order
+		/// Sets the CharacterSet Order
 		/// </summary>
 		/// <exception cref="ArgumentOutOfRangeException">codepage is less than zero or greater than 65535.</exception>
 		/// <exception cref="ArgumentException">codepage is not supported by the underlying platform.</exception>
@@ -82,7 +82,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			tsm.Configure(State.WontDoCharset)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Won't do Character Set - do nothing"));
+				.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Won't do Character Set - do nothing"));
 
 			tsm.Configure(State.DoCharset)
 				.SubstateOf(State.Accepting)
@@ -90,7 +90,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			tsm.Configure(State.DontCharset)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Client won't do Character Set - do nothing"));
+				.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Client won't do Character Set - do nothing"));
 
 			tsm.Configure(State.SubNegotiation)
 				.Permit(Trigger.CHARSET, State.AlmostNegotiatingCharset);
@@ -128,8 +128,8 @@ namespace TelnetNegotiationCore.Interpreters
 			tsm.Configure(State.EvaluatingAcceptedCharsetValue)
 				.Permit(Trigger.IAC, State.EscapingAcceptedCharsetValue);
 
-			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingCharset).OnEntryFrom(ParametarizedTrigger(t), CaptureCharset));
-			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingAcceptedCharsetValue).OnEntryFrom(ParametarizedTrigger(t), CaptureAcceptedCharset));
+			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingCharset).OnEntryFrom(ParameterizedTrigger(t), CaptureCharset));
+			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingAcceptedCharsetValue).OnEntryFrom(ParameterizedTrigger(t), CaptureAcceptedCharset));
 
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.EvaluatingCharset).PermitReentry(t));
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.EvaluatingAcceptedCharsetValue).PermitReentry(t));
@@ -196,7 +196,7 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			if (charsetOffered && Mode == TelnetMode.Server)
 			{
-				await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+				await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
 				return;
 			}
 
@@ -212,7 +212,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			if (chosenEncoding == null)
 			{
-				await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+				await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
 				return;
 			}
 
@@ -227,7 +227,7 @@ namespace TelnetNegotiationCore.Interpreters
 			// TODO: The implementing Server or Client needs to be warned when CurrentEncoding is set!
 			// This would allow, for instance, the Console to ensure it displays Unicode correctly.
 
-			await CallbackNegotiation(preamble.Concat(charsetAscii).Concat(postamble).ToArray());
+			await CallbackNegotiationAsync(preamble.Concat(charsetAscii).Concat(postamble).ToArray());
 		}
 
 		/// <summary>
@@ -243,7 +243,7 @@ namespace TelnetNegotiationCore.Interpreters
 			catch (Exception ex)
 			{
 				_Logger.Error(ex, "Unexpected error during Accepting Charset Negotiation. Could not find charset: {charset}", ascii.GetString(_acceptedCharsetByteState, 0, _acceptedCharsetByteIndex));
-				await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+				await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
 			}
 			_Logger.Information("Connection: Accepted Charset Negotiation for: {charset}", CurrentEncoding.WebName);
 			charsetOffered = false;
@@ -254,8 +254,8 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task OnWillingCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Connection: {connectionStatus}", "Request charset negotiation from Client");
-			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET });
+			_Logger.Debug("Connection: {ConnectionState}", "Request charset negotiation from Client");
+			await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET });
 			charsetOffered = false;
 		}
 
@@ -264,8 +264,8 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task WillingCharsetAsync()
 		{
-			_Logger.Debug("Connection: {connectionStatus}", "Announcing willingness to Charset!");
-			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
+			_Logger.Debug("Connection: {ConnectionState}", "Announcing willingness to Charset!");
+			await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
 		}
 
 		/// <summary>
@@ -274,7 +274,7 @@ namespace TelnetNegotiationCore.Interpreters
 		private async Task OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
 			_Logger.Debug("Charsets String: {charsetlist}", ";" + string.Join(";", _charsetOrder(Encoding.GetEncodings()).Select(x => x.WebName)));
-			await CallbackNegotiation(SupportedCharacterSets.Value);
+			await CallbackNegotiationAsync(SupportedCharacterSets.Value);
 			charsetOffered = true;
 		}
 

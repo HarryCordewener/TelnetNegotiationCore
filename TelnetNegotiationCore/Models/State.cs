@@ -81,6 +81,7 @@
 		DontEOR,
 		WontEOR,
 		WillEOR,
+		Prompting,
 		#endregion End of Record Negotiation
 		#region GMCP Negotiation
 		DoGMCP,

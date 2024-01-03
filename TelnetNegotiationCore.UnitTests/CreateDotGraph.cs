@@ -27,12 +27,12 @@ namespace TelnetNegotiationCore.UnitTests
 		{
 			var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, _Logger.ForContext<TelnetInterpreter>())
 			{
-				CallbackOnSubmit = WriteBack,
-				CallbackOnGMCP = WriteBackToGMCP,
-				CallbackNegotiation = WriteToOutputStream,
-				NAWSCallback = SignalNAWS,
+				CallbackOnSubmitAsync = WriteBack,
+				SignalOnGMCPAsync = WriteBackToGMCP,
+				CallbackNegotiationAsync = WriteToOutputStream,
+				SignalOnNAWSAsync = SignalNAWS,
 				CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
-			}.Validate().Build();
+			}.BuildAsync();
 
 			var dotGraph = UmlDotGraph.Format(telnet.TelnetStateMachine.GetInfo());
 			File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), "..", "ClientDotGraph.dot"), dotGraph);
@@ -43,10 +43,10 @@ namespace TelnetNegotiationCore.UnitTests
 		{
 			var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, _Logger.ForContext<TelnetInterpreter>())
 			{
-				CallbackOnSubmit = WriteBack,
-				CallbackOnGMCP = WriteBackToGMCP,
-				CallbackNegotiation = WriteToOutputStream,
-				NAWSCallback = SignalNAWS,
+				CallbackOnSubmitAsync = WriteBack,
+				SignalOnGMCPAsync = WriteBackToGMCP,
+				CallbackNegotiationAsync = WriteToOutputStream,
+				SignalOnNAWSAsync = SignalNAWS,
 				CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
 			}
 			.RegisterMSSPConfig(() => new MSSPConfig
@@ -59,7 +59,7 @@ namespace TelnetNegotiationCore.UnitTests
 								{ "Foo",  "Bar"},
 								{ "Baz",  new [] {"Moo", "Meow" }}
 			}
-			}).Validate().Build();
+			}).BuildAsync();
 
 			var dotGraph = UmlDotGraph.Format(telnet.TelnetStateMachine.GetInfo());
 			File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), "..", "ServerDotGraph.dot"), dotGraph);
@@ -71,6 +71,6 @@ namespace TelnetNegotiationCore.UnitTests
 		
 		private async Task WriteBack(byte[] arg1, Encoding encoding) => await Task.CompletedTask;
 
-		private async Task WriteBackToGMCP((string module, byte[] writeback) arg1, Encoding arg2) => await Task.CompletedTask;
+		private async Task WriteBackToGMCP((string module, string writeback) arg1, Encoding arg2) => await Task.CompletedTask;
 	}
 }

@@ -22,9 +22,9 @@ namespace TelnetNegotiationCore.Interpreters
 		private readonly List<Func<Task>> _InitialCall;
 
 		/// <summary>
-		/// The current Encoding used for interpretting incoming non-negotiation text, and what we should send on outbound.
+		/// The current Encoding used for interpreting incoming non-negotiation text, and what we should send on outbound.
 		/// </summary>
-		public Encoding CurrentEncoding { get; private set; } = Encoding.GetEncoding("ISO-8859-1");
+		public Encoding CurrentEncoding { get; private set; } = Encoding.ASCII;
 
 		/// <summary>
 		/// Telnet state machine
@@ -51,7 +51,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		/// <param name="t">The Trigger</param>
 		/// <returns>A Parameterized trigger</returns>
-		private StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParametarizedTrigger(Trigger t)
+		private StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParameterizedTrigger(Trigger t)
 			=> _parameterizedTriggers.ParametarizedTrigger(TelnetStateMachine, t);
 
 		/// <summary>
@@ -71,17 +71,17 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <summary>
 		/// Callback to run on a submission (linefeed)
 		/// </summary>
-		public Func<byte[], Encoding, Task> CallbackOnSubmit { get; init; }
+		public Func<byte[], Encoding, Task> CallbackOnSubmitAsync { get; init; }
 
 		/// <summary>
 		/// Callback to the output stream directly for negotiation.
 		/// </summary>
-		public Func<byte[], Task> CallbackNegotiation { get; init; }
+		public Func<byte[], Task> CallbackNegotiationAsync { get; init; }
 
 		/// <summary>
 		/// Callback per byte.
 		/// </summary>
-		public Func<byte, Encoding, Task> CallbackOnByte { get; init; }
+		public Func<byte, Encoding, Task> CallbackOnByteAsync { get; init; }
 
 		/// <summary>
 		/// Constructor, sets up for standard Telnet protocol with NAWS and Character Set support.
@@ -102,17 +102,23 @@ namespace TelnetNegotiationCore.Interpreters
 
 			var li = new List<Func<StateMachine<State, Trigger>, StateMachine<State, Trigger>>> {
 				SetupSafeNegotiation, SetupEORNegotiation, SetupMSSPNegotiation, SetupGMCPNegotiation, SetupTelnetTerminalType, SetupCharsetNegotiation, SetupNAWS, SetupStandardProtocol
-			}.AggregateRight(TelnetStateMachine, (func, statemachine) => func(statemachine));
+			}.AggregateRight(TelnetStateMachine, (func, stateMachine) => func(stateMachine));
 
 			if (_Logger.IsEnabled(Serilog.Events.LogEventLevel.Verbose))
 			{
-				TelnetStateMachine.OnTransitioned((transition) => _Logger.Verbose("Telnet Statemachine: {source} --[{trigger}({triggerbyte})]--> {destination}",
+				TelnetStateMachine.OnTransitioned((transition) => _Logger.Verbose("Telnet StateMachine: {Source} --[{Trigger}({TriggerByte})]--> {Destination}",
 					transition.Source, transition.Trigger, transition.Parameters[0], transition.Destination));
 			}
 		}
 
-		public async Task<TelnetInterpreter> Build()
+		/// <summary>
+		/// Validates the configuration, then sets up the initial calls for negotiation.
+		/// </summary>
+		/// <returns>The Telnet Interpreter</returns>
+		public async Task<TelnetInterpreter> BuildAsync()
 		{
+			Validate();
+
 			foreach (var t in _InitialCall)
 			{
 				await t();
@@ -130,19 +136,19 @@ namespace TelnetNegotiationCore.Interpreters
 			// If we are in Accepting mode, these should be interpreted as regular characters.
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.Accepting).Permit(t, State.ReadingCharacters));
 
-			// Standard triggers, which are fine in the Awaiting state and should just be interpretted as a character in this state.
+			// Standard triggers, which are fine in the Awaiting state and should just be interpreted as a character in this state.
 			tsm.Configure(State.ReadingCharacters)
 				.SubstateOf(State.Accepting)
 				.Permit(Trigger.NEWLINE, State.Act);
 
-			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.ReadingCharacters).OnEntryFrom(ParametarizedTrigger(t), WriteToBufferAndAdvance));
+			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.ReadingCharacters).OnEntryFromAsync(ParameterizedTrigger(t), WriteToBufferAndAdvanceAsync));
 
 			// We've gotten a newline. We interpret this as time to act and send a signal back.
 			tsm.Configure(State.Act)
 				.SubstateOf(State.Accepting)
 				.OnEntry(WriteToOutput);
 
-			// Subnegotiation
+			// SubNegotiation
 			tsm.Configure(State.Accepting)
 				.Permit(Trigger.IAC, State.StartNegotiation);
 
@@ -154,14 +160,14 @@ namespace TelnetNegotiationCore.Interpreters
 				.Permit(Trigger.DO, State.Do)
 				.Permit(Trigger.DONT, State.Dont)
 				.Permit(Trigger.SB, State.SubNegotiation)
-				.OnEntry(x => _Logger.Debug("Connection: {connectionState}", "Starting Negotiation"));
+				.OnEntry(x => _Logger.Verbose("Connection: {ConnectionState}", "Starting Negotiation"));
 
 			tsm.Configure(State.StartNegotiation)
 				.Permit(Trigger.NOP, State.DoNothing);
 
 			tsm.Configure(State.DoNothing)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.Debug("Connection: {connectionState}", "NOP call. Do nothing."));
+				.OnEntry(() => _Logger.Verbose("Connection: {ConnectionState}", "NOP call. Do nothing."));
 
 			// As a general documentation, negotiation means a Do followed by a Will, or a Will followed by a Do.
 			// Do followed by Refusing or Will followed by Don't indicate negative negotiation.
@@ -171,10 +177,10 @@ namespace TelnetNegotiationCore.Interpreters
 			tsm.Configure(State.Dont);
 
 			tsm.Configure(State.ReadingCharacters)
-				.OnEntryFrom(Trigger.IAC, x => _Logger.Debug("Connection: {connectionState}", "Canceling negotation"));
+				.OnEntryFrom(Trigger.IAC, x => _Logger.Debug("Connection: {ConnectionState}", "Canceling negotiation"));
 
 			tsm.Configure(State.SubNegotiation)
-				.OnEntryFrom(Trigger.IAC, x => _Logger.Debug("{Connection: connectionState}", "Subnegotiation request"));
+				.OnEntryFrom(Trigger.IAC, x => _Logger.Debug("Connection: {ConnectionState}", "SubNegotiation request"));
 
 			tsm.Configure(State.EndSubNegotiation)
 				.Permit(Trigger.SE, State.Accepting);
@@ -186,13 +192,13 @@ namespace TelnetNegotiationCore.Interpreters
 		/// Write the character into a buffer.
 		/// </summary>
 		/// <param name="b">A useful byte for the Client/Server</param>
-		private void WriteToBufferAndAdvance(OneOf<byte, Trigger> b)
+		private async Task WriteToBufferAndAdvanceAsync(OneOf<byte, Trigger> b)
 		{
 			if (b.AsT0 == (byte)Trigger.CARRIAGERETURN) return;
-			_Logger.Verbose("Debug: Writing into buffer: {byte}", b.AsT0);
+			_Logger.Verbose("Debug: Writing into buffer: {Byte}", b.AsT0);
 			buffer[bufferposition] = b.AsT0;
 			bufferposition++;
-			CallbackOnByte?.Invoke(b.AsT0, CurrentEncoding);
+			await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? Task.CompletedTask);
 		}
 
 		/// <summary>
@@ -203,25 +209,25 @@ namespace TelnetNegotiationCore.Interpreters
 			byte[] cp = new byte[bufferposition];
 			Array.Copy(buffer, cp, bufferposition);
 			bufferposition = 0;
-			CallbackOnSubmit.Invoke(cp, CurrentEncoding);
+			CallbackOnSubmitAsync.Invoke(cp, CurrentEncoding);
 		}
 
 		/// <summary>
 		/// Validates the object is ready to process.
 		/// </summary>
-		public TelnetInterpreter Validate()
+		private TelnetInterpreter Validate()
 		{
-			if (CallbackOnSubmit == null && CallbackOnByte == null)
+			if (CallbackOnSubmitAsync == null && CallbackOnByteAsync == null)
 			{
-				throw new ApplicationException($"Writeback Functions ({CallbackOnSubmit}, {CallbackOnByte}) are null or have not been registered.");
+				throw new ApplicationException($"Writeback Functions ({CallbackOnSubmitAsync}, {CallbackOnByteAsync}) are null or have not been registered.");
 			}
-			if (CallbackNegotiation == null)
+			if (CallbackNegotiationAsync == null)
 			{
-				throw new ApplicationException($"{CallbackNegotiation} is null and has not been registered.");
+				throw new ApplicationException($"{CallbackNegotiationAsync} is null and has not been registered.");
 			}
-			if (CallbackOnGMCP == null)
+			if (SignalOnGMCPAsync == null)
 			{
-				throw new ApplicationException($"{CallbackOnGMCP} is null and has not been registered.");
+				throw new ApplicationException($"{SignalOnGMCPAsync} is null and has not been registered.");
 			}
 
 			return this;
@@ -242,11 +248,11 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			if (Enum.IsDefined(typeof(Trigger), (short)bt))
 			{
-				await TelnetStateMachine.FireAsync(ParametarizedTrigger((Trigger)bt), bt);
+				await TelnetStateMachine.FireAsync(ParameterizedTrigger((Trigger)bt), bt);
 			}
 			else
 			{
-				await TelnetStateMachine.FireAsync(ParametarizedTrigger(Trigger.ReadNextCharacter), bt);
+				await TelnetStateMachine.FireAsync(ParameterizedTrigger(Trigger.ReadNextCharacter), bt);
 			}
 		}
 	}

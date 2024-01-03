@@ -3,39 +3,44 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using TelnetNegotiationCore.Interpreters;
+using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.TestClient
 {
 	public class MockClient
 	{
-		readonly TcpClient? client = null;
 		readonly ILogger _Logger;
+		readonly TcpClient? client = null;
 		TelnetInterpreter? telnet = null;
 
-		public MockClient(string ip, int port, ILogger? logger = null)
+		public MockClient(string address, int port, ILogger? logger = null)
 		{
 			Console.InputEncoding = Console.OutputEncoding = Encoding.UTF8;
 
 			_Logger = logger ?? Log.Logger.ForContext<MockClient>();
-			IPAddress localAddress = IPAddress.Parse(ip);
-			client = new TcpClient(localAddress.ToString(), port);
+			client = new TcpClient(address, port);
 		}
 
-		public void Start()
+		public async Task StartAsync()
 		{
 			var t = new Thread(new ParameterizedThreadStart(Handle));
 			t.Start(client);
 
 			while (true)
 			{
-				var read = Console.ReadLine() + "\n\r"; 
-				telnet?.SendPromptAsync(telnet?.CurrentEncoding.GetBytes(read)).GetAwaiter().GetResult();
+				var read = Console.ReadLine() + Environment.NewLine; 
+				
+				if(telnet != null)
+				{
+					await telnet.SendPromptAsync(telnet?.CurrentEncoding.GetBytes(read));
+				}
 			}
 		}
 
-		private async Task WriteToOutputStream(byte[] arg, StreamWriter writer)
+		private async Task WriteToOutputStreamAsync(byte[] arg, StreamWriter writer)
 		{
-			try { 
+			try 
+			{ 
 				await writer.BaseStream.WriteAsync(arg, CancellationToken.None);
 			}
 			catch(ObjectDisposedException ode)
@@ -44,25 +49,20 @@ namespace TelnetNegotiationCore.TestClient
 			}
 		}
 
-		public Task WriteBack(byte[] writeback, Encoding encoding)
-		{
-			string str = encoding.GetString(writeback);
-			Console.WriteLine(str);
-			return Task.CompletedTask;
-		}
+		public static Task WriteBackAsync(byte[] writeback, Encoding encoding) =>
+			Task.Run(() => Console.WriteLine(encoding.GetString(writeback)));
 
-		public Task WriteBackGMCP((string module, byte[] writeback) val, Encoding encoding)
-		{
-			string str = encoding.GetString(val.writeback);
-			_Logger.Information("Writeback GMCP: {module}: {writeBack}", val.module, str);
-			return Task.CompletedTask;
-		}
+		public Task SignalGMCPAsync((string module, string writeback) val, Encoding encoding) =>
+			Task.Run(() => _Logger.Debug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback));
 
-		public Task SignalNAWS(int height, int width)
-		{
-			_Logger.Information("Client Height and Width updated: {height}x{width}", height, width);
-			return Task.CompletedTask;
-		}
+		public Task SignalMSSPAsync(MSSPConfig val) =>
+			Task.Run(() => _Logger.Debug("New MSSP: {@MSSP}", val));
+
+		public Task SignalPromptAsync() =>
+			Task.Run(() => _Logger.Debug("Prompt"));
+
+		public Task SignalNAWSAsync(int height, int width) => 
+			Task.Run(() => _Logger.Debug("Client Height and Width updated: {Height}x{Width}", height, width));
 
 		public void Handle(object? obj)
 		{
@@ -79,28 +79,29 @@ namespace TelnetNegotiationCore.TestClient
 
 				telnet = new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, _Logger.ForContext<TelnetInterpreter>())
 				{
-					CallbackOnSubmit = WriteBack,
-					CallbackNegotiation = (x) => WriteToOutputStream(x, output),
-					CallbackOnGMCP = WriteBackGMCP,
-					NAWSCallback = SignalNAWS,
+					CallbackOnSubmitAsync = WriteBackAsync,
+					CallbackNegotiationAsync = (x) => WriteToOutputStreamAsync(x, output),
+					SignalOnGMCPAsync = SignalGMCPAsync,
+					SignalOnMSSPAsync = SignalMSSPAsync,
+					SignalOnNAWSAsync = SignalNAWSAsync,
+					SignalOnPromptingAsync = SignalPromptAsync,
 					CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
-				}.Validate()
-				 .Build()
+				}.BuildAsync()
 				 .GetAwaiter()
 				 .GetResult();
 
-				_Logger.Information("Connection: {connectionState}", "Connected");
+				_Logger.Information("Connection: {ConnectionState}", "Connected");
 
 				for (int currentByte = 0; currentByte != -1; currentByte = input.BaseStream.ReadByte())
 				{
 					telnet.InterpretAsync((byte)currentByte).GetAwaiter().GetResult();
 				}
 
-				_Logger.Information("Connection: {connectionState}", "Connection Closed");
+				_Logger.Information("Connection: {ConnectionState}", "Connection Closed");
 			}
 			catch (Exception ex)
 			{
-				_Logger.Error(ex, "Connection: {connectionStatus}", "Connection was unexpectedly closed.");
+				_Logger.Error(ex, "Connection: {ConnectionState}", "Connection was unexpectedly closed.");
 			}
 		}
 	}

@@ -1,4 +1,5 @@
-﻿using System.Threading.Tasks;
+﻿using System;
+using System.Threading.Tasks;
 using Stateless;
 using TelnetNegotiationCore.Models;
 
@@ -7,6 +8,8 @@ namespace TelnetNegotiationCore.Interpreters
 	public partial class TelnetInterpreter
 	{
 		private bool? _doEOR = null;
+
+		public Func<Task> SignalOnPromptingAsync { get; init; }
 
 		/// <summary>
 		/// Character set Negotiation will set the Character Set and Character Page Server & Client have agreed to.
@@ -50,19 +53,32 @@ namespace TelnetNegotiationCore.Interpreters
 					.OnEntryAsync(OnWillEORAsync);
 			}
 
+			tsm.Configure(State.StartNegotiation)
+				.Permit(Trigger.EOR, State.Prompting);
+
+			tsm.Configure(State.Prompting)
+				.SubstateOf(State.Accepting)
+				.OnEntryAsync(OnEORPrompt);
+
 			return tsm;
+		}
+
+		private async Task OnEORPrompt()
+		{
+			_Logger.Debug("Connection: {ConnectionState}", "Server is prompting EOR");
+			await (SignalOnPromptingAsync?.Invoke() ?? Task.CompletedTask);
 		}
 
 		private async Task OnDontEORAsync()
 		{
-			_Logger.Debug("Connection: {connectionStatus}", "Client won't do EOR - do nothing");
+			_Logger.Debug("Connection: {ConnectionState}", "Client won't do EOR - do nothing");
 			_doEOR = false;
 			await Task.CompletedTask;
 		}
 
 		private async Task WontEORAsync()
 		{
-			_Logger.Debug("Connection: {connectionStatus}", "Server  won't do EOR - do nothing");
+			_Logger.Debug("Connection: {ConnectionState}", "Server  won't do EOR - do nothing");
 			_doEOR = false;
 			await Task.CompletedTask;
 		}
@@ -72,8 +88,8 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task WillingEORAsync()
 		{
-			_Logger.Debug("Connection: {connectionStatus}", "Announcing willingness to EOR!");
-			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
+			_Logger.Debug("Connection: {ConnectionState}", "Announcing willingness to EOR!");
+			await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
 		}
 
 		/// <summary>
@@ -81,7 +97,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private Task OnDoEORAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Connection: {connectionStatus}", "Client supports End of Record.");
+			_Logger.Debug("Connection: {ConnectionState}", "Client supports End of Record.");
 			_doEOR = true;
 			return Task.CompletedTask;
 		}
@@ -91,9 +107,9 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task OnWillEORAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Connection: {connectionStatus}", "Server supports End of Record.");
+			_Logger.Debug("Connection: {ConnectionState}", "Server supports End of Record.");
 			_doEOR = true;
-			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
+			await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
 		}
 
 		/// <summary>
@@ -105,12 +121,12 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			if (_doEOR is null or false)
 			{
-				await CallbackNegotiation(send);
+				await CallbackNegotiationAsync(send);
 			}
 			else
 			{
-				await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
-				await CallbackNegotiation(send);
+				await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
+				await CallbackNegotiationAsync(send);
 			}
 		}
 	}

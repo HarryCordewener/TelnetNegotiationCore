@@ -17,7 +17,7 @@ namespace TelnetNegotiationCore.UnitTests
 
 		private Task WriteBackToOutput(byte[] arg1, Encoding arg2) => throw new NotImplementedException();
 
-		private Task WriteBackToGMCP((string module, byte[] writeback) arg1, Encoding arg2) => throw new NotImplementedException();
+		private Task WriteBackToGMCP((string module, string writeback) arg1, Encoding arg2) => throw new NotImplementedException();
 
 		private Task ClientWriteBackToNegotiate(byte[] arg1)
 		{
@@ -50,10 +50,10 @@ namespace TelnetNegotiationCore.UnitTests
 		{
 			var server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server)
 			{
-				CallbackNegotiation = ServerWriteBackToNegotiate,
-				CallbackOnSubmit = WriteBackToOutput,
-				CallbackOnGMCP = WriteBackToGMCP,
-				CallbackOnByte = (x, y) => Task.CompletedTask,
+				CallbackNegotiationAsync = ServerWriteBackToNegotiate,
+				CallbackOnSubmitAsync = WriteBackToOutput,
+				SignalOnGMCPAsync = WriteBackToGMCP,
+				CallbackOnByteAsync = (x, y) => Task.CompletedTask,
 			}.RegisterMSSPConfig(() => new MSSPConfig
 			{
 				Name =  "My Telnet Negotiated Server",
@@ -64,7 +64,7 @@ namespace TelnetNegotiationCore.UnitTests
 					{ "Foo",  "Bar"},
 					{ "Baz",  new [] {"Moo", "Meow" }}
 				}
-			}).Validate().Build();
+			}).BuildAsync();
 
 			if (clientSends.Count() != serverShouldRespondWith.Count())
 				throw new Exception("Invalid Testcase.");
@@ -87,10 +87,10 @@ namespace TelnetNegotiationCore.UnitTests
 		{
 			var client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client)
 			{
-				CallbackNegotiation = ClientWriteBackToNegotiate,
-				CallbackOnSubmit = WriteBackToOutput,
-				CallbackOnGMCP = WriteBackToGMCP,
-				CallbackOnByte = (x, y) => Task.CompletedTask,
+				CallbackNegotiationAsync = ClientWriteBackToNegotiate,
+				CallbackOnSubmitAsync = WriteBackToOutput,
+				SignalOnGMCPAsync = WriteBackToGMCP,
+				CallbackOnByteAsync = (x, y) => Task.CompletedTask,
 				CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
 			}.RegisterMSSPConfig(() => new MSSPConfig
 			{
@@ -102,7 +102,7 @@ namespace TelnetNegotiationCore.UnitTests
 					{ "Foo",  "Bar"},
 					{ "Baz",  new [] {"Moo", "Meow" }}
 				}
-			}).Validate().Build();
+			}).BuildAsync();
 
 			if (serverSends.Count() != serverShouldRespondWith.Count())
 				throw new Exception("Invalid Testcase.");
@@ -134,7 +134,7 @@ namespace TelnetNegotiationCore.UnitTests
 					},
 					new[] // Registered CHARSET List After Negotiation
 					{
-						Encoding.GetEncoding("ISO-8859-1"),
+						Encoding.ASCII,
 					}).SetName("Basic responds to Server CHARSET WILL");
 				yield return new TestCaseData(
 					new[]
@@ -160,8 +160,8 @@ namespace TelnetNegotiationCore.UnitTests
 					},
 					new[] // Registered CHARSET List After Negotiation
 					{
-						Encoding.GetEncoding("ISO-8859-1"),
-						Encoding.GetEncoding("ISO-8859-1"),
+						Encoding.ASCII,
+						Encoding.ASCII,
 						Encoding.UTF8
 					}).SetName("Capable of sending a CHARSET list");
 			}
@@ -180,7 +180,7 @@ namespace TelnetNegotiationCore.UnitTests
 					},
 					new[] // Registered CHARSET List After Negotiation
 					{
-						Encoding.GetEncoding("ISO-8859-1")
+						Encoding.ASCII
 					}).SetName("Basic responds to Client CHARSET Willing");
 				yield return new TestCaseData(
 					new[] { // Client Sends
@@ -201,7 +201,7 @@ namespace TelnetNegotiationCore.UnitTests
 					},
 					new[] // Registered CHARSET List After Negotiation
 					{
-						Encoding.GetEncoding("ISO-8859-1"),
+						Encoding.ASCII,
 						Encoding.GetEncoding("UTF-16")
 					}).SetName("Basic response to Client Negotiation with many options");
 				yield return new TestCaseData(
@@ -218,7 +218,7 @@ namespace TelnetNegotiationCore.UnitTests
 					},
 					new[] // Registered CHARSET List After Negotiation
 					{
-						Encoding.GetEncoding("ISO-8859-1"),
+						Encoding.ASCII,
 						Encoding.UTF8
 					}).SetName("Basic response to Client Negotiation with two options");
 			}

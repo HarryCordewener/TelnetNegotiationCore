@@ -5,6 +5,9 @@ This is done with an eye on MUDs at this time, but may improve to support more t
 
 At this time, this repository is in a rough state and does not yet implement some common modern code standards. 
 
+## State
+This library is in a state where breaking changes to the interface are expected.
+
 ## Support
 | RFC                                         | Description                        | Supported  | Comments           |
 | ------------------------------------------- | ---------------------------------- |------------| ------------------ |
@@ -35,3 +38,77 @@ At this time, this repository is in a rough state and does not yet implement som
 
 ## ANSI Support, ETC?
 Being a Telnet Negotiation Library, this library doesn't give support for extensions like ANSI, Pueblo, MXP, etc at this time.
+
+## TODO:
+Implement EOR correctly.
+
+## Use 
+### Client
+A messy example exists in the TestClient Project.
+
+Initiate a logger. A Serilog logger is required by this library at this time.
+```csharp
+	var log = new LoggerConfiguration()
+		.Enrich.FromLogContext()
+		.WriteTo.Console()
+		.WriteTo.File(new CompactJsonFormatter(), "LogResult.log")
+		.MinimumLevel.Debug()
+		.CreateLogger();
+
+	Log.Logger = log;
+```
+
+Create functions that implement your desired behavior on getting as signal.
+```csharp
+	private async Task WriteToOutputStreamAsync(byte[] arg, StreamWriter writer)
+	{
+		try 
+		{ 
+			await writer.BaseStream.WriteAsync(arg, CancellationToken.None);
+		}
+		catch(ObjectDisposedException ode)
+		{
+			_Logger.Information("Stream has been closed", ode);
+		}
+	}
+
+	public static Task WriteBackAsync(byte[] writeback, Encoding encoding) =>
+		Task.Run(() => Console.WriteLine(encoding.GetString(writeback)));
+
+	public Task SignalGMCPAsync((string module, string writeback) val, Encoding encoding) =>
+		Task.Run(() => _Logger.Debug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback));
+
+	public Task SignalMSSPAsync(MSSPConfig val) =>
+		Task.Run(() => _Logger.Debug("New MSSP: {@MSSP}", val));
+
+	public Task SignalPromptAsync() =>
+		Task.Run(() => _Logger.Debug("Prompt"));
+
+	public Task SignalNAWSAsync(int height, int width) => 
+		Task.Run(() => _Logger.Debug("Client Height and Width updated: {Height}x{Width}", height, width));
+```
+
+Initialize the Interpreter.
+```csharp
+	var telnet = new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, _Logger.ForContext<TelnetInterpreter>())
+	{
+			CallbackOnSubmitAsync = WriteBackAsync,
+			CallbackNegotiationAsync = (x) => WriteToOutputStreamAsync(x, output),
+			SignalOnGMCPAsync = SignalGMCPAsync,
+			SignalOnMSSPAsync = SignalMSSPAsync,
+			SignalOnNAWSAsync = SignalNAWSAsync,
+			SignalOnPromptingAsync = SignalPromptAsync,
+			CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
+	}.BuildAsync();
+```
+
+Start interpreting.
+```csharp
+	for (int currentByte = 0; currentByte != -1; currentByte = input.BaseStream.ReadByte())
+	{
+		telnet.InterpretAsync((byte)currentByte).GetAwaiter().GetResult();
+	}
+```
+
+### Server
+A messy example exists in the TestServer Project.

@@ -43,7 +43,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <summary>
 		/// NAWS Callback function to alert server of Width & Height negotiation
 		/// </summary>
-		public Func<int, int, Task> NAWSCallback { get; init; }
+		public Func<int, int, Task> SignalOnNAWSAsync { get; init; }
 
 		/// <summary>
 		/// This exists to avoid an infinite loop with badly conforming clients.
@@ -76,7 +76,7 @@ namespace TelnetNegotiationCore.Interpreters
 			{
 				tsm.Configure(State.DontNAWS)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Client won't do NAWS - do nothing"));
+					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Client won't do NAWS - do nothing"));
 
 				tsm.Configure(State.DoNAWS)
 					.SubstateOf(State.Accepting)
@@ -87,7 +87,7 @@ namespace TelnetNegotiationCore.Interpreters
 			{
 				tsm.Configure(State.DontNAWS)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Server won't do NAWS - do nothing"));
+					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Server won't do NAWS - do nothing"));
 
 				tsm.Configure(State.DoNAWS)
 					.SubstateOf(State.Accepting);
@@ -114,7 +114,7 @@ namespace TelnetNegotiationCore.Interpreters
 			tsm.Configure(State.EvaluatingNAWS)
 				.PermitDynamic(Trigger.IAC, () => _nawsIndex < 4 ? State.EscapingNAWSValue : State.CompletingNAWS);
 
-			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingNAWS).OnEntryFrom(ParametarizedTrigger(t), CaptureNAWS));
+			TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingNAWS).OnEntryFrom(ParameterizedTrigger(t), CaptureNAWS));
 
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.EvaluatingNAWS).PermitReentry(t));
 
@@ -123,7 +123,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			tsm.Configure(State.CompletingNAWS)
 				.SubstateOf(State.EndSubNegotiation)
-				.OnEntry(CompleteNAWS);
+				.OnEntryAsync(CompleteNAWSAsync);
 
 			RegisterInitialWilling(async () => await RequestNAWSAsync(null));
 
@@ -137,9 +137,9 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			if (!_ClientWillingToDoNAWS)
 			{
-				_Logger.Debug("Connection: {connectionStatus}", "Requesting NAWS details from Client");
+				_Logger.Debug("Connection: {ConnectionState}", "Requesting NAWS details from Client");
 
-				await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
+				await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
 				_ClientWillingToDoNAWS = true;
 			}
 		}
@@ -167,15 +167,15 @@ namespace TelnetNegotiationCore.Interpreters
 
 		private async Task ServerWontNAWSAsync()
 		{
-			_Logger.Debug("Connection: {connectionStatus}", "Announcing refusing to send NAWS, this is a Server!");
-			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
+			_Logger.Debug("Connection: {ConnectionState}", "Announcing refusing to send NAWS, this is a Server!");
+			await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
 		}
 
 		/// <summary>
 		/// Read the NAWS state values and finalize it into width and height values.
 		/// </summary>
 		/// <param name="_">Ignored</param>
-		private void CompleteNAWS(StateMachine<State, Trigger>.Transition _)
+		private async Task CompleteNAWSAsync(StateMachine<State, Trigger>.Transition _)
 		{
 			byte[] width = new byte[] { _nawsByteState[0], _nawsByteState[1] };
 			byte[] height = new byte[] { _nawsByteState[2], _nawsByteState[3] };
@@ -190,7 +190,7 @@ namespace TelnetNegotiationCore.Interpreters
 			ClientHeight = BitConverter.ToInt16(height);
 
 			_Logger.Debug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
-			NAWSCallback?.Invoke(ClientHeight, ClientWidth);
+			await (SignalOnNAWSAsync?.Invoke(ClientHeight, ClientWidth) ?? Task.CompletedTask);
 		}
 	}
 }

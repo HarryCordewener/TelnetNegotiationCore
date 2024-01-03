@@ -14,7 +14,7 @@ namespace TelnetNegotiationCore.Interpreters
 	{
 		private List<byte> _gmcpBytes = new();
 
-		public Func<(string Package, byte[] Info), Encoding, Task> CallbackOnGMCP { get; init; }
+		public Func<(string Package, string Info), Encoding, Task> SignalOnGMCPAsync { get; init; }
 
 		private StateMachine<State, Trigger> SetupGMCPNegotiation(StateMachine<State, Trigger> tsm)
 		{
@@ -28,11 +28,11 @@ namespace TelnetNegotiationCore.Interpreters
 
 				tsm.Configure(State.DoGMCP)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Client will do GMCP"));
+					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Client will do GMCP"));
 
 				tsm.Configure(State.DontGMCP)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Client will not GMCP"));
+					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Client will not GMCP"));
 
 				RegisterInitialWilling(async () => await WillGMCPAsync(null));
 			}
@@ -50,7 +50,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 				tsm.Configure(State.WontGMCP)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Client will GMCP"));
+					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Client will GMCP"));
 			}
 
 			tsm.Configure(State.SubNegotiation)
@@ -60,7 +60,7 @@ namespace TelnetNegotiationCore.Interpreters
 			TriggerHelper.ForAllTriggersButIAC(t => tsm
 					.Configure(State.EvaluatingGMCPValue)
 					.PermitReentry(t)
-					.OnEntryFrom(ParametarizedTrigger(t), RegisterGMCPValue));
+					.OnEntryFrom(ParameterizedTrigger(t), RegisterGMCPValue));
 
 			TriggerHelper.ForAllTriggersButIAC(t => tsm
 					.Configure(State.AlmostNegotiatingGMCP)
@@ -100,7 +100,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 		public async Task SendGMCPCommand(byte[] package, byte[] command)
 		{
-			await CallbackNegotiation(
+			await CallbackNegotiationAsync(
 				new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.GMCP }
 				.Concat(package)
 				.Concat(CurrentEncoding.GetBytes(" "))
@@ -119,7 +119,9 @@ namespace TelnetNegotiationCore.Interpreters
 			var firstSpace = _gmcpBytes.FindIndex(x => x == space);
 			var packageBytes = _gmcpBytes.Take(firstSpace).ToArray();
 			var rest = _gmcpBytes.Skip(firstSpace + 1).ToArray();
-			await CallbackOnGMCP((Package: CurrentEncoding.GetString(packageBytes), Info: rest), CurrentEncoding);
+			// TODO: Check for MSDP information, if so, convert to JSON first, then send as Info.
+			// TODO: Consideration: a version of this that sends back a Dynamic or other similar object.
+			await (SignalOnGMCPAsync?.Invoke((Package: CurrentEncoding.GetString(packageBytes), Info: CurrentEncoding.GetString(packageBytes)), CurrentEncoding) ?? Task.CompletedTask);
 		}
 
 		/// <summary>
@@ -129,16 +131,16 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <returns>Task</returns>
 		private async Task WillGMCPAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Connection: {connectionStatus}", "Announcing the server will GMCP");
+			_Logger.Debug("Connection: {ConnectionState}", "Announcing the server will GMCP");
 
-			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP });
+			await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP });
 		}
 
 		private async Task DoGMCPAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Connection: {connectionStatus}", "Announcing the client can do GMCP");
+			_Logger.Debug("Connection: {ConnectionState}", "Announcing the client can do GMCP");
 
-			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP });
+			await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP });
 		}
 	}
 }

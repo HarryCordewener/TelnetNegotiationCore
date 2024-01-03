@@ -5,7 +5,7 @@ namespace TelnetNegotiationCore.TestClient
 {
 	public class Program
 	{
-		static void Main()
+		static async Task Main()
 		{
 			var log = new LoggerConfiguration()
 				.Enrich.FromLogContext()
@@ -15,8 +15,9 @@ namespace TelnetNegotiationCore.TestClient
 				.CreateLogger();
 
 			Log.Logger = log;
-			var client = new MockClient("127.0.0.1", 4201, log.ForContext<MockClient>());
-			client.Start();
+			var client = new MockClient("127.0.0.1", 4202, log.ForContext<MockClient>());
+
+			await client.StartAsync();
 		}
 	}
 }
