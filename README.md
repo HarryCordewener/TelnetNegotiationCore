@@ -22,7 +22,7 @@ At this time, this repository is in a rough state and does not yet implement som
 | https://tintin.mudhalla.net/protocols/msdp  | Mud Server Data Protocol           | No         | Planned            |
 | https://tintin.mudhalla.net/rfc/rfc1950/    | ZLIB Compression                   | No         | Planned            |
 | https://tintin.mudhalla.net/protocols/mccp  | Mud Client Compression Protocol 	 | No         | Planned            |
-| https://tintin.mudhalla.net/protocols/gmcp  | Generic Mud Communication Protocol | No         | Planned            |
+| https://tintin.mudhalla.net/protocols/gmcp  | Generic Mud Communication Protocol | Partial    | MSDP Planned       |
 | https://tintin.mudhalla.net/protocols/mccp  | Mud Client Compression Protocol	   | No         | Planned            |
 | http://www.faqs.org/rfcs/rfc857.html        | Echo Negotiation                   | No         | Rejects            |
 | http://www.faqs.org/rfcs/rfc1079.html       | Terminal Speed Negotiation         | No         | Rejects            |

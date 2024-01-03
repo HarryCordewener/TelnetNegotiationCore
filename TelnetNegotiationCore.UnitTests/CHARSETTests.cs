@@ -17,6 +17,8 @@ namespace TelnetNegotiationCore.UnitTests
 
 		private Task WriteBackToOutput(byte[] arg1, Encoding arg2) => throw new NotImplementedException();
 
+		private Task WriteBackToGMCP((string module, byte[] writeback) arg1, Encoding arg2) => throw new NotImplementedException();
+
 		private Task ClientWriteBackToNegotiate(byte[] arg1)
 		{
 			_negotiationOutput = arg1;
@@ -50,6 +52,7 @@ namespace TelnetNegotiationCore.UnitTests
 			{
 				CallbackNegotiation = ServerWriteBackToNegotiate,
 				CallbackOnSubmit = WriteBackToOutput,
+				CallbackOnGMCP = WriteBackToGMCP,
 				CallbackOnByte = (x, y) => Task.CompletedTask,
 			}.RegisterMSSPConfig(() => new MSSPConfig
 			{
@@ -86,6 +89,7 @@ namespace TelnetNegotiationCore.UnitTests
 			{
 				CallbackNegotiation = ClientWriteBackToNegotiate,
 				CallbackOnSubmit = WriteBackToOutput,
+				CallbackOnGMCP = WriteBackToGMCP,
 				CallbackOnByte = (x, y) => Task.CompletedTask,
 				CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
 			}.RegisterMSSPConfig(() => new MSSPConfig

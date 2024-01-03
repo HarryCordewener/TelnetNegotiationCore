@@ -50,6 +50,13 @@ namespace TelnetNegotiationCore.TestServer
 
 		private async Task WriteToOutputStream(byte[] arg, StreamWriter writer) => await writer.BaseStream.WriteAsync(arg);
 
+		public Task WriteBackGMCP((string module, byte[] writeback) val, Encoding encoding)
+		{
+			string str = encoding.GetString(val.writeback);
+			_Logger.Information("Writeback: {module}: {writeBack}", val.module, str);
+			return Task.CompletedTask;
+		}
+
 		public Task WriteBack(byte[] writeback, Encoding encoding)
 		{
 			string str = encoding.GetString(writeback);
@@ -81,6 +88,7 @@ namespace TelnetNegotiationCore.TestServer
 				telnet = new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, _Logger.ForContext<TelnetInterpreter>())
 				{
 					CallbackOnSubmit = WriteBack,
+					CallbackOnGMCP = WriteBackGMCP,
 					CallbackNegotiation = (x) => WriteToOutputStream(x, output),
 					NAWSCallback = SignalNAWS,
 					CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }

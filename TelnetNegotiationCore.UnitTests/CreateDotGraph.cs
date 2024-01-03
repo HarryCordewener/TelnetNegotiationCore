@@ -1,7 +1,6 @@
 ﻿using NUnit.Framework;
 using Serilog;
 using Stateless.Graph;
-using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -29,6 +28,7 @@ namespace TelnetNegotiationCore.UnitTests
 			var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, _Logger.ForContext<TelnetInterpreter>())
 			{
 				CallbackOnSubmit = WriteBack,
+				CallbackOnGMCP = WriteBackToGMCP,
 				CallbackNegotiation = WriteToOutputStream,
 				NAWSCallback = SignalNAWS,
 				CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
@@ -44,6 +44,7 @@ namespace TelnetNegotiationCore.UnitTests
 			var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, _Logger.ForContext<TelnetInterpreter>())
 			{
 				CallbackOnSubmit = WriteBack,
+				CallbackOnGMCP = WriteBackToGMCP,
 				CallbackNegotiation = WriteToOutputStream,
 				NAWSCallback = SignalNAWS,
 				CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
@@ -67,7 +68,9 @@ namespace TelnetNegotiationCore.UnitTests
 		private async Task WriteToOutputStream(byte[] arg) => await Task.CompletedTask;
 
 		private async Task SignalNAWS(int arg1, int arg2) => await Task.CompletedTask;
-
+		
 		private async Task WriteBack(byte[] arg1, Encoding encoding) => await Task.CompletedTask;
+
+		private async Task WriteBackToGMCP((string module, byte[] writeback) arg1, Encoding arg2) => await Task.CompletedTask;
 	}
 }

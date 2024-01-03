@@ -101,7 +101,7 @@ namespace TelnetNegotiationCore.Interpreters
 			SupportedCharacterSets = new Lazy<byte[]>(CharacterSets, true);
 
 			var li = new List<Func<StateMachine<State, Trigger>, StateMachine<State, Trigger>>> {
-				SetupSafeNegotiation, SetupEORNegotiation, SetupMSSPNegotiation, SetupTelnetTerminalType, SetupCharsetNegotiation, SetupNAWS, SetupStandardProtocol
+				SetupSafeNegotiation, SetupEORNegotiation, SetupMSSPNegotiation, SetupGMCPNegotiation, SetupTelnetTerminalType, SetupCharsetNegotiation, SetupNAWS, SetupStandardProtocol
 			}.AggregateRight(TelnetStateMachine, (func, statemachine) => func(statemachine));
 
 			if (_Logger.IsEnabled(Serilog.Events.LogEventLevel.Verbose))
@@ -211,6 +211,10 @@ namespace TelnetNegotiationCore.Interpreters
 			if (CallbackNegotiation == null)
 			{
 				throw new ApplicationException($"{CallbackNegotiation} is null and has not been registered.");
+			}
+			if (CallbackOnGMCP == null)
+			{
+				throw new ApplicationException($"{CallbackOnGMCP} is null and has not been registered.");
 			}
 
 			return this;

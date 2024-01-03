@@ -81,5 +81,15 @@
 		WontEOR,
 		WillEOR,
 		#endregion End of Record Negotiation
+		#region GMCP Negotiation
+		DoGMCP,
+		DontGMCP,
+		WontGMCP,
+		WillGMCP,
+		AlmostNegotiatingGMCP,
+		EvaluatingGMCPValue,
+		EscapingGMCPValue,
+		CompletingGMCPValue
+		#endregion GMCP Negotiation
 	}
 }

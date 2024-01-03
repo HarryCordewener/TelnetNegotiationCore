@@ -25,6 +25,11 @@ namespace TelnetNegotiationCore.UnitTests
 			return Task.CompletedTask;
 		}
 
+		private Task WriteBackToGMCP((string Package, byte[] Info) tuple, Encoding encoding)
+		{
+			throw new NotImplementedException();
+		}
+
 		[SetUp]
 		public async Task Setup()
 		{
@@ -40,6 +45,7 @@ namespace TelnetNegotiationCore.UnitTests
 			{
 				CallbackNegotiation = WriteBackToNegotiate,
 				CallbackOnSubmit = WriteBackToOutput,
+				CallbackOnGMCP = WriteBackToGMCP,
 				CallbackOnByte = (x, y) => Task.CompletedTask,
 			}.RegisterMSSPConfig(() => new MSSPConfig
 			{
@@ -57,6 +63,7 @@ namespace TelnetNegotiationCore.UnitTests
 			{
 				CallbackNegotiation = WriteBackToNegotiate,
 				CallbackOnSubmit = WriteBackToOutput,
+				CallbackOnGMCP = WriteBackToGMCP,
 				CallbackOnByte = (x, y) => Task.CompletedTask,
 			}.RegisterMSSPConfig(() => new MSSPConfig
 			{

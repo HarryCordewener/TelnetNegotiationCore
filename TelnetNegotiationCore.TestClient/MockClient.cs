@@ -29,6 +29,13 @@ namespace TelnetNegotiationCore.TestClient
 			return Task.CompletedTask;
 		}
 
+		public Task WriteBackGMCP((string module, byte[] writeback) val, Encoding encoding)
+		{
+			string str = encoding.GetString(val.writeback);
+			_Logger.Information("Writeback: {module}: {writeBack}", val.module, str);
+			return Task.CompletedTask;
+		}
+
 		public Task SignalNAWS(int height, int width)
 		{
 			_Logger.Information("Client Height and Width updated: {height}x{width}", height, width);
@@ -52,6 +59,7 @@ namespace TelnetNegotiationCore.TestClient
 				{
 					CallbackOnSubmit = WriteBack,
 					CallbackNegotiation = (x) => WriteToOutputStream(x, output),
+					CallbackOnGMCP = WriteBackGMCP,
 					NAWSCallback = SignalNAWS,
 					CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
 				}.Validate()
