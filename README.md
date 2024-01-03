@@ -35,7 +35,3 @@ At this time, this repository is in a rough state and does not yet implement som
 
 ## ANSI Support, ETC?
 Being a Telnet Negotiation Library, this library doesn't give support for extensions like ANSI, Pueblo, MXP, etc at this time.
-
-# Todo
-* Create a Changelog
-* Use Github Actions to create Nuget Package

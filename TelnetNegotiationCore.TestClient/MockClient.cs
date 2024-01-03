@@ -14,25 +14,37 @@ namespace TelnetNegotiationCore.TestClient
 
 		public MockClient(string ip, int port, ILogger? logger = null)
 		{
-			Console.OutputEncoding = Encoding.UTF8;
+			Console.InputEncoding = Console.OutputEncoding = Encoding.UTF8;
+
 			_Logger = logger ?? Log.Logger.ForContext<MockClient>();
 			IPAddress localAddress = IPAddress.Parse(ip);
 			client = new TcpClient(localAddress.ToString(), port);
+		}
 
-
+		public void Start()
+		{
 			var t = new Thread(new ParameterizedThreadStart(Handle));
 			t.Start(client);
 
 			while (true)
 			{
-				var read = Console.ReadLine() + "\n\r";
+				var read = Console.ReadLine() + "\n\r"; 
 				telnet?.SendPromptAsync(telnet?.CurrentEncoding.GetBytes(read)).GetAwaiter().GetResult();
 			}
 		}
-		
-		private static async Task WriteToOutputStream(byte[] arg, StreamWriter writer) => await writer.BaseStream.WriteAsync(arg, CancellationToken.None);
 
-		public static Task WriteBack(byte[] writeback, Encoding encoding)
+		private async Task WriteToOutputStream(byte[] arg, StreamWriter writer)
+		{
+			try { 
+				await writer.BaseStream.WriteAsync(arg, CancellationToken.None);
+			}
+			catch(ObjectDisposedException ode)
+			{
+				_Logger.Information("Stream has been closed", ode);
+			}
+		}
+
+		public Task WriteBack(byte[] writeback, Encoding encoding)
 		{
 			string str = encoding.GetString(writeback);
 			Console.WriteLine(str);
@@ -63,7 +75,7 @@ namespace TelnetNegotiationCore.TestClient
 
 				using var stream = client.GetStream();
 				using var input = new StreamReader(stream);
-				using var output = new StreamWriter(stream) { AutoFlush = true };
+				using var output = new StreamWriter(stream, leaveOpen: true) { AutoFlush = true };
 
 				telnet = new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, _Logger.ForContext<TelnetInterpreter>())
 				{
