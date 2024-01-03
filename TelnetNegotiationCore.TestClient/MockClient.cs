@@ -30,9 +30,9 @@ namespace TelnetNegotiationCore.TestClient
 			}
 		}
 		
-		private async Task WriteToOutputStream(byte[] arg, StreamWriter writer) => await writer.BaseStream.WriteAsync(arg, 0, arg.Length);
+		private static async Task WriteToOutputStream(byte[] arg, StreamWriter writer) => await writer.BaseStream.WriteAsync(arg, CancellationToken.None);
 
-		public Task WriteBack(byte[] writeback, Encoding encoding)
+		public static Task WriteBack(byte[] writeback, Encoding encoding)
 		{
 			string str = encoding.GetString(writeback);
 			Console.WriteLine(str);
@@ -54,12 +54,12 @@ namespace TelnetNegotiationCore.TestClient
 
 		public void Handle(object? obj)
 		{
-			var client = (TcpClient)obj;
+			var client = (TcpClient)obj!;
 			int port = -1;
 
 			try
 			{
-				port = ((IPEndPoint)client.Client.RemoteEndPoint).Port;
+				port = ((IPEndPoint)client.Client.RemoteEndPoint!).Port;
 
 				using var stream = client.GetStream();
 				using var input = new StreamReader(stream);
