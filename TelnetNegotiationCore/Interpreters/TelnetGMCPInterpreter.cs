@@ -18,7 +18,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 		private StateMachine<State, Trigger> SetupGMCPNegotiation(StateMachine<State, Trigger> tsm)
 		{
-			if(Mode == TelnetMode.Server)
+			if (Mode == TelnetMode.Server)
 			{
 				tsm.Configure(State.Do)
 					.Permit(Trigger.GMCP, State.DoGMCP);
@@ -93,6 +93,22 @@ namespace TelnetNegotiationCore.Interpreters
 			_gmcpBytes.Add(b.AsT0);
 		}
 
+		public Task SendGMCPCommand(string package, string command) =>
+			SendGMCPCommand(CurrentEncoding.GetBytes(package), CurrentEncoding.GetBytes(command));
+
+		public Task SendGMCPCommand(string package, byte[] command) =>
+			SendGMCPCommand(CurrentEncoding.GetBytes(package), command);
+
+		public async Task SendGMCPCommand(byte[] package, byte[] command)
+		{
+			await CallbackNegotiation(
+				new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.GMCP }
+				.Concat(package)
+				.Concat(CurrentEncoding.GetBytes(" "))
+				.Concat(command)
+				.Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE }).ToArray());
+		}
+
 		/// <summary>
 		/// Completes the GMCP Negotiation. This is currently assuming a golden path.
 		/// </summary>
@@ -101,8 +117,8 @@ namespace TelnetNegotiationCore.Interpreters
 		private async Task CompleteGMCPNegotiation(StateMachine<State, Trigger>.Transition _)
 		{
 			var space = CurrentEncoding.GetBytes(" ").First();
-			var firstSpace = _gmcpBytes.FindIndex(x =>  x == space);
-			var packageBytes = _gmcpBytes.Skip(1).Take(firstSpace-1).ToArray();
+			var firstSpace = _gmcpBytes.FindIndex(x => x == space);
+			var packageBytes = _gmcpBytes.Skip(1).Take(firstSpace - 1).ToArray();
 			var rest = _gmcpBytes.Skip(firstSpace + 1).ToArray();
 			await CallbackOnGMCP((Package: CurrentEncoding.GetString(packageBytes), Info: rest), CurrentEncoding);
 		}
