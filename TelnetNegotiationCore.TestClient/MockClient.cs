@@ -10,6 +10,7 @@ namespace TelnetNegotiationCore.TestClient
 	{
 		readonly TcpClient? client = null;
 		readonly ILogger _Logger;
+		TelnetInterpreter? telnet = null;
 
 		public MockClient(string ip, int port, ILogger? logger = null)
 		{
@@ -17,10 +18,19 @@ namespace TelnetNegotiationCore.TestClient
 			_Logger = logger ?? Log.Logger.ForContext<MockClient>();
 			IPAddress localAddress = IPAddress.Parse(ip);
 			client = new TcpClient(localAddress.ToString(), port);
-			Handle(client);
+
+
+			var t = new Thread(new ParameterizedThreadStart(Handle));
+			t.Start(client);
+
+			while (true)
+			{
+				var read = Console.ReadLine() + "\n\r" + "\r\n";
+				telnet?.SendPromptAsync(telnet?.CurrentEncoding.GetBytes(read)).GetAwaiter().GetResult();
+			}
 		}
 		
-		private async Task WriteToOutputStream(byte[] arg, StreamWriter writer) => await writer.BaseStream.WriteAsync(arg);
+		private async Task WriteToOutputStream(byte[] arg, StreamWriter writer) => await writer.BaseStream.WriteAsync(arg, 0, arg.Length);
 
 		public Task WriteBack(byte[] writeback, Encoding encoding)
 		{
@@ -32,7 +42,7 @@ namespace TelnetNegotiationCore.TestClient
 		public Task WriteBackGMCP((string module, byte[] writeback) val, Encoding encoding)
 		{
 			string str = encoding.GetString(val.writeback);
-			_Logger.Information("Writeback: {module}: {writeBack}", val.module, str);
+			_Logger.Information("Writeback GMCP: {module}: {writeBack}", val.module, str);
 			return Task.CompletedTask;
 		}
 
@@ -42,10 +52,10 @@ namespace TelnetNegotiationCore.TestClient
 			return Task.CompletedTask;
 		}
 
-		public void Handle(TcpClient client)
+		public void Handle(object obj)
 		{
+			var client = (TcpClient)obj;
 			int port = -1;
-			TelnetInterpreter? telnet = null;
 
 			try
 			{

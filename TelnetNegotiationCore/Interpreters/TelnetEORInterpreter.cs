@@ -110,6 +110,7 @@ namespace TelnetNegotiationCore.Interpreters
 			else
 			{
 				await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
+				await CallbackNegotiation(send);
 			}
 		}
 	}
