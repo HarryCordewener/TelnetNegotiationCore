@@ -183,8 +183,12 @@ namespace TelnetNegotiationCore.Interpreters
 			}
 			else
 			{
+				dynamic valueToSet = value.Count() > 1 ? value : value.First();
 				// We are using the Extended section.
-				_msspConfig().Extended.Add(variable, value.Count() > 1 ? value : value.First());
+				if (!_msspConfig().Extended.TryAdd(variable, valueToSet))
+				{
+					_msspConfig().Extended[variable] = valueToSet;
+				}
 			}
 		}
 

@@ -33,6 +33,8 @@ namespace TelnetNegotiationCore.Interpreters
 				tsm.Configure(State.DontGMCP)
 					.SubstateOf(State.Accepting)
 					.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Client will not GMCP"));
+
+				RegisterInitialWilling(async () => await WillGMCPAsync(null));
 			}
 			else if (Mode == TelnetMode.Client)
 			{
@@ -44,7 +46,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 				tsm.Configure(State.WillGMCP)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {connectionStatus}", "Server will do GMCP"));
+					.OnEntryAsync(DoGMCPAsync);
 
 				tsm.Configure(State.WontGMCP)
 					.SubstateOf(State.Accepting)
@@ -77,8 +79,6 @@ namespace TelnetNegotiationCore.Interpreters
 			tsm.Configure(State.CompletingGMCPValue)
 				.SubstateOf(State.Accepting)
 				.OnEntryAsync(CompleteGMCPNegotiation);
-
-			RegisterInitialWilling(async () => await WillGMCPAsync(null));
 
 			return tsm;
 		}
@@ -132,6 +132,13 @@ namespace TelnetNegotiationCore.Interpreters
 			_Logger.Debug("Connection: {connectionStatus}", "Announcing the server will GMCP");
 
 			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP });
+		}
+
+		private async Task DoGMCPAsync(StateMachine<State, Trigger>.Transition _)
+		{
+			_Logger.Debug("Connection: {connectionStatus}", "Announcing the client can do GMCP");
+
+			await CallbackNegotiation(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP });
 		}
 	}
 }
