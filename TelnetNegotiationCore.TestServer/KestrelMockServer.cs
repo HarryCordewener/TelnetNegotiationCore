@@ -14,9 +14,7 @@ namespace TelnetNegotiationCore.TestServer
 {
 	public class KestrelMockServer : ConnectionHandler
 	{
-		readonly ILogger _Logger;
-		private static readonly string[] config = ["ABC", "DEF"];
-		private static readonly string[] value = ["Moo", "Meow"];
+		private ILogger _Logger;
 
 		public KestrelMockServer(ILogger logger = null): base()
 		{
@@ -72,11 +70,11 @@ namespace TelnetNegotiationCore.TestServer
 				{
 					Name = "My Telnet Negotiated Server",
 					UTF_8 = true,
-					Gameplay = config,
+					Gameplay = ["ABC", "DEF"],
 					Extended = new Dictionary<string, dynamic>
 				{
 						{ "Foo",  "Bar"},
-						{ "Baz", value }
+						{ "Baz", (string[])["Moo", "Meow"] }
 				}
 				})
 				.BuildAsync();

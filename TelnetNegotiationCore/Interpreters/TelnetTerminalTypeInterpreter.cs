@@ -256,9 +256,10 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			_CurrentTerminalType = (_CurrentTerminalType + 1) % (TerminalTypes.Count + 1);
 			_Logger.Debug("Connection: {ConnectionState}", "Reporting the next Terminal Type to the server.");
-			byte[] terminalType = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS }
-				.Concat(ascii.GetBytes(CurrentTerminalType))
-				.Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE }).ToArray();
+			byte[] terminalType = [
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS,
+				.. ascii.GetBytes(CurrentTerminalType),
+				(byte)Trigger.IAC, (byte)Trigger.SE ];
 
 			await CallbackNegotiationAsync(terminalType);
 		}
