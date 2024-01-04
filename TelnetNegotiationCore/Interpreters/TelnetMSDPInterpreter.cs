@@ -20,8 +20,6 @@ namespace TelnetNegotiationCore.Interpreters
 	/// </remarks>
 	public partial class TelnetInterpreter
 	{
-		private Func<dynamic> _MSDPConfig;
-
 		private List<byte> _currentMSDPInfo;
 
 		public Func<MSDPConfig, Task> SignalOnMSDPAsync { get; init; }

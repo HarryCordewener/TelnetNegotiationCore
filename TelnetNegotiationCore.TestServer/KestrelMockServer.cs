@@ -14,7 +14,7 @@ namespace TelnetNegotiationCore.TestServer
 {
 	public class KestrelMockServer : ConnectionHandler
 	{
-		private ILogger _Logger;
+		private readonly ILogger _Logger;
 
 		public KestrelMockServer(ILogger logger = null): base()
 		{

@@ -16,9 +16,9 @@ namespace TelnetNegotiationCore.Interpreters
 		private Func<MSSPConfig> _msspConfig = () => new();
 
 		private List<byte> _currentMSSPVariable;
+		private List<List<byte>> _currentMSSPValueList;
 		private List<byte> _currentMSSPValue;
 		private List<List<byte>> _currentMSSPVariableList;
-		private List<List<byte>> _currentMSSPValueList;
 
 		public Func<MSSPConfig, Task> SignalOnMSSPAsync { get; init; }
 
@@ -73,10 +73,10 @@ namespace TelnetNegotiationCore.Interpreters
 					.Permit(Trigger.MSSP, State.AlmostNegotiatingMSSP)
 					.OnEntry(() =>
 					{
-						_currentMSDPValue = [];
-						_currentMSDPInfo = [];
-						_currentMSDPValueList = [];
-						_currentMSDPVariableList = [];
+						_currentMSSPValue = [];
+						_currentMSSPVariable = [];
+						_currentMSSPValueList = [];
+						_currentMSSPVariableList = [];
 					});
 
 				tsm.Configure(State.AlmostNegotiatingMSSP)
@@ -117,18 +117,18 @@ namespace TelnetNegotiationCore.Interpreters
 
 		private void RegisterMSSPVal()
 		{
-			if (!_currentMSDPValue.Any()) return;
+			if (_currentMSSPValue.Count == 0) return;
 
-			_currentMSDPValueList.Add(_currentMSDPValue);
-			_currentMSDPValue = new List<byte>();
+			_currentMSSPValueList.Add(_currentMSSPValue);
+			_currentMSSPValue = [];
 		}
 
 		private void RegisterMSSPVar()
 		{
-			if (!_currentMSDPInfo.Any()) return;
+			if (_currentMSSPVariable.Count == 0) return;
 
-			_currentMSDPVariableList.Add(_currentMSDPInfo);
-			_currentMSDPInfo = new List<byte>();
+			_currentMSSPVariableList.Add(_currentMSSPVariable);
+			_currentMSSPVariable = [];
 		}
 
 		private async Task ReadMSSPValues()
@@ -136,8 +136,8 @@ namespace TelnetNegotiationCore.Interpreters
 			RegisterMSSPVal();
 			RegisterMSSPVar();
 
-			var grouping = _currentMSDPVariableList
-				.Zip(_currentMSDPValueList)
+			var grouping = _currentMSSPVariableList
+				.Zip(_currentMSSPValueList)
 				.GroupBy(x => CurrentEncoding.GetString(x.First.ToArray()));
 
 			foreach (var group in grouping)
@@ -205,14 +205,14 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			// We could increment here based on having switched... Somehow?
 			// We need a better state tracking for this, to indicate the transition.
-			_currentMSDPInfo.Add(b.AsT0);
+			_currentMSSPVariable.Add(b.AsT0);
 		}
 
 		private void CaptureMSSPValue(OneOf<byte, Trigger> b)
 		{
 			// We could increment here based on having switched... Somehow?
 			// We need a better state tracking for this, to indicate the transition.
-			_currentMSDPValue.Add(b.AsT0);
+			_currentMSSPValue.Add(b.AsT0);
 		}
 
 		/// <summary>
