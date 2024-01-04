@@ -7,6 +7,7 @@ using Stateless;
 using TelnetNegotiationCore.Models;
 using MoreLinq;
 using OneOf;
+using System.Collections.Immutable;
 
 namespace TelnetNegotiationCore.Interpreters
 {
@@ -253,6 +254,21 @@ namespace TelnetNegotiationCore.Interpreters
 			else
 			{
 				await TelnetStateMachine.FireAsync(ParameterizedTrigger(Trigger.ReadNextCharacter), bt);
+			}
+		}
+
+
+		/// <summary>
+		/// Interprets the next byte in an asynchronous way.
+		/// TODO: Cache the value of IsDefined, or get a way to compile this down to a faster call that doesn't require reflection each time.
+		/// </summary>
+		/// <param name="bt">An integer representation of a byte.</param>
+		/// <returns>Awaitable Task</returns>
+		public async Task InterpretByteArrayAsync(ImmutableArray<byte> byteArray)
+		{
+			foreach (var b in byteArray)
+			{
+				await InterpretAsync(b);
 			}
 		}
 	}

@@ -9,15 +9,14 @@ namespace TelnetNegotiationCore.TestClient
 		{
 			var log = new LoggerConfiguration()
 				.Enrich.FromLogContext()
-				.WriteTo.File(new CompactJsonFormatter(), "logresult.log")
+				.WriteTo.File(new CompactJsonFormatter(), "LogResult.log")
 				.WriteTo.Console()
 				.MinimumLevel.Debug()
 				.CreateLogger();
 
 			Log.Logger = log;
-			var client = new MockClient("127.0.0.1", 4202, log.ForContext<MockClient>());
-
-			await client.StartAsync();
+			var client = new MockPipelineClient();
+			await client.StartAsync("127.0.0.1", 4201);
 		}
 	}
 }

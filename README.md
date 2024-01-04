@@ -58,7 +58,7 @@ Initiate a logger. A Serilog logger is required by this library at this time.
 	Log.Logger = log;
 ```
 
-Create functions that implement your desired behavior on getting as signal.
+Create functions that implement your desired behavior on getting a signal.
 ```csharp
 	private async Task WriteToOutputStreamAsync(byte[] arg, StreamWriter writer)
 	{
@@ -92,13 +92,13 @@ Initialize the Interpreter.
 ```csharp
 	var telnet = new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, _Logger.ForContext<TelnetInterpreter>())
 	{
-			CallbackOnSubmitAsync = WriteBackAsync,
-			CallbackNegotiationAsync = (x) => WriteToOutputStreamAsync(x, output),
-			SignalOnGMCPAsync = SignalGMCPAsync,
-			SignalOnMSSPAsync = SignalMSSPAsync,
-			SignalOnNAWSAsync = SignalNAWSAsync,
-			SignalOnPromptingAsync = SignalPromptAsync,
-			CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
+		CallbackOnSubmitAsync = WriteBackAsync,
+		CallbackNegotiationAsync = (x) => WriteToOutputStreamAsync(x, output),
+		SignalOnGMCPAsync = SignalGMCPAsync,
+		SignalOnMSSPAsync = SignalMSSPAsync,
+		SignalOnNAWSAsync = SignalNAWSAsync,
+		SignalOnPromptingAsync = SignalPromptAsync,
+		CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
 	}.BuildAsync();
 ```
 

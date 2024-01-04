@@ -103,6 +103,8 @@ namespace TelnetNegotiationCore.TestServer
 
 				Clients.TryAdd(port, telnet);
 
+
+
 				_Logger.Information("Connection: {ConnectionState}", "Connected");
 
 				for (int currentByte = 0; currentByte != -1; currentByte = input.BaseStream.ReadByte())
