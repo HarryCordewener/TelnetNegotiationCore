@@ -35,7 +35,7 @@ namespace TelnetNegotiationCore.TestClient
 		public static Task WriteBackAsync(byte[] writeback, Encoding encoding) =>
 			Task.Run(() => Console.WriteLine(encoding.GetString(writeback)));
 
-		public Task SignalGMCPAsync((string module, string writeback) val, Encoding encoding) =>
+		public Task SignalGMCPAsync((string module, string writeback) val) =>
 			Task.Run(() => _Logger.Debug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback));
 
 		public Task SignalMSSPAsync(MSSPConfig val) =>

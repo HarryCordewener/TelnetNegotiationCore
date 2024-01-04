@@ -71,6 +71,6 @@ namespace TelnetNegotiationCore.UnitTests
 		
 		private async Task WriteBack(byte[] arg1, Encoding encoding) => await Task.CompletedTask;
 
-		private async Task WriteBackToGMCP((string module, string writeback) arg1, Encoding arg2) => await Task.CompletedTask;
+		private async Task WriteBackToGMCP((string module, string writeback) arg1) => await Task.CompletedTask;
 	}
 }

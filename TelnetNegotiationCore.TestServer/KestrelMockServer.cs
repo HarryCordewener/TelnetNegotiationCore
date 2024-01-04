@@ -15,6 +15,8 @@ namespace TelnetNegotiationCore.TestServer
 	public class KestrelMockServer : ConnectionHandler
 	{
 		readonly ILogger _Logger;
+		private static readonly string[] config = ["ABC", "DEF"];
+		private static readonly string[] value = ["Moo", "Meow"];
 
 		public KestrelMockServer(ILogger logger = null): base()
 		{
@@ -34,7 +36,7 @@ namespace TelnetNegotiationCore.TestServer
 			}
 		}
 
-		public Task SignalGMCPAsync((string module, string writeback) val, Encoding encoding) =>
+		public Task SignalGMCPAsync((string module, string writeback) val) =>
 			Task.Run(() => _Logger.Debug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback));
 
 		public Task SignalMSSPAsync(MSSPConfig val) =>
@@ -63,11 +65,11 @@ namespace TelnetNegotiationCore.TestServer
 				{
 					Name = "My Telnet Negotiated Server",
 					UTF_8 = true,
-					Gameplay = new[] { "ABC", "DEF" },
+					Gameplay = config,
 					Extended = new Dictionary<string, dynamic>
 				{
 						{ "Foo",  "Bar"},
-						{ "Baz",  new [] {"Moo", "Meow" }}
+						{ "Baz", value }
 				}
 				})
 				.BuildAsync();

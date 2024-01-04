@@ -20,16 +20,9 @@ namespace TelnetNegotiationCore.UnitTests
 
 		private Task WriteBackToOutput(byte[] arg1, Encoding arg2) => throw new NotImplementedException();
 
-		private Task WriteBackToNegotiate(byte[] arg1)
-		{
-			_negotiationOutput = arg1;
-			return Task.CompletedTask;
-		}
+		private Task WriteBackToNegotiate(byte[] arg1) => Task.Run(() => _negotiationOutput = arg1);
 
-		private Task WriteBackToGMCP((string Package, string Info) tuple, Encoding encoding)
-		{
-			throw new NotImplementedException();
-		}
+		private Task WriteBackToGMCP((string Package, string Info) tuple) => throw new NotImplementedException();
 
 		[SetUp]
 		public async Task Setup()

@@ -40,12 +40,12 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <summary>
 		/// Local buffer. We only take up to 5mb in buffer space. 
 		/// </summary>
-		private readonly byte[] buffer = new byte[5242880];
+		private readonly byte[] _buffer = new byte[5242880];
 
 		/// <summary>
 		/// Buffer position where we are writing.
 		/// </summary>
-		private int bufferposition = 0;
+		private int _bufferPosition = 0;
 
 		/// <summary>
 		/// Helper function for Byte parameterized triggers.
@@ -95,7 +95,7 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			Mode = mode;
 			_Logger = logger ?? Log.Logger.ForContext<TelnetInterpreter>().ForContext("TelnetMode", mode);
-			_InitialCall = new List<Func<Task>>();
+			_InitialCall = [];
 			TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
 			_parameterizedTriggers = new ParameterizedTriggers();
 
@@ -197,8 +197,8 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			if (b.AsT0 == (byte)Trigger.CARRIAGERETURN) return;
 			_Logger.Verbose("Debug: Writing into buffer: {Byte}", b.AsT0);
-			buffer[bufferposition] = b.AsT0;
-			bufferposition++;
+			_buffer[_bufferPosition] = b.AsT0;
+			_bufferPosition++;
 			await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? Task.CompletedTask);
 		}
 
@@ -207,9 +207,9 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private void WriteToOutput()
 		{
-			byte[] cp = new byte[bufferposition];
-			Array.Copy(buffer, cp, bufferposition);
-			bufferposition = 0;
+			byte[] cp = new byte[_bufferPosition];
+			Array.Copy(_buffer, cp, _bufferPosition);
+			_bufferPosition = 0;
 			CallbackOnSubmitAsync.Invoke(cp, CurrentEncoding);
 		}
 
@@ -244,7 +244,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// TODO: Cache the value of IsDefined, or get a way to compile this down to a faster call that doesn't require reflection each time.
 		/// </summary>
 		/// <param name="bt">An integer representation of a byte.</param>
-		/// <returns>Awaitable Task</returns>
+		/// <returns>Task</returns>
 		public async Task InterpretAsync(byte bt)
 		{
 			if (Enum.IsDefined(typeof(Trigger), (short)bt))
@@ -263,7 +263,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// TODO: Cache the value of IsDefined, or get a way to compile this down to a faster call that doesn't require reflection each time.
 		/// </summary>
 		/// <param name="bt">An integer representation of a byte.</param>
-		/// <returns>Awaitable Task</returns>
+		/// <returns>Task</returns>
 		public async Task InterpretByteArrayAsync(ImmutableArray<byte> byteArray)
 		{
 			foreach (var b in byteArray)
