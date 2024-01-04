@@ -53,7 +53,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <param name="t">The Trigger</param>
 		/// <returns>A Parameterized trigger</returns>
 		private StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParameterizedTrigger(Trigger t)
-			=> _parameterizedTriggers.ParametarizedTrigger(TelnetStateMachine, t);
+			=> _parameterizedTriggers.ParameterizedTrigger(TelnetStateMachine, t);
 
 		/// <summary>
 		/// The Serilog style Logger

@@ -12,7 +12,7 @@ namespace TelnetNegotiationCore.Models
 	/// </summary>
 	public class ParameterizedTriggers
 	{
-		private readonly Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte,Trigger>>> _cache = new();
+		private readonly Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>>> _cache = [];
 
 		/// <summary>
 		/// Returns a (cached) Parameterized Trigger. 
@@ -20,12 +20,14 @@ namespace TelnetNegotiationCore.Models
 		/// <param name="stm">State Machine</param>
 		/// <param name="t">The Trigger</param>
 		/// <returns>One of Byte or Trigger, allowing both the 255 byte range excluding standard triggers, and Triggers above the number</returns>
-		public StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParametarizedTrigger(StateMachine<State, Trigger> stm, Trigger t)
+		public StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParameterizedTrigger(StateMachine<State, Trigger> stm, Trigger t)
 		{
-			if (!_cache.ContainsKey(t))
+
+			if (_cache.TryGetValue(t, out StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> value))
 			{
-				_cache.Add(t, stm.SetTriggerParameters<OneOf<byte, Trigger>>(t));
+				return value;
 			}
+			_cache.Add(t, stm.SetTriggerParameters<OneOf<byte, Trigger>>(t));
 			return _cache[t];
 		}
 	}
@@ -44,7 +46,7 @@ namespace TelnetNegotiationCore.Models
 			=> MoreLinq.MoreEnumerable.ForEach(AllTriggers.Except(except), f);
 
 		public static void ForAllTriggersButIAC(Action<Trigger> f)
-			=> ForAllTriggersExcept(new[] { Trigger.IAC }, f);
+			=> ForAllTriggersExcept([Trigger.IAC], f);
 	}
 
 #pragma warning disable CA1069 // Enums values should not be duplicated
