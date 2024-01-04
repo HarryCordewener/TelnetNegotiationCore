@@ -1,6 +1,17 @@
 # Change Log
 All notable changes to this project will be documented in this file.
  
+## [1.0.1] - 2024-01-03
+  
+### Added
+- Add callback function for MSSP.
+ 
+### Changed
+- Target .NET 8.0.
+- Change Methods to be properly async.
+- Modernized TestClient example to use Pipes.
+- Modernized TestServer example to use Pipes and Kestrel.
+ 
 ## [1.0.0] - 2024-01-03
   
 Initial version.
