@@ -3,6 +3,7 @@ using Serilog;
 using Stateless.Graph;
 using System.Collections.Generic;
 using System.IO;
+using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Interpreters;

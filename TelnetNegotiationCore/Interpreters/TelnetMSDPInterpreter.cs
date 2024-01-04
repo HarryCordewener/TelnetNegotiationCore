@@ -5,6 +5,7 @@ using System.Dynamic;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using Microsoft.FSharp.Collections;
 using MoreLinq;
 using OneOf;
 using Stateless;
@@ -105,74 +106,11 @@ namespace TelnetNegotiationCore.Interpreters
 
 		private async Task ReadMSDPValues()
 		{
-			dynamic root = new ExpandoObject();
-			var array = _currentMSDPInfo.Skip(1).ToImmutableArray();
-
-			MSDPScan(root, array, Trigger.MSDP_VAR);
+			Functional.MSDPLibrary.MSDPScan(new FSharpMap<string, dynamic>(Enumerable.Empty<Tuple<string,dynamic>>()), 
+				_currentMSDPInfo.Skip(1), 
+				Functional.Trigger.MSDP_VAL, 
+				CurrentEncoding);
 			await Task.CompletedTask;
-		}
-
-		private dynamic MSDPScan(dynamic root, ImmutableArray<byte> array, Trigger type)
-		{
-			if (array.Length == 0) return root;
-
-			if (type == Trigger.MSDP_VAR)
-			{
-				var variableName = array.TakeUntil(x => x is (byte)Trigger.MSDP_VAL).ToArray();
-				((IDictionary<string, object>)root).Add(CurrentEncoding.GetString(variableName),
-					MSDPScan(root, array.SkipUntil(x => x is (byte)Trigger.MSDP_VAL).ToImmutableArray(), Trigger.MSDP_VAL));
-			}
-			else if (type == Trigger.MSDP_VAL)
-			{
-				var nextType = array.FirstOrDefault(x => x is
-					(byte)Trigger.MSDP_ARRAY_OPEN or
-					(byte)Trigger.MSDP_TABLE_OPEN or
-					(byte)Trigger.MSDP_ARRAY_CLOSE or
-					(byte)Trigger.MSDP_TABLE_CLOSE or
-					(byte)Trigger.MSDP_VAL);
-				dynamic result = root;
-
-				if (nextType == default) // We have hit the end.
-				{
-					result = CurrentEncoding.GetString(array.ToArray());
-				}
-				else if (nextType is (byte)Trigger.MSDP_VAL)
-				{
-					var value = array.TakeWhile(x => x != nextType);
-					var startOfRest = array.SkipUntil(x => x is (byte)Trigger.MSDP_VAL).ToImmutableArray();
-					result = MSDPScan(((ImmutableList<dynamic>)root).Add(CurrentEncoding.GetString(value.ToArray())), startOfRest, Trigger.MSDP_VAL);
-				}
-				else if (nextType is (byte)Trigger.MSDP_ARRAY_OPEN)
-				{
-					var startOfArray = array.SkipUntil(x => x is (byte)Trigger.MSDP_ARRAY_OPEN).ToImmutableArray();
-					result = MSDPScan(root, startOfArray, Trigger.MSDP_ARRAY_OPEN);
-				}
-				else if (nextType is (byte)Trigger.MSDP_TABLE_OPEN)
-				{
-					var startOfTable = array.SkipUntil(x => x is (byte)Trigger.MSDP_TABLE_OPEN).ToImmutableArray();
-					result = MSDPScan(root, startOfTable, Trigger.MSDP_ARRAY_OPEN);
-				}
-				else if (nextType is (byte)Trigger.MSDP_ARRAY_CLOSE)
-				{
-					result = root;
-				}
-				else if (nextType is (byte)Trigger.MSDP_TABLE_CLOSE)
-				{
-					result = root;
-				}
-
-				return result;
-			}
-			else if (type == Trigger.MSDP_ARRAY_OPEN)
-			{
-				return MSDPScan(ImmutableList<dynamic>.Empty, array.Skip(1).ToImmutableArray(), Trigger.MSDP_VAL);
-			}
-			else if (type == Trigger.MSDP_TABLE_OPEN)
-			{
-				return MSDPScan(new ExpandoObject(), array.Skip(1).ToImmutableArray(), Trigger.MSDP_VAR);
-			}
-
-			return root;
 		}
 
 		/// <summary>
