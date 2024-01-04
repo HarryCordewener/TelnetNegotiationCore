@@ -69,7 +69,7 @@ namespace TelnetNegotiationCore.UnitTests
 
 		private async Task SignalNAWS(int arg1, int arg2) => await Task.CompletedTask;
 		
-		private async Task WriteBack(byte[] arg1, Encoding encoding) => await Task.CompletedTask;
+		private async Task WriteBack(byte[] arg1, Encoding encoding, TelnetInterpreter t) => await Task.CompletedTask;
 
 		private async Task WriteBackToGMCP((string module, string writeback) arg1) => await Task.CompletedTask;
 	}

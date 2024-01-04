@@ -45,12 +45,12 @@ namespace TelnetNegotiationCore.TestServer
 		public Task SignalNAWSAsync(int height, int width) =>
 			Task.Run(() => _Logger.Debug("Client Height and Width updated: {Height}x{Width}", height, width));
 
-		public static async Task WriteBackAsync(byte[] writeback, Encoding encoding, PipeWriter writer)
+		public static async Task WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter telnet)
 		{
 			var str = encoding.GetString(writeback);
 			if (str.StartsWith("echo"))
 			{
-				await writer.WriteAsync(encoding.GetBytes($"We heard: {str}" + Environment.NewLine));
+				await telnet.SendAsync(encoding.GetBytes($"We heard: {str}" + Environment.NewLine));
 			}
 			Console.WriteLine(encoding.GetString(writeback));
 		}
@@ -61,7 +61,7 @@ namespace TelnetNegotiationCore.TestServer
 
 			var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server)
 			{
-				CallbackOnSubmitAsync = (w,e) => WriteBackAsync(w,e, connection.Transport.Output),
+				CallbackOnSubmitAsync = (w,e,t) => WriteBackAsync(w,e,t),
 				SignalOnGMCPAsync = SignalGMCPAsync,
 				SignalOnMSSPAsync = SignalMSSPAsync,
 				SignalOnNAWSAsync = SignalNAWSAsync,

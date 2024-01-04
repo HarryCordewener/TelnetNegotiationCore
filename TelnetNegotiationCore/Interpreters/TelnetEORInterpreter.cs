@@ -89,7 +89,7 @@ namespace TelnetNegotiationCore.Interpreters
 		private async Task WillingEORAsync()
 		{
 			_Logger.Debug("Connection: {ConnectionState}", "Announcing willingness to EOR!");
-			await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
+			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR]);
 		}
 
 		/// <summary>
@@ -109,7 +109,7 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			_Logger.Debug("Connection: {ConnectionState}", "Server supports End of Record.");
 			_doEOR = true;
-			await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
+			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR]);
 		}
 
 		/// <summary>
@@ -125,9 +125,19 @@ namespace TelnetNegotiationCore.Interpreters
 			}
 			else
 			{
-				await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
+				await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.EOR]);
 				await CallbackNegotiationAsync(send);
 			}
+		}
+
+		/// <summary>
+		/// Sends a byte message as a Prompt, adding EOR if desired.
+		/// </summary>
+		/// <param name="send">Byte array</param>
+		/// <returns>A completed Task</returns>
+		public async Task SendAsync(byte[] send)
+		{
+			await CallbackNegotiationAsync(send);
 		}
 	}
 }

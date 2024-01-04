@@ -32,7 +32,7 @@ namespace TelnetNegotiationCore.TestClient
 			}
 		}
 
-		public static Task WriteBackAsync(byte[] writeback, Encoding encoding) =>
+		public static Task WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter t) =>
 			Task.Run(() => Console.WriteLine(encoding.GetString(writeback)));
 
 		public Task SignalGMCPAsync((string module, string writeback) val) =>
@@ -81,7 +81,7 @@ namespace TelnetNegotiationCore.TestClient
 		/// Read data coming from the server and interpret it.
 		/// </summary>
 		/// <param name="reader">The Pipeline Reader</param>
-		/// <returns>An awaitable result</returns>
+		/// <returns>A ValueTask</returns>
 		static async ValueTask ReadFromPipeline(TelnetInterpreter telnet, PipeReader reader)
 		{
 			while (true)

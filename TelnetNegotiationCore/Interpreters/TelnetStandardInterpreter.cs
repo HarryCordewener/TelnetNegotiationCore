@@ -72,7 +72,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <summary>
 		/// Callback to run on a submission (linefeed)
 		/// </summary>
-		public Func<byte[], Encoding, Task> CallbackOnSubmitAsync { get; init; }
+		public Func<byte[], Encoding, TelnetInterpreter, Task> CallbackOnSubmitAsync { get; init; }
 
 		/// <summary>
 		/// Callback to the output stream directly for negotiation.
@@ -210,7 +210,7 @@ namespace TelnetNegotiationCore.Interpreters
 			byte[] cp = new byte[_bufferPosition];
 			Array.Copy(_buffer, cp, _bufferPosition);
 			_bufferPosition = 0;
-			CallbackOnSubmitAsync.Invoke(cp, CurrentEncoding);
+			CallbackOnSubmitAsync.Invoke(cp, CurrentEncoding, this);
 		}
 
 		/// <summary>

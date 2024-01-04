@@ -18,7 +18,7 @@ namespace TelnetNegotiationCore.UnitTests
 		private TelnetInterpreter _client_ti;
 		private byte[] _negotiationOutput;
 
-		private Task WriteBackToOutput(byte[] arg1, Encoding arg2) => throw new NotImplementedException();
+		private Task WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => throw new NotImplementedException();
 
 		private Task WriteBackToNegotiate(byte[] arg1) => Task.Run(() => _negotiationOutput = arg1);
 
@@ -121,23 +121,23 @@ namespace TelnetNegotiationCore.UnitTests
 						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE }
 					}).SetName("Basic responds to Server TType DO");
 				yield return new TestCaseData(
-					new[]
+					new byte[][]
 					{
-						new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE },
-						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
-						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
-						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
-						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
-						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE }
+						[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE]
 					},
-					new[]
+					new byte[][]
 					{
-						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE },
-						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'T', (byte)'N', (byte)'C', (byte)Trigger.IAC, (byte)Trigger.SE },
-						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'X', (byte)'T', (byte)'E', (byte)'R', (byte)'M', (byte)Trigger.IAC, (byte)Trigger.SE },
-						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'M', (byte)'T', (byte)'T', (byte)'S', (byte)' ', (byte)'3', (byte)'8', (byte)'5', (byte)'3', (byte)Trigger.IAC, (byte)Trigger.SE },
-						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'M', (byte)'T', (byte)'T', (byte)'S', (byte)' ', (byte)'3', (byte)'8', (byte)'5', (byte)'3', (byte)Trigger.IAC, (byte)Trigger.SE },
-						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'T', (byte)'N', (byte)'C', (byte)Trigger.IAC, (byte)Trigger.SE }
+						[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'T', (byte)'N', (byte)'C', (byte)Trigger.IAC, (byte)Trigger.SE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'X', (byte)'T', (byte)'E', (byte)'R', (byte)'M', (byte)Trigger.IAC, (byte)Trigger.SE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'M', (byte)'T', (byte)'T', (byte)'S', (byte)' ', (byte)'3', (byte)'8', (byte)'5', (byte)'3', (byte)Trigger.IAC, (byte)Trigger.SE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'M', (byte)'T', (byte)'T', (byte)'S', (byte)' ', (byte)'3', (byte)'8', (byte)'5', (byte)'3', (byte)Trigger.IAC, (byte)Trigger.SE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'T', (byte)'N', (byte)'C', (byte)Trigger.IAC, (byte)Trigger.SE]
 					}).SetName("Capable of sending a TType in a cycling manner, with a repeat for the last item");
 			}
 		}
@@ -158,24 +158,24 @@ namespace TelnetNegotiationCore.UnitTests
 						Array.Empty<string>()
 					}).SetName("Basic responds to Client TType Willing");
 				yield return new TestCaseData(
-					new[] { // Client Sends
-						new[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE },
-						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'A', (byte)'N', (byte)'S', (byte)'I', (byte)Trigger.IAC, (byte)Trigger.SE },
-						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'V', (byte)'T', (byte)'1', (byte)'0', (byte)'0', (byte)Trigger.IAC, (byte)Trigger.SE },
-						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'V', (byte)'T', (byte)'1', (byte)'0', (byte)'0', (byte)Trigger.IAC, (byte)Trigger.SE }
+					new byte[][] { // Client Sends
+						[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'A', (byte)'N', (byte)'S', (byte)'I', (byte)Trigger.IAC, (byte)Trigger.SE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'V', (byte)'T', (byte)'1', (byte)'0', (byte)'0', (byte)Trigger.IAC, (byte)Trigger.SE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'V', (byte)'T', (byte)'1', (byte)'0', (byte)'0', (byte)Trigger.IAC, (byte)Trigger.SE]
 					},
-					new[] { // Server Should Respond With
-						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
-						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
-						new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
+					new byte[][] { // Server Should Respond With
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
+						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
 						null
 					},
 					new[] // Registered TType List After Negotiation
 					{
 						Array.Empty<string>(),
-						new string[] { "ANSI"},
-						new string[] { "ANSI", "VT100"},
-						new string[] { "ANSI", "VT100"}
+						["ANSI"],
+						["ANSI", "VT100"],
+						["ANSI", "VT100"]
 					}).SetName("Long response to Client TType Willing");
 			}
 		}
