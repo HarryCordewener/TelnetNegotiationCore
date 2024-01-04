@@ -1,4 +1,7 @@
-﻿using Serilog;
+﻿using Microsoft.AspNetCore;
+using Microsoft.AspNetCore.Connections;
+using Microsoft.AspNetCore.Hosting;
+using Serilog;
 using Serilog.Formatting.Compact;
 using System.Threading.Tasks;
 
@@ -6,7 +9,7 @@ namespace TelnetNegotiationCore.TestServer
 {
 	public class Program
 	{
-		static async Task Main()
+		static async Task Main(string[] args)
 		{
 			var log = new LoggerConfiguration()
 				.Enrich.FromLogContext()
@@ -16,8 +19,19 @@ namespace TelnetNegotiationCore.TestServer
 				.CreateLogger();
 
 			Log.Logger = log;
-			var server = new MockServer("127.0.0.1", 4202, log.ForContext<MockServer>());
-			await server.StartListenerAsync();
+
+			CreateWebHostBuilder(args).Build().Run();
+			await Task.CompletedTask;
 		}
+
+		public static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
+				WebHost.CreateDefaultBuilder(args)
+						.UseKestrel(options =>
+						{
+							options.ListenLocalhost(4202, builder =>
+							{
+								builder.UseConnectionHandler<KestrelMockServer>();
+							});
+						}).UseStartup<Startup>();
 	}
 }
