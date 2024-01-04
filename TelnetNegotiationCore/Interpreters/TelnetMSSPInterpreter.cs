@@ -15,10 +15,10 @@ namespace TelnetNegotiationCore.Interpreters
 	{
 		private Func<MSSPConfig> _msspConfig = () => new();
 
-		private List<byte> _currentVariable;
-		private List<List<byte>> _currentValueList;
-		private List<byte> _currentValue;
-		private List<List<byte>> _currentVariableList;
+		private List<byte> _currentMSSPVariable;
+		private List<byte> _currentMSSPValue;
+		private List<List<byte>> _currentMSSPVariableList;
+		private List<List<byte>> _currentMSSPValueList;
 
 		public Func<MSSPConfig, Task> SignalOnMSSPAsync { get; init; }
 
@@ -73,10 +73,10 @@ namespace TelnetNegotiationCore.Interpreters
 					.Permit(Trigger.MSSP, State.AlmostNegotiatingMSSP)
 					.OnEntry(() =>
 					{
-						_currentValue = [];
-						_currentVariable = [];
-						_currentValueList = [];
-						_currentVariableList = [];
+						_currentMSDPValue = [];
+						_currentMSDPInfo = [];
+						_currentMSDPValueList = [];
+						_currentMSDPVariableList = [];
 					});
 
 				tsm.Configure(State.AlmostNegotiatingMSSP)
@@ -117,18 +117,18 @@ namespace TelnetNegotiationCore.Interpreters
 
 		private void RegisterMSSPVal()
 		{
-			if (!_currentValue.Any()) return;
+			if (!_currentMSDPValue.Any()) return;
 
-			_currentValueList.Add(_currentValue);
-			_currentValue = new List<byte>();
+			_currentMSDPValueList.Add(_currentMSDPValue);
+			_currentMSDPValue = new List<byte>();
 		}
 
 		private void RegisterMSSPVar()
 		{
-			if (!_currentVariable.Any()) return;
+			if (!_currentMSDPInfo.Any()) return;
 
-			_currentVariableList.Add(_currentVariable);
-			_currentVariable = new List<byte>();
+			_currentMSDPVariableList.Add(_currentMSDPInfo);
+			_currentMSDPInfo = new List<byte>();
 		}
 
 		private async Task ReadMSSPValues()
@@ -136,8 +136,8 @@ namespace TelnetNegotiationCore.Interpreters
 			RegisterMSSPVal();
 			RegisterMSSPVar();
 
-			var grouping = _currentVariableList
-				.Zip(_currentValueList)
+			var grouping = _currentMSDPVariableList
+				.Zip(_currentMSDPValueList)
 				.GroupBy(x => CurrentEncoding.GetString(x.First.ToArray()));
 
 			foreach (var group in grouping)
@@ -205,14 +205,14 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			// We could increment here based on having switched... Somehow?
 			// We need a better state tracking for this, to indicate the transition.
-			_currentVariable.Add(b.AsT0);
+			_currentMSDPInfo.Add(b.AsT0);
 		}
 
 		private void CaptureMSSPValue(OneOf<byte, Trigger> b)
 		{
 			// We could increment here based on having switched... Somehow?
 			// We need a better state tracking for this, to indicate the transition.
-			_currentValue.Add(b.AsT0);
+			_currentMSDPValue.Add(b.AsT0);
 		}
 
 		/// <summary>
