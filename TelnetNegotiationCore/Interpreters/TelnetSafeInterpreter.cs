@@ -26,10 +26,10 @@ namespace TelnetNegotiationCore.Interpreters
 			var triggers = Enum.GetValues(typeof(Trigger)).OfType<Trigger>();
 			var refuseThese = new List<State> { State.Willing, State.Refusing, State.Do, State.Dont };
 
-			foreach (var stateinfo in info.States.Join(refuseThese, x => x.UnderlyingState, y => y, (x,y) => x))
+			foreach (var stateInfo in info.States.Join(refuseThese, x => x.UnderlyingState, y => y, (x,y) => x))
 			{
-				var state = (State)stateinfo.UnderlyingState;
-				var outboundUnhandledTriggers = triggers.Except(stateinfo.Transitions.Select(x => (Trigger)x.Trigger.UnderlyingTrigger));
+				var state = (State)stateInfo.UnderlyingState;
+				var outboundUnhandledTriggers = triggers.Except(stateInfo.Transitions.Select(x => (Trigger)x.Trigger.UnderlyingTrigger));
 
 				foreach (var trigger in outboundUnhandledTriggers)
 				{
@@ -43,7 +43,7 @@ namespace TelnetNegotiationCore.Interpreters
 							.OnEntryFromAsync(trigger, async () =>
 							{
 								_Logger.Debug("Connection: {ConnectionState}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
-								await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger });
+								await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger]);
 							});
 					}
 					else if (state is State.Willing)
@@ -52,17 +52,15 @@ namespace TelnetNegotiationCore.Interpreters
 							.OnEntryFromAsync(trigger, async () =>
 							{
 								_Logger.Debug("Connection: {ConnectionState}", $"Telling the Client, Don't send {trigger}.");
-								await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger });
+								await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger]);
 							});
 					}
 				}
 			}
 
-			var subnegotiationUnhandledTriggers = triggers
+			foreach (var trigger in triggers
 				.Except(info.States.First(x => (State)x.UnderlyingState == State.SubNegotiation).Transitions
-					.Select(x => (Trigger)x.Trigger.UnderlyingTrigger));
-
-			foreach (var trigger in subnegotiationUnhandledTriggers)
+					.Select(x => (Trigger)x.Trigger.UnderlyingTrigger)))
 			{
 				tsm.Configure(State.SubNegotiation)
 					.Permit(trigger, State.BadSubNegotiation);
@@ -73,12 +71,12 @@ namespace TelnetNegotiationCore.Interpreters
 
 			tsm.Configure(State.BadSubNegotiation)
 				.Permit(Trigger.IAC, State.BadSubNegotiationEscaping)
-				.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", $"Unsupported subnegotiation."));
+				.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", $"Unsupported SubNegotiation."));
 			tsm.Configure(State.BadSubNegotiationEscaping)
 				.Permit(Trigger.IAC, State.BadSubNegotiationEvaluating)
 				.Permit(Trigger.SE, State.BadSubNegotiationCompleting);
 			tsm.Configure(State.BadSubNegotiationCompleting)
-				.OnEntry(() => _Logger.Debug("Connection: Explicitly ignoring the subnegotiation that was sent."))
+				.OnEntry(() => _Logger.Debug("Connection: Explicitly ignoring the SubNegotiation that was sent."))
 				.SubstateOf(State.Accepting);
 
 			var states = tsm.GetInfo().States;
@@ -86,7 +84,6 @@ namespace TelnetNegotiationCore.Interpreters
 
 			var statesAllowingForErrorTransitions = states
 				.Except(acceptingStateInfo);
-				//.Where(x => x.Transitions.Any(x => (Trigger)x.Trigger.UnderlyingTrigger == Trigger.Error));
 
 			foreach (var state in statesAllowingForErrorTransitions)
 			{
@@ -96,7 +93,8 @@ namespace TelnetNegotiationCore.Interpreters
 
 			tsm.OnUnhandledTrigger(async (state, trigger, unmetguards) =>
 			{
-				_Logger.Fatal("Bad transition from {@state} with trigger {@trigger} due to unmet guards: {@unmetguards}. Cannot recover. Ignoring character and attempting to recover.", state, trigger, unmetguards);
+				_Logger.Fatal("Bad transition from {@State} with trigger {@Trigger} due to unmet guards: {@UnmetGuards}. Cannot recover. " +
+					"Ignoring character and attempting to recover.", state, trigger, unmetguards);
 				await tsm.FireAsync(ParameterizedTrigger(Trigger.Error), Trigger.Error);
 			});
 

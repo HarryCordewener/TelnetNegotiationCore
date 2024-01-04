@@ -73,10 +73,10 @@ namespace TelnetNegotiationCore.Interpreters
 					.Permit(Trigger.MSSP, State.AlmostNegotiatingMSSP)
 					.OnEntry(() =>
 					{
-						_currentValue = new List<byte>();
-						_currentVariable = new List<byte>();
-						_currentValueList = new List<List<byte>>();
-						_currentVariableList = new List<List<byte>>();
+						_currentValue = [];
+						_currentVariable = [];
+						_currentValueList = [];
+						_currentVariableList = [];
 					});
 
 				tsm.Configure(State.AlmostNegotiatingMSSP)
@@ -103,12 +103,12 @@ namespace TelnetNegotiationCore.Interpreters
 					.SubstateOf(State.Accepting)
 					.OnEntryAsync(ReadMSSPValues);
 
-				TriggerHelper.ForAllTriggersExcept(new[] { Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC }, t => tsm.Configure(State.EvaluatingMSSPVal).OnEntryFrom(ParameterizedTrigger(t), CaptureMSSPValue));
-				TriggerHelper.ForAllTriggersExcept(new[] { Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC }, t => tsm.Configure(State.EvaluatingMSSPVar).OnEntryFrom(ParameterizedTrigger(t), CaptureMSSPVariable));
+				TriggerHelper.ForAllTriggersExcept([Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC], t => tsm.Configure(State.EvaluatingMSSPVal).OnEntryFrom(ParameterizedTrigger(t), CaptureMSSPValue));
+				TriggerHelper.ForAllTriggersExcept([Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC], t => tsm.Configure(State.EvaluatingMSSPVar).OnEntryFrom(ParameterizedTrigger(t), CaptureMSSPVariable));
 
-				TriggerHelper.ForAllTriggersExcept(new[] { Trigger.IAC, Trigger.MSSP_VAR },
+				TriggerHelper.ForAllTriggersExcept([Trigger.IAC, Trigger.MSSP_VAR],
 					t => tsm.Configure(State.EvaluatingMSSPVal).PermitReentry(t));
-				TriggerHelper.ForAllTriggersExcept(new[] { Trigger.IAC, Trigger.MSSP_VAL },
+				TriggerHelper.ForAllTriggersExcept([Trigger.IAC, Trigger.MSSP_VAL],
 					t => tsm.Configure(State.EvaluatingMSSPVar).PermitReentry(t));
 			}
 
@@ -161,6 +161,7 @@ namespace TelnetNegotiationCore.Interpreters
 				var fieldInfo = (PropertyInfo)foundAttribute.Member;
 
 				var msspConfig = _msspConfig();
+
 				if (fieldInfo.PropertyType == typeof(string))
 				{
 					fieldInfo.SetValue(msspConfig, value.First());
@@ -220,7 +221,7 @@ namespace TelnetNegotiationCore.Interpreters
 		private async Task WillingMSSPAsync()
 		{
 			_Logger.Debug("Connection: {ConnectionState}", "Announcing willingness to MSSP!");
-			await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP });
+			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP]);
 		}
 
 		/// <summary>
@@ -229,7 +230,7 @@ namespace TelnetNegotiationCore.Interpreters
 		private async Task OnDoMSSPAsync(StateMachine<State, Trigger>.Transition _)
 		{
 			_Logger.Debug("Connection: {ConnectionState}", "Writing MSSP output");
-			await CallbackNegotiationAsync(ReportMSSP(_msspConfig()).ToArray());
+			await CallbackNegotiationAsync(ReportMSSP(_msspConfig()));
 		}
 
 		/// <summary>
@@ -238,7 +239,7 @@ namespace TelnetNegotiationCore.Interpreters
 		private async Task OnWillMSSPAsync()
 		{
 			_Logger.Debug("Connection: {ConnectionState}", "Announcing willingness to MSSP!");
-			await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
+			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP]);
 		}
 
 		/// <summary>
@@ -246,12 +247,8 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		/// <param name="config">MSSP Configuration.</param>
 		/// <returns>The full byte array to send the client.</returns>
-		private IEnumerable<byte> ReportMSSP(MSSPConfig config)
-		{
-			byte[] prefix = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MSSP };
-			byte[] postfix = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };
-			return prefix.Concat(MSSPReadConfig(config)).Concat(postfix);
-		}
+		private byte[] ReportMSSP(MSSPConfig config) => 
+			[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MSSP, .. MSSPReadConfig(config), (byte)Trigger.IAC, (byte)Trigger.SE];
 
 		public TelnetInterpreter RegisterMSSPConfig(Func<MSSPConfig> config)
 		{
@@ -260,9 +257,9 @@ namespace TelnetNegotiationCore.Interpreters
 			return this;
 		}
 
-		private IEnumerable<byte> MSSPReadConfig(MSSPConfig config)
+		private byte[] MSSPReadConfig(MSSPConfig config)
 		{
-			IEnumerable<byte> msspBytes = Array.Empty<byte>();
+			byte[] msspBytes = [];
 
 			var fields = typeof(MSSPConfig).GetProperties();
 			var knownFields = fields.Where(field => Attribute.IsDefined(field, typeof(NameAttribute)));
@@ -274,58 +271,51 @@ namespace TelnetNegotiationCore.Interpreters
 
 				var attr = Attribute.GetCustomAttribute(field, typeof(NameAttribute)) as NameAttribute;
 
-				msspBytes = msspBytes.Concat(ConvertToMSSP(attr.Name, b));
+				msspBytes = [.. msspBytes, .. ConvertToMSSP(attr.Name, b)];
 			}
 
-			foreach (var item in config.Extended ?? new Dictionary<string, dynamic>())
+			foreach (var item in config.Extended ?? [])
 			{
 				if (item.Value == null) continue;
-				msspBytes = msspBytes.Concat(ConvertToMSSP(item.Key, item.Value) as IEnumerable<byte>);
+				msspBytes = [.. msspBytes, .. ConvertToMSSP(item.Key, item.Value) as byte[]];
 			}
 
 			return msspBytes;
 		}
 
-		// TODO: Cache this. This value shouldn't change.
-		private IEnumerable<byte> ConvertToMSSP(string name, dynamic val)
+		private byte[] ConvertToMSSP(string name, dynamic val)
 		{
-			IEnumerable<byte> bt = Array.Empty<byte>()
-				.Concat(new byte[] { (byte)Trigger.MSSP_VAR })
-				.Concat(ascii.GetBytes(name));
+			byte[] bt = [(byte)Trigger.MSSP_VAR, .. ascii.GetBytes(name)];
 
 			switch (val)
 			{
 				case string s:
 					{
 						_Logger.Debug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, s);
-						return bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
-							.Concat(ascii.GetBytes(s));
+						return [..bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(s)];
 					}
 				case int i:
 					{
 						_Logger.Debug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, i.ToString());
-						return bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
-							.Concat(ascii.GetBytes(i.ToString()));
+						return [.. bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(i.ToString())];
 					}
 				case bool boolean:
 					{
 						_Logger.Debug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, boolean);
-						return bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
-							.Concat(ascii.GetBytes(boolean ? "1" : "0"));
+						return [.. bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(boolean ? "1" : "0")];
 					}
 				case IEnumerable<string> list:
 					{
 						foreach (var item in list)
 						{
 							_Logger.Debug("MSSP Announcement: {MSSPKey}[]: {MSSPVal}", name, item);
-							bt = bt.Concat(new byte[] { (byte)Trigger.MSSP_VAL })
-								.Concat(ascii.GetBytes(item));
+							bt = [.. bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(item)];
 						}
 						return bt;
 					}
 				default:
 					{
-						return Array.Empty<byte>();
+						return [];
 					}
 			}
 		}

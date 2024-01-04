@@ -139,7 +139,7 @@ namespace TelnetNegotiationCore.Interpreters
 			{
 				_Logger.Debug("Connection: {ConnectionState}", "Requesting NAWS details from Client");
 
-				await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
+				await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS]);
 				_ClientWillingToDoNAWS = true;
 			}
 		}
@@ -168,7 +168,7 @@ namespace TelnetNegotiationCore.Interpreters
 		private async Task ServerWontNAWSAsync()
 		{
 			_Logger.Debug("Connection: {ConnectionState}", "Announcing refusing to send NAWS, this is a Server!");
-			await CallbackNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
+			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS]);
 		}
 
 		/// <summary>
@@ -177,8 +177,8 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <param name="_">Ignored</param>
 		private async Task CompleteNAWSAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			byte[] width = new byte[] { _nawsByteState[0], _nawsByteState[1] };
-			byte[] height = new byte[] { _nawsByteState[2], _nawsByteState[3] };
+			byte[] width = [_nawsByteState[0], _nawsByteState[1]];
+			byte[] height = [_nawsByteState[2], _nawsByteState[3]];
 
 			if (BitConverter.IsLittleEndian)
 			{

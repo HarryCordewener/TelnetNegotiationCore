@@ -286,10 +286,9 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <returns>A byte array representing the charset offering.</returns>
 		private byte[] CharacterSets()
 		{
-			byte[] pre = [(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST];
-			byte[] post = [(byte)Trigger.IAC, (byte)Trigger.SE];
-			byte[] defaultCharsets = ascii.GetBytes($";{string.Join(";", _charsetOrder(AllowedEncodings()).Select(x => x.WebName))}");
-			return [.. pre, .. defaultCharsets, .. post];
+			return [(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
+							.. ascii.GetBytes($";{string.Join(";", _charsetOrder(AllowedEncodings()).Select(x => x.WebName))}"),
+							(byte)Trigger.IAC, (byte)Trigger.SE];
 		}
 	}
 }
