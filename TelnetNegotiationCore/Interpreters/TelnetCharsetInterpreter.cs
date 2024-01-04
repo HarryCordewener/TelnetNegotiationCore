@@ -38,6 +38,8 @@ namespace TelnetNegotiationCore.Interpreters
 
 		private bool charsetOffered = false;
 
+		private Func<IEnumerable<EncodingInfo>> AllowedEncodings { get; set; } = Encoding.GetEncodings;
+
 		private Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetOrder = (x) => x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
 
 		public Lazy<byte[]> SupportedCharacterSets { get; }
@@ -205,7 +207,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			_Logger.Debug("Charsets offered to us: {@charsetResultDebug}", charsetsOffered);
 
-			var encodingDict = Encoding.GetEncodings().ToDictionary(x => x.GetEncoding().WebName);
+			var encodingDict = AllowedEncodings().ToDictionary(x => x.GetEncoding().WebName);
 			var offeredEncodingInfo = charsetsOffered.Select(x => { try { return encodingDict[Encoding.GetEncoding(x).WebName]; } catch { return null; } }).Where(x => x != null);
 			var preferredEncoding = _charsetOrder(offeredEncodingInfo);
 			var chosenEncoding = preferredEncoding.FirstOrDefault();
@@ -273,7 +275,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Charsets String: {CharsetList}", ";" + string.Join(";", _charsetOrder(Encoding.GetEncodings()).Select(x => x.WebName)));
+			_Logger.Debug("Charsets String: {CharsetList}", ";" + string.Join(";", _charsetOrder(AllowedEncodings()).Select(x => x.WebName)));
 			await CallbackNegotiationAsync(SupportedCharacterSets.Value);
 			charsetOffered = true;
 		}
@@ -286,7 +288,7 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			byte[] pre = [(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST];
 			byte[] post = [(byte)Trigger.IAC, (byte)Trigger.SE];
-			byte[] defaultCharsets = ascii.GetBytes($";{string.Join(";", _charsetOrder(Encoding.GetEncodings()).Select(x => x.WebName))}");
+			byte[] defaultCharsets = ascii.GetBytes($";{string.Join(";", _charsetOrder(AllowedEncodings()).Select(x => x.WebName))}");
 			return [.. pre, .. defaultCharsets, .. post];
 		}
 	}
