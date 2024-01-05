@@ -2,6 +2,7 @@
 using Serilog;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.Json;
 using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.UnitTests
@@ -12,11 +13,11 @@ namespace TelnetNegotiationCore.UnitTests
 		static Encoding encoding = Encoding.ASCII;
 
 		[TestCaseSource(nameof(FSharpTestSequences))]
-		public void TestFSharp(byte[] testcase)
+		public void TestFSharp(byte[] testcase, dynamic expectedObject)
 		{
 			var result = Functional.MSDPLibrary.MSDPScan(testcase, encoding);
-			Log.Logger.Information("{$Result}", result);
-			Assert.True(true);
+			Log.Logger.Information("Serialized: {NewLine} {Serialized}", JsonSerializer.Serialize(result));
+			Assert.AreEqual(JsonSerializer.Serialize(expectedObject), JsonSerializer.Serialize(result));
 		}
 
 		public static IEnumerable<TestCaseData> FSharpTestSequences
@@ -27,7 +28,8 @@ namespace TelnetNegotiationCore.UnitTests
 					(byte)Trigger.MSDP_VAR,
 					.. encoding.GetBytes("LIST"),
 					(byte)Trigger.MSDP_VAL,
-					.. encoding.GetBytes("COMMANDS")]);
+					.. encoding.GetBytes("COMMANDS")],
+					new { LIST = "COMMANDS" });
 
 				yield return new TestCaseData((byte[])[
 					(byte)Trigger.MSDP_VAR,
@@ -40,9 +42,8 @@ namespace TelnetNegotiationCore.UnitTests
 					.. encoding.GetBytes("REPORT"),
 					(byte)Trigger.MSDP_VAL,
 					.. encoding.GetBytes("SEND"),
-					(byte)Trigger.MSDP_ARRAY_CLOSE]);
-
-				///MSDP_VAR "EXITS" MSDP_VAL MSDP_TABLE_OPEN MSDP_VAR "n" MSDP_VAL "6011" MSDP_VAR "e" MSDP_VAL "6007" MSDP_TABLE_CLOSE MSDP_TABLE_CLOSE IAC SE
+					(byte)Trigger.MSDP_ARRAY_CLOSE],
+					new { COMMANDS = (string[])["LIST", "REPORT", "SEND"] });
 
 				yield return new TestCaseData((byte[])[
 					(byte)Trigger.MSDP_VAR,
@@ -75,7 +76,8 @@ namespace TelnetNegotiationCore.UnitTests
 					.. encoding.GetBytes("6012"),
 					(byte)Trigger.MSDP_TABLE_CLOSE,
 					(byte)Trigger.MSDP_TABLE_CLOSE
-				]);
+				],
+					new { ROOM = new { AREA = "Haon Dor", EXITS = new { e = "6012", n = "6011" }, NAME = "The Forest clearing", VNUM = "6008" } });
 			}
 		}
 	}
