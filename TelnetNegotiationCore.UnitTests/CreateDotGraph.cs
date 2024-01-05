@@ -14,7 +14,7 @@ namespace TelnetNegotiationCore.UnitTests
 	[TestFixture(
 		Category = "Tool", 
 		Description = "Creates the DotGraph files for Server and Client forms. Some of these are combined.")]
-	public class CreateDotGraph
+	public class CreateDotGraph : BaseTest
 	{
 		readonly ILogger _Logger;
 

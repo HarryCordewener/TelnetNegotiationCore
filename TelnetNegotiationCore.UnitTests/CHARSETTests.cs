@@ -11,7 +11,7 @@ using TelnetNegotiationCore.Models;
 namespace TelnetNegotiationCore.UnitTests
 {
 	[TestFixture]
-	public class CHARSETTests
+	public class CHARSETTests: BaseTest
 	{
 		private byte[] _negotiationOutput;
 
@@ -28,13 +28,6 @@ namespace TelnetNegotiationCore.UnitTests
 		{
 			_negotiationOutput = null;
 
-			var log = new LoggerConfiguration()
-				.Enrich.FromLogContext()
-				.WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] ({TelnetMode}) {Message:lj}{NewLine}{Exception}")
-				.MinimumLevel.Verbose()
-				.CreateLogger();
-
-			Log.Logger = log;
 		}
 
 		[TestCaseSource(nameof(ServerCHARSETSequences), Category = nameof(TelnetInterpreter.TelnetMode.Server))]

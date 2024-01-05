@@ -99,18 +99,13 @@ namespace TelnetNegotiationCore.Interpreters
 			return tsm;
 		}
 
-		private void CaptureMSDPValue(OneOf<byte, Trigger> b)
-		{
+		private void CaptureMSDPValue(OneOf<byte, Trigger> b) =>
 			_currentMSDPInfo.Add(b.AsT0);
-		}
 
-		private async Task ReadMSDPValues()
+		private Task ReadMSDPValues()
 		{
-			Functional.MSDPLibrary.MSDPScan(new FSharpMap<string, dynamic>(Enumerable.Empty<Tuple<string,dynamic>>()), 
-				_currentMSDPInfo.Skip(1), 
-				Functional.Trigger.MSDP_VAL, 
-				CurrentEncoding);
-			await Task.CompletedTask;
+			Functional.MSDPLibrary.MSDPScan(_currentMSDPInfo.Skip(1), CurrentEncoding);
+			return Task.CompletedTask;
 		}
 
 		/// <summary>
@@ -125,10 +120,10 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <summary>
 		/// Announce the MSDP we support to the client after getting a Do.
 		/// </summary>
-		private async Task OnDoMSDPAsync(StateMachine<State, Trigger>.Transition _)
+		private Task OnDoMSDPAsync(StateMachine<State, Trigger>.Transition _)
 		{
 			_Logger.Debug("Connection: {ConnectionState}", "Client will do MSDP output");
-			await Task.CompletedTask;
+			return Task.CompletedTask;
 		}
 
 		/// <summary>
