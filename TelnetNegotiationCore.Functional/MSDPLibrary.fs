@@ -12,44 +12,34 @@ module MSDPLibrary =
       | MSDP_ARRAY_OPEN = 5uy
       | MSDP_ARRAY_CLOSE = 6uy
 
-  let rec private MSDPScanRec (root: obj, array: seq<byte>, encoding : Encoding) =
-      if Seq.length(array) = 0 then (root, array)
-      else
-          match array |> Seq.head with
-          | 1uy -> 
-            let key = encoding.GetString(array |> Seq.skip(1) |> Seq.takeWhile(fun x -> x <> byte Trigger.MSDP_VAL) |> Array.ofSeq)
-            let (calculatedValue, leftoverArray) = MSDPScanRec(root, array |> Seq.skip(1) |> Seq.skipWhile(fun x -> x <> byte Trigger.MSDP_VAL), encoding)
-            MSDPScanRec((root :?> Map<string, obj>).Add(key, calculatedValue), leftoverArray, encoding)
-          | 2uy ->
-              if root :? Map<string,obj> then 
-                MSDPScanRec(Map<string,obj> [], array |> Seq.skip(1), encoding)
-              elif root :? List<obj> then
-                let (calculatedValue, leftoverArray) = MSDPScanRec(Map<string,obj> [], array |> Seq.skip(1), encoding)
-                MSDPScanRec((root :?> List<obj>) @ [calculatedValue], leftoverArray, encoding)
-              else
-                MSDPScanRec(root, array |> Seq.skip(1), encoding)
-          | 3uy -> 
-              MSDPScanRec(Map<string,obj> [], array |> Seq.skip(1), encoding)
-          | 4uy -> 
-              (
-                root, 
-                array |> Seq.skip(1)
-              )
-          | 5uy -> 
-              MSDPScanRec(List<obj>.Empty, array |> Seq.skip(1), encoding)
-          | 6uy -> 
-              (
-                root, 
-                array |> Seq.skip(1)
-              )
-          | _ -> 
-            let result = encoding.GetString(array |> Seq.takeWhile(fun x -> x > byte Trigger.MSDP_ARRAY_CLOSE) |> Array.ofSeq)
-            (
-              result,
-              array |> Seq.skipWhile(fun x -> x > byte Trigger.MSDP_ARRAY_CLOSE)
-            )
+  [<TailCall>]
+  let private MSDPScanTailRec (root: obj, array: seq<byte>, encoding: Encoding) =
+      let rec scan accRoot accArray =
+          if Seq.length accArray = 0 then (accRoot, accArray)
+          else
+              match accArray |> Seq.head with
+              | 1uy -> 
+                  let key = encoding.GetString(accArray |> Seq.skip(1) |> Seq.takeWhile(fun x -> x <> byte Trigger.MSDP_VAL) |> Array.ofSeq)
+                  let (calculatedValue, leftoverArray) = scan root (accArray |> Seq.skip(1) |> Seq.skipWhile(fun x -> x <> byte Trigger.MSDP_VAL))
+                  scan ((accRoot :?> Map<string, obj>).Add(key, calculatedValue)) leftoverArray
+              | 2uy ->
+                  if accRoot :? Map<string, obj> then 
+                      scan (Map<string, obj> []) (accArray |> Seq.skip(1))
+                  elif accRoot :? List<obj> then
+                      let (calculatedValue, leftoverArray) = scan (Map<string, obj> []) (accArray |> Seq.skip(1))
+                      scan ((accRoot :?> List<obj>) @ [calculatedValue]) leftoverArray
+                  else
+                      scan accRoot (accArray |> Seq.skip(1))
+              | 3uy -> 
+                  scan (Map<string, obj> []) (accArray |> Seq.skip(1))
+              | 5uy -> 
+                  scan (List<obj>.Empty) (accArray |> Seq.skip(1))
+              | 4uy | 6uy -> 
+                  (accRoot, accArray |> Seq.skip(1))
+              | _ -> 
+                  (encoding.GetString(accArray |> Seq.takeWhile(fun x -> x > 6uy) |> Array.ofSeq), accArray |> Seq.skipWhile(fun x -> x > 6uy))
+      scan root array
 
   let public MSDPScan(array: seq<byte>, encoding) =
-    let a = [byte Trigger.MSDP_ARRAY_CLOSE] |> Seq.append array |> Seq.append [byte Trigger.MSDP_VAL; byte Trigger.MSDP_TABLE_OPEN]
-    let (result, _) = MSDPScanRec(null, a, encoding)
+    let (result, _) = MSDPScanTailRec(Map<string,obj> [], array, encoding)
     result
