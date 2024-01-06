@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using OneOf;
 using MoreLinq;
 using System.Linq;
+using System.Text.Json;
 
 namespace TelnetNegotiationCore.Interpreters
 {
@@ -121,9 +122,15 @@ namespace TelnetNegotiationCore.Interpreters
 			var firstSpace = _GMCPBytes.FindIndex(x => x == space);
 			var packageBytes = _GMCPBytes.Take(firstSpace).ToArray();
 			var rest = _GMCPBytes.Skip(firstSpace + 1).ToArray();
-			// TODO: Check for MSDP information, if so, convert to JSON first, then send as Info.
+			
 			// TODO: Consideration: a version of this that sends back a Dynamic or other similar object.
-			await (SignalOnGMCPAsync?.Invoke((Package: CurrentEncoding.GetString(packageBytes), Info: CurrentEncoding.GetString(packageBytes))) ?? Task.CompletedTask);
+			var package = CurrentEncoding.GetString(packageBytes);
+			var info = 
+				package == "MSDP" 
+				? JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(packageBytes, CurrentEncoding)) 
+				: CurrentEncoding.GetString(packageBytes);
+
+			await (SignalOnGMCPAsync?.Invoke((Package: package, Info: info)) ?? Task.CompletedTask);
 		}
 
 		/// <summary>
