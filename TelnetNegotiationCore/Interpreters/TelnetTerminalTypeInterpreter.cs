@@ -22,7 +22,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <summary>
 		/// A list of terminal types for this connection.
 		/// </summary>
-		public ImmutableList<string> TerminalTypes { get; private set; } = ImmutableList<string>.Empty;
+		public ImmutableList<string> TerminalTypes { get; private set; } = [];
 
 		/// <summary>
 		/// The current selected Terminal Type. Use RequestTerminalTypeAsync if you want the client to switch to the next mode.

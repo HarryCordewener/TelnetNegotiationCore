@@ -113,11 +113,21 @@ namespace TelnetNegotiationCore.Interpreters
 		}
 
 		/// <summary>
-		/// Sends a byte message as a Prompt, adding EOR if desired.
+		/// Sends a byte message as a Prompt, if supported, by not sending an EOR at the end.
 		/// </summary>
 		/// <param name="send">Byte array</param>
 		/// <returns>A completed Task</returns>
 		public async Task SendPromptAsync(byte[] send)
+		{
+				await CallbackNegotiationAsync(send);
+		}
+
+		/// <summary>
+		/// Sends a byte message, adding an EOR at the end if needed.
+		/// </summary>
+		/// <param name="send">Byte array</param>
+		/// <returns>A completed Task</returns>
+		public async Task SendAsync(byte[] send)
 		{
 			if (_doEOR is null or false)
 			{
@@ -125,19 +135,9 @@ namespace TelnetNegotiationCore.Interpreters
 			}
 			else
 			{
-				await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.EOR]);
 				await CallbackNegotiationAsync(send);
+				await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.EOR]);
 			}
-		}
-
-		/// <summary>
-		/// Sends a byte message as a Prompt, adding EOR if desired.
-		/// </summary>
-		/// <param name="send">Byte array</param>
-		/// <returns>A completed Task</returns>
-		public async Task SendAsync(byte[] send)
-		{
-			await CallbackNegotiationAsync(send);
 		}
 	}
 }

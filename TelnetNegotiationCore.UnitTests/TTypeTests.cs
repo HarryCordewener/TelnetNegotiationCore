@@ -27,14 +27,6 @@ namespace TelnetNegotiationCore.UnitTests
 		[SetUp]
 		public async Task Setup()
 		{
-			var log = new LoggerConfiguration()
-				.Enrich.FromLogContext()
-				.WriteTo.Console()
-				.MinimumLevel.Verbose()
-				.CreateLogger();
-
-			Log.Logger = log;
-
 			_server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server)
 			{
 				CallbackNegotiationAsync = WriteBackToNegotiate,

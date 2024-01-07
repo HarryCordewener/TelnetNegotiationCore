@@ -3,6 +3,7 @@ using Serilog;
 using Stateless.Graph;
 using System.Collections.Generic;
 using System.IO;
+using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Interpreters;
@@ -13,7 +14,7 @@ namespace TelnetNegotiationCore.UnitTests
 	[TestFixture(
 		Category = "Tool", 
 		Description = "Creates the DotGraph files for Server and Client forms. Some of these are combined.")]
-	public class CreateDotGraph
+	public class CreateDotGraph : BaseTest
 	{
 		readonly ILogger _Logger;
 

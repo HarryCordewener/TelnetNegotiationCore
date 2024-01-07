@@ -91,7 +91,18 @@
 		AlmostNegotiatingGMCP,
 		EvaluatingGMCPValue,
 		EscapingGMCPValue,
-		CompletingGMCPValue
+		CompletingGMCPValue,
 		#endregion GMCP Negotiation
+		#region MSDP Negotiation
+		DontMSDP,
+		DoMSDP,
+		WillMSDP,
+		WontMSDP,
+		NegotiatingMSDP,
+		EvaluatingMSDP,
+		CompletingMSDP,
+		AlmostNegotiatingMSDP,
+		EscapingMSDP
+		#endregion MSDP Negotiation
 	}
 }
