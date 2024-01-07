@@ -1,5 +1,4 @@
-![Discord](https://img.shields.io/discord/1193672869104861195) ![Build Status](https://img.shields.io/github/actions/workflow/status/HarryCordewener/TelnetNegotiationCore/dotnet.yml) ![Nuget](https://img.shields.io/nuget/dt/TelnetNegotiationCore)
-
+![Discord](https://img.shields.io/discord/1193672869104861195?style=for-the-badge&link=https%3A%2F%2Fdiscord.gg%2FSK2cWERJF7) ![Build Status](https://img.shields.io/github/actions/workflow/status/HarryCordewener/TelnetNegotiationCore/dotnet.yml?style=for-the-badge&link=https%3A%2F%2Fgithub.com%2FHarryCordewener%2FTelnetNegotiationCore%2Factions%2Fworkflows%2Fdotnet.yml) ![Nuget](https://img.shields.io/nuget/dt/TelnetNegotiationCore?style=for-the-badge&color=blue&link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FTelnetNegotiationCore%2F)
 
 # Telnet Negotiation Core
 ## Summary
