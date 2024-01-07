@@ -1,4 +1,4 @@
-![Discord](https://img.shields.io/discord/1193672869104861195) ![Build Status](https://img.shields.io/github/actions/workflow/status/HarryCordewener/TelnetNegotiationCore/.NET) ![Nuget](https://img.shields.io/nuget/dt/TelnetNegotiationCore)
+![Discord](https://img.shields.io/discord/1193672869104861195) ![Build Status](https://img.shields.io/github/actions/workflow/status/HarryCordewener/TelnetNegotiationCore/dotnet) ![Nuget](https://img.shields.io/nuget/dt/TelnetNegotiationCore)
 
 
 # Telnet Negotiation Core
