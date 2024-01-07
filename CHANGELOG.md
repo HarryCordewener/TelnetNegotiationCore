@@ -1,6 +1,15 @@
 # Change Log
 All notable changes to this project will be documented in this file.
  
+## [1.0.2] - 2024-01-07
+  
+### Added
+- Add MSDP support.
+- Added a helper function to convert strings to safe byte arrays.
+
+### Changed
+- Altered EOR functionality.
+
 ## [1.0.1] - 2024-01-03
   
 ### Added
