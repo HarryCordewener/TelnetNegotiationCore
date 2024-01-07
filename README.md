@@ -16,12 +16,12 @@ This library is in a state where breaking changes to the interface are expected.
 | https://tintin.mudhalla.net/protocols/mtts  | MTTS Negotiation (Extends TTYPE)   | Full       |                    |
 | http://www.faqs.org/rfcs/rfc1073.html       | Window Size Negotiation (NAWS)     | Full       |                    |
 | https://tintin.mudhalla.net/protocols/gmcp  | Generic Mud Communication Protocol | Full       |                    |
-| https://tintin.mudhalla.net/protocols/mssp  | MSSP Negotiation (Extents 855)     | Full       | Untested           |
+| https://tintin.mudhalla.net/protocols/mssp  | MSSP Negotiation                   | Full       | Untested           |
 | http://www.faqs.org/rfcs/rfc885.html        | End Of Record Negotiation          | Full       | Untested           | 
 | https://tintin.mudhalla.net/protocols/eor   | End Of Record Negotiation          | Full       | Untested           |
-| http://www.faqs.org/rfcs/rfc858.html        | Suppress GOAHEAD Negotiation       | Full       | Untested           |
 | https://tintin.mudhalla.net/protocols/msdp  | Mud Server Data Protocol           | Partial    | Planned            |
 | http://www.faqs.org/rfcs/rfc2066.html       | Charset Negotiation                | Partial    | No TTABLE support  |
+| http://www.faqs.org/rfcs/rfc858.html        | Suppress GOAHEAD Negotiation       | No         | Planned            |
 | http://www.faqs.org/rfcs/rfc1572.html       | New Environment Negotiation        | No         | Planned            |
 | https://tintin.mudhalla.net/protocols/mnes  | Mud New Environment Negotiation    | No         | Planned            |
 | https://tintin.mudhalla.net/protocols/mccp  | Mud Client Compression Protocol 	 | No         | Rejects            |
