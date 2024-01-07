@@ -1,3 +1,5 @@
+[![](https://dcbadge.vercel.app/api/server/SK2cWERJF7)](https://discord.gg/SK2cWERJF7)
+
 # Telnet Negotiation Core
 ## Summary
 This project is intended to be a library that implements basic telnet functionality. 
