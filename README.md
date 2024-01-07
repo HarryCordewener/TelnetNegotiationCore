@@ -17,8 +17,8 @@ This library is in a state where breaking changes to the interface are expected.
 | http://www.faqs.org/rfcs/rfc1073.html       | Window Size Negotiation (NAWS)     | Full       |                    |
 | https://tintin.mudhalla.net/protocols/gmcp  | Generic Mud Communication Protocol | Full       |                    |
 | https://tintin.mudhalla.net/protocols/mssp  | MSSP Negotiation (Extents 855)     | Full       | Untested           |
-| http://www.faqs.org/rfcs/rfc885.html        | End Of Record Negotiation          | Full       | Untested, Error    | 
-| https://tintin.mudhalla.net/protocols/eor   | End Of Record Negotiation          | Full       | Untested, Error    |
+| http://www.faqs.org/rfcs/rfc885.html        | End Of Record Negotiation          | Full       | Untested           | 
+| https://tintin.mudhalla.net/protocols/eor   | End Of Record Negotiation          | Full       | Untested           |
 | http://www.faqs.org/rfcs/rfc858.html        | Suppress GOAHEAD Negotiation       | Full       | Untested           |
 | https://tintin.mudhalla.net/protocols/msdp  | Mud Server Data Protocol           | Partial    | Planned            |
 | http://www.faqs.org/rfcs/rfc2066.html       | Charset Negotiation                | Partial    | No TTABLE support  |
@@ -37,9 +37,6 @@ This library is in a state where breaking changes to the interface are expected.
 
 ## ANSI Support, ETC?
 Being a Telnet Negotiation Library, this library doesn't give support for extensions like ANSI, Pueblo, MXP, etc at this time.
-
-## TODO:
-Implement EOR correctly.
 
 ## Use 
 ### Client
