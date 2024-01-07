@@ -4,6 +4,7 @@ using System.Linq;
 using MoreLinq;
 using System;
 using TelnetNegotiationCore.Models;
+using System.IO;
 
 namespace TelnetNegotiationCore.Interpreters
 {
@@ -12,6 +13,51 @@ namespace TelnetNegotiationCore.Interpreters
 	/// </summary>
 	public partial class TelnetInterpreter
 	{
+		/// <summary>
+		/// Create a byte[] that is safe to send over telnet by repeating 255s. 
+		/// </summary>
+		/// <param name="str">The string intent to be sent across the wire.</param>
+		/// <returns>The new byte[] with 255s duplicated.</returns>
+		public byte[] TelnetSafeString(string str)
+		{
+			byte[] result;
+			var x = CurrentEncoding.GetBytes(str).AsSpan();
+
+			using (var memStream = new MemoryStream())
+			{
+				foreach (byte bt in x)
+				{
+					memStream.Write(bt == 255 ? ([255, 255]) : (byte[])[bt]);
+				}
+				result = memStream.ToArray();
+			}
+
+			return result;
+		}
+
+		/// <summary>
+		/// Create a byte[] that is safe to send over telnet by repeating 255s. 
+		/// Only use this function if you do not intend to send any kind of negotiation.
+		/// </summary>
+		/// <param name="str">The original bytes intent to be sent.</param>
+		/// <returns>The new byte[] with 255s duplicated.</returns>
+		public byte[] TelnetSafeBytes(byte[] str)
+		{
+			byte[] result;
+			var x = str;
+
+			using (var memStream = new MemoryStream())
+			{
+				foreach (byte bt in x)
+				{
+					memStream.Write(bt == 255 ? ([255, 255]) : (byte[])[bt]);
+				}
+				result = memStream.ToArray();
+			}
+
+			return result;
+		}
+
 		/// <summary>
 		/// Protect against State Transitions and Telnet Negotiations we do not recognize.
 		/// </summary>
@@ -26,7 +72,7 @@ namespace TelnetNegotiationCore.Interpreters
 			var triggers = Enum.GetValues(typeof(Trigger)).OfType<Trigger>();
 			var refuseThese = new List<State> { State.Willing, State.Refusing, State.Do, State.Dont };
 
-			foreach (var stateInfo in info.States.Join(refuseThese, x => x.UnderlyingState, y => y, (x,y) => x))
+			foreach (var stateInfo in info.States.Join(refuseThese, x => x.UnderlyingState, y => y, (x, y) => x))
 			{
 				var state = (State)stateInfo.UnderlyingState;
 				var outboundUnhandledTriggers = triggers.Except(stateInfo.Transitions.Select(x => (Trigger)x.Trigger.UnderlyingTrigger));
