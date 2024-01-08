@@ -11,7 +11,7 @@ using TelnetNegotiationCore.Models;
 namespace TelnetNegotiationCore.UnitTests
 {
 	[TestFixture]
-	public class CHARSETTests: BaseTest
+	public class CHARSETTests : BaseTest
 	{
 		private byte[] _negotiationOutput;
 
@@ -19,9 +19,9 @@ namespace TelnetNegotiationCore.UnitTests
 
 		private Task WriteBackToGMCP((string module, string writeback) arg1) => throw new NotImplementedException();
 
-		private Task ClientWriteBackToNegotiate(byte[] arg1) => Task.Run(() => _negotiationOutput = arg1);
+		private Task ClientWriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return Task.CompletedTask; }
 
-		private Task ServerWriteBackToNegotiate(byte[] arg1) => Task.Run(() => _negotiationOutput = arg1);
+		private Task ServerWriteBackToNegotiate(byte[] arg1) => ServerWriteBackToNegotiate(arg1);
 
 		[SetUp]
 		public void Setup()

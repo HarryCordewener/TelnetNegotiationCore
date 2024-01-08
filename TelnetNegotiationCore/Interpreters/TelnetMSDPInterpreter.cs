@@ -63,10 +63,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 				tsm.Configure(State.SubNegotiation)
 					.Permit(Trigger.MSDP, State.AlmostNegotiatingMSDP)
-					.OnEntry(() =>
-					{
-						_currentMSDPInfo = [];
-					});
+					.OnEntry(() => _currentMSDPInfo = []);
 
 				tsm.Configure(State.AlmostNegotiatingMSDP)
 					.Permit(Trigger.MSDP_VAR, State.EvaluatingMSDP)
@@ -85,23 +82,18 @@ namespace TelnetNegotiationCore.Interpreters
 
 				tsm.Configure(State.CompletingMSDP)
 					.SubstateOf(State.Accepting)
-					.OnEntryAsync(ReadMSDPValues);
+					.OnEntry(ReadMSDPValues);
 
-				TriggerHelper.ForAllTriggersExcept([Trigger.IAC], t =>
+				TriggerHelper.ForAllTriggersButIAC(t =>
 					tsm.Configure(State.EvaluatingMSDP).OnEntryFrom(ParameterizedTrigger(t), CaptureMSDPValue).PermitReentry(t));
 			}
 
 			return tsm;
 		}
 
-		private void CaptureMSDPValue(OneOf<byte, Trigger> b) =>
-			_currentMSDPInfo.Add(b.AsT0);
+		private void CaptureMSDPValue(OneOf<byte, Trigger> b) => _currentMSDPInfo.Add(b.AsT0);
 
-		private Task ReadMSDPValues()
-		{
-			Functional.MSDPLibrary.MSDPScan(_currentMSDPInfo.Skip(1), CurrentEncoding);
-			return Task.CompletedTask;
-		}
+		private void ReadMSDPValues() => Functional.MSDPLibrary.MSDPScan(_currentMSDPInfo.Skip(1), CurrentEncoding);
 
 		/// <summary>
 		/// Announce we do MSDP negotiation to the client.

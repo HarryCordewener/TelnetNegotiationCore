@@ -104,13 +104,12 @@ namespace TelnetNegotiationCore.Interpreters
 				}
 			}
 
-			foreach (var trigger in triggers
-				.Except(info.States.First(x => (State)x.UnderlyingState == State.SubNegotiation).Transitions
-					.Select(x => (Trigger)x.Trigger.UnderlyingTrigger)))
-			{
-				tsm.Configure(State.SubNegotiation)
-					.Permit(trigger, State.BadSubNegotiation);
-			}
+			var underlyingTriggers = info.States.First(x => (State)x.UnderlyingState == State.SubNegotiation).Transitions
+					.Select(x => (Trigger)x.Trigger.UnderlyingTrigger);
+
+			triggers
+				.Except(underlyingTriggers)
+				.ForEach(trigger => tsm.Configure(State.SubNegotiation).Permit(trigger, State.BadSubNegotiation));
 
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.BadSubNegotiation).Permit(t, State.BadSubNegotiationEvaluating));
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.BadSubNegotiationEvaluating).PermitReentry(t));
@@ -131,11 +130,7 @@ namespace TelnetNegotiationCore.Interpreters
 			var statesAllowingForErrorTransitions = states
 				.Except(acceptingStateInfo);
 
-			foreach (var state in statesAllowingForErrorTransitions)
-			{
-				tsm.Configure((State)state.UnderlyingState)
-					.Permit(Trigger.Error, State.Accepting);
-			}
+			statesAllowingForErrorTransitions.ForEach(state => tsm.Configure((State)state.UnderlyingState).Permit(Trigger.Error, State.Accepting));
 
 			tsm.OnUnhandledTrigger(async (state, trigger, unmetguards) =>
 			{
