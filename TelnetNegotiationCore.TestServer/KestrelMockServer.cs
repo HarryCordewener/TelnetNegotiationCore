@@ -16,7 +16,7 @@ namespace TelnetNegotiationCore.TestServer
 	{
 		private readonly ILogger _Logger;
 
-		public KestrelMockServer(ILogger logger = null): base()
+		public KestrelMockServer(ILogger logger = null) : base()
 		{
 			Console.OutputEncoding = Encoding.UTF8;
 			_Logger = logger ?? Log.Logger.ForContext<KestrelMockServer>();
@@ -34,14 +34,23 @@ namespace TelnetNegotiationCore.TestServer
 			}
 		}
 
-		public Task SignalGMCPAsync((string module, string writeback) val) =>
-			Task.Run(() => _Logger.Debug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback));
+		public Task SignalGMCPAsync((string module, string writeback) val)
+		{
+			_Logger.Debug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback);
+			return Task.CompletedTask;
+		}
 
-		public Task SignalMSSPAsync(MSSPConfig val) =>
-			Task.Run(() => _Logger.Debug("New MSSP: {@MSSPConfig}", val));
+		public Task SignalMSSPAsync(MSSPConfig val)
+		{
+			_Logger.Debug("New MSSP: {@MSSPConfig}", val);
+			return Task.CompletedTask;
+		}
 
-		public Task SignalNAWSAsync(int height, int width) =>
-			Task.Run(() => _Logger.Debug("Client Height and Width updated: {Height}x{Width}", height, width));
+		public Task SignalNAWSAsync(int height, int width)
+		{
+			_Logger.Debug("Client Height and Width updated: {Height}x{Width}", height, width);
+			return Task.CompletedTask;
+		}
 
 		public static async Task WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter telnet)
 		{
@@ -59,7 +68,7 @@ namespace TelnetNegotiationCore.TestServer
 
 			var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server)
 			{
-				CallbackOnSubmitAsync = (w,e,t) => WriteBackAsync(w,e,t),
+				CallbackOnSubmitAsync = (w, e, t) => WriteBackAsync(w, e, t),
 				SignalOnGMCPAsync = SignalGMCPAsync,
 				SignalOnMSSPAsync = SignalMSSPAsync,
 				SignalOnNAWSAsync = SignalNAWSAsync,

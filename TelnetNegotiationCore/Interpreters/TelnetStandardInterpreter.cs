@@ -208,7 +208,7 @@ namespace TelnetNegotiationCore.Interpreters
 		private void WriteToOutput()
 		{
 			byte[] cp = new byte[_bufferPosition];
-			Array.Copy(_buffer, cp, _bufferPosition);
+			_buffer.AsSpan().CopyTo(cp);
 			_bufferPosition = 0;
 			CallbackOnSubmitAsync.Invoke(cp, CurrentEncoding, this);
 		}

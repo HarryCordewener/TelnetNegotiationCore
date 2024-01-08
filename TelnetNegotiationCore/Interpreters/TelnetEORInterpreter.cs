@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Stateless;
 using TelnetNegotiationCore.Models;
@@ -119,7 +120,15 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <returns>A completed Task</returns>
 		public async Task SendPromptAsync(byte[] send)
 		{
-				await CallbackNegotiationAsync(send);
+			await CallbackNegotiationAsync(send);
+			if (_doEOR is null or false)
+			{
+				await CallbackNegotiationAsync(CurrentEncoding.GetBytes(Environment.NewLine));
+			}
+			else
+			{
+				await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.EOR]);
+			}
 		}
 
 		/// <summary>
@@ -129,15 +138,8 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <returns>A completed Task</returns>
 		public async Task SendAsync(byte[] send)
 		{
-			if (_doEOR is null or false)
-			{
-				await CallbackNegotiationAsync(send);
-			}
-			else
-			{
-				await CallbackNegotiationAsync(send);
-				await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.EOR]);
-			}
+			await CallbackNegotiationAsync(send);
+			await CallbackNegotiationAsync(CurrentEncoding.GetBytes(Environment.NewLine));
 		}
 	}
 }

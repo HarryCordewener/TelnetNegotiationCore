@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Net.NetworkInformation;
 using System.Threading.Tasks;
 using OneOf;
 using Stateless;
@@ -48,7 +49,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <summary>
 		/// This exists to avoid an infinite loop with badly conforming clients.
 		/// </summary>
-		private bool _ClientWillingToDoNAWS = false;
+		private bool _WillingToDoNAWS = false;
 
 		/// <summary>
 		/// If the server you are connected to makes use of the client window in ways that are linked to its width and height, 
@@ -90,8 +91,8 @@ namespace TelnetNegotiationCore.Interpreters
 					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Server won't do NAWS - do nothing"));
 
 				tsm.Configure(State.DoNAWS)
-					.SubstateOf(State.Accepting);
-				// Fix this. We are a client.
+					.SubstateOf(State.Accepting)
+					.OnEntry(() => _WillingToDoNAWS = true);
 			}
 
 			tsm.Configure(State.WillDoNAWS)
@@ -100,7 +101,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			tsm.Configure(State.WontDoNAWS)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _ClientWillingToDoNAWS = false);
+				.OnEntry(() => _WillingToDoNAWS = false);
 
 			tsm.Configure(State.SubNegotiation)
 				.Permit(Trigger.NAWS, State.NegotiatingNAWS);
@@ -130,17 +131,26 @@ namespace TelnetNegotiationCore.Interpreters
 			return tsm;
 		}
 
+		public async Task SendNAWS(short width, short height)
+		{
+			if(!_WillingToDoNAWS) await Task.CompletedTask;
+			
+			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS, 
+				.. BitConverter.GetBytes(width), .. BitConverter.GetBytes(height), 
+				(byte)Trigger.IAC, (byte)Trigger.SE]);
+		}
+
 		/// <summary>
 		/// Request NAWS from a client
 		/// </summary>
 		public async Task RequestNAWSAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			if (!_ClientWillingToDoNAWS)
+			if (!_WillingToDoNAWS)
 			{
 				_Logger.Debug("Connection: {ConnectionState}", "Requesting NAWS details from Client");
 
 				await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS]);
-				_ClientWillingToDoNAWS = true;
+				_WillingToDoNAWS = true;
 			}
 		}
 

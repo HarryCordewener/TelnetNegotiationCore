@@ -3,10 +3,8 @@ using System.Net.Sockets;
 using TelnetNegotiationCore.Interpreters;
 using System.IO.Pipelines;
 using Pipelines.Sockets.Unofficial;
-using System.Buffers;
 using System.Text;
 using TelnetNegotiationCore.Models;
-using System.Net;
 using System.Collections.Immutable;
 
 namespace TelnetNegotiationCore.TestClient
@@ -33,19 +31,22 @@ namespace TelnetNegotiationCore.TestClient
 		}
 
 		public static Task WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter t) =>
-			Task.Run(() => Console.WriteLine(encoding.GetString(writeback)));
+			Task.Run(() => Console.WriteLine(encoding.GetString(writeback.AsSpan())));
 
-		public Task SignalGMCPAsync((string module, string writeback) val) =>
-			Task.Run(() => _Logger.Debug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback));
+		public Task SignalGMCPAsync((string module, string writeback) val)
+		{
+			_Logger.Debug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback);
+			return Task.CompletedTask;
+		}
 
-		public Task SignalMSSPAsync(MSSPConfig val) =>
-			Task.Run(() => _Logger.Debug("New MSSP: {@MSSP}", val));
+		public Task SignalMSSPAsync(MSSPConfig val)
+		{
+			_Logger.Debug("New MSSP: {@MSSPConfig}", val);
+			return Task.CompletedTask;
+		}
 
 		public Task SignalPromptAsync() =>
 			Task.Run(() => _Logger.Debug("Prompt"));
-
-		public Task SignalNAWSAsync(int height, int width) =>
-			Task.Run(() => _Logger.Debug("Client Height and Width updated: {Height}x{Width}", height, width));
 
 		public async Task StartAsync(string address, int port)
 		{
@@ -59,7 +60,6 @@ namespace TelnetNegotiationCore.TestClient
 				CallbackNegotiationAsync = (x) => WriteToOutputStreamAsync(x, pipe.Output),
 				SignalOnGMCPAsync = SignalGMCPAsync,
 				SignalOnMSSPAsync = SignalMSSPAsync,
-				SignalOnNAWSAsync = SignalNAWSAsync,
 				SignalOnPromptingAsync = SignalPromptAsync,
 				CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
 			}.BuildAsync();
@@ -68,7 +68,7 @@ namespace TelnetNegotiationCore.TestClient
 
 			while (true)
 			{
-				var read = Console.ReadLine() + Environment.NewLine;
+				string read = Console.ReadLine() ?? string.Empty;
 
 				if (telnet != null)
 				{
