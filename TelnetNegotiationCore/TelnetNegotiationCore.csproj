@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFramework>net8.0</TargetFramework>
 		<LangVersion>latest</LangVersion>
-		<Version>1.0.2</Version>
+		<Version>1.0.3</Version>
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
 		<Title>Telnet Negotiation Core</Title>
 		<PackageId>$(AssemblyName)</PackageId>
@@ -44,6 +44,10 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<Content Include="$(TargetDir)\TelnetNegotiationCore.Functional.dll">
+			<Pack>true</Pack>
+			<PackagePath>lib\$(TargetFramework)</PackagePath>
+		</Content>
 		<PackageReference Include="morelinq" Version="3.4.2" />
 		<PackageReference Include="OneOf" Version="3.0.255" />
 		<PackageReference Include="Serilog" Version="3.0.1" />
@@ -54,7 +58,9 @@
 	</ItemGroup>
 
 	<ItemGroup>
-	  <ProjectReference Include="..\TelnetNegotiationCore.Functional\TelnetNegotiationCore.Functional.fsproj" />
+	  <ProjectReference Include="..\TelnetNegotiationCore.Functional\TelnetNegotiationCore.Functional.fsproj">
+	    <Private>True</Private>
+	  </ProjectReference>
 	</ItemGroup>
 
 </Project>
