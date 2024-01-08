@@ -1,5 +1,10 @@
 # Change Log
 All notable changes to this project will be documented in this file.
+
+## [1.0.3] - 2024-01-08
+  
+### Fixed
+- Ensure that the Project Dependency on TelnetNegotiationCore.Functional is added as a DLL.
  
 ## [1.0.2] - 2024-01-07
   
