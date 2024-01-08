@@ -21,9 +21,9 @@ namespace TelnetNegotiationCore.UnitTests
 
 		private Task ClientWriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return Task.CompletedTask; }
 
-		private Task ServerWriteBackToNegotiate(byte[] arg1) => ServerWriteBackToNegotiate(arg1);
+		private Task ServerWriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return Task.CompletedTask; }
 
-		[SetUp]
+	[SetUp]
 		public void Setup()
 		{
 			_negotiationOutput = null;
