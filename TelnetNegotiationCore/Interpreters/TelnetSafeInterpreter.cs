@@ -5,6 +5,7 @@ using MoreLinq;
 using System;
 using TelnetNegotiationCore.Models;
 using System.IO;
+using Microsoft.Extensions.Logging;
 
 namespace TelnetNegotiationCore.Interpreters
 {
@@ -88,7 +89,7 @@ namespace TelnetNegotiationCore.Interpreters
 						tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
 							.OnEntryFromAsync(trigger, async () =>
 							{
-								_Logger.Debug("Connection: {ConnectionState}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
+								_Logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
 								await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger]);
 							});
 					}
@@ -97,7 +98,7 @@ namespace TelnetNegotiationCore.Interpreters
 						tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
 							.OnEntryFromAsync(trigger, async () =>
 							{
-								_Logger.Debug("Connection: {ConnectionState}", $"Telling the Client, Don't send {trigger}.");
+								_Logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Don't send {trigger}.");
 								await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger]);
 							});
 					}
@@ -116,12 +117,12 @@ namespace TelnetNegotiationCore.Interpreters
 
 			tsm.Configure(State.BadSubNegotiation)
 				.Permit(Trigger.IAC, State.BadSubNegotiationEscaping)
-				.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", $"Unsupported SubNegotiation."));
+				.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", $"Unsupported SubNegotiation."));
 			tsm.Configure(State.BadSubNegotiationEscaping)
 				.Permit(Trigger.IAC, State.BadSubNegotiationEvaluating)
 				.Permit(Trigger.SE, State.BadSubNegotiationCompleting);
 			tsm.Configure(State.BadSubNegotiationCompleting)
-				.OnEntry(() => _Logger.Debug("Connection: Explicitly ignoring the SubNegotiation that was sent."))
+				.OnEntry(() => _Logger.LogDebug("Connection: Explicitly ignoring the SubNegotiation that was sent."))
 				.SubstateOf(State.Accepting);
 
 			var states = tsm.GetInfo().States;
@@ -134,7 +135,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			tsm.OnUnhandledTrigger(async (state, trigger, unmetguards) =>
 			{
-				_Logger.Fatal("Bad transition from {@State} with trigger {@Trigger} due to unmet guards: {@UnmetGuards}. Cannot recover. " +
+				_Logger.LogCritical("Bad transition from {@State} with trigger {@Trigger} due to unmet guards: {@UnmetGuards}. Cannot recover. " +
 					"Ignoring character and attempting to recover.", state, trigger, unmetguards);
 				await tsm.FireAsync(ParameterizedTrigger(Trigger.Error), Trigger.Error);
 			});

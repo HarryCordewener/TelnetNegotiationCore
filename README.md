@@ -51,7 +51,7 @@ Initiate a logger. A Serilog logger is required by this library at this time.
 		.Enrich.FromLogContext()
 		.WriteTo.Console()
 		.WriteTo.File(new CompactJsonFormatter(), "LogResult.log")
-		.MinimumLevel.Debug()
+		.MinimumLevel.LogDebug()
 		.CreateLogger();
 
 	Log.Logger = log;
@@ -67,7 +67,7 @@ Create functions that implement your desired behavior on getting a signal.
 		}
 		catch(ObjectDisposedException ode)
 		{
-			_Logger.Information("Stream has been closed", ode);
+			_Logger.LogInformation("Stream has been closed", ode);
 		}
 	}
 
@@ -75,16 +75,16 @@ Create functions that implement your desired behavior on getting a signal.
 		Task.Run(() => Console.WriteLine(encoding.GetString(writeback)));
 
 	public Task SignalGMCPAsync((string module, string writeback) val, Encoding encoding) =>
-		Task.Run(() => _Logger.Debug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback));
+		Task.Run(() => _Logger.LogDebug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback));
 
 	public Task SignalMSSPAsync(MSSPConfig val) =>
-		Task.Run(() => _Logger.Debug("New MSSP: {@MSSP}", val));
+		Task.Run(() => _Logger.LogDebug("New MSSP: {@MSSP}", val));
 
 	public Task SignalPromptAsync() =>
-		Task.Run(() => _Logger.Debug("Prompt"));
+		Task.Run(() => _Logger.LogDebug("Prompt"));
 
 	public Task SignalNAWSAsync(int height, int width) => 
-		Task.Run(() => _Logger.Debug("Client Height and Width updated: {Height}x{Width}", height, width));
+		Task.Run(() => _Logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width));
 ```
 
 Initialize the Interpreter.

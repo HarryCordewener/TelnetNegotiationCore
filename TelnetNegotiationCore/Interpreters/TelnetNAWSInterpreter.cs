@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Net.NetworkInformation;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
@@ -77,7 +78,7 @@ namespace TelnetNegotiationCore.Interpreters
 			{
 				tsm.Configure(State.DontNAWS)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Client won't do NAWS - do nothing"));
+					.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Client won't do NAWS - do nothing"));
 
 				tsm.Configure(State.DoNAWS)
 					.SubstateOf(State.Accepting)
@@ -88,7 +89,7 @@ namespace TelnetNegotiationCore.Interpreters
 			{
 				tsm.Configure(State.DontNAWS)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Server won't do NAWS - do nothing"));
+					.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Server won't do NAWS - do nothing"));
 
 				tsm.Configure(State.DoNAWS)
 					.SubstateOf(State.Accepting)
@@ -147,7 +148,7 @@ namespace TelnetNegotiationCore.Interpreters
 		{
 			if (!_WillingToDoNAWS)
 			{
-				_Logger.Debug("Connection: {ConnectionState}", "Requesting NAWS details from Client");
+				_Logger.LogDebug("Connection: {ConnectionState}", "Requesting NAWS details from Client");
 
 				await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS]);
 				_WillingToDoNAWS = true;
@@ -177,7 +178,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 		private async Task ServerWontNAWSAsync()
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Announcing refusing to send NAWS, this is a Server!");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Announcing refusing to send NAWS, this is a Server!");
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS]);
 		}
 
@@ -199,7 +200,7 @@ namespace TelnetNegotiationCore.Interpreters
 			ClientWidth = BitConverter.ToInt16(width);
 			ClientHeight = BitConverter.ToInt16(height);
 
-			_Logger.Debug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
+			_Logger.LogDebug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
 			await (SignalOnNAWSAsync?.Invoke(ClientHeight, ClientWidth) ?? Task.CompletedTask);
 		}
 	}

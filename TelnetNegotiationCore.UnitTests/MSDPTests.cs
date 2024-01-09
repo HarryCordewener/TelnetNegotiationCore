@@ -1,5 +1,5 @@
-﻿using NUnit.Framework;
-using Serilog;
+﻿using Microsoft.Extensions.Logging;
+using NUnit.Framework;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
@@ -10,13 +10,13 @@ namespace TelnetNegotiationCore.UnitTests
 	[TestFixture]
 	public class MSDPTests : BaseTest
 	{
-		static Encoding encoding = Encoding.ASCII;
+		static readonly Encoding encoding = Encoding.ASCII;
 
 		[TestCaseSource(nameof(FSharpTestSequences))]
 		public void TestFSharp(byte[] testcase, dynamic expectedObject)
 		{
 			var result = Functional.MSDPLibrary.MSDPScan(testcase, encoding);
-			Log.Logger.Information("Serialized: {NewLine} {Serialized}", JsonSerializer.Serialize(result));
+			logger.LogInformation("Serialized: {Serialized}", JsonSerializer.Serialize(result));
 			Assert.AreEqual(JsonSerializer.Serialize(expectedObject), JsonSerializer.Serialize(result));
 		}
 

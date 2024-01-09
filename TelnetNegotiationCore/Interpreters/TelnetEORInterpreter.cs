@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Stateless;
 using TelnetNegotiationCore.Models;
 
@@ -66,20 +67,20 @@ namespace TelnetNegotiationCore.Interpreters
 
 		private async Task OnEORPrompt()
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Server is prompting EOR");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Server is prompting EOR");
 			await (SignalOnPromptingAsync?.Invoke() ?? Task.CompletedTask);
 		}
 
 		private async Task OnDontEORAsync()
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Client won't do EOR - do nothing");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Client won't do EOR - do nothing");
 			_doEOR = false;
 			await Task.CompletedTask;
 		}
 
 		private async Task WontEORAsync()
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Server  won't do EOR - do nothing");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Server  won't do EOR - do nothing");
 			_doEOR = false;
 			await Task.CompletedTask;
 		}
@@ -89,7 +90,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task WillingEORAsync()
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Announcing willingness to EOR!");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to EOR!");
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR]);
 		}
 
@@ -98,7 +99,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private Task OnDoEORAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Client supports End of Record.");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Client supports End of Record.");
 			_doEOR = true;
 			return Task.CompletedTask;
 		}
@@ -108,7 +109,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task OnWillEORAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Server supports End of Record.");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Server supports End of Record.");
 			_doEOR = true;
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR]);
 		}

@@ -1,5 +1,4 @@
-﻿using Serilog;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
@@ -9,6 +8,7 @@ using TelnetNegotiationCore.Models;
 using Microsoft.AspNetCore.Connections;
 using System.IO.Pipelines;
 using System.Collections.Immutable;
+using Microsoft.Extensions.Logging;
 
 namespace TelnetNegotiationCore.TestServer
 {
@@ -16,10 +16,10 @@ namespace TelnetNegotiationCore.TestServer
 	{
 		private readonly ILogger _Logger;
 
-		public KestrelMockServer(ILogger logger = null) : base()
+		public KestrelMockServer(ILogger<KestrelMockServer> logger) : base()
 		{
 			Console.OutputEncoding = Encoding.UTF8;
-			_Logger = logger ?? Log.Logger.ForContext<KestrelMockServer>();
+			_Logger = logger;
 		}
 
 		private async Task WriteToOutputStreamAsync(byte[] arg, PipeWriter writer)
@@ -30,25 +30,25 @@ namespace TelnetNegotiationCore.TestServer
 			}
 			catch (ObjectDisposedException ode)
 			{
-				_Logger.Information("Stream has been closed", ode);
+				_Logger.LogError(ode, "Stream has been closed");
 			}
 		}
 
 		public Task SignalGMCPAsync((string module, string writeback) val)
 		{
-			_Logger.Debug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback);
+			_Logger.LogDebug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback);
 			return Task.CompletedTask;
 		}
 
 		public Task SignalMSSPAsync(MSSPConfig val)
 		{
-			_Logger.Debug("New MSSP: {@MSSPConfig}", val);
+			_Logger.LogDebug("New MSSP: {@MSSPConfig}", val);
 			return Task.CompletedTask;
 		}
 
 		public Task SignalNAWSAsync(int height, int width)
 		{
-			_Logger.Debug("Client Height and Width updated: {Height}x{Width}", height, width);
+			_Logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width);
 			return Task.CompletedTask;
 		}
 
@@ -64,49 +64,51 @@ namespace TelnetNegotiationCore.TestServer
 
 		public async override Task OnConnectedAsync(ConnectionContext connection)
 		{
-			_Logger.Information(connection.ConnectionId + " connected");
-
-			var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server)
+			using (_Logger.BeginScope(new Dictionary<string, object> { { "ConnectionId", connection.ConnectionId } }))
 			{
-				CallbackOnSubmitAsync = (w, e, t) => WriteBackAsync(w, e, t),
-				SignalOnGMCPAsync = SignalGMCPAsync,
-				SignalOnMSSPAsync = SignalMSSPAsync,
-				SignalOnNAWSAsync = SignalNAWSAsync,
-				CallbackNegotiationAsync = (x) => WriteToOutputStreamAsync(x, connection.Transport.Output),
-				CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
-			}
-				.RegisterMSSPConfig(() => new MSSPConfig
+				_Logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
+
+				var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, _Logger)
 				{
-					Name = "My Telnet Negotiated Server",
-					UTF_8 = true,
-					Gameplay = ["ABC", "DEF"],
-					Extended = new Dictionary<string, dynamic>
-				{
+					CallbackOnSubmitAsync = (w, e, t) => WriteBackAsync(w, e, t),
+					SignalOnGMCPAsync = SignalGMCPAsync,
+					SignalOnMSSPAsync = SignalMSSPAsync,
+					SignalOnNAWSAsync = SignalNAWSAsync,
+					CallbackNegotiationAsync = (x) => WriteToOutputStreamAsync(x, connection.Transport.Output),
+					CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
+				}
+					.RegisterMSSPConfig(() => new MSSPConfig
+					{
+						Name = "My Telnet Negotiated Server",
+						UTF_8 = true,
+						Gameplay = ["ABC", "DEF"],
+						Extended = new Dictionary<string, dynamic>
+					{
 						{ "Foo",  "Bar"},
 						{ "Baz", (string[])["Moo", "Meow"] }
-				}
-				})
-				.BuildAsync();
+					}
+					})
+					.BuildAsync();
 
-			while (true)
-			{
-				var result = await connection.Transport.Input.ReadAsync();
-				var buffer = result.Buffer;
-
-				foreach (var segment in buffer)
+				while (true)
 				{
-					await telnet.InterpretByteArrayAsync(segment.Span.ToImmutableArray());
-				}
+					var result = await connection.Transport.Input.ReadAsync();
+					var buffer = result.Buffer;
 
-				if (result.IsCompleted)
-				{
-					break;
-				}
+					foreach (var segment in buffer)
+					{
+						await telnet.InterpretByteArrayAsync(segment.Span.ToImmutableArray());
+					}
 
-				connection.Transport.Input.AdvanceTo(buffer.End);
+					if (result.IsCompleted)
+					{
+						break;
+					}
+
+					connection.Transport.Input.AdvanceTo(buffer.End);
+				}
+				_Logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
 			}
-
-			_Logger.Information(connection.ConnectionId + " disconnected");
 		}
 	}
 }

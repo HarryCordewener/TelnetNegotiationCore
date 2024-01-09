@@ -1,4 +1,5 @@
-﻿using OneOf;
+﻿using Microsoft.Extensions.Logging;
+using OneOf;
 using Stateless;
 using System;
 using System.Collections.Generic;
@@ -107,7 +108,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			tsm.Configure(State.DontTType)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Server telling us not to Terminal Type"));
+				.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to Terminal Type"));
 
 			tsm.Configure(State.SubNegotiation)
 				.Permit(Trigger.TTYPE, State.AlmostNegotiatingTerminalType);
@@ -141,7 +142,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			tsm.Configure(State.WontDoTType)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Client won't do Terminal Type"));
+				.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Terminal Type"));
 
 			tsm.Configure(State.SubNegotiation)
 				.Permit(Trigger.TTYPE, State.AlmostNegotiatingTerminalType);
@@ -213,11 +214,11 @@ namespace TelnetNegotiationCore.Interpreters
 				}
 
 				TerminalTypes = TerminalTypes.Remove(MTTS);
-				_Logger.Debug("Connection: {ConnectionState}: {@TerminalTypes}", "Completing Terminal Type negotiation. List as follows", TerminalTypes);
+				_Logger.LogDebug("Connection: {ConnectionState}: {@TerminalTypes}", "Completing Terminal Type negotiation. List as follows", TerminalTypes);
 			}
 			else
 			{
-				_Logger.Verbose("Connection: {ConnectionState}: {TerminalType}", "Registering Terminal Type. Requesting the next", TType);
+				_Logger.LogTrace("Connection: {ConnectionState}: {TerminalType}", "Registering Terminal Type. Requesting the next", TType);
 				TerminalTypes = TerminalTypes.Add(TType);
 				_CurrentTerminalType++;
 				await RequestTerminalTypeAsync();
@@ -230,7 +231,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <returns></returns>
 		private async Task WillDoTerminalTypeAsync()
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Telling the other party, Willing to do Terminal Type.");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Telling the other party, Willing to do Terminal Type.");
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE]);
 		}
 
@@ -239,7 +240,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task SendDoTerminalTypeAsync()
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Telling the other party, to do Terminal Type.");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Telling the other party, to do Terminal Type.");
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE]);
 		}
 
@@ -248,14 +249,14 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		public async Task RequestTerminalTypeAsync()
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Telling the client, to send the next Terminal Type.");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Telling the client, to send the next Terminal Type.");
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE]);
 		}
 
 		private async Task ReportNextAvailableTerminalTypeAsync()
 		{
 			_CurrentTerminalType = (_CurrentTerminalType + 1) % (TerminalTypes.Count + 1);
-			_Logger.Debug("Connection: {ConnectionState}", "Reporting the next Terminal Type to the server.");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Reporting the next Terminal Type to the server.");
 			byte[] terminalType = [
 				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS,
 				.. ascii.GetBytes(CurrentTerminalType),

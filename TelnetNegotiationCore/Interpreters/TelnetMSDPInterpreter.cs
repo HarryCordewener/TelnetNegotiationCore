@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
@@ -41,7 +42,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 				tsm.Configure(State.DontMSDP)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Client won't do MSDP - do nothing"));
+					.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Client won't do MSDP - do nothing"));
 
 				RegisterInitialWilling(WillingMSDPAsync);
 			}
@@ -59,7 +60,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 				tsm.Configure(State.WontMSDP)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Server won't do MSDP - do nothing"));
+					.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Server won't do MSDP - do nothing"));
 
 				tsm.Configure(State.SubNegotiation)
 					.Permit(Trigger.MSDP, State.AlmostNegotiatingMSDP)
@@ -100,7 +101,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task WillingMSDPAsync()
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Announcing willingness to MSDP!");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSDP!");
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSDP]);
 		}
 
@@ -109,7 +110,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private Task OnDoMSDPAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Client will do MSDP output");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Client will do MSDP output");
 			return Task.CompletedTask;
 		}
 
@@ -118,7 +119,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task OnWillMSDPAsync()
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Announcing willingness to MSDP!");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSDP!");
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP]);
 		}
 	}

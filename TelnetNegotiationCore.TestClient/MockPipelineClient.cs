@@ -1,22 +1,16 @@
-﻿using Serilog;
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using TelnetNegotiationCore.Interpreters;
 using System.IO.Pipelines;
 using Pipelines.Sockets.Unofficial;
 using System.Text;
 using TelnetNegotiationCore.Models;
 using System.Collections.Immutable;
+using Microsoft.Extensions.Logging;
 
 namespace TelnetNegotiationCore.TestClient
 {
-	public class MockPipelineClient
+	public class MockPipelineClient(ILogger<MockPipelineClient> logger)
 	{
-		readonly ILogger _Logger;
-
-		public MockPipelineClient()
-		{
-			_Logger = Log.Logger.ForContext<MockPipelineClient>();
-		}
 
 		private async Task WriteToOutputStreamAsync(byte[] arg, PipeWriter writer)
 		{
@@ -26,7 +20,7 @@ namespace TelnetNegotiationCore.TestClient
 			}
 			catch (ObjectDisposedException ode)
 			{
-				_Logger.Information("Stream has been closed", ode);
+				logger.LogError(ode, "Stream has been closed");
 			}
 		}
 
@@ -35,18 +29,18 @@ namespace TelnetNegotiationCore.TestClient
 
 		public Task SignalGMCPAsync((string module, string writeback) val)
 		{
-			_Logger.Debug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback);
+			logger.LogDebug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback);
 			return Task.CompletedTask;
 		}
 
 		public Task SignalMSSPAsync(MSSPConfig val)
 		{
-			_Logger.Debug("New MSSP: {@MSSPConfig}", val);
+			logger.LogDebug("New MSSP: {@MSSPConfig}", val);
 			return Task.CompletedTask;
 		}
 
 		public Task SignalPromptAsync() =>
-			Task.Run(() => _Logger.Debug("Prompt"));
+			Task.Run(() => logger.LogDebug("Prompt"));
 
 		public async Task StartAsync(string address, int port)
 		{
@@ -54,7 +48,7 @@ namespace TelnetNegotiationCore.TestClient
 			var stream = client.GetStream();
 			var pipe = StreamConnection.GetDuplex(stream, new PipeOptions());
 
-			var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, _Logger.ForContext<TelnetInterpreter>())
+			var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
 			{
 				CallbackOnSubmitAsync = WriteBackAsync,
 				CallbackNegotiationAsync = (x) => WriteToOutputStreamAsync(x, pipe.Output),

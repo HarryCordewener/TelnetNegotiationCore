@@ -1,5 +1,5 @@
+using Microsoft.Extensions.Logging;
 using NUnit.Framework;
-using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,7 +11,7 @@ using TelnetNegotiationCore.Models;
 namespace TelnetNegotiationCore.UnitTests
 {
 	[TestFixture]
-	public class CHARSETTests : BaseTest
+	public class CHARSETTests() : BaseTest
 	{
 		private byte[] _negotiationOutput;
 
@@ -33,7 +33,7 @@ namespace TelnetNegotiationCore.UnitTests
 		[TestCaseSource(nameof(ServerCHARSETSequences), Category = nameof(TelnetInterpreter.TelnetMode.Server))]
 		public async Task ServerEvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<Encoding> currentEncoding)
 		{
-			var server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server)
+			var server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
 			{
 				CallbackNegotiationAsync = ServerWriteBackToNegotiate,
 				CallbackOnSubmitAsync = WriteBackToOutput,
@@ -70,7 +70,7 @@ namespace TelnetNegotiationCore.UnitTests
 		[TestCaseSource(nameof(ClientCHARSETSequences), Category = nameof(TelnetInterpreter.TelnetMode.Client))]
 		public async Task ClientEvaluationCheck(IEnumerable<byte[]> serverSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<Encoding> currentEncoding)
 		{
-			var client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client)
+			var client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
 			{
 				CallbackNegotiationAsync = ClientWriteBackToNegotiate,
 				CallbackOnSubmitAsync = WriteBackToOutput,

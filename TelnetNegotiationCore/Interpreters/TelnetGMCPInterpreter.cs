@@ -8,6 +8,7 @@ using OneOf;
 using MoreLinq;
 using System.Linq;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace TelnetNegotiationCore.Interpreters
 {
@@ -29,11 +30,11 @@ namespace TelnetNegotiationCore.Interpreters
 
 				tsm.Configure(State.DoGMCP)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Client will do GMCP"));
+					.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Client will do GMCP"));
 
 				tsm.Configure(State.DontGMCP)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Client will not GMCP"));
+					.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Client will not GMCP"));
 
 				RegisterInitialWilling(async () => await WillGMCPAsync(null));
 			}
@@ -51,7 +52,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 				tsm.Configure(State.WontGMCP)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Client will GMCP"));
+					.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Client will GMCP"));
 			}
 
 			tsm.Configure(State.SubNegotiation)
@@ -140,14 +141,14 @@ namespace TelnetNegotiationCore.Interpreters
 		/// <returns>Task</returns>
 		private async Task WillGMCPAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Announcing the server will GMCP");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Announcing the server will GMCP");
 
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP]);
 		}
 
 		private async Task DoGMCPAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Announcing the client can do GMCP");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Announcing the client can do GMCP");
 
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP]);
 		}

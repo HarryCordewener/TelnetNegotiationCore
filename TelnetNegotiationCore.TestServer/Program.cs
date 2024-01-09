@@ -1,8 +1,8 @@
 ﻿using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Logging;
 using Serilog;
-using Serilog.Formatting.Compact;
 using System.Threading.Tasks;
 
 namespace TelnetNegotiationCore.TestServer
@@ -14,7 +14,6 @@ namespace TelnetNegotiationCore.TestServer
 			var log = new LoggerConfiguration()
 				.Enrich.FromLogContext()
 				.WriteTo.Console()
-				.WriteTo.File(new CompactJsonFormatter(), "LogResult.log")
 				.MinimumLevel.Debug()
 				.CreateLogger();
 
@@ -26,7 +25,7 @@ namespace TelnetNegotiationCore.TestServer
 
 		public static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
 				WebHost.CreateDefaultBuilder(args)
-					.UseKestrel(options =>  options.ListenLocalhost(4202, builder => builder.UseConnectionHandler<KestrelMockServer>()))
-					.UseStartup<Startup>();
+					.UseStartup<Startup>()
+					.UseKestrel(options => options.ListenLocalhost(4202, builder => builder.UseConnectionHandler<KestrelMockServer>()));
 	}
 }

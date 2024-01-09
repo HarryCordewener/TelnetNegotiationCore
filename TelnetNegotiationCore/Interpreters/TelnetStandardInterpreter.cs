@@ -2,12 +2,12 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
-using Serilog;
 using Stateless;
 using TelnetNegotiationCore.Models;
 using MoreLinq;
 using OneOf;
 using System.Collections.Immutable;
+using Microsoft.Extensions.Logging;
 
 namespace TelnetNegotiationCore.Interpreters
 {
@@ -56,7 +56,7 @@ namespace TelnetNegotiationCore.Interpreters
 			=> _parameterizedTriggers.ParameterizedTrigger(TelnetStateMachine, t);
 
 		/// <summary>
-		/// The Serilog style Logger
+		/// The Logger
 		/// </summary>
 		private readonly ILogger _Logger;
 
@@ -91,10 +91,12 @@ namespace TelnetNegotiationCore.Interpreters
 		/// After calling this constructor, one should subscribe to the Triggers, register a Stream, and then run Process()
 		/// </remarks>
 		/// <param name="logger">A Serilog Logger. If null, we will use the default one with a Context of the Telnet Interpreter.</param>
-		public TelnetInterpreter(TelnetMode mode, ILogger logger = null)
+		public TelnetInterpreter(TelnetMode mode, ILogger logger)
 		{
 			Mode = mode;
-			_Logger = logger ?? Log.Logger.ForContext<TelnetInterpreter>().ForContext("TelnetMode", mode);
+			_Logger = logger;
+			logger.BeginScope(new Dictionary<string, object> { { "TelnetMode", mode } });
+
 			_InitialCall = [];
 			TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
 			_parameterizedTriggers = new ParameterizedTriggers();
@@ -105,9 +107,9 @@ namespace TelnetNegotiationCore.Interpreters
 				SetupSafeNegotiation, SetupEORNegotiation, SetupMSSPNegotiation, SetupGMCPNegotiation, SetupTelnetTerminalType, SetupCharsetNegotiation, SetupNAWS, SetupStandardProtocol
 			}.AggregateRight(TelnetStateMachine, (func, stateMachine) => func(stateMachine));
 
-			if (_Logger.IsEnabled(Serilog.Events.LogEventLevel.Verbose))
+			if (logger.IsEnabled(LogLevel.Trace))
 			{
-				TelnetStateMachine.OnTransitioned((transition) => _Logger.Verbose("Telnet StateMachine: {Source} --[{Trigger}({TriggerByte})]--> {Destination}",
+				TelnetStateMachine.OnTransitioned((transition) => _Logger.LogTrace("Telnet StateMachine: {Source} --[{Trigger}({TriggerByte})]--> {Destination}",
 					transition.Source, transition.Trigger, transition.Parameters[0], transition.Destination));
 			}
 		}
@@ -161,14 +163,14 @@ namespace TelnetNegotiationCore.Interpreters
 				.Permit(Trigger.DO, State.Do)
 				.Permit(Trigger.DONT, State.Dont)
 				.Permit(Trigger.SB, State.SubNegotiation)
-				.OnEntry(x => _Logger.Verbose("Connection: {ConnectionState}", "Starting Negotiation"));
+				.OnEntry(x => _Logger.LogTrace("Connection: {ConnectionState}", "Starting Negotiation"));
 
 			tsm.Configure(State.StartNegotiation)
 				.Permit(Trigger.NOP, State.DoNothing);
 
 			tsm.Configure(State.DoNothing)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.Verbose("Connection: {ConnectionState}", "NOP call. Do nothing."));
+				.OnEntry(() => _Logger.LogTrace("Connection: {ConnectionState}", "NOP call. Do nothing."));
 
 			// As a general documentation, negotiation means a Do followed by a Will, or a Will followed by a Do.
 			// Do followed by Refusing or Will followed by Don't indicate negative negotiation.
@@ -178,10 +180,10 @@ namespace TelnetNegotiationCore.Interpreters
 			tsm.Configure(State.Dont);
 
 			tsm.Configure(State.ReadingCharacters)
-				.OnEntryFrom(Trigger.IAC, x => _Logger.Debug("Connection: {ConnectionState}", "Canceling negotiation"));
+				.OnEntryFrom(Trigger.IAC, x => _Logger.LogDebug("Connection: {ConnectionState}", "Canceling negotiation"));
 
 			tsm.Configure(State.SubNegotiation)
-				.OnEntryFrom(Trigger.IAC, x => _Logger.Debug("Connection: {ConnectionState}", "SubNegotiation request"));
+				.OnEntryFrom(Trigger.IAC, x => _Logger.LogDebug("Connection: {ConnectionState}", "SubNegotiation request"));
 
 			tsm.Configure(State.EndSubNegotiation)
 				.Permit(Trigger.SE, State.Accepting);
@@ -196,7 +198,7 @@ namespace TelnetNegotiationCore.Interpreters
 		private async Task WriteToBufferAndAdvanceAsync(OneOf<byte, Trigger> b)
 		{
 			if (b.AsT0 == (byte)Trigger.CARRIAGERETURN) return;
-			_Logger.Verbose("Debug: Writing into buffer: {Byte}", b.AsT0);
+			_Logger.LogTrace("Debug: Writing into buffer: {Byte}", b.AsT0);
 			_buffer[_bufferPosition] = b.AsT0;
 			_bufferPosition++;
 			await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? Task.CompletedTask);
@@ -208,7 +210,7 @@ namespace TelnetNegotiationCore.Interpreters
 		private void WriteToOutput()
 		{
 			byte[] cp = new byte[_bufferPosition];
-			_buffer.AsSpan().CopyTo(cp);
+			_buffer.AsSpan()[.._bufferPosition].CopyTo(cp);
 			_bufferPosition = 0;
 			CallbackOnSubmitAsync.Invoke(cp, CurrentEncoding, this);
 		}

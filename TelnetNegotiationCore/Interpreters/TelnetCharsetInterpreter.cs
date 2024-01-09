@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
@@ -84,7 +85,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			tsm.Configure(State.WontDoCharset)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Won't do Character Set - do nothing"));
+				.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Won't do Character Set - do nothing"));
 
 			tsm.Configure(State.DoCharset)
 				.SubstateOf(State.Accepting)
@@ -92,7 +93,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 			tsm.Configure(State.DontCharset)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Client won't do Character Set - do nothing"));
+				.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Character Set - do nothing"));
 
 			tsm.Configure(State.SubNegotiation)
 				.Permit(Trigger.CHARSET, State.AlmostNegotiatingCharset);
@@ -205,7 +206,7 @@ namespace TelnetNegotiationCore.Interpreters
 			char? sep = ascii.GetString(_charsetByteState, 0, 1)?[0];
 			string[] charsetsOffered = ascii.GetString(_charsetByteState, 1, _charsetByteIndex - 1).Split(sep ?? ' ');
 
-			_Logger.Debug("Charsets offered to us: {@charsetResultDebug}", charsetsOffered);
+			_Logger.LogDebug("Charsets offered to us: {@charsetResultDebug}", charsetsOffered);
 
 			var encodingDict = AllowedEncodings().ToDictionary(x => x.GetEncoding().WebName);
 			var offeredEncodingInfo = charsetsOffered.Select(x => { try { return encodingDict[Encoding.GetEncoding(x).WebName]; } catch { return null; } }).Where(x => x != null);
@@ -218,7 +219,7 @@ namespace TelnetNegotiationCore.Interpreters
 				return;
 			}
 
-			_Logger.Debug("Charsets chosen by us: {@charsetWebName} (CP: {@cp})", chosenEncoding.WebName, chosenEncoding.CodePage);
+			_Logger.LogDebug("Charsets chosen by us: {@charsetWebName} (CP: {@cp})", chosenEncoding.WebName, chosenEncoding.CodePage);
 
 			byte[] preamble = [(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED];
 			byte[] charsetAscii = ascii.GetBytes(chosenEncoding.WebName);
@@ -244,10 +245,10 @@ namespace TelnetNegotiationCore.Interpreters
 			}
 			catch (Exception ex)
 			{
-				_Logger.Error(ex, "Unexpected error during Accepting Charset Negotiation. Could not find charset: {charset}", ascii.GetString(_acceptedCharsetByteState, 0, _acceptedCharsetByteIndex));
+				_Logger.LogError(ex, "Unexpected error during Accepting Charset Negotiation. Could not find charset: {charset}", ascii.GetString(_acceptedCharsetByteState, 0, _acceptedCharsetByteIndex));
 				await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE]);
 			}
-			_Logger.Information("Connection: Accepted Charset Negotiation for: {charset}", CurrentEncoding.WebName);
+			_Logger.LogInformation("Connection: Accepted Charset Negotiation for: {charset}", CurrentEncoding.WebName);
 			charsetOffered = false;
 		}
 
@@ -256,7 +257,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task OnWillingCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Request charset negotiation from Client");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Request charset negotiation from Client");
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET]);
 			charsetOffered = false;
 		}
@@ -266,7 +267,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task WillingCharsetAsync()
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Announcing willingness to Charset!");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to Charset!");
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET]);
 		}
 
@@ -275,7 +276,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Charsets String: {CharsetList}", ";" + string.Join(";", _charsetOrder(AllowedEncodings()).Select(x => x.WebName)));
+			_Logger.LogDebug("Charsets String: {CharsetList}", ";" + string.Join(";", _charsetOrder(AllowedEncodings()).Select(x => x.WebName)));
 			await CallbackNegotiationAsync(SupportedCharacterSets.Value);
 			charsetOffered = true;
 		}

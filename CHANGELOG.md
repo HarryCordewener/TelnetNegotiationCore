@@ -1,6 +1,11 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [1.0.4] - 2024-01-09
+  
+### Changed
+- Removed Serilog dependency in favor of Microsoft.Extensions.Logging.Abstractions, which allows one to inject the preferred logger.
+ 
 ## [1.0.3] - 2024-01-08
   
 ### Fixed

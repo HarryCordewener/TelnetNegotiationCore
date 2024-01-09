@@ -1,8 +1,6 @@
 using NUnit.Framework;
-using Serilog;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -12,7 +10,7 @@ using TelnetNegotiationCore.Models;
 namespace TelnetNegotiationCore.UnitTests
 {
 	[TestFixture]
-	public class TTypeTests
+	public class TTypeTests: BaseTest
 	{
 		private TelnetInterpreter _server_ti;
 		private TelnetInterpreter _client_ti;
@@ -20,14 +18,14 @@ namespace TelnetNegotiationCore.UnitTests
 
 		private Task WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => throw new NotImplementedException();
 
-		private Task WriteBackToNegotiate(byte[] arg1) => Task.Run(() => _negotiationOutput = arg1);
+		private Task WriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return Task.CompletedTask; }
 
 		private Task WriteBackToGMCP((string Package, string Info) tuple) => throw new NotImplementedException();
 
 		[SetUp]
 		public async Task Setup()
 		{
-			_server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server)
+			_server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
 			{
 				CallbackNegotiationAsync = WriteBackToNegotiate,
 				CallbackOnSubmitAsync = WriteBackToOutput,
@@ -45,7 +43,7 @@ namespace TelnetNegotiationCore.UnitTests
 				}
 			}).BuildAsync();
 
-			_client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client)
+			_client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
 			{
 				CallbackNegotiationAsync = WriteBackToNegotiate,
 				CallbackOnSubmitAsync = WriteBackToOutput,

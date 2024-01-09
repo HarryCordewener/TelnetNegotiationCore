@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using MoreLinq;
 using OneOf;
 using Stateless;
@@ -49,7 +50,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 				tsm.Configure(State.DontMSSP)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Client won't do MSSP - do nothing"));
+					.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Client won't do MSSP - do nothing"));
 
 				RegisterInitialWilling(WillingMSSPAsync);
 			}
@@ -67,7 +68,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 				tsm.Configure(State.WontMSSP)
 					.SubstateOf(State.Accepting)
-					.OnEntry(() => _Logger.Debug("Connection: {ConnectionState}", "Server won't do MSSP - do nothing"));
+					.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Server won't do MSSP - do nothing"));
 
 				tsm.Configure(State.SubNegotiation)
 					.Permit(Trigger.MSSP, State.AlmostNegotiatingMSSP)
@@ -220,7 +221,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task WillingMSSPAsync()
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Announcing willingness to MSSP!");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSSP!");
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP]);
 		}
 
@@ -229,7 +230,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task OnDoMSSPAsync(StateMachine<State, Trigger>.Transition _)
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Writing MSSP output");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Writing MSSP output");
 			await CallbackNegotiationAsync(ReportMSSP(_msspConfig()));
 		}
 
@@ -238,7 +239,7 @@ namespace TelnetNegotiationCore.Interpreters
 		/// </summary>
 		private async Task OnWillMSSPAsync()
 		{
-			_Logger.Debug("Connection: {ConnectionState}", "Announcing willingness to MSSP!");
+			_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSSP!");
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP]);
 		}
 
@@ -253,7 +254,7 @@ namespace TelnetNegotiationCore.Interpreters
 		public TelnetInterpreter RegisterMSSPConfig(Func<MSSPConfig> config)
 		{
 			_msspConfig = config;
-			_Logger.Debug("Registering MSSP Config. Currently evaluates to: {@MSSPConfig}", config());
+			_Logger.LogDebug("Registering MSSP Config. Currently evaluates to: {@MSSPConfig}", config());
 			return this;
 		}
 
@@ -291,24 +292,24 @@ namespace TelnetNegotiationCore.Interpreters
 			{
 				case string s:
 					{
-						_Logger.Debug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, s);
+						_Logger.LogDebug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, s);
 						return [..bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(s)];
 					}
 				case int i:
 					{
-						_Logger.Debug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, i.ToString());
+						_Logger.LogDebug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, i.ToString());
 						return [.. bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(i.ToString())];
 					}
 				case bool boolean:
 					{
-						_Logger.Debug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, boolean);
+						_Logger.LogDebug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, boolean);
 						return [.. bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(boolean ? "1" : "0")];
 					}
 				case IEnumerable<string> list:
 					{
 						foreach (var item in list)
 						{
-							_Logger.Debug("MSSP Announcement: {MSSPKey}[]: {MSSPVal}", name, item);
+							_Logger.LogDebug("MSSP Announcement: {MSSPKey}[]: {MSSPVal}", name, item);
 							bt = [.. bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(item)];
 						}
 						return bt;
