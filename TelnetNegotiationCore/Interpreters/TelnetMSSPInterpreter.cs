@@ -5,7 +5,6 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using MoreLinq;
 using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;

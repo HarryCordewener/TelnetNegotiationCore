@@ -4,10 +4,10 @@ using System.Text;
 using System.Threading.Tasks;
 using Stateless;
 using TelnetNegotiationCore.Models;
-using MoreLinq;
 using OneOf;
 using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
+using LocalMoreLinq;
 
 namespace TelnetNegotiationCore.Interpreters
 {

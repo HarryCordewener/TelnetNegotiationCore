@@ -1,6 +1,11 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [1.0.5] - 2024-01-09
+
+### Changed
+- Removed MoreLinq dependency by making a copy of the function I needed and keep dependencies lower. License retained in the source file - to abide by Apache2 License. 
+
 ## [1.0.4] - 2024-01-09
   
 ### Changed

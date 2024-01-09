@@ -1,7 +1,6 @@
 ﻿using Stateless;
 using System.Collections.Generic;
 using System.Linq;
-using MoreLinq;
 using System;
 using TelnetNegotiationCore.Models;
 using System.IO;
@@ -108,9 +107,10 @@ namespace TelnetNegotiationCore.Interpreters
 			var underlyingTriggers = info.States.First(x => (State)x.UnderlyingState == State.SubNegotiation).Transitions
 					.Select(x => (Trigger)x.Trigger.UnderlyingTrigger);
 
-			triggers
-				.Except(underlyingTriggers)
-				.ForEach(trigger => tsm.Configure(State.SubNegotiation).Permit(trigger, State.BadSubNegotiation));
+			foreach(var trigger in triggers.Except(underlyingTriggers))
+			{
+				tsm.Configure(State.SubNegotiation).Permit(trigger, State.BadSubNegotiation);
+			}
 
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.BadSubNegotiation).Permit(t, State.BadSubNegotiationEvaluating));
 			TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.BadSubNegotiationEvaluating).PermitReentry(t));
@@ -131,12 +131,15 @@ namespace TelnetNegotiationCore.Interpreters
 			var statesAllowingForErrorTransitions = states
 				.Except(acceptingStateInfo);
 
-			statesAllowingForErrorTransitions.ForEach(state => tsm.Configure((State)state.UnderlyingState).Permit(Trigger.Error, State.Accepting));
+			foreach(var state in statesAllowingForErrorTransitions)
+			{
+				tsm.Configure((State)state.UnderlyingState).Permit(Trigger.Error, State.Accepting);
+			}
 
-			tsm.OnUnhandledTrigger(async (state, trigger, unmetguards) =>
+			tsm.OnUnhandledTrigger(async (state, trigger, unmetGuards) =>
 			{
 				_Logger.LogCritical("Bad transition from {@State} with trigger {@Trigger} due to unmet guards: {@UnmetGuards}. Cannot recover. " +
-					"Ignoring character and attempting to recover.", state, trigger, unmetguards);
+					"Ignoring character and attempting to recover.", state, trigger, unmetGuards);
 				await tsm.FireAsync(ParameterizedTrigger(Trigger.Error), Trigger.Error);
 			});
 

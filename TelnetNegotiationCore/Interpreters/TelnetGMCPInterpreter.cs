@@ -1,11 +1,9 @@
 ﻿using Stateless;
-using System.Text;
 using System.Threading.Tasks;
 using System;
 using TelnetNegotiationCore.Models;
 using System.Collections.Generic;
 using OneOf;
-using MoreLinq;
 using System.Linq;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
