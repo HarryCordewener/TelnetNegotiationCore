@@ -2,7 +2,7 @@
 ![Larger Logo](LargerLogo.png)
 
 # Telnet Negotiation Core
-## Summary
+## Summary 
 This project is intended to be a library that implements basic telnet functionality. 
 This is done with an eye on MUDs at this time, but may improve to support more terminal capabilities as time permits.
 
