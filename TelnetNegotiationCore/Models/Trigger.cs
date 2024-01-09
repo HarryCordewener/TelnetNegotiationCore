@@ -40,10 +40,14 @@ namespace TelnetNegotiationCore.Models
 		private static readonly ImmutableHashSet<Trigger> AllTriggers = ImmutableHashSet<Trigger>.Empty.Union(((IEnumerable<Trigger>)Enum.GetValues(typeof(Trigger))).Distinct());
 
 		public static void ForAllTriggers(Action<Trigger> f)
-			=> MoreLinq.MoreEnumerable.ForEach(AllTriggers, f);
+		{
+			foreach(var trigger in AllTriggers) f(trigger);
+		} 
 
 		public static void ForAllTriggersExcept(IEnumerable<Trigger> except, Action<Trigger> f)
-			=> MoreLinq.MoreEnumerable.ForEach(AllTriggers.Except(except), f);
+		{
+			foreach (var trigger in AllTriggers.Except(except)) f(trigger);
+		}
 
 		public static void ForAllTriggersButIAC(Action<Trigger> f)
 			=> ForAllTriggersExcept([Trigger.IAC], f);
