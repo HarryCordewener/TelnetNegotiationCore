@@ -76,4 +76,4 @@ module MSDPLibrary =
     parseJsonValue jsonRootNode 
 
   let public Report(jsonString: string, encoding: Encoding) =
-    parseJsonRoot(JsonValue.Parse(jsonString), encoding)
+    parseJsonRoot(JsonValue.Parse(jsonString), encoding) |> Array.ofList
