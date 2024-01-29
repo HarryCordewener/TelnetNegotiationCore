@@ -71,7 +71,7 @@ module MSDPLibrary =
         | JsonValueKind.Number -> encoding.GetBytes(jsonNode.AsValue().ToString()) |> List.ofArray
         | JsonValueKind.True -> encoding.GetBytes("1") |> List.ofArray
         | JsonValueKind.False -> encoding.GetBytes("0") |> List.ofArray
-        | JsonValueKind.Null -> encoding.GetBytes("null") |> List.ofArray
+        | JsonValueKind.Null -> encoding.GetBytes("-1") |> List.ofArray
         | _ -> failwith "Invalid JSON value"
     parseJsonValue jsonRootNode 
 
