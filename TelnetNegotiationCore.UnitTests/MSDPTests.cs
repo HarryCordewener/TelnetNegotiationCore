@@ -12,15 +12,23 @@ namespace TelnetNegotiationCore.UnitTests
 	{
 		static readonly Encoding encoding = Encoding.ASCII;
 
-		[TestCaseSource(nameof(FSharpTestSequences))]
-		public void TestFSharp(byte[] testcase, dynamic expectedObject)
+		[TestCaseSource(nameof(FSharpScanTestSequences))]
+		public void TestFSharpScan(byte[] testcase, dynamic expectedObject)
 		{
 			var result = Functional.MSDPLibrary.MSDPScan(testcase, encoding);
 			logger.LogInformation("Serialized: {Serialized}", JsonSerializer.Serialize(result));
 			Assert.AreEqual(JsonSerializer.Serialize(expectedObject), JsonSerializer.Serialize(result));
 		}
 
-		public static IEnumerable<TestCaseData> FSharpTestSequences
+		[TestCaseSource(nameof(FSharpReportTestSequences))]
+		public void TestFSharpReport(dynamic obj, byte[] expectedSequence)
+		{
+			byte[] result = Functional.MSDPLibrary.Report(JsonSerializer.Serialize(obj), encoding);
+			logger.LogInformation("Sequence: {@Serialized}", result);
+			Assert.AreEqual(expectedSequence, result);
+		}
+
+		public static IEnumerable<TestCaseData> FSharpScanTestSequences
 		{
 			get
 			{
@@ -78,6 +86,48 @@ namespace TelnetNegotiationCore.UnitTests
 					(byte)Trigger.MSDP_TABLE_CLOSE
 				],
 					new { ROOM = new { AREA = "Haon Dor", EXITS = new { e = "6012", n = "6011" }, NAME = "The Forest clearing", VNUM = "6008" } });
+			}
+		}
+		public static IEnumerable<TestCaseData> FSharpReportTestSequences
+		{
+			get
+			{
+				yield return new TestCaseData(new { LIST = "COMMANDS" }, (byte[])[
+					(byte)Trigger.MSDP_TABLE_OPEN,
+					(byte)Trigger.MSDP_VAR,
+					.. encoding.GetBytes("LIST"),
+					(byte)Trigger.MSDP_VAL,
+					.. encoding.GetBytes("COMMANDS"),
+					(byte)Trigger.MSDP_TABLE_CLOSE]);
+
+				yield return new TestCaseData(new { LIST = (string[])["COMMANDS", "JIM"] }, (byte[])[
+					(byte)Trigger.MSDP_TABLE_OPEN,
+					(byte)Trigger.MSDP_VAR,
+					.. encoding.GetBytes("LIST"),
+					(byte)Trigger.MSDP_VAL,
+					(byte)Trigger.MSDP_ARRAY_OPEN,
+					(byte)Trigger.MSDP_VAL,
+					.. encoding.GetBytes("COMMANDS"),
+					(byte)Trigger.MSDP_VAL,
+					.. encoding.GetBytes("JIM"),
+					(byte)Trigger.MSDP_ARRAY_CLOSE,
+					(byte)Trigger.MSDP_TABLE_CLOSE]);
+
+				yield return new TestCaseData(new { LIST = (dynamic[])["COMMANDS", (dynamic[])["JIM"]] }, (byte[])[
+					(byte)Trigger.MSDP_TABLE_OPEN,
+					(byte)Trigger.MSDP_VAR,
+					.. encoding.GetBytes("LIST"),
+					(byte)Trigger.MSDP_VAL,
+					(byte)Trigger.MSDP_ARRAY_OPEN,
+					(byte)Trigger.MSDP_VAL,
+					.. encoding.GetBytes("COMMANDS"),
+					(byte)Trigger.MSDP_VAL,
+					(byte)Trigger.MSDP_ARRAY_OPEN,
+					(byte)Trigger.MSDP_VAL,
+					.. encoding.GetBytes("JIM"),
+					(byte)Trigger.MSDP_ARRAY_CLOSE,
+					(byte)Trigger.MSDP_ARRAY_CLOSE,
+					(byte)Trigger.MSDP_TABLE_CLOSE]);
 			}
 		}
 	}

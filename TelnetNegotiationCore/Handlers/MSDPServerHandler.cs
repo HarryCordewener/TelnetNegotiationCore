@@ -1,16 +1,9 @@
-﻿using Microsoft.FSharp.Data.UnitSystems.SI.UnitNames;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Reflection.Emit;
-using System.Runtime.Intrinsics.X86;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.Xml.Linq;
-using System.Xml;
 using TelnetNegotiationCore.Functional;
 using TelnetNegotiationCore.Interpreters;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace TelnetNegotiationCore.Handlers
 {
