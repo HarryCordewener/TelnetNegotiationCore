@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Connections;
 using System.IO.Pipelines;
 using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
+using TelnetNegotiationCore.Handlers;
 
 namespace TelnetNegotiationCore.TestServer
 {
@@ -52,6 +53,9 @@ namespace TelnetNegotiationCore.TestServer
 			return Task.CompletedTask;
 		}
 
+		private async Task SignalMSDPAsync(MSDPServerHandler handler, TelnetInterpreter telnet, string config) =>
+			await handler.HandleAsync(telnet, config);
+
 		public static async Task WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter telnet)
 		{
 			var str = encoding.GetString(writeback);
@@ -68,12 +72,15 @@ namespace TelnetNegotiationCore.TestServer
 			{
 				_Logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
 
+				var msdpHandler = new MSDPServerHandler([]);
+
 				var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, _Logger)
 				{
-					CallbackOnSubmitAsync = (w, e, t) => WriteBackAsync(w, e, t),
+					CallbackOnSubmitAsync = WriteBackAsync,
 					SignalOnGMCPAsync = SignalGMCPAsync,
 					SignalOnMSSPAsync = SignalMSSPAsync,
 					SignalOnNAWSAsync = SignalNAWSAsync,
+					SignalOnMSDPAsync = (telnet, config) => SignalMSDPAsync(msdpHandler, telnet, config),
 					CallbackNegotiationAsync = (x) => WriteToOutputStreamAsync(x, connection.Transport.Output),
 					CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
 				}

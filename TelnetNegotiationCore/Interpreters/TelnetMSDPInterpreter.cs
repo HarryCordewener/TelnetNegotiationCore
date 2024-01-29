@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using OneOf;
@@ -19,7 +20,7 @@ namespace TelnetNegotiationCore.Interpreters
 	{
 		private List<byte> _currentMSDPInfo;
 
-		public Func<MSDPConfig, Task> SignalOnMSDPAsync { get; init; }
+		public Func<TelnetInterpreter, string, Task> SignalOnMSDPAsync { get; init; }
 
 		/// <summary>
 		/// Mud Server Status Protocol will provide information to the requestee about the server's contents.
@@ -94,7 +95,7 @@ namespace TelnetNegotiationCore.Interpreters
 
 		private void CaptureMSDPValue(OneOf<byte, Trigger> b) => _currentMSDPInfo.Add(b.AsT0);
 
-		private void ReadMSDPValues() => Functional.MSDPLibrary.MSDPScan(_currentMSDPInfo.Skip(1), CurrentEncoding);
+		private void ReadMSDPValues() => SignalOnMSDPAsync?.Invoke(this, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(_currentMSDPInfo.Skip(1), CurrentEncoding)));
 
 		/// <summary>
 		/// Announce we do MSDP negotiation to the client.

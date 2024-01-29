@@ -124,12 +124,15 @@ namespace TelnetNegotiationCore.Interpreters
 			
 			// TODO: Consideration: a version of this that sends back a Dynamic or other similar object.
 			var package = CurrentEncoding.GetString(packageBytes);
-			var info = 
-				package == "MSDP" 
-				? JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(packageBytes, CurrentEncoding)) 
-				: CurrentEncoding.GetString(packageBytes);
 
-			await (SignalOnGMCPAsync?.Invoke((Package: package, Info: info)) ?? Task.CompletedTask);
+			if(package == "MSDP")
+			{
+				await (SignalOnMSDPAsync?.Invoke(this, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(packageBytes, CurrentEncoding))) ?? Task.CompletedTask);
+			}
+			else
+			{
+				await (SignalOnGMCPAsync?.Invoke((Package: package, Info: CurrentEncoding.GetString(packageBytes))) ?? Task.CompletedTask);
+			}
 		}
 
 		/// <summary>

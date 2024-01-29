@@ -1,6 +1,8 @@
 ﻿namespace TelnetNegotiationCore.Functional
 
 open System.Text
+open System.Text.Json
+open System.Text.Json.Nodes
 
 module MSDPLibrary =
   type Trigger =
@@ -43,3 +45,35 @@ module MSDPLibrary =
   let public MSDPScan(array: seq<byte>, encoding) =
     let (result, _) = MSDPScanTailRec(Map<string,obj> [], array, encoding)
     result
+
+  let parseJsonRoot (jsonRootNode: JsonNode, encoding: Encoding) =
+    let rec parseJsonValue (jsonNode: JsonNode) =
+        match jsonNode.GetValueKind() with
+        | JsonValueKind.Object ->
+            let parsedObj =
+                jsonNode.AsObject()
+                |> Seq.map (fun prop ->
+                    let key = prop.Key
+                    let value = parseJsonValue prop.Value
+                    [(byte)Trigger.MSDP_VAR] @ (encoding.GetBytes(key) |> List.ofArray) @ [(byte)Trigger.MSDP_VAL] @ value
+                ) |> List.concat
+            [(byte)Trigger.MSDP_TABLE_OPEN] @ parsedObj @ [(byte)Trigger.MSDP_TABLE_CLOSE]
+
+        | JsonValueKind.Array ->
+            let parsedArr =
+                jsonNode.AsArray()
+                |> Seq.map (fun prop -> [(byte)Trigger.MSDP_VAL] @ parseJsonValue(prop))
+                |> List.ofSeq
+                |> List.concat
+            [(byte)Trigger.MSDP_ARRAY_OPEN] @ parsedArr @ [(byte)Trigger.MSDP_ARRAY_CLOSE]
+
+        | JsonValueKind.String -> encoding.GetBytes(jsonNode.AsValue().ToString()) |> List.ofArray
+        | JsonValueKind.Number -> encoding.GetBytes(jsonNode.AsValue().ToString()) |> List.ofArray
+        | JsonValueKind.True -> encoding.GetBytes("1") |> List.ofArray
+        | JsonValueKind.False -> encoding.GetBytes("0") |> List.ofArray
+        | JsonValueKind.Null -> encoding.GetBytes("null") |> List.ofArray
+        | _ -> failwith "Invalid JSON value"
+    parseJsonValue jsonRootNode 
+
+  let public Report(jsonString: string, encoding: Encoding) =
+    parseJsonRoot(JsonValue.Parse(jsonString), encoding)
