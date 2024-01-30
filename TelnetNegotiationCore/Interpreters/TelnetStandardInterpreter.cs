@@ -104,7 +104,16 @@ namespace TelnetNegotiationCore.Interpreters
 			SupportedCharacterSets = new Lazy<byte[]>(CharacterSets, true);
 
 			var li = new List<Func<StateMachine<State, Trigger>, StateMachine<State, Trigger>>> {
-				SetupSafeNegotiation, SetupEORNegotiation, SetupMSSPNegotiation, SetupMSDPNegotiation, SetupGMCPNegotiation, SetupTelnetTerminalType, SetupCharsetNegotiation, SetupNAWS, SetupStandardProtocol
+				SetupSafeNegotiation, 
+				SetupEORNegotiation, 
+				SetupSuppressGANegotiation, 
+				SetupMSSPNegotiation, 
+				SetupMSDPNegotiation, 
+				SetupGMCPNegotiation, 
+				SetupTelnetTerminalType, 
+				SetupCharsetNegotiation, 
+				SetupNAWS, 
+				SetupStandardProtocol
 			}.AggregateRight(TelnetStateMachine, (func, stateMachine) => func(stateMachine));
 
 			if (logger.IsEnabled(LogLevel.Trace))

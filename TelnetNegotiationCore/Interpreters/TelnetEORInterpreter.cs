@@ -130,6 +130,11 @@ namespace TelnetNegotiationCore.Interpreters
 			{
 				await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.EOR]);
 			}
+			// TODO: Tie into _doGA
+			if(_doEOR is not null or false)
+			{
+				await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.GA]);
+			}
 		}
 
 		/// <summary>

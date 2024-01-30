@@ -297,6 +297,13 @@ namespace TelnetNegotiationCore.Models
 		/// </remarks>
 		NOP = 241,
 		/// <summary>
+		/// Go ahead. Used, under certain circumstances, to tell the other end that it can transmit.
+		/// </summary>
+		/// <remarks>
+		/// RFC 854: http://www.faqs.org/rfcs/rfc854.html
+		/// </remarks>
+		GA = 249,
+		/// <summary>
 		/// The start of sub-negotiation options.	
 		/// </summary>
 		/// <remarks>

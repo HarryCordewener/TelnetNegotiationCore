@@ -102,7 +102,11 @@
 		EvaluatingMSDP,
 		CompletingMSDP,
 		AlmostNegotiatingMSDP,
-		EscapingMSDP
+		EscapingMSDP,
+		DoSUPPRESSGOAHEAD,
+		DontSUPPRESSGOAHEAD,
+		WillSUPPRESSGOAHEAD,
+		WontSUPPRESSGOAHEAD
 		#endregion MSDP Negotiation
 	}
 }

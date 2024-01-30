@@ -22,9 +22,9 @@ This library is in a state where breaking changes to the interface are expected.
 | [MSSP](https://tintin.mudhalla.net/protocols/mssp)  | MSSP Negotiation                   | Full       | Untested           |
 | [RFC 885](http://www.faqs.org/rfcs/rfc885.html)     | End Of Record Negotiation          | Full       | Untested           | 
 | [EOR](https://tintin.mudhalla.net/protocols/eor)    | End Of Record Negotiation          | Full       | Untested           |
-| [MSDP](https://tintin.mudhalla.net/protocols/msdp)  | Mud Server Data Protocol           | Partial    | Planned            |
+| [MSDP](https://tintin.mudhalla.net/protocols/msdp)  | Mud Server Data Protocol           | Partial    | Partial Tested     |
 | [RFC 2066](http://www.faqs.org/rfcs/rfc2066.html)   | Charset Negotiation                | Partial    | No TTABLE support  |
-| [RFC 858](http://www.faqs.org/rfcs/rfc858.html)     | Suppress GOAHEAD Negotiation       | No         | Planned            |
+| [RFC 858](http://www.faqs.org/rfcs/rfc858.html)     | Suppress GOAHEAD Negotiation       | Full       | Untested           |
 | [RFC 1572](http://www.faqs.org/rfcs/rfc1572.html)   | New Environment Negotiation        | No         | Planned            |
 | [MNES](https://tintin.mudhalla.net/protocols/mnes)  | Mud New Environment Negotiation    | No         | Planned            |
 | [MCCP](https://tintin.mudhalla.net/protocols/mccp)  | Mud Client Compression Protocol    | No         | Rejects            |
