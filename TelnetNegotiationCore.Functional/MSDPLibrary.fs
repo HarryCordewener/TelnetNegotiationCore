@@ -58,7 +58,6 @@ module MSDPLibrary =
                     [(byte)Trigger.MSDP_VAR] @ (encoding.GetBytes(key) |> List.ofArray) @ [(byte)Trigger.MSDP_VAL] @ value
                 ) |> List.concat
             [(byte)Trigger.MSDP_TABLE_OPEN] @ parsedObj @ [(byte)Trigger.MSDP_TABLE_CLOSE]
-
         | JsonValueKind.Array ->
             let parsedArr =
                 jsonNode.AsArray()
@@ -66,7 +65,6 @@ module MSDPLibrary =
                 |> List.ofSeq
                 |> List.concat
             [(byte)Trigger.MSDP_ARRAY_OPEN] @ parsedArr @ [(byte)Trigger.MSDP_ARRAY_CLOSE]
-
         | JsonValueKind.String -> encoding.GetBytes(jsonNode.AsValue().ToString()) |> List.ofArray
         | JsonValueKind.Number -> encoding.GetBytes(jsonNode.AsValue().ToString()) |> List.ofArray
         | JsonValueKind.True -> encoding.GetBytes("1") |> List.ofArray
