@@ -49,8 +49,8 @@
 			<PackagePath>lib\$(TargetFramework)</PackagePath>
 		</Content>
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
-		<PackageReference Include="OneOf" Version="3.0.255" />
-		<PackageReference Include="stateless" Version="5.13.0" />
+		<PackageReference Include="OneOf" Version="3.0.263" />
+		<PackageReference Include="stateless" Version="5.15.0" />
 		<PackageReference Include="System.Collections.Immutable" Version="8.0.0" />
 		<PackageReference Include="System.Runtime" Version="4.3.1" />
 	</ItemGroup>
