@@ -126,12 +126,11 @@ namespace TelnetNegotiationCore.Interpreters
 			{
 				await CallbackNegotiationAsync(CurrentEncoding.GetBytes(Environment.NewLine));
 			}
-			else
+			else if(_doEOR is true)
 			{
 				await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.EOR]);
 			}
-			// TODO: Tie into _doGA
-			if(_doEOR is not null or false)
+			else if (_doGA is not null or false)
 			{
 				await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.GA]);
 			}
