@@ -43,6 +43,8 @@ namespace TelnetNegotiationCore.Interpreters
 
 		private Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetOrder = (x) => x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
 
+		private Func<Encoding, Task> SignalCharsetChangeAsync { get; set; }
+
 		public Lazy<byte[]> SupportedCharacterSets { get; }
 
 		/// <summary>
@@ -226,6 +228,7 @@ namespace TelnetNegotiationCore.Interpreters
 			byte[] postAmble = [ (byte)Trigger.IAC, (byte)Trigger.SE ];
 
 			CurrentEncoding = chosenEncoding;
+			await (SignalCharsetChangeAsync?.Invoke(CurrentEncoding) ?? Task.CompletedTask);
 
 			// TODO: The implementing Server or Client needs to be warned when CurrentEncoding is set!
 			// This would allow, for instance, the Console to ensure it displays Unicode correctly.
