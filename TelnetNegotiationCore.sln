@@ -13,13 +13,14 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Files", "Solution 
 		.github\workflows\dotnet.yml = .github\workflows\dotnet.yml
 		LICENSE = LICENSE
 		README.md = README.md
+		.github\workflows\release.yml = .github\workflows\release.yml
 	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TelnetNegotiationCore.UnitTests", "TelnetNegotiationCore.UnitTests\TelnetNegotiationCore.UnitTests.csproj", "{0EC8EB89-8596-4426-83B0-29354F5B8938}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TelnetNegotiationCore.TestClient", "TelnetNegotiationCore.TestClient\TelnetNegotiationCore.TestClient.csproj", "{E1A76C78-8246-472F-824E-9F7F9B3778B7}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "TelnetNegotiationCore.Functional", "TelnetNegotiationCore.Functional\TelnetNegotiationCore.Functional.fsproj", "{0307D0B8-AAA7-40C8-9E3E-34BE64F93BB7}"
+Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "TelnetNegotiationCore.Functional", "TelnetNegotiationCore.Functional\TelnetNegotiationCore.Functional.fsproj", "{0307D0B8-AAA7-40C8-9E3E-34BE64F93BB7}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
