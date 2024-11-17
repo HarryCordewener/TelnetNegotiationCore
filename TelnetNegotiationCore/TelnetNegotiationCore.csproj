@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>net8.0</TargetFramework>
+		<TargetFramework>net9.0</TargetFramework>
 		<LangVersion>latest</LangVersion>
 		<Version>1.0.7</Version>
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
@@ -48,15 +48,15 @@
 			<Pack>true</Pack>
 			<PackagePath>lib\$(TargetFramework)</PackagePath>
 		</Content>
-		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.1" />
-		<PackageReference Include="OneOf" Version="3.0.263" />
-		<PackageReference Include="stateless" Version="5.15.0" />
-		<PackageReference Include="System.Collections.Immutable" Version="8.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+		<PackageReference Include="OneOf" Version="3.0.271" />
+		<PackageReference Include="stateless" Version="5.16.0" />
+		<PackageReference Include="System.Collections.Immutable" Version="9.0.0" />
 		<PackageReference Include="System.Runtime" Version="4.3.1" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\TelnetNegotiationCore.Functional\TelnetNegotiationCore.Functional.fsproj" PrivateAssets="all"/>
+		<ProjectReference Include="..\TelnetNegotiationCore.Functional\TelnetNegotiationCore.Functional.fsproj" PrivateAssets="all" />
 	</ItemGroup>
 
 </Project>
