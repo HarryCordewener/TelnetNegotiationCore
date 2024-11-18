@@ -160,7 +160,7 @@ public partial class TelnetInterpreter
 		// We've gotten a newline. We interpret this as time to act and send a signal back.
 		tsm.Configure(State.Act)
 			.SubstateOf(State.Accepting)
-			.OnEntry(WriteToOutput);
+			.OnEntryAsync(async () => await WriteToOutput());
 
 		// SubNegotiation
 		tsm.Configure(State.Accepting)
@@ -218,12 +218,12 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Write it to output - this should become an Event.
 	/// </summary>
-	private void WriteToOutput()
+	private async ValueTask WriteToOutput()
 	{
 		var cp = new byte[_bufferPosition];
 		_buffer.AsSpan()[.._bufferPosition].CopyTo(cp);
 		_bufferPosition = 0;
-		CallbackOnSubmitAsync.Invoke(cp, CurrentEncoding, this);
+		await CallbackOnSubmitAsync.Invoke(cp, CurrentEncoding, this);
 	}
 
 	/// <summary>
