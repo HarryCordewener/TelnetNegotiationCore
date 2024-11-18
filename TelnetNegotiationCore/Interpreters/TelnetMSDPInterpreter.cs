@@ -20,7 +20,7 @@ public partial class TelnetInterpreter
 {
 	private List<byte> _currentMSDPInfo;
 
-	public Func<TelnetInterpreter, string, Task> SignalOnMSDPAsync { get; init; }
+	public Func<TelnetInterpreter, string, ValueTask> SignalOnMSDPAsync { get; init; }
 
 	/// <summary>
 	/// Mud Server Status Protocol will provide information to the requestee about the server's contents.
@@ -39,13 +39,13 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.DoMSDP)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(OnDoMSDPAsync);
+				.OnEntryAsync(async x => await OnDoMSDPAsync(x));
 
 			tsm.Configure(State.DontMSDP)
 				.SubstateOf(State.Accepting)
 				.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Client won't do MSDP - do nothing"));
 
-			RegisterInitialWilling(WillingMSDPAsync);
+			RegisterInitialWilling(async () => await WillingMSDPAsync());
 		}
 		else
 		{
@@ -57,7 +57,7 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.WillMSDP)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(OnWillMSDPAsync);
+				.OnEntryAsync(async () => await OnWillMSDPAsync());
 
 			tsm.Configure(State.WontMSDP)
 				.SubstateOf(State.Accepting)
@@ -100,7 +100,7 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Announce we do MSDP negotiation to the client.
 	/// </summary>
-	private async Task WillingMSDPAsync()
+	private async ValueTask WillingMSDPAsync()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSDP!");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSDP]);
@@ -109,16 +109,16 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Announce the MSDP we support to the client after getting a Do.
 	/// </summary>
-	private Task OnDoMSDPAsync(StateMachine<State, Trigger>.Transition _)
+	private ValueTask OnDoMSDPAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Client will do MSDP output");
-		return Task.CompletedTask;
+		return ValueTask.CompletedTask;
 	}
 
 	/// <summary>
 	/// Announce we do MSDP negotiation to the server.
 	/// </summary>
-	private async Task OnWillMSDPAsync()
+	private async ValueTask OnWillMSDPAsync()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSDP!");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP]);

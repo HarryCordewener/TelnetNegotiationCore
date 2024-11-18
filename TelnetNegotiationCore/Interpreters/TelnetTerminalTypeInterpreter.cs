@@ -104,7 +104,7 @@ public partial class TelnetInterpreter
 
 		tsm.Configure(State.DoTType)
 			.SubstateOf(State.Accepting)
-			.OnEntryAsync(WillDoTerminalTypeAsync);
+			.OnEntryAsync(async () => await WillDoTerminalTypeAsync());
 
 		tsm.Configure(State.DontTType)
 			.SubstateOf(State.Accepting)
@@ -121,7 +121,7 @@ public partial class TelnetInterpreter
 			.OnEntry(GetTerminalType);
 
 		tsm.Configure(State.CompletingTerminalType)
-			.OnEntryAsync(ReportNextAvailableTerminalTypeAsync)
+			.OnEntryAsync(async () => await ReportNextAvailableTerminalTypeAsync())
 			.Permit(Trigger.SE, State.Accepting);
 
 		return tsm;
@@ -138,7 +138,7 @@ public partial class TelnetInterpreter
 	{
 		tsm.Configure(State.WillDoTType)
 			.SubstateOf(State.Accepting)
-			.OnEntryAsync(RequestTerminalTypeAsync);
+			.OnEntryAsync(async () => await RequestTerminalTypeAsync());
 
 		tsm.Configure(State.WontDoTType)
 			.SubstateOf(State.Accepting)
@@ -166,10 +166,10 @@ public partial class TelnetInterpreter
 			.Permit(Trigger.SE, State.CompletingTerminalType);
 
 		tsm.Configure(State.CompletingTerminalType)
-			.OnEntryAsync(CompleteTerminalTypeAsServerAsync)
+			.OnEntryAsync(async () => await CompleteTerminalTypeAsServerAsync())
 			.SubstateOf(State.Accepting);
 
-		RegisterInitialWilling(SendDoTerminalTypeAsync);
+		RegisterInitialWilling(async () => await SendDoTerminalTypeAsync());
 
 		return tsm;
 	}
@@ -199,7 +199,7 @@ public partial class TelnetInterpreter
 	/// Read the Terminal Type state values and finalize it into the Terminal Types List.
 	/// Then, if we have not seen this Terminal Type before, request another!
 	/// </summary>
-	private async Task CompleteTerminalTypeAsServerAsync()
+	private async ValueTask CompleteTerminalTypeAsServerAsync()
 	{
 		var TType = ascii.GetString(_ttypeByteState, 0, _ttypeIndex);
 		if (TerminalTypes.Contains(TType))
@@ -229,7 +229,7 @@ public partial class TelnetInterpreter
 	/// Tell the Client that the Server is willing to listen to Terminal Type.
 	/// </summary>
 	/// <returns></returns>
-	private async Task WillDoTerminalTypeAsync()
+	private async ValueTask WillDoTerminalTypeAsync()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Telling the other party, Willing to do Terminal Type.");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE]);
@@ -238,7 +238,7 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Tell the Client to do Terminal Type. This should not happen as a Server.
 	/// </summary>
-	private async Task SendDoTerminalTypeAsync()
+	private async ValueTask SendDoTerminalTypeAsync()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Telling the other party, to do Terminal Type.");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE]);
@@ -247,13 +247,13 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Request Terminal Type from Client. This flips to the next one.
 	/// </summary>
-	public async Task RequestTerminalTypeAsync()
+	public async ValueTask RequestTerminalTypeAsync()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Telling the client, to send the next Terminal Type.");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE]);
 	}
 
-	private async Task ReportNextAvailableTerminalTypeAsync()
+	private async ValueTask ReportNextAvailableTerminalTypeAsync()
 	{
 		_CurrentTerminalType = (_CurrentTerminalType + 1) % (TerminalTypes.Count + 1);
 		_Logger.LogDebug("Connection: {ConnectionState}", "Reporting the next Terminal Type to the server.");

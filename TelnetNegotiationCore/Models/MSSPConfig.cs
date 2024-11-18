@@ -13,7 +13,7 @@ public class NameAttribute(string name) : Attribute
 }
 
 /// <summary>
-/// Indicates whether or not it's in the official MSSP definition.
+/// Indicates whether it's in the official MSSP definition.
 /// </summary>
 [AttributeUsage(AttributeTargets.Property, Inherited = false)]
 public class OfficialAttribute(bool official) : Attribute

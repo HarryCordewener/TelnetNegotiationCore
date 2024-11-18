@@ -16,11 +16,11 @@ public class TTypeTests: BaseTest
 	private TelnetInterpreter _client_ti;
 	private byte[] _negotiationOutput;
 
-	private Task WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => throw new NotImplementedException();
+	private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => throw new NotImplementedException();
 
-	private Task WriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return Task.CompletedTask; }
+	private ValueTask WriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return ValueTask.CompletedTask; }
 
-	private Task WriteBackToGMCP((string Package, string Info) tuple) => throw new NotImplementedException();
+	private ValueTask WriteBackToGMCP((string Package, string Info) tuple) => throw new NotImplementedException();
 
 	[SetUp]
 	public async Task Setup()
@@ -30,7 +30,7 @@ public class TTypeTests: BaseTest
 			CallbackNegotiationAsync = WriteBackToNegotiate,
 			CallbackOnSubmitAsync = WriteBackToOutput,
 			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => Task.CompletedTask,
+			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
 		}.RegisterMSSPConfig(() => new MSSPConfig
 		{
 			Name = "My Telnet Negotiated Server",
@@ -48,7 +48,7 @@ public class TTypeTests: BaseTest
 			CallbackNegotiationAsync = WriteBackToNegotiate,
 			CallbackOnSubmitAsync = WriteBackToOutput,
 			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => Task.CompletedTask,
+			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
 		}.RegisterMSSPConfig(() => new MSSPConfig
 		{
 			Name = "My Telnet Negotiated Client",

@@ -21,7 +21,7 @@ public class MSDPServerHandler(MSDPServerModel model)
 {
 	public MSDPServerModel Data { get; private init; } = model;
 
-	public async Task HandleAsync(TelnetInterpreter telnet, string clientJson)
+	public async ValueTask HandleAsync(TelnetInterpreter telnet, string clientJson)
 	{
 		var json = JsonSerializer.Deserialize<dynamic>(clientJson);
 
@@ -61,15 +61,15 @@ public class MSDPServerHandler(MSDPServerModel model)
 	/// </summary>
 	/// <param name="telnet">Telnet Interpreter to callback with.</param>
 	/// <param name="item">The item to report</param>
-	private async Task HandleListRequestAsync(TelnetInterpreter telnet, string item) =>
+	private async ValueTask HandleListRequestAsync(TelnetInterpreter telnet, string item) =>
 		await ExecuteOnAsync(item, async (val) =>
-			await (Data.Lists.TryGetValue(val, out Func<HashSet<string>> value)
+			await (Data.Lists.TryGetValue(val, out var value)
 				? telnet.CallbackNegotiationAsync(
 					MSDPLibrary.Report(JsonSerializer.Serialize(value()),
 					telnet.CurrentEncoding))
-				: Task.CompletedTask));
+				: ValueTask.CompletedTask));
 
-	private async Task HandleReportRequestAsync(TelnetInterpreter telnet, string item) =>
+	private async ValueTask HandleReportRequestAsync(TelnetInterpreter telnet, string item) =>
 		await ExecuteOnAsync(item, async (val) =>
 		{
 			await HandleSendRequestAsync(telnet, val);
@@ -82,11 +82,11 @@ public class MSDPServerHandler(MSDPServerModel model)
 	/// though any LIST option can be used.
 	/// </summary>
 	/// <param name="item">Item to reset</param>
-	private async Task HandleResetRequestAsync(string item) =>
-		await ExecuteOnAsync(item, async (var) =>
+	private async ValueTask HandleResetRequestAsync(string item) =>
+		await ExecuteOnAsync(item, (var) =>
 		{
 			var found = Data.Reportable_Variables().TryGetValue(var, out var list);
-			await Task.CompletedTask;
+			return ValueTask.CompletedTask;
 		});
 
 	/// <summary>
@@ -97,7 +97,7 @@ public class MSDPServerHandler(MSDPServerModel model)
 	/// </summary>
 	/// <param name="telnet">Telnet interpreter to send back negotiation with</param>
 	/// <param name="item">The item to send</param>
-	private async Task HandleSendRequestAsync(TelnetInterpreter telnet, string item) =>
+	private async ValueTask HandleSendRequestAsync(TelnetInterpreter telnet, string item) =>
 		await ExecuteOnAsync(item, async (var) =>
 		{
 			var found = Data.Sendable_Variables().TryGetValue(var, out var val);
@@ -109,24 +109,19 @@ public class MSDPServerHandler(MSDPServerModel model)
 	/// The UNREPORT command is used to remove the report status of variables after the use of the REPORT command.
 	/// </summary>
 	/// <param name="item">The item to stop reporting on</param>
-	private async Task HandleUnReportRequestAsync(string item) =>
-		await ExecuteOnAsync(item, async (var) =>
+	private async ValueTask HandleUnReportRequestAsync(string item) =>
+		await ExecuteOnAsync(item,  (var) =>
 		{
 			Data.UnReport(var);
-			await Task.CompletedTask;
+			return ValueTask.CompletedTask;
 		});
 
-	private async Task ExecuteOnAsync(string item, Func<string, Task> function)
+	private async ValueTask ExecuteOnAsync(string item, Func<string, ValueTask> function)
 	{
-		string[] items;
-		if (item.StartsWith('['))
-		{
-			items = JsonSerializer.Deserialize<string[]>(item);
-		}
-		else
-		{
-			items = [item];
-		}
+		var items = item.StartsWith('[') 
+			? JsonSerializer.Deserialize<string[]>(item) 
+			: [item];
+		
 		foreach (var val in items)
 		{
 			await function(val);

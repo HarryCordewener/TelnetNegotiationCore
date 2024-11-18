@@ -26,13 +26,13 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.DoSUPPRESSGOAHEAD)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(OnDoSuppressGAAsync);
+				.OnEntryAsync(async x => await OnDoSuppressGAAsync(x));
 
 			tsm.Configure(State.DontSUPPRESSGOAHEAD)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(OnDontSuppressGAAsync);
+				.OnEntryAsync(async () => await OnDontSuppressGAAsync());
 
-			RegisterInitialWilling(WillingSuppressGAAsync);
+			RegisterInitialWilling(async () => await WillingSuppressGAAsync());
 		}
 		else
 		{
@@ -44,41 +44,41 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.WontSUPPRESSGOAHEAD)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(WontSuppressGAAsync);
+				.OnEntryAsync(async () => await WontSuppressGAAsync());
 
 			tsm.Configure(State.WillSUPPRESSGOAHEAD)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(OnWillSuppressGAAsync);
+				.OnEntryAsync(async x => await OnWillSuppressGAAsync(x));
 		}
 
 		return tsm;
 	}
 
 
-	private async Task OnSUPPRESSGOAHEADPrompt()
+	private async ValueTask OnSUPPRESSGOAHEADPrompt()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Server is prompting SUPPRESSGOAHEAD");
-		await (SignalOnPromptingAsync?.Invoke() ?? Task.CompletedTask);
+		await (SignalOnPromptingAsync?.Invoke() ?? ValueTask.CompletedTask);
 	}
 
-	private async Task OnDontSuppressGAAsync()
+	private async ValueTask OnDontSuppressGAAsync()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Client won't do SUPPRESSGOAHEAD - do nothing");
 		_doGA = true;
-		await Task.CompletedTask;
+		await ValueTask.CompletedTask;
 	}
 
-	private async Task WontSuppressGAAsync()
+	private async ValueTask WontSuppressGAAsync()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Server won't do SUPPRESSGOAHEAD - do nothing");
 		_doGA = true;
-		await Task.CompletedTask;
+		await ValueTask.CompletedTask;
 	}
 
 	/// <summary>
 	/// Announce we do SUPPRESSGOAHEAD negotiation to the client.
 	/// </summary>
-	private async Task WillingSuppressGAAsync()
+	private async ValueTask WillingSuppressGAAsync()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to SUPPRESSGOAHEAD!");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD]);
@@ -87,17 +87,17 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Store that we are now in SUPPRESSGOAHEAD mode.
 	/// </summary>
-	private Task OnDoSuppressGAAsync(StateMachine<State, Trigger>.Transition _)
+	private ValueTask OnDoSuppressGAAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Client supports End of Record.");
-		_doGA =false;
-		return Task.CompletedTask;
+		_doGA = false;
+		return ValueTask.CompletedTask;
 	}
 
 	/// <summary>
 	/// Store that we are now in SUPPRESSGOAHEAD mode.
 	/// </summary>
-	private async Task OnWillSuppressGAAsync(StateMachine<State, Trigger>.Transition _)
+	private async ValueTask OnWillSuppressGAAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Server supports End of Record.");
 		_doGA = false;

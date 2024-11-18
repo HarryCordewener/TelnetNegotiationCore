@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFramework>net9.0</TargetFramework>
 		<LangVersion>latest</LangVersion>
-		<Version>1.0.7</Version>
+		<Version>1.0.8</Version>
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
 		<Title>Telnet Negotiation Core</Title>
 		<PackageId>$(AssemblyName)</PackageId>
@@ -16,6 +16,7 @@
 		<RepositoryType>git</RepositoryType>
 		<PackageTags>telnet</PackageTags>
 		<PackageLicenseFile>LICENSE</PackageLicenseFile>
+		<PackageReleaseNotes>https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/CHANGELOG.md</PackageReleaseNotes>
 		<Copyright>Copyright © TelnetNegotiationCore Contributors 2024-$([System.DateTime]::Now.ToString(yyyy))</Copyright>
 	</PropertyGroup>
 

@@ -14,7 +14,7 @@ public partial class TelnetInterpreter
 {
 	private List<byte> _GMCPBytes = [];
 
-	public Func<(string Package, string Info), Task> SignalOnGMCPAsync { get; init; }
+	public Func<(string Package, string Info), ValueTask> SignalOnGMCPAsync { get; init; }
 
 	private StateMachine<State, Trigger> SetupGMCPNegotiation(StateMachine<State, Trigger> tsm)
 	{
@@ -46,7 +46,7 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.WillGMCP)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(DoGMCPAsync);
+				.OnEntryAsync(async x => await DoGMCPAsync(x));
 
 			tsm.Configure(State.WontGMCP)
 				.SubstateOf(State.Accepting)
@@ -78,7 +78,7 @@ public partial class TelnetInterpreter
 
 		tsm.Configure(State.CompletingGMCPValue)
 			.SubstateOf(State.Accepting)
-			.OnEntryAsync(CompleteGMCPNegotiation);
+			.OnEntryAsync(async x => await CompleteGMCPNegotiation(x));
 
 		return tsm;
 	}
@@ -92,13 +92,13 @@ public partial class TelnetInterpreter
 		_GMCPBytes.Add(b.AsT0);
 	}
 
-	public Task SendGMCPCommand(string package, string command) =>
+	public ValueTask SendGMCPCommand(string package, string command) =>
 		SendGMCPCommand(CurrentEncoding.GetBytes(package), CurrentEncoding.GetBytes(command));
 
-	public Task SendGMCPCommand(string package, byte[] command) =>
+	public ValueTask SendGMCPCommand(string package, byte[] command) =>
 		SendGMCPCommand(CurrentEncoding.GetBytes(package), command);
 
-	public async Task SendGMCPCommand(byte[] package, byte[] command)
+	public async ValueTask SendGMCPCommand(byte[] package, byte[] command)
 	{
 		await CallbackNegotiationAsync(
 			[
@@ -106,7 +106,7 @@ public partial class TelnetInterpreter
 				.. package,
 				.. CurrentEncoding.GetBytes(" "),
 				.. command,
-				.. new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE },
+				.. new[] { (byte)Trigger.IAC, (byte)Trigger.SE },
 			]);
 	}
 
@@ -114,8 +114,8 @@ public partial class TelnetInterpreter
 	/// Completes the GMCP Negotiation. This is currently assuming a golden path.
 	/// </summary>
 	/// <param name="_">Transition, ignored.</param>
-	/// <returns>Task</returns>
-	private async Task CompleteGMCPNegotiation(StateMachine<State, Trigger>.Transition _)
+	/// <returns>ValueTask</returns>
+	private async ValueTask CompleteGMCPNegotiation(StateMachine<State, Trigger>.Transition _)
 	{
 		var space = CurrentEncoding.GetBytes(" ").First();
 		var firstSpace = _GMCPBytes.FindIndex(x => x == space);
@@ -127,11 +127,11 @@ public partial class TelnetInterpreter
 
 		if(package == "MSDP")
 		{
-			await (SignalOnMSDPAsync?.Invoke(this, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(packageBytes, CurrentEncoding))) ?? Task.CompletedTask);
+			await (SignalOnMSDPAsync?.Invoke(this, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(packageBytes, CurrentEncoding))) ?? ValueTask.CompletedTask);
 		}
 		else
 		{
-			await (SignalOnGMCPAsync?.Invoke((Package: package, Info: CurrentEncoding.GetString(packageBytes))) ?? Task.CompletedTask);
+			await (SignalOnGMCPAsync?.Invoke((Package: package, Info: CurrentEncoding.GetString(packageBytes))) ?? ValueTask.CompletedTask);
 		}
 	}
 
@@ -139,15 +139,15 @@ public partial class TelnetInterpreter
 	/// Announces the Server will GMCP.
 	/// </summary>
 	/// <param name="_">Transition, ignored.</param>
-	/// <returns>Task</returns>
-	private async Task WillGMCPAsync(StateMachine<State, Trigger>.Transition _)
+	/// <returns>ValueTask</returns>
+	private async ValueTask WillGMCPAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing the server will GMCP");
 
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP]);
 	}
 
-	private async Task DoGMCPAsync(StateMachine<State, Trigger>.Transition _)
+	private async ValueTask DoGMCPAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing the client can do GMCP");
 

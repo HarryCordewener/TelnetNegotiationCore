@@ -8,7 +8,7 @@ namespace TelnetNegotiationCore.Handlers;
 /// </summary>
 public class MSDPClientHandler()
 {
-	public Task HandleAsync(string serverJson)
+	public ValueTask HandleAsync(string serverJson)
 	{
 		throw new NotImplementedException();
 	}

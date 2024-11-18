@@ -15,15 +15,15 @@ namespace TelnetNegotiationCore.TestServer
 {
 	public class KestrelMockServer : ConnectionHandler
 	{
-		private readonly ILogger _Logger;
+		private readonly ILogger _logger;
 
-		public KestrelMockServer(ILogger<KestrelMockServer> logger) : base()
+		public KestrelMockServer(ILogger<KestrelMockServer> logger)
 		{
 			Console.OutputEncoding = Encoding.UTF8;
-			_Logger = logger;
+			_logger = logger;
 		}
 
-		private async Task WriteToOutputStreamAsync(byte[] arg, PipeWriter writer)
+		private async ValueTask WriteToOutputStreamAsync(byte[] arg, PipeWriter writer)
 		{
 			try
 			{
@@ -31,32 +31,32 @@ namespace TelnetNegotiationCore.TestServer
 			}
 			catch (ObjectDisposedException ode)
 			{
-				_Logger.LogError(ode, "Stream has been closed");
+				_logger.LogError(ode, "Stream has been closed");
 			}
 		}
 
-		public Task SignalGMCPAsync((string module, string writeback) val)
+		public ValueTask SignalGMCPAsync((string module, string writeback) val)
 		{
-			_Logger.LogDebug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback);
-			return Task.CompletedTask;
+			_logger.LogDebug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback);
+			return ValueTask.CompletedTask;
 		}
 
-		public Task SignalMSSPAsync(MSSPConfig val)
+		public ValueTask SignalMSSPAsync(MSSPConfig val)
 		{
-			_Logger.LogDebug("New MSSP: {@MSSPConfig}", val);
-			return Task.CompletedTask;
+			_logger.LogDebug("New MSSP: {@MSSPConfig}", val);
+			return ValueTask.CompletedTask;
 		}
 
-		public Task SignalNAWSAsync(int height, int width)
+		public ValueTask SignalNAWSAsync(int height, int width)
 		{
-			_Logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width);
-			return Task.CompletedTask;
+			_logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width);
+			return ValueTask.CompletedTask;
 		}
 
-		private static async Task SignalMSDPAsync(MSDPServerHandler handler, TelnetInterpreter telnet, string config) =>
+		private static async ValueTask SignalMSDPAsync(MSDPServerHandler handler, TelnetInterpreter telnet, string config) =>
 			await handler.HandleAsync(telnet, config);
 
-		public static async Task WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter telnet)
+		public static async ValueTask WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter telnet)
 		{
 			var str = encoding.GetString(writeback);
 			if (str.StartsWith("echo"))
@@ -66,17 +66,17 @@ namespace TelnetNegotiationCore.TestServer
 			Console.WriteLine(encoding.GetString(writeback));
 		}
 
-		private async Task MSDPUpdateBehavior(string resetVariable)
+		private async ValueTask MSDPUpdateBehavior(string resetVariable)
 		{
-			_Logger.LogDebug("MSDP Reset Request: {@Reset}", resetVariable);
-			await Task.CompletedTask;
+			_logger.LogDebug("MSDP Reset Request: {@Reset}", resetVariable);
+			await ValueTask.CompletedTask;
 		}
 
-		public async override Task OnConnectedAsync(ConnectionContext connection)
+		public override async Task OnConnectedAsync(ConnectionContext connection)
 		{
-			using (_Logger.BeginScope(new Dictionary<string, object> { { "ConnectionId", connection.ConnectionId } }))
+			using (_logger.BeginScope(new Dictionary<string, object> { { "ConnectionId", connection.ConnectionId } }))
 			{
-				_Logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
+				_logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
 
 				var MSDPHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
 				{
@@ -86,15 +86,15 @@ namespace TelnetNegotiationCore.TestServer
 					Sendable_Variables = () => ["ROOM"],
 				});
 
-				var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, _Logger)
+				var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, _logger)
 				{
 					CallbackOnSubmitAsync = WriteBackAsync,
 					SignalOnGMCPAsync = SignalGMCPAsync,
 					SignalOnMSSPAsync = SignalMSSPAsync,
 					SignalOnNAWSAsync = SignalNAWSAsync,
 					SignalOnMSDPAsync = (telnet, config) => SignalMSDPAsync(MSDPHandler, telnet, config),
-					CallbackNegotiationAsync = (x) => WriteToOutputStreamAsync(x, connection.Transport.Output),
-					CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
+					CallbackNegotiationAsync = x => WriteToOutputStreamAsync(x, connection.Transport.Output),
+					CharsetOrder = [Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1")]
 				}
 					.RegisterMSSPConfig(() => new MSSPConfig
 					{
@@ -126,7 +126,7 @@ namespace TelnetNegotiationCore.TestServer
 
 					connection.Transport.Input.AdvanceTo(buffer.End);
 				}
-				_Logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
+				_logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
 			}
 		}
 	}

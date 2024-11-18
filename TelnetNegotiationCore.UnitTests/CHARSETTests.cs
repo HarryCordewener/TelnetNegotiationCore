@@ -15,13 +15,13 @@ namespace TelnetNegotiationCore.UnitTests
 	{
 		private byte[] _negotiationOutput;
 
-		private Task WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => throw new NotImplementedException();
+		private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => throw new NotImplementedException();
 
-		private Task WriteBackToGMCP((string module, string writeback) arg1) => throw new NotImplementedException();
+		private ValueTask WriteBackToGMCP((string module, string writeback) arg1) => throw new NotImplementedException();
 
-		private Task ClientWriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return Task.CompletedTask; }
+		private ValueTask ClientWriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return ValueTask.CompletedTask; }
 
-		private Task ServerWriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return Task.CompletedTask; }
+		private ValueTask ServerWriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return ValueTask.CompletedTask; }
 
 	[SetUp]
 		public void Setup()
@@ -38,7 +38,7 @@ namespace TelnetNegotiationCore.UnitTests
 				CallbackNegotiationAsync = ServerWriteBackToNegotiate,
 				CallbackOnSubmitAsync = WriteBackToOutput,
 				SignalOnGMCPAsync = WriteBackToGMCP,
-				CallbackOnByteAsync = (x, y) => Task.CompletedTask,
+				CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
 			}.RegisterMSSPConfig(() => new MSSPConfig
 			{
 				Name = "My Telnet Negotiated Server",
@@ -75,7 +75,7 @@ namespace TelnetNegotiationCore.UnitTests
 				CallbackNegotiationAsync = ClientWriteBackToNegotiate,
 				CallbackOnSubmitAsync = WriteBackToOutput,
 				SignalOnGMCPAsync = WriteBackToGMCP,
-				CallbackOnByteAsync = (x, y) => Task.CompletedTask,
+				CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
 				CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
 			}.RegisterMSSPConfig(() => new MSSPConfig
 			{

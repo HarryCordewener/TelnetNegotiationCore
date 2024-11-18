@@ -58,11 +58,11 @@ public class CreateDotGraph : BaseTest
             dotGraph);
     }
 
-    private async Task WriteToOutputStream(byte[] arg) => await Task.CompletedTask;
+    private async ValueTask WriteToOutputStream(byte[] arg) => await ValueTask.CompletedTask;
 
-    private async Task SignalNAWS(int arg1, int arg2) => await Task.CompletedTask;
+    private async ValueTask SignalNAWS(int arg1, int arg2) => await ValueTask.CompletedTask;
 
-    private async Task WriteBack(byte[] arg1, Encoding encoding, TelnetInterpreter t) => await Task.CompletedTask;
+    private async ValueTask WriteBack(byte[] arg1, Encoding encoding, TelnetInterpreter t) => await ValueTask.CompletedTask;
 
-    private async Task WriteBackToGMCP((string module, string writeback) arg1) => await Task.CompletedTask;
+    private async ValueTask WriteBackToGMCP((string module, string writeback) arg1) => await ValueTask.CompletedTask;
 }

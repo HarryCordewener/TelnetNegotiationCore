@@ -1,6 +1,11 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [1.0.8] - 2024-11-17
+
+### Changed
+- Use ValueTasks instead of Tasks for improved performance.
+
 ## [1.0.7] - 2024-03-19
 
 ### Changed

@@ -20,7 +20,7 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// A list of functions to call at the start.
 	/// </summary>
-	private readonly List<Func<Task>> _InitialCall;
+	private readonly List<Func<ValueTask>> _InitialCall;
 
 	/// <summary>
 	/// The current Encoding used for interpreting incoming non-negotiation text, and what we should send on outbound.
@@ -30,7 +30,7 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Telnet state machine
 	/// </summary>
-	public StateMachine<State, Trigger> TelnetStateMachine { get; private set; }
+	public StateMachine<State, Trigger> TelnetStateMachine { get; }
 
 	/// <summary>
 	/// A cache of parameterized triggers.
@@ -72,17 +72,17 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Callback to run on a submission (linefeed)
 	/// </summary>
-	public Func<byte[], Encoding, TelnetInterpreter, Task> CallbackOnSubmitAsync { get; init; }
+	public Func<byte[], Encoding, TelnetInterpreter, ValueTask> CallbackOnSubmitAsync { get; init; }
 
 	/// <summary>
 	/// Callback to the output stream directly for negotiation.
 	/// </summary>
-	public Func<byte[], Task> CallbackNegotiationAsync { get; init; }
+	public Func<byte[], ValueTask> CallbackNegotiationAsync { get; init; }
 
 	/// <summary>
 	/// Callback per byte.
 	/// </summary>
-	public Func<byte, Encoding, Task> CallbackOnByteAsync { get; init; }
+	public Func<byte, Encoding, ValueTask> CallbackOnByteAsync { get; init; }
 
 	/// <summary>
 	/// Constructor, sets up for standard Telnet protocol with NAWS and Character Set support.
@@ -90,6 +90,7 @@ public partial class TelnetInterpreter
 	/// <remarks>
 	/// After calling this constructor, one should subscribe to the Triggers, register a Stream, and then run Process()
 	/// </remarks>
+	/// <param name="mode">Server or Client mode</param>
 	/// <param name="logger">A Serilog Logger. If null, we will use the default one with a Context of the Telnet Interpreter.</param>
 	public TelnetInterpreter(TelnetMode mode, ILogger logger)
 	{
@@ -118,7 +119,7 @@ public partial class TelnetInterpreter
 
 		if (logger.IsEnabled(LogLevel.Trace))
 		{
-			TelnetStateMachine.OnTransitioned((transition) => _Logger.LogTrace("Telnet StateMachine: {Source} --[{Trigger}({TriggerByte})]--> {Destination}",
+			TelnetStateMachine.OnTransitioned(transition => _Logger.LogTrace("Telnet StateMachine: {Source} --[{Trigger}({TriggerByte})]--> {Destination}",
 				transition.Source, transition.Trigger, transition.Parameters[0], transition.Destination));
 		}
 	}
@@ -127,7 +128,7 @@ public partial class TelnetInterpreter
 	/// Validates the configuration, then sets up the initial calls for negotiation.
 	/// </summary>
 	/// <returns>The Telnet Interpreter</returns>
-	public async Task<TelnetInterpreter> BuildAsync()
+	public async ValueTask<TelnetInterpreter> BuildAsync()
 	{
 		Validate();
 
@@ -153,7 +154,8 @@ public partial class TelnetInterpreter
 			.SubstateOf(State.Accepting)
 			.Permit(Trigger.NEWLINE, State.Act);
 
-		TriggerHelper.ForAllTriggers(t => tsm.Configure(State.ReadingCharacters).OnEntryFromAsync(ParameterizedTrigger(t), WriteToBufferAndAdvanceAsync));
+		TriggerHelper.ForAllTriggers(t => tsm.Configure(State.ReadingCharacters)
+			.OnEntryFromAsync(ParameterizedTrigger(t), async x => await WriteToBufferAndAdvanceAsync(x)));
 
 		// We've gotten a newline. We interpret this as time to act and send a signal back.
 		tsm.Configure(State.Act)
@@ -204,13 +206,13 @@ public partial class TelnetInterpreter
 	/// Write the character into a buffer.
 	/// </summary>
 	/// <param name="b">A useful byte for the Client/Server</param>
-	private async Task WriteToBufferAndAdvanceAsync(OneOf<byte, Trigger> b)
+	private async ValueTask WriteToBufferAndAdvanceAsync(OneOf<byte, Trigger> b)
 	{
 		if (b.AsT0 == (byte)Trigger.CARRIAGERETURN) return;
 		_Logger.LogTrace("Debug: Writing into buffer: {Byte}", b.AsT0);
 		_buffer[_bufferPosition] = b.AsT0;
 		_bufferPosition++;
-		await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? Task.CompletedTask);
+		await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? ValueTask.CompletedTask);
 	}
 
 	/// <summary>
@@ -218,7 +220,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private void WriteToOutput()
 	{
-		byte[] cp = new byte[_bufferPosition];
+		var cp = new byte[_bufferPosition];
 		_buffer.AsSpan()[.._bufferPosition].CopyTo(cp);
 		_bufferPosition = 0;
 		CallbackOnSubmitAsync.Invoke(cp, CurrentEncoding, this);
@@ -245,7 +247,7 @@ public partial class TelnetInterpreter
 		return this;
 	}
 
-	private void RegisterInitialWilling(Func<Task> fun)
+	private void RegisterInitialWilling(Func<ValueTask> fun)
 	{
 		_InitialCall.Add(fun);
 	}
@@ -255,8 +257,8 @@ public partial class TelnetInterpreter
 	/// TODO: Cache the value of IsDefined, or get a way to compile this down to a faster call that doesn't require reflection each time.
 	/// </summary>
 	/// <param name="bt">An integer representation of a byte.</param>
-	/// <returns>Task</returns>
-	public async Task InterpretAsync(byte bt)
+	/// <returns>ValueTask</returns>
+	public async ValueTask InterpretAsync(byte bt)
 	{
 		if (Enum.IsDefined(typeof(Trigger), (short)bt))
 		{
@@ -273,9 +275,9 @@ public partial class TelnetInterpreter
 	/// Interprets the next byte in an asynchronous way.
 	/// TODO: Cache the value of IsDefined, or get a way to compile this down to a faster call that doesn't require reflection each time.
 	/// </summary>
-	/// <param name="bt">An integer representation of a byte.</param>
-	/// <returns>Task</returns>
-	public async Task InterpretByteArrayAsync(ImmutableArray<byte> byteArray)
+	/// <param name="byteArray">An integer representation of a byte.</param>
+	/// <returns>ValueTask</returns>
+	public async ValueTask InterpretByteArrayAsync(ImmutableArray<byte> byteArray)
 	{
 		foreach (var b in byteArray)
 		{

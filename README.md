@@ -59,7 +59,7 @@ Log.Logger = log;
 
 Create functions that implement your desired behavior on getting a signal.
 ```csharp
-private async Task WriteToOutputStreamAsync(byte[] arg, StreamWriter writer)
+private async ValueTask WriteToOutputStreamAsync(byte[] arg, StreamWriter writer)
 {
   try 
   { 
@@ -71,19 +71,19 @@ private async Task WriteToOutputStreamAsync(byte[] arg, StreamWriter writer)
   }
 }
 
-public static Task WriteBackAsync(byte[] writeback, Encoding encoding) =>
+public static ValueTask WriteBackAsync(byte[] writeback, Encoding encoding) =>
   Task.Run(() => Console.WriteLine(encoding.GetString(writeback)));
 
-public Task SignalGMCPAsync((string module, string writeback) val, Encoding encoding) =>
+public ValueTask SignalGMCPAsync((string module, string writeback) val, Encoding encoding) =>
   Task.Run(() => _Logger.LogDebug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback));
 
-public Task SignalMSSPAsync(MSSPConfig val) =>
+public ValueTask SignalMSSPAsync(MSSPConfig val) =>
   Task.Run(() => _Logger.LogDebug("New MSSP: {@MSSP}", val));
 
-public Task SignalPromptAsync() =>
+public ValueTask SignalPromptAsync() =>
   Task.Run(() => _Logger.LogDebug("Prompt"));
 
-public Task SignalNAWSAsync(int height, int width) => 
+public ValueTask SignalNAWSAsync(int height, int width) => 
   Task.Run(() => _Logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width));
 ```
 
@@ -123,7 +123,7 @@ public class KestrelMockServer : ConnectionHandler
     _Logger = logger;
   }
 
-  private async Task WriteToOutputStreamAsync(byte[] arg, PipeWriter writer)
+  private async ValueTask WriteToOutputStreamAsync(byte[] arg, PipeWriter writer)
   {
     try
     {
@@ -135,28 +135,28 @@ public class KestrelMockServer : ConnectionHandler
     }
   }
 
-  public Task SignalGMCPAsync((string module, string writeback) val)
+  public ValueTask SignalGMCPAsync((string module, string writeback) val)
   {
     _Logger.LogDebug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback);
-    return Task.CompletedTask;
+    return ValueTask.CompletedTask;
   }
 
-  public Task SignalMSSPAsync(MSSPConfig val)
+  public ValueTask SignalMSSPAsync(MSSPConfig val)
   {
     _Logger.LogDebug("New MSSP: {@MSSPConfig}", val);
-    return Task.CompletedTask;
+    return ValueTask.CompletedTask;
   }
 
-  public Task SignalNAWSAsync(int height, int width)
+  public ValueTask SignalNAWSAsync(int height, int width)
   {
     _Logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width);
-    return Task.CompletedTask;
+    return ValueTask.CompletedTask;
   }
 
-  private static async Task SignalMSDPAsync(MSDPServerHandler handler, TelnetInterpreter telnet, string config) =>
+  private static async ValueTask SignalMSDPAsync(MSDPServerHandler handler, TelnetInterpreter telnet, string config) =>
     await handler.HandleAsync(telnet, config);
 
-  public static async Task WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter telnet)
+  public static async ValueTask WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter telnet)
   {
     var str = encoding.GetString(writeback);
     if (str.StartsWith("echo"))
@@ -166,13 +166,13 @@ public class KestrelMockServer : ConnectionHandler
     Console.WriteLine(encoding.GetString(writeback));
   }
 
-  private async Task MSDPUpdateBehavior(string resetVariable)
+  private async ValueTask MSDPUpdateBehavior(string resetVariable)
   {
     _Logger.LogDebug("MSDP Reset Request: {@Reset}", resetVariable);
-    await Task.CompletedTask;
+    await ValueTask.CompletedTask;
   }
 
-  public async override Task OnConnectedAsync(ConnectionContext connection)
+  public async override ValueTask OnConnectedAsync(ConnectionContext connection)
   {
     using (_Logger.BeginScope(new Dictionary<string, object> { { "ConnectionId", connection.ConnectionId } }))
     {

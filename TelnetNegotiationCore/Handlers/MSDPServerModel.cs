@@ -64,53 +64,53 @@ namespace TelnetNegotiationCore.Handlers;
 /// </summary>
 public class MSDPServerModel
 {
-	/// <summary>
-	/// What lists we can report on.
-	/// </summary>
-	public Dictionary<string, Func<HashSet<string>>> Lists { get; private init; }
+    /// <summary>
+    /// What lists we can report on.
+    /// </summary>
+    public Dictionary<string, Func<HashSet<string>>> Lists { get; private init; }
 
-	public Func<HashSet<string>> Commands { get; set; } = () => [];
+    public Func<HashSet<string>> Commands { get; set; } = () => [];
 
-	public Func<HashSet<string>> Configurable_Variables { get; set; } = () => [];
+    public Func<HashSet<string>> Configurable_Variables { get; set; } = () => [];
 
-	public Func<HashSet<string>> Reportable_Variables { get; set; } = () => [];
+    public Func<HashSet<string>> Reportable_Variables { get; set; } = () => [];
 
-	public Dictionary<string, Func<string, Task>> Reported_Variables => [];
+    public Dictionary<string, Func<string, ValueTask>> Reported_Variables => [];
 
-	public Func<HashSet<string>> Sendable_Variables { get; set; } = () => [];
+    public Func<HashSet<string>> Sendable_Variables { get; set; } = () => [];
 
-	public Func<string, Task> ResetCallbackAsync { get; }
+    public Func<string, ValueTask> ResetCallbackAsync { get; }
 
-	/// <summary>
-	/// Creates the MSDP Server Model. 
-	/// Define each public variable to implement MSDP.
-	/// </summary>
-	/// <param name="setCallback">Function to call when a client wishes to set a server variable.</param>
-	public MSDPServerModel(Func<string,Task> resetCallback)
-	{
-		Lists = new()
-		{
-			{ "COMMANDS", Commands},
-			{ "CONFIGURABLE_VARIABLES", Configurable_Variables},
-			{ "REPORTABLE_VARIABLES", Reportable_Variables},
-			{ "REPORTED_VARIABLES", () => Reported_Variables.Select( x=> x.Key).ToHashSet() },
-			{ "SENDABLE_VARIABLES", Sendable_Variables}
-		};
-		
-		ResetCallbackAsync = resetCallback;
-	}
+    /// <summary>
+    /// Creates the MSDP Server Model. 
+    /// Define each public variable to implement MSDP.
+    /// </summary>
+    /// <param name="setCallback">Function to call when a client wishes to set a server variable.</param>
+    public MSDPServerModel(Func<string, ValueTask> resetCallback)
+    {
+        Lists = new()
+        {
+            { "COMMANDS", Commands },
+            { "CONFIGURABLE_VARIABLES", Configurable_Variables },
+            { "REPORTABLE_VARIABLES", Reportable_Variables },
+            { "REPORTED_VARIABLES", () => Reported_Variables.Select(x => x.Key).ToHashSet() },
+            { "SENDABLE_VARIABLES", Sendable_Variables }
+        };
 
-	public async Task ResetAsync(string configurableVariable) =>
-			await ResetCallbackAsync(configurableVariable);
+        ResetCallbackAsync = resetCallback;
+    }
 
-	public void Report(string reportableVariable, Func<string, Task> function) =>
-		Reported_Variables.Add(reportableVariable, function);
+    public async ValueTask ResetAsync(string configurableVariable) =>
+        await ResetCallbackAsync(configurableVariable);
 
-	public void UnReport(string reportableVariable) =>
-		Reported_Variables.Remove(reportableVariable);
+    public void Report(string reportableVariable, Func<string, ValueTask> function) =>
+        Reported_Variables.Add(reportableVariable, function);
 
-	public async Task NotifyChangeAsync(string reportableVariable, string newValue) =>
-		await (Reported_Variables.TryGetValue(reportableVariable, out var function)
-			? function(newValue)
-			: Task.CompletedTask);
+    public void UnReport(string reportableVariable) =>
+        Reported_Variables.Remove(reportableVariable);
+
+    public async ValueTask NotifyChangeAsync(string reportableVariable, string newValue) =>
+        await (Reported_Variables.TryGetValue(reportableVariable, out var function)
+            ? function(newValue)
+            : ValueTask.CompletedTask);
 }

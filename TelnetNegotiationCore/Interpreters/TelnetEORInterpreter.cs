@@ -10,7 +10,7 @@ public partial class TelnetInterpreter
 {
 	private bool? _doEOR = null;
 
-	public Func<Task> SignalOnPromptingAsync { get; init; }
+	public Func<ValueTask> SignalOnPromptingAsync { get; init; }
 
 	/// <summary>
 	/// Character set Negotiation will set the Character Set and Character Page Server & Client have agreed to.
@@ -29,13 +29,13 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.DoEOR)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(OnDoEORAsync);
+				.OnEntryAsync(async x => await OnDoEORAsync(x));
 
 			tsm.Configure(State.DontEOR)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(OnDontEORAsync);
+				.OnEntryAsync(async () => await OnDontEORAsync());
 
-			RegisterInitialWilling(WillingEORAsync);
+			RegisterInitialWilling(async () => await WillingEORAsync());
 		}
 		else
 		{
@@ -47,11 +47,11 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.WontEOR)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(WontEORAsync);
+				.OnEntryAsync(async () => await WontEORAsync());
 
 			tsm.Configure(State.WillEOR)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(OnWillEORAsync);
+				.OnEntryAsync(async x => await OnWillEORAsync(x));
 		}
 
 		tsm.Configure(State.StartNegotiation)
@@ -59,35 +59,35 @@ public partial class TelnetInterpreter
 
 		tsm.Configure(State.Prompting)
 			.SubstateOf(State.Accepting)
-			.OnEntryAsync(OnEORPrompt);
+			.OnEntryAsync(async () => await OnEORPrompt());
 
 		return tsm;
 	}
 
-	private async Task OnEORPrompt()
+	private async ValueTask OnEORPrompt()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Server is prompting EOR");
-		await (SignalOnPromptingAsync?.Invoke() ?? Task.CompletedTask);
+		await (SignalOnPromptingAsync?.Invoke() ?? ValueTask.CompletedTask);
 	}
 
-	private async Task OnDontEORAsync()
+	private ValueTask OnDontEORAsync()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Client won't do EOR - do nothing");
 		_doEOR = false;
-		await Task.CompletedTask;
+		return ValueTask.CompletedTask;
 	}
 
-	private async Task WontEORAsync()
+	private ValueTask WontEORAsync()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Server  won't do EOR - do nothing");
 		_doEOR = false;
-		await Task.CompletedTask;
+		return ValueTask.CompletedTask;
 	}
 
 	/// <summary>
 	/// Announce we do EOR negotiation to the client.
 	/// </summary>
-	private async Task WillingEORAsync()
+	private async ValueTask WillingEORAsync()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to EOR!");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR]);
@@ -96,17 +96,17 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Store that we are now in EOR mode.
 	/// </summary>
-	private Task OnDoEORAsync(StateMachine<State, Trigger>.Transition _)
+	private ValueTask OnDoEORAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Client supports End of Record.");
 		_doEOR = true;
-		return Task.CompletedTask;
+		return ValueTask.CompletedTask;
 	}
 
 	/// <summary>
 	/// Store that we are now in EOR mode.
 	/// </summary>
-	private async Task OnWillEORAsync(StateMachine<State, Trigger>.Transition _)
+	private async ValueTask OnWillEORAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Server supports End of Record.");
 		_doEOR = true;
@@ -117,8 +117,8 @@ public partial class TelnetInterpreter
 	/// Sends a byte message as a Prompt, if supported, by not sending an EOR at the end.
 	/// </summary>
 	/// <param name="send">Byte array</param>
-	/// <returns>A completed Task</returns>
-	public async Task SendPromptAsync(byte[] send)
+	/// <returns>A completed ValueTask</returns>
+	public async ValueTask SendPromptAsync(byte[] send)
 	{
 		await CallbackNegotiationAsync(send);
 		if (_doEOR is null or false)
@@ -129,7 +129,7 @@ public partial class TelnetInterpreter
 		{
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.EOR]);
 		}
-		else if (_doGA is not null or false)
+		else if (_doGA is not null)
 		{
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.GA]);
 		}
@@ -139,8 +139,8 @@ public partial class TelnetInterpreter
 	/// Sends a byte message, adding an EOR at the end if needed.
 	/// </summary>
 	/// <param name="send">Byte array</param>
-	/// <returns>A completed Task</returns>
-	public async Task SendAsync(byte[] send)
+	/// <returns>A completed ValueTask</returns>
+	public async ValueTask SendAsync(byte[] send)
 	{
 		await CallbackNegotiationAsync(send);
 		await CallbackNegotiationAsync(CurrentEncoding.GetBytes(Environment.NewLine));

@@ -45,7 +45,7 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// NAWS Callback function to alert server of Width & Height negotiation
 	/// </summary>
-	public Func<int, int, Task> SignalOnNAWSAsync { get; init; }
+	public Func<int, int, ValueTask> SignalOnNAWSAsync { get; init; }
 
 	/// <summary>
 	/// This exists to avoid an infinite loop with badly conforming clients.
@@ -82,7 +82,7 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.DoNAWS)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(ServerWontNAWSAsync);
+				.OnEntryAsync(async () => await ServerWontNAWSAsync());
 		}
 
 		if (Mode == TelnetMode.Client)
@@ -98,7 +98,7 @@ public partial class TelnetInterpreter
 
 		tsm.Configure(State.WillDoNAWS)
 			.SubstateOf(State.Accepting)
-			.OnEntryAsync(RequestNAWSAsync);
+			.OnEntryAsync(async x => await RequestNAWSAsync(x));
 
 		tsm.Configure(State.WontDoNAWS)
 			.SubstateOf(State.Accepting)
@@ -125,16 +125,16 @@ public partial class TelnetInterpreter
 
 		tsm.Configure(State.CompletingNAWS)
 			.SubstateOf(State.EndSubNegotiation)
-			.OnEntryAsync(CompleteNAWSAsync);
+			.OnEntryAsync(async x => await CompleteNAWSAsync(x));
 
 		RegisterInitialWilling(async () => await RequestNAWSAsync(null));
 
 		return tsm;
 	}
 
-	public async Task SendNAWS(short width, short height)
+	public async ValueTask SendNAWS(short width, short height)
 	{
-		if(!_WillingToDoNAWS) await Task.CompletedTask;
+		if(!_WillingToDoNAWS) await ValueTask.CompletedTask;
 		
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS, 
 			.. BitConverter.GetBytes(width), .. BitConverter.GetBytes(height), 
@@ -144,7 +144,7 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Request NAWS from a client
 	/// </summary>
-	public async Task RequestNAWSAsync(StateMachine<State, Trigger>.Transition _)
+	public async ValueTask RequestNAWSAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		if (!_WillingToDoNAWS)
 		{
@@ -176,7 +176,7 @@ public partial class TelnetInterpreter
 		_nawsIndex = 0;
 	}
 
-	private async Task ServerWontNAWSAsync()
+	private async ValueTask ServerWontNAWSAsync()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing refusing to send NAWS, this is a Server!");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS]);
@@ -186,7 +186,7 @@ public partial class TelnetInterpreter
 	/// Read the NAWS state values and finalize it into width and height values.
 	/// </summary>
 	/// <param name="_">Ignored</param>
-	private async Task CompleteNAWSAsync(StateMachine<State, Trigger>.Transition _)
+	private async ValueTask CompleteNAWSAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		byte[] width = [_nawsByteState[0], _nawsByteState[1]];
 		byte[] height = [_nawsByteState[2], _nawsByteState[3]];
@@ -201,6 +201,6 @@ public partial class TelnetInterpreter
 		ClientHeight = BitConverter.ToInt16(height);
 
 		_Logger.LogDebug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
-		await (SignalOnNAWSAsync?.Invoke(ClientHeight, ClientWidth) ?? Task.CompletedTask);
+		await (SignalOnNAWSAsync?.Invoke(ClientHeight, ClientWidth) ?? ValueTask.CompletedTask);
 	}
 }

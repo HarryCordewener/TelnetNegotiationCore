@@ -23,7 +23,7 @@ public class ParameterizedTriggers
 	public StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParameterizedTrigger(StateMachine<State, Trigger> stm, Trigger t)
 	{
 
-		if (_cache.TryGetValue(t, out StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> value))
+		if (_cache.TryGetValue(t, out var value))
 		{
 			return value;
 		}

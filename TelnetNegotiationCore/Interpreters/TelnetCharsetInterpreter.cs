@@ -37,13 +37,14 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private int _acceptedCharsetByteIndex = 0;
 
-	private bool charsetOffered = false;
+	private bool _charsetOffered = false;
 
 	private Func<IEnumerable<EncodingInfo>> AllowedEncodings { get; set; } = Encoding.GetEncodings;
 
-	private Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetOrder = (x) => x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
+	private readonly Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetOrder = x 
+		=> x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
 
-	private Func<Encoding, Task> SignalCharsetChangeAsync { get; set; }
+	private Func<Encoding, ValueTask> SignalCharsetChangeAsync { get; set; }
 
 	public Lazy<byte[]> SupportedCharacterSets { get; }
 
@@ -58,7 +59,7 @@ public partial class TelnetInterpreter
 		init
 		{
 			var ordered = value.Reverse().ToList();
-			_charsetOrder = (x) => x.Select(x => x.GetEncoding()).OrderByDescending(z => ordered.IndexOf(z));
+			_charsetOrder = x => x.Select(y => y.GetEncoding()).OrderByDescending(z => ordered.IndexOf(z));
 		}
 	}
 
@@ -83,7 +84,7 @@ public partial class TelnetInterpreter
 
 		tsm.Configure(State.WillDoCharset)
 			.SubstateOf(State.Accepting)
-			.OnEntryAsync(OnWillingCharsetAsync);
+			.OnEntryAsync(async x => await OnWillingCharsetAsync(x));
 
 		tsm.Configure(State.WontDoCharset)
 			.SubstateOf(State.Accepting)
@@ -91,7 +92,7 @@ public partial class TelnetInterpreter
 
 		tsm.Configure(State.DoCharset)
 			.SubstateOf(State.Accepting)
-			.OnEntryAsync(OnDoCharsetAsync);
+			.OnEntryAsync(async x => await OnDoCharsetAsync(x));
 
 		tsm.Configure(State.DontCharset)
 			.SubstateOf(State.Accepting)
@@ -140,14 +141,14 @@ public partial class TelnetInterpreter
 		TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.EvaluatingAcceptedCharsetValue).PermitReentry(t));
 
 		tsm.Configure(State.CompletingAcceptedCharset)
-			.OnEntryAsync(CompleteAcceptedCharsetAsync)
+			.OnEntryAsync(async x => await CompleteAcceptedCharsetAsync(x))
 			.SubstateOf(State.Accepting);
 
 		tsm.Configure(State.CompletingCharset)
-			.OnEntryAsync(CompleteCharsetAsync)
+			.OnEntryAsync(async x => await CompleteCharsetAsync(x))
 			.SubstateOf(State.Accepting);
 
-		RegisterInitialWilling(WillingCharsetAsync);
+		RegisterInitialWilling(async () => await WillingCharsetAsync());
 
 		return tsm;
 	}
@@ -175,7 +176,7 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Read the Charset state values and finalize it and prepare to respond.
 	/// </summary>
-	/// <param name="_">Ignored</param>
+	/// <param name="b">Byte</param>
 	private void CaptureCharset(OneOf<byte, Trigger> b)
 	{
 		if (_charsetByteIndex > _charsetByteState.Length) return;
@@ -186,7 +187,7 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Read the Charset state values and finalize it and prepare to respond.
 	/// </summary>
-	/// <param name="_">Ignored</param>
+	/// <param name="b"></param>
 	private void CaptureAcceptedCharset(OneOf<byte, Trigger> b)
 	{
 		_acceptedCharsetByteState[_acceptedCharsetByteIndex] = b.AsT0;
@@ -197,16 +198,16 @@ public partial class TelnetInterpreter
 	/// Finalize internal state values for Charset.
 	/// </summary>
 	/// <param name="_">Ignored</param>
-	private async Task CompleteCharsetAsync(StateMachine<State, Trigger>.Transition _)
+	private async ValueTask CompleteCharsetAsync(StateMachine<State, Trigger>.Transition _)
 	{
-		if (charsetOffered && Mode == TelnetMode.Server)
+		if (_charsetOffered && Mode == TelnetMode.Server)
 		{
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE]);
 			return;
 		}
 
-		char? sep = ascii.GetString(_charsetByteState, 0, 1)?[0];
-		string[] charsetsOffered = ascii.GetString(_charsetByteState, 1, _charsetByteIndex - 1).Split(sep ?? ' ');
+		var sep = ascii.GetString(_charsetByteState, 0, 1)?[0];
+		var charsetsOffered = ascii.GetString(_charsetByteState, 1, _charsetByteIndex - 1).Split(sep ?? ' ');
 
 		_Logger.LogDebug("Charsets offered to us: {@charsetResultDebug}", charsetsOffered);
 
@@ -228,7 +229,7 @@ public partial class TelnetInterpreter
 		byte[] postAmble = [ (byte)Trigger.IAC, (byte)Trigger.SE ];
 
 		CurrentEncoding = chosenEncoding;
-		await (SignalCharsetChangeAsync?.Invoke(CurrentEncoding) ?? Task.CompletedTask);
+		await (SignalCharsetChangeAsync?.Invoke(CurrentEncoding) ?? ValueTask.CompletedTask);
 
 		// TODO: The implementing Server or Client needs to be warned when CurrentEncoding is set!
 		// This would allow, for instance, the Console to ensure it displays Unicode correctly.
@@ -240,7 +241,7 @@ public partial class TelnetInterpreter
 	/// Finalize internal state values for Accepted Charset.
 	/// </summary>
 	/// <param name="_">Ignored</param>
-	private async Task CompleteAcceptedCharsetAsync(StateMachine<State, Trigger>.Transition _)
+	private async ValueTask CompleteAcceptedCharsetAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		try
 		{
@@ -252,23 +253,23 @@ public partial class TelnetInterpreter
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE]);
 		}
 		_Logger.LogInformation("Connection: Accepted Charset Negotiation for: {charset}", CurrentEncoding.WebName);
-		charsetOffered = false;
+		_charsetOffered = false;
 	}
 
 	/// <summary>
 	/// Announce we do charset negotiation to the client after getting a Willing.
 	/// </summary>
-	private async Task OnWillingCharsetAsync(StateMachine<State, Trigger>.Transition _)
+	private async ValueTask OnWillingCharsetAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Request charset negotiation from Client");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET]);
-		charsetOffered = false;
+		_charsetOffered = false;
 	}
 
 	/// <summary>
 	/// Announce we do charset negotiation to the client.
 	/// </summary>
-	private async Task WillingCharsetAsync()
+	private async ValueTask WillingCharsetAsync()
 	{
 		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to Charset!");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET]);
@@ -277,11 +278,11 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Announce the charsets we support to the client after getting a Do.
 	/// </summary>
-	private async Task OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _)
+	private async ValueTask OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		_Logger.LogDebug("Charsets String: {CharsetList}", ";" + string.Join(";", _charsetOrder(AllowedEncodings()).Select(x => x.WebName)));
 		await CallbackNegotiationAsync(SupportedCharacterSets.Value);
-		charsetOffered = true;
+		_charsetOffered = true;
 	}
 
 	/// <summary>
