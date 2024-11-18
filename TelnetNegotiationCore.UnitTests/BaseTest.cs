@@ -7,7 +7,7 @@ namespace TelnetNegotiationCore.UnitTests
 {
 	public class BaseTest
 	{
-		static internal Microsoft.Extensions.Logging.ILogger logger;
+		internal static readonly Microsoft.Extensions.Logging.ILogger logger;
 
 		static BaseTest()
 		{

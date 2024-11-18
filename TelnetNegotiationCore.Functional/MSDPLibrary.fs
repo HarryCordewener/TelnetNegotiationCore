@@ -15,7 +15,7 @@ module MSDPLibrary =
       | MSDP_ARRAY_CLOSE = 6uy
 
   [<TailCall>]
-  let private MSDPScanTailRec (root: obj, array: seq<byte>, encoding: Encoding) =
+  let rec private MSDPScanTailRec (root: obj, array: byte seq, encoding: Encoding) =
       let rec scan accRoot accArray =
           if Seq.length accArray = 0 then (accRoot, accArray)
           else
@@ -42,8 +42,8 @@ module MSDPLibrary =
                   (encoding.GetString(accArray |> Seq.takeWhile(fun x -> x > 6uy) |> Array.ofSeq), accArray |> Seq.skipWhile(fun x -> x > 6uy))
       scan root array
 
-  let public MSDPScan(array: seq<byte>, encoding) =
-    let (result, _) = MSDPScanTailRec(Map<string,obj> [], array, encoding)
+  let public MSDPScan(array: byte seq, encoding) =
+    let result, _ = MSDPScanTailRec(Map<string,obj> [], array, encoding)
     result
 
   let parseJsonRoot (jsonRootNode: JsonNode, encoding: Encoding) =
@@ -55,16 +55,16 @@ module MSDPLibrary =
                 |> Seq.map (fun prop ->
                     let key = prop.Key
                     let value = parseJsonValue prop.Value
-                    [(byte)Trigger.MSDP_VAR] @ (encoding.GetBytes(key) |> List.ofArray) @ [(byte)Trigger.MSDP_VAL] @ value
+                    [byte Trigger.MSDP_VAR] @ (encoding.GetBytes(key) |> List.ofArray) @ [byte Trigger.MSDP_VAL] @ value
                 ) |> List.concat
-            [(byte)Trigger.MSDP_TABLE_OPEN] @ parsedObj @ [(byte)Trigger.MSDP_TABLE_CLOSE]
+            [byte Trigger.MSDP_TABLE_OPEN] @ parsedObj @ [(byte)Trigger.MSDP_TABLE_CLOSE]
         | JsonValueKind.Array ->
             let parsedArr =
                 jsonNode.AsArray()
-                |> Seq.map (fun prop -> [(byte)Trigger.MSDP_VAL] @ parseJsonValue(prop))
+                |> Seq.map (fun prop -> [byte Trigger.MSDP_VAL] @ parseJsonValue(prop))
                 |> List.ofSeq
                 |> List.concat
-            [(byte)Trigger.MSDP_ARRAY_OPEN] @ parsedArr @ [(byte)Trigger.MSDP_ARRAY_CLOSE]
+            [byte Trigger.MSDP_ARRAY_OPEN] @ parsedArr @ [byte Trigger.MSDP_ARRAY_CLOSE]
         | JsonValueKind.String -> encoding.GetBytes(jsonNode.AsValue().ToString()) |> List.ofArray
         | JsonValueKind.Number -> encoding.GetBytes(jsonNode.AsValue().ToString()) |> List.ofArray
         | JsonValueKind.True -> encoding.GetBytes("1") |> List.ofArray

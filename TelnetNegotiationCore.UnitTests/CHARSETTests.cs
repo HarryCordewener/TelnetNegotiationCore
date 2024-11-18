@@ -11,7 +11,7 @@ using TelnetNegotiationCore.Models;
 namespace TelnetNegotiationCore.UnitTests
 {
 	[TestFixture]
-	public class CHARSETTests() : BaseTest
+	public class CharsetTests() : BaseTest
 	{
 		private byte[] _negotiationOutput;
 

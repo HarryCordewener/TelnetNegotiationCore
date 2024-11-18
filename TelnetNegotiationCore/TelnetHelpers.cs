@@ -1,9 +1,8 @@
 ﻿using System.Text;
 
-namespace TelnetNegotiationCore.Interpreters
+namespace TelnetNegotiationCore.Interpreters;
+
+public partial class TelnetInterpreter
 {
-	public partial class TelnetInterpreter
-	{
-		private readonly ASCIIEncoding ascii = new();
-	}
+	private readonly ASCIIEncoding ascii = new();
 }

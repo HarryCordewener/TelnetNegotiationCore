@@ -16,7 +16,6 @@
 		<RepositoryType>git</RepositoryType>
 		<PackageTags>telnet</PackageTags>
 		<PackageLicenseFile>LICENSE</PackageLicenseFile>
-		<PackageReleaseNotes>$([System.IO.File]::ReadAllText("CHANGELOG.md"))</PackageReleaseNotes>
 		<Copyright>Copyright © TelnetNegotiationCore Contributors 2024-$([System.DateTime]::Now.ToString(yyyy))</Copyright>
 	</PropertyGroup>
 
