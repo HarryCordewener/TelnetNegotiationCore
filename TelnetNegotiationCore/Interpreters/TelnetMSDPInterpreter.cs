@@ -18,9 +18,9 @@ namespace TelnetNegotiationCore.Interpreters;
 /// </remarks>
 public partial class TelnetInterpreter
 {
-	private List<byte> _currentMSDPInfo;
+	private List<byte> _currentMSDPInfo = [];
 
-	public Func<TelnetInterpreter, string, ValueTask> SignalOnMSDPAsync { get; init; }
+	public Func<TelnetInterpreter, string, ValueTask>? SignalOnMSDPAsync { get; init; }
 
 	/// <summary>
 	/// Mud Server Status Protocol will provide information to the requestee about the server's contents.

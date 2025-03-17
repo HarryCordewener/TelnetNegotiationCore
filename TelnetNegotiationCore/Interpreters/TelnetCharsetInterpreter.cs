@@ -20,7 +20,7 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Internal Charset Byte State
 	/// </summary>
-	private byte[] _charsetByteState;
+	private byte[] _charsetByteState = [];
 
 	/// <summary>
 	/// Internal Charset Byte Index Value
@@ -30,7 +30,7 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Internal Accepted Charset Byte State
 	/// </summary>
-	private byte[] _acceptedCharsetByteState;
+	private byte[] _acceptedCharsetByteState = [];
 
 	/// <summary>
 	/// Internal Accepted Charset Byte Index Value
@@ -44,9 +44,9 @@ public partial class TelnetInterpreter
 	private readonly Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetOrder = x 
 		=> x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
 
-	private Func<Encoding, ValueTask> SignalCharsetChangeAsync { get; set; }
+	private Func<Encoding, ValueTask>? SignalCharsetChangeAsync { get; set; }
 
-	public Lazy<byte[]> SupportedCharacterSets { get; }
+	private Lazy<byte[]> SupportedCharacterSets { get; }
 
 	/// <summary>
 	/// Sets the CharacterSet Order
@@ -190,7 +190,7 @@ public partial class TelnetInterpreter
 	/// <param name="b"></param>
 	private void CaptureAcceptedCharset(OneOf<byte, Trigger> b)
 	{
-		_acceptedCharsetByteState[_acceptedCharsetByteIndex] = b.AsT0;
+		_acceptedCharsetByteState![_acceptedCharsetByteIndex] = b.AsT0;
 		_acceptedCharsetByteIndex++;
 	}
 
@@ -209,10 +209,13 @@ public partial class TelnetInterpreter
 		var sep = ascii.GetString(_charsetByteState, 0, 1)?[0];
 		var charsetsOffered = ascii.GetString(_charsetByteState, 1, _charsetByteIndex - 1).Split(sep ?? ' ');
 
-		_logger.LogDebug("Charsets offered to us: {@charsetResultDebug}", charsetsOffered);
+		_logger.LogDebug("Charsets offered to us: {@charsetResultDebug}", [..charsetsOffered]);
 
 		var encodingDict = AllowedEncodings().ToDictionary(x => x.GetEncoding().WebName);
-		var offeredEncodingInfo = charsetsOffered.Select(x => { try { return encodingDict[Encoding.GetEncoding(x).WebName]; } catch { return null; } }).Where(x => x != null);
+		var offeredEncodingInfo = charsetsOffered
+			.Select(x => { try { return encodingDict[Encoding.GetEncoding(x).WebName]; } catch { return null; } })
+			.Where(x => x != null)
+			.Select(x => x!);
 		var preferredEncoding = _charsetOrder(offeredEncodingInfo);
 		var chosenEncoding = preferredEncoding.FirstOrDefault();
 
@@ -245,11 +248,11 @@ public partial class TelnetInterpreter
 	{
 		try
 		{
-			CurrentEncoding = Encoding.GetEncoding(ascii.GetString(_acceptedCharsetByteState, 0, _acceptedCharsetByteIndex).Trim());
+			CurrentEncoding = Encoding.GetEncoding(ascii.GetString(_acceptedCharsetByteState!, 0, _acceptedCharsetByteIndex).Trim());
 		}
 		catch (Exception ex)
 		{
-			_logger.LogError(ex, "Unexpected error during Accepting Charset Negotiation. Could not find charset: {charset}", ascii.GetString(_acceptedCharsetByteState, 0, _acceptedCharsetByteIndex));
+			_logger.LogError(ex, "Unexpected error during Accepting Charset Negotiation. Could not find charset: {charset}", ascii.GetString(_acceptedCharsetByteState!, 0, _acceptedCharsetByteIndex));
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE]);
 		}
 		_logger.LogInformation("Connection: Accepted Charset Negotiation for: {charset}", CurrentEncoding.WebName);

@@ -40,7 +40,7 @@ public partial class TelnetInterpreter
     /// <summary>
     /// Internal Terminal Type Byte State
     /// </summary>
-    private byte[] _ttypeByteState;
+    private byte[] _ttypeByteState = [];
 
     /// <summary>
     /// Internal Terminal Type Byte Index
@@ -209,15 +209,16 @@ public partial class TelnetInterpreter
         if (TerminalTypes.Contains(TType))
         {
             _CurrentTerminalType = (_CurrentTerminalType + 1) % TerminalTypes.Count;
+            
             var MTTS = TerminalTypes.FirstOrDefault(x => x.StartsWith("MTTS"));
-            if (MTTS != default)
+            if (MTTS != null)
             {
                 var mttsVal = int.Parse(MTTS.Remove(0, 5));
 
                 TerminalTypes = TerminalTypes.AddRange(_MTTS.Where(x => (mttsVal & x.Key) != 0).Select(x => x.Value));
+                TerminalTypes = TerminalTypes.Remove(MTTS);
             }
 
-            TerminalTypes = TerminalTypes.Remove(MTTS);
             _logger.LogDebug("Connection: {ConnectionState}: {@TerminalTypes}",
                 "Completing Terminal Type negotiation. List as follows", TerminalTypes);
         }

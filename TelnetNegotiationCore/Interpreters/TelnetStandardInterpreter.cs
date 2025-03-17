@@ -73,17 +73,17 @@ public partial class TelnetInterpreter
     /// <summary>
     /// Callback to run on a submission (linefeed)
     /// </summary>
-    public Func<byte[], Encoding, TelnetInterpreter, ValueTask> CallbackOnSubmitAsync { get; init; }
+    public required Func<byte[], Encoding, TelnetInterpreter, ValueTask>? CallbackOnSubmitAsync { get; init; }
 
     /// <summary>
     /// Callback to the output stream directly for negotiation.
     /// </summary>
-    public Func<byte[], ValueTask> CallbackNegotiationAsync { get; init; }
+    public required Func<byte[], ValueTask> CallbackNegotiationAsync { get; init; }
 
     /// <summary>
     /// Callback per byte.
     /// </summary>
-    public Func<byte, Encoding, ValueTask> CallbackOnByteAsync { get; init; }
+    public Func<byte, Encoding, ValueTask>? CallbackOnByteAsync { get; init; }
 
     /// <summary>
     /// Constructor, sets up for standard Telnet protocol with NAWS and Character Set support.
@@ -227,7 +227,11 @@ public partial class TelnetInterpreter
         var cp = new byte[_bufferPosition];
         _buffer.AsSpan()[.._bufferPosition].CopyTo(cp);
         _bufferPosition = 0;
-        await CallbackOnSubmitAsync.Invoke(cp, CurrentEncoding, this);
+
+        if (CallbackOnSubmitAsync is not null)
+        {
+            await CallbackOnSubmitAsync(cp, CurrentEncoding, this);
+        }
     }
 
     /// <summary>

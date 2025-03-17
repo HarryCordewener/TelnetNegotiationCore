@@ -14,7 +14,7 @@ public partial class TelnetInterpreter
 {
 	private List<byte> _GMCPBytes = [];
 
-	public Func<(string Package, string Info), ValueTask> SignalOnGMCPAsync { get; init; }
+	public Func<(string Package, string Info), ValueTask>? SignalOnGMCPAsync { get; init; }
 
 	private StateMachine<State, Trigger> SetupGMCPNegotiation(StateMachine<State, Trigger> tsm)
 	{
@@ -140,7 +140,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	/// <param name="_">Transition, ignored.</param>
 	/// <returns>ValueTask</returns>
-	private async ValueTask WillGMCPAsync(StateMachine<State, Trigger>.Transition _)
+	private async ValueTask WillGMCPAsync(StateMachine<State, Trigger>.Transition? _)
 	{
 		_logger.LogDebug("Connection: {ConnectionState}", "Announcing the server will GMCP");
 

@@ -19,7 +19,7 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Internal NAWS Byte State
 	/// </summary>
-	private byte[] _nawsByteState;
+	private byte[] _nawsByteState = [];
 
 	/// <summary>
 	/// Internal NAWS Byte Index Value
@@ -45,7 +45,7 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// NAWS Callback function to alert server of Width & Height negotiation
 	/// </summary>
-	public Func<int, int, ValueTask> SignalOnNAWSAsync { get; init; }
+	public Func<int, int, ValueTask>? SignalOnNAWSAsync { get; init; }
 
 	/// <summary>
 	/// This exists to avoid an infinite loop with badly conforming clients.
@@ -127,7 +127,7 @@ public partial class TelnetInterpreter
 			.SubstateOf(State.EndSubNegotiation)
 			.OnEntryAsync(async x => await CompleteNAWSAsync(x));
 
-		RegisterInitialWilling(async () => await RequestNAWSAsync(null));
+		RegisterInitialWilling(async () => await RequestNAWSAsync());
 
 		return tsm;
 	}
@@ -144,7 +144,7 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Request NAWS from a client
 	/// </summary>
-	public async ValueTask RequestNAWSAsync(StateMachine<State, Trigger>.Transition _)
+	public async ValueTask RequestNAWSAsync(StateMachine<State, Trigger>.Transition? _ = null)
 	{
 		if (!_WillingToDoNAWS)
 		{

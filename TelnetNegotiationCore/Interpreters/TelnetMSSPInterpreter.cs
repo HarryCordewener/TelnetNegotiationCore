@@ -13,19 +13,20 @@ namespace TelnetNegotiationCore.Interpreters;
 
 public partial class TelnetInterpreter
 {
-	private Func<MSSPConfig> _msspConfig = () => new();
+	private Func<MSSPConfig> _msspConfig = () => new MSSPConfig();
 
-	private List<byte> _currentMSSPVariable;
-	private List<List<byte>> _currentMSSPValueList;
-	private List<byte> _currentMSSPValue;
-	private List<List<byte>> _currentMSSPVariableList;
+	private List<byte> _currentMSSPVariable = [];
+	private List<List<byte>> _currentMSSPValueList = [];
+	private List<byte> _currentMSSPValue = [];
+	private List<List<byte>> _currentMSSPVariableList = [];
 
-	public Func<MSSPConfig, ValueTask> SignalOnMSSPAsync { get; init; }
+	public Func<MSSPConfig, ValueTask>? SignalOnMSSPAsync { get; init; }
 
-	private IImmutableDictionary<string, (MemberInfo Member, NameAttribute Attribute)> MSSPAttributeMembers = typeof(MSSPConfig)
+	private readonly IImmutableDictionary<string, (MemberInfo Member, NameAttribute Attribute)> _msspAttributeMembers = typeof(MSSPConfig)
 		.GetMembers()
 		.Select(x => (Member: x, Attribute: x.GetCustomAttribute<NameAttribute>()))
 		.Where(x => x.Attribute != null)
+		.Select(x => (x.Member, Attribute: x.Attribute!))
 		.ToImmutableDictionary(x => x.Attribute.Name.ToUpper());
 
 	/// <summary>
@@ -155,9 +156,9 @@ public partial class TelnetInterpreter
 	/// <param name="value"></param>
 	private void StoreClientMSSPDetails(string variable, IEnumerable<string> value)
 	{
-		if (MSSPAttributeMembers.ContainsKey(variable.ToUpper()))
+		if (_msspAttributeMembers.ContainsKey(variable.ToUpper()))
 		{
-			var foundAttribute = MSSPAttributeMembers[variable.ToUpper()];
+			var foundAttribute = _msspAttributeMembers[variable.ToUpper()];
 			var fieldInfo = (PropertyInfo)foundAttribute.Member;
 
 			var msspConfig = _msspConfig();
@@ -271,13 +272,13 @@ public partial class TelnetInterpreter
 
 			var attr = Attribute.GetCustomAttribute(field, typeof(NameAttribute)) as NameAttribute;
 
-			msspBytes = [.. msspBytes, .. ConvertToMSSP(attr.Name, b)];
+			msspBytes = [.. msspBytes, .. ConvertToMSSP(attr!.Name, b)];
 		}
 
 		foreach (var item in config.Extended ?? [])
 		{
 			if (item.Value == null) continue;
-			msspBytes = [.. msspBytes, .. ConvertToMSSP(item.Key, item.Value) as byte[]];
+			msspBytes = [.. msspBytes, .. (byte[])ConvertToMSSP(item.Key, item.Value)];
 		}
 
 		return msspBytes;

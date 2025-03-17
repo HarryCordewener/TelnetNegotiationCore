@@ -30,8 +30,8 @@ namespace LocalMoreLinq
 
 	readonly struct ListLike<T>
 	{
-		readonly IList<T> rw;
-		readonly IReadOnlyList<T> ro;
+		readonly IList<T>? rw;
+		readonly IReadOnlyList<T>? ro;
 
 		public ListLike(IList<T> list)
 		{

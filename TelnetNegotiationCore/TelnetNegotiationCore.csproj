@@ -18,6 +18,7 @@
 		<PackageLicenseFile>LICENSE</PackageLicenseFile>
 		<PackageReleaseNotes>https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/CHANGELOG.md</PackageReleaseNotes>
 		<Copyright>Copyright © TelnetNegotiationCore Contributors 2024-$([System.DateTime]::Now.ToString(yyyy))</Copyright>
+		<Nullable>enable</Nullable>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">

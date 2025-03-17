@@ -10,7 +10,7 @@ public partial class TelnetInterpreter
 {
 	private bool? _doEOR = null;
 
-	public Func<ValueTask> SignalOnPromptingAsync { get; init; }
+	public Func<ValueTask>? SignalOnPromptingAsync { get; init; }
 
 	/// <summary>
 	/// Character set Negotiation will set the Character Set and Character Page Server & Client have agreed to.

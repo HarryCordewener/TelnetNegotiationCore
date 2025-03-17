@@ -60,11 +60,10 @@ public class MockPipelineClient(ILogger<MockPipelineClient> logger)
 
 		while (true)
 		{
-			string read = Console.ReadLine() ?? string.Empty;
-
+			var read = Console.ReadLine() ?? string.Empty;
 			if (telnet != null)
 			{
-				await telnet.SendPromptAsync(telnet?.CurrentEncoding.GetBytes(read));
+				await telnet.SendPromptAsync(telnet?.CurrentEncoding.GetBytes(read) ?? []);
 			}
 		}
 	}
