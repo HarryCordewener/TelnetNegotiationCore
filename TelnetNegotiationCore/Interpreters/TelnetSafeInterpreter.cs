@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System;
+using System.Collections.Immutable;
 using TelnetNegotiationCore.Models;
 using System.IO;
 using Microsoft.Extensions.Logging;
@@ -20,19 +21,16 @@ public partial class TelnetInterpreter
 	/// <returns>The new byte[] with 255s duplicated.</returns>
 	public byte[] TelnetSafeString(string str)
 	{
-		byte[] result;
-		var x = CurrentEncoding.GetBytes(str).AsSpan();
+		var byteSpan = CurrentEncoding.GetBytes(str).AsSpan();
 
-		using (var memStream = new MemoryStream())
+		using var memStream = new MemoryStream();
+		foreach (var bt in byteSpan)
 		{
-			foreach (byte bt in x)
-			{
-				memStream.Write(bt == 255 ? ([255, 255]) : (byte[])[bt]);
-			}
-			result = memStream.ToArray();
+			memStream.Write(bt == 255 
+				? [255, 255] 
+				: (byte[])[bt]);
 		}
-
-		return result;
+		return memStream.ToArray();
 	}
 
 	/// <summary>
@@ -43,19 +41,16 @@ public partial class TelnetInterpreter
 	/// <returns>The new byte[] with 255s duplicated.</returns>
 	public byte[] TelnetSafeBytes(byte[] str)
 	{
-		byte[] result;
 		var x = str;
 
-		using (var memStream = new MemoryStream())
+		using var memStream = new MemoryStream();
+		foreach (var bt in x.AsSpan())
 		{
-			foreach (byte bt in x)
-			{
-				memStream.Write(bt == 255 ? ([255, 255]) : (byte[])[bt]);
-			}
-			result = memStream.ToArray();
+			memStream.Write(bt == 255 
+				? [255, 255] 
+				: [bt]);
 		}
-
-		return result;
+		return memStream.ToArray();
 	}
 
 	/// <summary>
@@ -69,7 +64,7 @@ public partial class TelnetInterpreter
 	private StateMachine<State, Trigger> SetupSafeNegotiation(StateMachine<State, Trigger> tsm)
 	{
 		var info = tsm.GetInfo();
-		var triggers = Enum.GetValues(typeof(Trigger)).OfType<Trigger>();
+		var triggers = Enum.GetValues<Trigger>().ToArray();
 		var refuseThese = new List<State> { State.Willing, State.Refusing, State.Do, State.Dont };
 
 		foreach (var stateInfo in info.States.Join(refuseThese, x => x.UnderlyingState, y => y, (x, y) => x))
@@ -79,7 +74,7 @@ public partial class TelnetInterpreter
 
 			foreach (var trigger in outboundUnhandledTriggers)
 			{
-				tsm.Configure(state).Permit(trigger, (State)Enum.Parse(typeof(State), $"Bad{state}"));
+				tsm.Configure(state).Permit(trigger, Enum.Parse<State>($"Bad{state}"));
 				tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
 					.SubstateOf(State.Accepting);
 
@@ -88,7 +83,7 @@ public partial class TelnetInterpreter
 					tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
 						.OnEntryFromAsync(trigger, async () =>
 						{
-							_Logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
+							_logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
 							await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger]);
 						});
 				}
@@ -97,7 +92,7 @@ public partial class TelnetInterpreter
 					tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
 						.OnEntryFromAsync(trigger, async () =>
 						{
-							_Logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Don't send {trigger}.");
+							_logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Don't send {trigger}.");
 							await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger]);
 						});
 				}
@@ -117,15 +112,15 @@ public partial class TelnetInterpreter
 
 		tsm.Configure(State.BadSubNegotiation)
 			.Permit(Trigger.IAC, State.BadSubNegotiationEscaping)
-			.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", $"Unsupported SubNegotiation."));
+			.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", $"Unsupported SubNegotiation."));
 		tsm.Configure(State.BadSubNegotiationEscaping)
 			.Permit(Trigger.IAC, State.BadSubNegotiationEvaluating)
 			.Permit(Trigger.SE, State.BadSubNegotiationCompleting);
 		tsm.Configure(State.BadSubNegotiationCompleting)
-			.OnEntry(() => _Logger.LogDebug("Connection: Explicitly ignoring the SubNegotiation that was sent."))
+			.OnEntry(() => _logger.LogDebug("Connection: Explicitly ignoring the SubNegotiation that was sent."))
 			.SubstateOf(State.Accepting);
 
-		var states = tsm.GetInfo().States;
+		var states = tsm.GetInfo().States.ToImmutableArray();
 		var acceptingStateInfo = states.Where(x => (State)x.UnderlyingState == State.Accepting);
 
 		var statesAllowingForErrorTransitions = states
@@ -136,9 +131,9 @@ public partial class TelnetInterpreter
 			tsm.Configure((State)state.UnderlyingState).Permit(Trigger.Error, State.Accepting);
 		}
 
-		tsm.OnUnhandledTrigger(async (state, trigger, unmetGuards) =>
+		tsm.OnUnhandledTriggerAsync(async (state, trigger, unmetGuards) =>
 		{
-			_Logger.LogCritical("Bad transition from {@State} with trigger {@Trigger} due to unmet guards: {@UnmetGuards}. Cannot recover. " +
+			_logger.LogCritical("Bad transition from {@State} with trigger {@Trigger} due to unmet guards: {@UnmetGuards}. Cannot recover. " +
 				"Ignoring character and attempting to recover.", state, trigger, unmetGuards);
 			await tsm.FireAsync(ParameterizedTrigger(Trigger.Error), Trigger.Error);
 		});

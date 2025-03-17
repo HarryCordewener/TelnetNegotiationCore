@@ -84,7 +84,7 @@ public class MockPipelineClient(ILogger<MockPipelineClient> logger)
 
 			foreach(var segment in read.Buffer)
 			{
-				await telnet.InterpretByteArrayAsync([..segment.Span]);
+				await telnet.InterpretByteArrayAsync(segment);
 			}
 
 			// tell the pipe that we used everything

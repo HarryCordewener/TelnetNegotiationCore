@@ -7,7 +7,6 @@ using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
 using Microsoft.AspNetCore.Connections;
 using System.IO.Pipelines;
-using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Handlers;
 
@@ -78,7 +77,7 @@ namespace TelnetNegotiationCore.TestServer
 			{
 				_logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
 
-				var MSDPHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
+				var msdpHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
 				{
 					Commands = () => ["help", "stats", "info"],
 					Configurable_Variables = () => ["CLIENT_NAME", "CLIENT_VERSION", "PLUGIN_ID"],
@@ -92,7 +91,7 @@ namespace TelnetNegotiationCore.TestServer
 					SignalOnGMCPAsync = SignalGMCPAsync,
 					SignalOnMSSPAsync = SignalMSSPAsync,
 					SignalOnNAWSAsync = SignalNAWSAsync,
-					SignalOnMSDPAsync = (telnet, config) => SignalMSDPAsync(MSDPHandler, telnet, config),
+					SignalOnMSDPAsync = (telnet, config) => SignalMSDPAsync(msdpHandler, telnet, config),
 					CallbackNegotiationAsync = x => WriteToOutputStreamAsync(x, connection.Transport.Output),
 					CharsetOrder = [Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1")]
 				}
@@ -116,7 +115,7 @@ namespace TelnetNegotiationCore.TestServer
 
 					foreach (var segment in buffer)
 					{
-						await telnet.InterpretByteArrayAsync(segment.Span.ToImmutableArray());
+						await telnet.InterpretByteArrayAsync(segment);
 					}
 
 					if (result.IsCompleted)

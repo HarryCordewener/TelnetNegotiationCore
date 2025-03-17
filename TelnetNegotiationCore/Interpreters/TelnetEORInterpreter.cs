@@ -66,20 +66,20 @@ public partial class TelnetInterpreter
 
 	private async ValueTask OnEORPrompt()
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Server is prompting EOR");
+		_logger.LogDebug("Connection: {ConnectionState}", "Server is prompting EOR");
 		await (SignalOnPromptingAsync?.Invoke() ?? ValueTask.CompletedTask);
 	}
 
 	private ValueTask OnDontEORAsync()
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Client won't do EOR - do nothing");
+		_logger.LogDebug("Connection: {ConnectionState}", "Client won't do EOR - do nothing");
 		_doEOR = false;
 		return ValueTask.CompletedTask;
 	}
 
 	private ValueTask WontEORAsync()
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Server  won't do EOR - do nothing");
+		_logger.LogDebug("Connection: {ConnectionState}", "Server  won't do EOR - do nothing");
 		_doEOR = false;
 		return ValueTask.CompletedTask;
 	}
@@ -89,7 +89,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private async ValueTask WillingEORAsync()
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to EOR!");
+		_logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to EOR!");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR]);
 	}
 
@@ -98,7 +98,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private ValueTask OnDoEORAsync(StateMachine<State, Trigger>.Transition _)
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Client supports End of Record.");
+		_logger.LogDebug("Connection: {ConnectionState}", "Client supports End of Record.");
 		_doEOR = true;
 		return ValueTask.CompletedTask;
 	}
@@ -108,7 +108,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private async ValueTask OnWillEORAsync(StateMachine<State, Trigger>.Transition _)
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Server supports End of Record.");
+		_logger.LogDebug("Connection: {ConnectionState}", "Server supports End of Record.");
 		_doEOR = true;
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR]);
 	}

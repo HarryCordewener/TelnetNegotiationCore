@@ -57,20 +57,20 @@ public partial class TelnetInterpreter
 
 	private async ValueTask OnSUPPRESSGOAHEADPrompt()
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Server is prompting SUPPRESSGOAHEAD");
+		_logger.LogDebug("Connection: {ConnectionState}", "Server is prompting SUPPRESSGOAHEAD");
 		await (SignalOnPromptingAsync?.Invoke() ?? ValueTask.CompletedTask);
 	}
 
 	private async ValueTask OnDontSuppressGAAsync()
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Client won't do SUPPRESSGOAHEAD - do nothing");
+		_logger.LogDebug("Connection: {ConnectionState}", "Client won't do SUPPRESSGOAHEAD - do nothing");
 		_doGA = true;
 		await ValueTask.CompletedTask;
 	}
 
 	private async ValueTask WontSuppressGAAsync()
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Server won't do SUPPRESSGOAHEAD - do nothing");
+		_logger.LogDebug("Connection: {ConnectionState}", "Server won't do SUPPRESSGOAHEAD - do nothing");
 		_doGA = true;
 		await ValueTask.CompletedTask;
 	}
@@ -80,7 +80,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private async ValueTask WillingSuppressGAAsync()
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to SUPPRESSGOAHEAD!");
+		_logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to SUPPRESSGOAHEAD!");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD]);
 	}
 
@@ -89,7 +89,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private ValueTask OnDoSuppressGAAsync(StateMachine<State, Trigger>.Transition _)
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Client supports End of Record.");
+		_logger.LogDebug("Connection: {ConnectionState}", "Client supports End of Record.");
 		_doGA = false;
 		return ValueTask.CompletedTask;
 	}
@@ -99,7 +99,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private async ValueTask OnWillSuppressGAAsync(StateMachine<State, Trigger>.Transition _)
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Server supports End of Record.");
+		_logger.LogDebug("Connection: {ConnectionState}", "Server supports End of Record.");
 		_doGA = false;
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD]);
 	}

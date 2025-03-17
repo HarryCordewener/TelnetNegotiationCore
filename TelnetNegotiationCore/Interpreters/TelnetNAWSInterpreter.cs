@@ -78,7 +78,7 @@ public partial class TelnetInterpreter
 		{
 			tsm.Configure(State.DontNAWS)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Client won't do NAWS - do nothing"));
+				.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", "Client won't do NAWS - do nothing"));
 
 			tsm.Configure(State.DoNAWS)
 				.SubstateOf(State.Accepting)
@@ -89,7 +89,7 @@ public partial class TelnetInterpreter
 		{
 			tsm.Configure(State.DontNAWS)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Server won't do NAWS - do nothing"));
+				.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", "Server won't do NAWS - do nothing"));
 
 			tsm.Configure(State.DoNAWS)
 				.SubstateOf(State.Accepting)
@@ -148,7 +148,7 @@ public partial class TelnetInterpreter
 	{
 		if (!_WillingToDoNAWS)
 		{
-			_Logger.LogDebug("Connection: {ConnectionState}", "Requesting NAWS details from Client");
+			_logger.LogDebug("Connection: {ConnectionState}", "Requesting NAWS details from Client");
 
 			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS]);
 			_WillingToDoNAWS = true;
@@ -178,7 +178,7 @@ public partial class TelnetInterpreter
 
 	private async ValueTask ServerWontNAWSAsync()
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing refusing to send NAWS, this is a Server!");
+		_logger.LogDebug("Connection: {ConnectionState}", "Announcing refusing to send NAWS, this is a Server!");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS]);
 	}
 
@@ -200,7 +200,7 @@ public partial class TelnetInterpreter
 		ClientWidth = BitConverter.ToInt16(width);
 		ClientHeight = BitConverter.ToInt16(height);
 
-		_Logger.LogDebug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
+		_logger.LogDebug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
 		await (SignalOnNAWSAsync?.Invoke(ClientHeight, ClientWidth) ?? ValueTask.CompletedTask);
 	}
 }

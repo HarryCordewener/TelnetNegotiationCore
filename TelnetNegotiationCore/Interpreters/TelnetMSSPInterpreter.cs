@@ -49,7 +49,7 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.DontMSSP)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Client won't do MSSP - do nothing"));
+				.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", "Client won't do MSSP - do nothing"));
 
 			RegisterInitialWilling(async () => await WillingMSSPAsync());
 		}
@@ -67,7 +67,7 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.WontMSSP)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Server won't do MSSP - do nothing"));
+				.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", "Server won't do MSSP - do nothing"));
 
 			tsm.Configure(State.SubNegotiation)
 				.Permit(Trigger.MSSP, State.AlmostNegotiatingMSSP)
@@ -220,7 +220,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private async ValueTask WillingMSSPAsync()
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSSP!");
+		_logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSSP!");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP]);
 	}
 
@@ -229,7 +229,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private async ValueTask OnDoMSSPAsync(StateMachine<State, Trigger>.Transition _)
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Writing MSSP output");
+		_logger.LogDebug("Connection: {ConnectionState}", "Writing MSSP output");
 		await CallbackNegotiationAsync(ReportMSSP(_msspConfig()));
 	}
 
@@ -238,7 +238,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private async ValueTask OnWillMSSPAsync()
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSSP!");
+		_logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSSP!");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP]);
 	}
 
@@ -253,7 +253,7 @@ public partial class TelnetInterpreter
 	public TelnetInterpreter RegisterMSSPConfig(Func<MSSPConfig> config)
 	{
 		_msspConfig = config;
-		_Logger.LogDebug("Registering MSSP Config. Currently evaluates to: {@MSSPConfig}", config());
+		_logger.LogDebug("Registering MSSP Config. Currently evaluates to: {@MSSPConfig}", config());
 		return this;
 	}
 
@@ -291,24 +291,24 @@ public partial class TelnetInterpreter
 		{
 			case string s:
 				{
-					_Logger.LogDebug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, s);
+					_logger.LogDebug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, s);
 					return [..bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(s)];
 				}
 			case int i:
 				{
-					_Logger.LogDebug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, i.ToString());
+					_logger.LogDebug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, i.ToString());
 					return [.. bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(i.ToString())];
 				}
 			case bool boolean:
 				{
-					_Logger.LogDebug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, boolean);
+					_logger.LogDebug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, boolean);
 					return [.. bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(boolean ? "1" : "0")];
 				}
 			case IEnumerable<string> list:
 				{
 					foreach (var item in list)
 					{
-						_Logger.LogDebug("MSSP Announcement: {MSSPKey}[]: {MSSPVal}", name, item);
+						_logger.LogDebug("MSSP Announcement: {MSSPKey}[]: {MSSPVal}", name, item);
 						bt = [.. bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(item)];
 					}
 					return bt;

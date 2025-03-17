@@ -43,7 +43,7 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.DontMSDP)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Client won't do MSDP - do nothing"));
+				.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", "Client won't do MSDP - do nothing"));
 
 			RegisterInitialWilling(async () => await WillingMSDPAsync());
 		}
@@ -61,7 +61,7 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.WontMSDP)
 				.SubstateOf(State.Accepting)
-				.OnEntry(() => _Logger.LogDebug("Connection: {ConnectionState}", "Server won't do MSDP - do nothing"));
+				.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", "Server won't do MSDP - do nothing"));
 
 			tsm.Configure(State.SubNegotiation)
 				.Permit(Trigger.MSDP, State.AlmostNegotiatingMSDP)
@@ -102,7 +102,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private async ValueTask WillingMSDPAsync()
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSDP!");
+		_logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSDP!");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSDP]);
 	}
 
@@ -111,7 +111,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private ValueTask OnDoMSDPAsync(StateMachine<State, Trigger>.Transition _)
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Client will do MSDP output");
+		_logger.LogDebug("Connection: {ConnectionState}", "Client will do MSDP output");
 		return ValueTask.CompletedTask;
 	}
 
@@ -120,7 +120,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private async ValueTask OnWillMSDPAsync()
 	{
-		_Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSDP!");
+		_logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSDP!");
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP]);
 	}
 }
