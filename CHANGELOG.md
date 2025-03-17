@@ -1,6 +1,14 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2025-03-16
+
+### Changed
+- Use nullable language feature for better null checks.
+- Mark required items are required to assist with Validation.
+- Adjusted F# code to use language features and more constants.
+- Added caching for Byte -> Trigger mapping for faster performance.
+
 ## [1.0.9] - 2024-11-17
 
 ### Changed
