@@ -1,7 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.1.1] - 2024-12-30
 
 ### Fixed
 - Fixed GMCP message receiving bug where the package name was incorrectly duplicated instead of the JSON message content being parsed.
