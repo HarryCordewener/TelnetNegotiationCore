@@ -101,6 +101,25 @@ var telnet = new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, _Logger.
 }.BuildAsync();
 ```
 
+### Sending GMCP Messages
+Both clients and servers can send GMCP messages using the `SendGMCPCommand` method. The method takes a package name and JSON data.
+
+```csharp
+// Send a simple GMCP message
+await telnet.SendGMCPCommand("Core.Hello", "{\"client\":\"MyClient\",\"version\":\"1.0\"}");
+
+// Send character vitals
+await telnet.SendGMCPCommand("Char.Vitals", "{\"hp\":1000,\"maxhp\":1500,\"mp\":500,\"maxmp\":800}");
+
+// Send room information
+await telnet.SendGMCPCommand("Room.Info", "{\"num\":12345,\"name\":\"A dark room\",\"area\":\"The Dungeon\"}");
+
+// The telnet interpreter will automatically handle GMCP negotiation
+// Messages will only be sent if the remote party supports GMCP
+```
+
+To receive GMCP messages, implement the `SignalOnGMCPAsync` callback as shown in the initialization example above.
+
 Start interpreting.
 ```csharp
 for (int currentByte = 0; currentByte != -1; currentByte = input.BaseStream.ReadByte())
