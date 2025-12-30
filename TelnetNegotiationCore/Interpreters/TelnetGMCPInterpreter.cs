@@ -131,7 +131,7 @@ public partial class TelnetInterpreter
 		}
 		else
 		{
-			await (SignalOnGMCPAsync?.Invoke((Package: package, Info: CurrentEncoding.GetString(packageBytes))) ?? ValueTask.CompletedTask);
+			await (SignalOnGMCPAsync?.Invoke((Package: package, Info: CurrentEncoding.GetString(rest))) ?? ValueTask.CompletedTask);
 		}
 	}
 
