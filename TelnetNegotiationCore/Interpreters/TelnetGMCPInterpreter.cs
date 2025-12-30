@@ -92,12 +92,33 @@ public partial class TelnetInterpreter
 		_GMCPBytes.Add(b.AsT0);
 	}
 
+	/// <summary>
+	/// Sends a GMCP command to the remote party.
+	/// </summary>
+	/// <param name="package">The GMCP package name (e.g., "Core.Hello", "Char.Vitals").</param>
+	/// <param name="command">The JSON data to send as a string.</param>
+	/// <returns>A ValueTask representing the asynchronous operation.</returns>
+	/// <example>
+	/// await telnet.SendGMCPCommand("Char.Vitals", "{\"hp\":1000,\"maxhp\":1500}");
+	/// </example>
 	public ValueTask SendGMCPCommand(string package, string command) =>
 		SendGMCPCommand(CurrentEncoding.GetBytes(package), CurrentEncoding.GetBytes(command));
 
+	/// <summary>
+	/// Sends a GMCP command to the remote party.
+	/// </summary>
+	/// <param name="package">The GMCP package name (e.g., "Core.Hello", "Char.Vitals").</param>
+	/// <param name="command">The JSON data to send as a byte array.</param>
+	/// <returns>A ValueTask representing the asynchronous operation.</returns>
 	public ValueTask SendGMCPCommand(string package, byte[] command) =>
 		SendGMCPCommand(CurrentEncoding.GetBytes(package), command);
 
+	/// <summary>
+	/// Sends a GMCP command to the remote party.
+	/// </summary>
+	/// <param name="package">The GMCP package name as a byte array.</param>
+	/// <param name="command">The JSON data to send as a byte array.</param>
+	/// <returns>A ValueTask representing the asynchronous operation.</returns>
 	public async ValueTask SendGMCPCommand(byte[] package, byte[] command)
 	{
 		await CallbackNegotiationAsync(
@@ -131,7 +152,7 @@ public partial class TelnetInterpreter
 		}
 		else
 		{
-			await (SignalOnGMCPAsync?.Invoke((Package: package, Info: CurrentEncoding.GetString(packageBytes))) ?? ValueTask.CompletedTask);
+			await (SignalOnGMCPAsync?.Invoke((Package: package, Info: CurrentEncoding.GetString(rest))) ?? ValueTask.CompletedTask);
 		}
 	}
 

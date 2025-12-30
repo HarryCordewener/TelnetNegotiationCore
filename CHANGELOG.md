@@ -1,6 +1,14 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2024-12-30
+
+### Fixed
+- Fixed GMCP message receiving bug where the package name was incorrectly duplicated instead of the JSON message content being parsed.
+
+### Added
+- Added comprehensive test suite for GMCP functionality covering both client and server send/receive operations.
+
 ## [1.1.0] - 2025-03-16
 
 ### Changed
