@@ -71,7 +71,7 @@ public class GMCPTests : BaseTest
 			Extended = new Dictionary<string, dynamic>
 			{
 				{ "Foo", "Bar"},
-				{ "Baz", new [] {"Moo", "Meow" }}
+				{ "Baz", (string[]) ["Moo", "Meow"] }
 			}
 		}).BuildAsync();
 	}
