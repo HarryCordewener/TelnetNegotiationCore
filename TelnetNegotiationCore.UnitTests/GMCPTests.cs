@@ -244,7 +244,7 @@ public class GMCPTests : BaseTest
 	}
 
 	[Test]
-	public async Task GMCPNegotiationServerWillAnnounce()
+	public void GMCPNegotiationServerWillAnnounce()
 	{
 		// The server should announce WILL GMCP during initialization
 		// This is done in the SetupGMCPNegotiation method
