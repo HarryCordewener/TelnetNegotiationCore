@@ -61,6 +61,7 @@ namespace TelnetNegotiationCore.UnitTests
 				{
 					await server_ti.InterpretAsync(x);
 				}
+				await server_ti.WaitForProcessingAsync();
 
 				Assert.AreEqual(shouldHaveCurrentEncoding, server_ti.CurrentEncoding);
 				CollectionAssert.AreEqual(serverShouldRespond, _negotiationOutput);
