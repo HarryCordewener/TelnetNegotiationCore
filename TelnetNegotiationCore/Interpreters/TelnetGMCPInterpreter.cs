@@ -7,12 +7,19 @@ using OneOf;
 using System.Linq;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using System.Threading.Channels;
 
 namespace TelnetNegotiationCore.Interpreters;
 
 public partial class TelnetInterpreter
 {
-	private List<byte> _GMCPBytes = [];
+	/// <summary>
+	/// Bounded channel for GMCP message assembly (max 8KB per message).
+	/// </summary>
+	private Channel<byte> _gmcpByteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(8192)
+	{
+		FullMode = BoundedChannelFullMode.DropWrite  // Drop bytes if message too large (DOS protection)
+	});
 
 	public Func<(string Package, string Info), ValueTask>? SignalOnGMCPAsync { get; init; }
 
@@ -55,7 +62,13 @@ public partial class TelnetInterpreter
 
 		tsm.Configure(State.SubNegotiation)
 			.Permit(Trigger.GMCP, State.AlmostNegotiatingGMCP)
-			.OnEntry(() => _GMCPBytes.Clear());
+			.OnEntry(() => {
+				// Reset channel for new message
+				_gmcpByteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(8192)
+				{
+					FullMode = BoundedChannelFullMode.DropWrite
+				});
+			});
 
 		TriggerHelper.ForAllTriggersButIAC(t => tsm
 				.Configure(State.EvaluatingGMCPValue)
@@ -89,7 +102,8 @@ public partial class TelnetInterpreter
 	/// <param name="b">Byte.</param>
 	private void RegisterGMCPValue(OneOf<byte, Trigger> b)
 	{
-		_GMCPBytes.Add(b.AsT0);
+		// Try to write to channel; if full (>8KB), byte is dropped (DOS protection)
+		_gmcpByteChannel.Writer.TryWrite(b.AsT0);
 	}
 
 	/// <summary>
@@ -138,10 +152,35 @@ public partial class TelnetInterpreter
 	/// <returns>ValueTask</returns>
 	private async ValueTask CompleteGMCPNegotiation(StateMachine<State, Trigger>.Transition _)
 	{
+		// Read all bytes from channel into list
+		var gmcpBytes = new List<byte>(256);
+		while (_gmcpByteChannel.Reader.TryRead(out var bt))
+		{
+			gmcpBytes.Add(bt);
+			if (gmcpBytes.Count >= 8192)
+			{
+				_logger.LogWarning("GMCP message too large (>8KB), truncating");
+				break;
+			}
+		}
+
+		if (gmcpBytes.Count == 0)
+		{
+			_logger.LogWarning("Empty GMCP message received");
+			return;
+		}
+
 		var space = CurrentEncoding.GetBytes(" ").First();
-		var firstSpace = _GMCPBytes.FindIndex(x => x == space);
-		var packageBytes = _GMCPBytes.Take(firstSpace).ToArray();
-		var rest = _GMCPBytes.Skip(firstSpace + 1).ToArray();
+		var firstSpace = gmcpBytes.FindIndex(x => x == space);
+		
+		if (firstSpace < 0)
+		{
+			_logger.LogWarning("Invalid GMCP message format (no space separator)");
+			return;
+		}
+
+		var packageBytes = gmcpBytes.Take(firstSpace).ToArray();
+		var rest = gmcpBytes.Skip(firstSpace + 1).ToArray();
 		
 		// TODO: Consideration: a version of this that sends back a Dynamic or other similar object.
 		var package = CurrentEncoding.GetString(packageBytes);

@@ -61,6 +61,15 @@ public partial class TelnetInterpreter
     private readonly Channel<byte> _byteChannel;
 
     /// <summary>
+    /// Unbounded channel for protocol negotiation messages (typically low volume).
+    /// </summary>
+    private readonly Channel<byte[]> _negotiationChannel = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions
+    {
+        SingleReader = true,
+        SingleWriter = false
+    });
+
+    /// <summary>
     /// Cancellation token source for graceful shutdown.
     /// </summary>
     private readonly CancellationTokenSource _processingCts = new();
@@ -69,6 +78,11 @@ public partial class TelnetInterpreter
     /// Background processing task.
     /// </summary>
     private Task? _processingTask;
+
+    /// <summary>
+    /// Background task for sending negotiation messages.
+    /// </summary>
+    private Task? _negotiationTask;
 
     /// <summary>
     /// Helper function for Byte parameterized triggers.
@@ -99,6 +113,7 @@ public partial class TelnetInterpreter
 
     /// <summary>
     /// Callback to the output stream directly for negotiation.
+    /// Internal use - negotiation messages are queued through _negotiationChannel.
     /// </summary>
     public required Func<byte[], ValueTask> CallbackNegotiationAsync { get; init; }
 
