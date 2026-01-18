@@ -68,7 +68,7 @@ public class NAWSTests : BaseTest
 	}
 
 	[Test]
-	public async Task ServerRequestsNAWSOnBuild()
+	public void ServerRequestsNAWSOnBuild()
 	{
 		// The server should have sent DO NAWS during initialization
 		// This is verified implicitly by the build process completing successfully

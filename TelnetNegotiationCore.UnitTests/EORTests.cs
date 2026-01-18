@@ -66,7 +66,7 @@ public class EORTests : BaseTest
 	}
 
 	[Test]
-	public async Task ServerSendsWillEOROnBuild()
+	public void ServerSendsWillEOROnBuild()
 	{
 		// The server should have sent WILL EOR during initialization
 		// This is verified implicitly by the build process completing successfully

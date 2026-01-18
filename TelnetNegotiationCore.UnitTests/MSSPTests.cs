@@ -82,7 +82,7 @@ public class MSSPTests : BaseTest
 	}
 
 	[Test]
-	public async Task ServerSendsWillMSSPOnBuild()
+	public void ServerSendsWillMSSPOnBuild()
 	{
 		// The server should have sent WILL MSSP during initialization
 		// Reset negotiation output and check what was sent
