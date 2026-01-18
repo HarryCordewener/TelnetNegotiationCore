@@ -80,11 +80,6 @@ public partial class TelnetInterpreter
     private Task? _processingTask;
 
     /// <summary>
-    /// Background task for sending negotiation messages.
-    /// </summary>
-    private Task? _negotiationTask;
-
-    /// <summary>
     /// Helper function for Byte parameterized triggers.
     /// </summary>
     /// <param name="t">The Trigger</param>
