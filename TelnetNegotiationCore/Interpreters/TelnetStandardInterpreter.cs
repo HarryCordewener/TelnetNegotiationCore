@@ -28,7 +28,7 @@ public partial class TelnetInterpreter
     /// <summary>
     /// The current Encoding used for interpreting incoming non-negotiation text, and what we should send on outbound.
     /// </summary>
-    public Encoding CurrentEncoding { get; private set; } = Encoding.ASCII;
+    public Encoding CurrentEncoding { get; internal set; } = Encoding.ASCII;
 
     /// <summary>
     /// Telnet state machine
