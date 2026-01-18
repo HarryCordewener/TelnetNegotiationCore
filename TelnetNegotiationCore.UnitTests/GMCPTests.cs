@@ -76,6 +76,15 @@ public class GMCPTests : BaseTest
 		}).BuildAsync();
 	}
 
+	[TearDown]
+	public async Task TearDown()
+	{
+		if (_server_ti != null)
+			await _server_ti.DisposeAsync();
+		if (_client_ti != null)
+			await _client_ti.DisposeAsync();
+	}
+
 	[Test]
 	public async Task ServerCanSendGMCPMessage()
 	{
@@ -141,6 +150,7 @@ public class GMCPTests : BaseTest
 	{
 		// Arrange - Complete GMCP negotiation first
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP });
+		await _server_ti.WaitForProcessingAsync();
 		_receivedGMCP = null; // Reset after negotiation
 
 		var package = "Core.Hello";
@@ -161,6 +171,7 @@ public class GMCPTests : BaseTest
 
 		// Act
 		await _server_ti.InterpretByteArrayAsync(gmcpBytes.ToArray());
+		await _server_ti.WaitForProcessingAsync();
 
 		// Assert
 		Assert.IsNotNull(_receivedGMCP, "Should have received GMCP message");
@@ -173,6 +184,7 @@ public class GMCPTests : BaseTest
 	{
 		// Arrange - Complete GMCP negotiation first
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP });
+		await _client_ti.WaitForProcessingAsync();
 		_receivedGMCP = null; // Reset after negotiation
 
 		var package = "Char.Vitals";
@@ -193,6 +205,7 @@ public class GMCPTests : BaseTest
 
 		// Act
 		await _client_ti.InterpretByteArrayAsync(gmcpBytes.ToArray());
+		await _client_ti.WaitForProcessingAsync();
 
 		// Assert
 		Assert.IsNotNull(_receivedGMCP, "Should have received GMCP message");
@@ -205,6 +218,7 @@ public class GMCPTests : BaseTest
 	{
 		// Arrange - Complete GMCP negotiation first
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP });
+		await _server_ti.WaitForProcessingAsync();
 		_receivedGMCP = null;
 
 		var package = "Room.Info";
@@ -225,6 +239,7 @@ public class GMCPTests : BaseTest
 
 		// Act
 		await _server_ti.InterpretByteArrayAsync(gmcpBytes.ToArray());
+		await _server_ti.WaitForProcessingAsync();
 
 		// Assert
 		Assert.IsNotNull(_receivedGMCP, "Should have received GMCP message");
@@ -237,6 +252,7 @@ public class GMCPTests : BaseTest
 	{
 		// Act
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP });
+		await _client_ti.WaitForProcessingAsync();
 
 		// Assert
 		Assert.IsNotNull(_negotiationOutput);

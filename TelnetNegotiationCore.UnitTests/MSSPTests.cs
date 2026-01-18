@@ -81,6 +81,15 @@ public class MSSPTests : BaseTest
 		}).BuildAsync();
 	}
 
+	[TearDown]
+	public async Task TearDown()
+	{
+		if (_server_ti != null)
+			await _server_ti.DisposeAsync();
+		if (_client_ti != null)
+			await _client_ti.DisposeAsync();
+	}
+
 	[Test]
 	public async Task ServerSendsWillMSSPOnBuild()
 	{
@@ -102,6 +111,7 @@ public class MSSPTests : BaseTest
 
 		// Act - Client receives WILL MSSP from server
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP });
+		await _client_ti.WaitForProcessingAsync();
 
 		// Assert
 		Assert.IsNotNull(_negotiationOutput, "Client should respond to WILL MSSP");
@@ -116,6 +126,8 @@ public class MSSPTests : BaseTest
 
 		// Act - Server receives DO MSSP from client
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
+		await _server_ti.WaitForProcessingAsync();
+		await Task.Delay(100);
 
 		// Assert - Server should send MSSP subnegotiation with data
 		Assert.IsNotNull(_negotiationOutput, "Server should send MSSP data");
@@ -142,6 +154,7 @@ public class MSSPTests : BaseTest
 
 		// Act - Server receives DONT MSSP from client
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MSSP });
+		await _server_ti.WaitForProcessingAsync();
 
 		// Assert - Server should just accept the rejection without error
 		// No specific response expected, just ensure no crash
@@ -156,6 +169,7 @@ public class MSSPTests : BaseTest
 
 		// Act - Client receives WONT MSSP from server
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.MSSP });
+		await _client_ti.WaitForProcessingAsync();
 
 		// Assert - Client should just accept the rejection without error
 		// No specific response expected, just ensure no crash
@@ -185,6 +199,8 @@ public class MSSPTests : BaseTest
 
 		// Act - Trigger MSSP send
 		await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
+		await testServer.WaitForProcessingAsync();
+		await Task.Delay(100);
 
 		// Assert
 		Assert.IsNotNull(_negotiationOutput);
@@ -298,6 +314,7 @@ public class MSSPTests : BaseTest
 
 		// Act - Trigger MSSP send
 		await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
+		await testServer.WaitForProcessingAsync();
 
 		// Assert
 		Assert.IsNotNull(_negotiationOutput);
@@ -339,6 +356,7 @@ public class MSSPTests : BaseTest
 
 		// Act - Trigger MSSP send
 		await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
+		await testServer.WaitForProcessingAsync();
 
 		// Assert
 		Assert.IsNotNull(_negotiationOutput);

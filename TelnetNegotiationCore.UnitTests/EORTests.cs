@@ -65,6 +65,15 @@ public class EORTests : BaseTest
 		}).BuildAsync();
 	}
 
+	[TearDown]
+	public async Task TearDown()
+	{
+		if (_server_ti != null)
+			await _server_ti.DisposeAsync();
+		if (_client_ti != null)
+			await _client_ti.DisposeAsync();
+	}
+
 	[Test]
 	public async Task ServerSendsWillEOROnBuild()
 	{
@@ -82,6 +91,7 @@ public class EORTests : BaseTest
 
 		// Act - Client receives WILL EOR from server
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
+		await _client_ti.WaitForProcessingAsync();
 
 		// Assert
 		Assert.IsNotNull(_negotiationOutput, "Client should respond to WILL EOR");
@@ -96,6 +106,7 @@ public class EORTests : BaseTest
 
 		// Act - Server receives DO EOR from client
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
+		await _server_ti.WaitForProcessingAsync();
 
 		// Assert - Server should accept without error (no specific response expected)
 		// The server just records that EOR is active
@@ -110,6 +121,8 @@ public class EORTests : BaseTest
 
 		// Act - Client receives WILL EOR from server and responds
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
+		await _client_ti.WaitForProcessingAsync();
+		await Task.Delay(50);
 
 		// Assert - Client should send DO EOR
 		Assert.IsNotNull(_negotiationOutput);
@@ -124,6 +137,7 @@ public class EORTests : BaseTest
 
 		// Act - Server receives DONT EOR from client
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.TELOPT_EOR });
+		await _server_ti.WaitForProcessingAsync();
 
 		// Assert - Server should accept the rejection gracefully
 		Assert.Pass("Server handles DONT EOR gracefully");
@@ -137,6 +151,7 @@ public class EORTests : BaseTest
 
 		// Act - Client receives WONT EOR from server
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.TELOPT_EOR });
+		await _client_ti.WaitForProcessingAsync();
 
 		// Assert - Client should accept the rejection gracefully
 		Assert.Pass("Client handles WONT EOR gracefully");
@@ -147,10 +162,12 @@ public class EORTests : BaseTest
 	{
 		// Arrange - Complete EOR negotiation
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
+		await _client_ti.WaitForProcessingAsync();
 		_promptReceived = false;
 
 		// Act - Client receives IAC EOR sequence
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
+		await _client_ti.WaitForProcessingAsync();
 
 		// Assert
 		Assert.IsTrue(_promptReceived, "Client should receive prompt signal when EOR is received");
@@ -161,6 +178,7 @@ public class EORTests : BaseTest
 	{
 		// Arrange - Complete EOR negotiation
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
+		await _server_ti.WaitForProcessingAsync();
 		_negotiationOutput = null;
 
 		var encoding = Encoding.UTF8;
@@ -183,6 +201,7 @@ public class EORTests : BaseTest
 	{
 		// Arrange - Complete EOR negotiation
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
+		await _server_ti.WaitForProcessingAsync();
 		_negotiationOutput = null;
 
 		var encoding = Encoding.UTF8;
@@ -212,6 +231,7 @@ public class EORTests : BaseTest
 		// Step 1: Server sends WILL EOR
 		_negotiationOutput = null;
 		await testClient.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
+		await testClient.WaitForProcessingAsync();
 		
 		Assert.IsNotNull(_negotiationOutput, "Client should respond to WILL EOR");
 		Assert.That(_negotiationOutput, Is.EqualTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR }));
@@ -219,6 +239,7 @@ public class EORTests : BaseTest
 		// Step 2: Client receives EOR prompt
 		_promptReceived = false;
 		await testClient.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
+		await testClient.WaitForProcessingAsync();
 		
 		Assert.IsTrue(_promptReceived, "Client should receive EOR prompt signal");
 	}
@@ -228,18 +249,22 @@ public class EORTests : BaseTest
 	{
 		// Arrange - Complete EOR negotiation
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
+		await _client_ti.WaitForProcessingAsync();
 		
 		// Act - Receive multiple EOR prompts
 		_promptReceived = false;
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
+		await _client_ti.WaitForProcessingAsync();
 		Assert.IsTrue(_promptReceived, "First EOR prompt should be received");
 
 		_promptReceived = false;
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
+		await _client_ti.WaitForProcessingAsync();
 		Assert.IsTrue(_promptReceived, "Second EOR prompt should be received");
 
 		_promptReceived = false;
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
+		await _client_ti.WaitForProcessingAsync();
 		Assert.IsTrue(_promptReceived, "Third EOR prompt should be received");
 	}
 }

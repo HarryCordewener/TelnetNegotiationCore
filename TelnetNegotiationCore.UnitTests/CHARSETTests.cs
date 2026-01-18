@@ -99,9 +99,11 @@ namespace TelnetNegotiationCore.UnitTests
 				{
 					await client_ti.InterpretAsync(x);
 				}
+				await client_ti.WaitForProcessingAsync();
 				Assert.AreEqual(shouldHaveCurrentEncoding, client_ti.CurrentEncoding);
 				CollectionAssert.AreEqual(clientShouldRespond, _negotiationOutput);
 			}
+			await client_ti.DisposeAsync();
 		}
 
 		public static IEnumerable<TestCaseData> ClientCHARSETSequences
