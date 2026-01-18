@@ -19,12 +19,12 @@ This library is in a state where breaking changes to the interface are expected.
 | [MTTS](https://tintin.mudhalla.net/protocols/mtts)  | MTTS Negotiation (Extends TTYPE)   | Full       |                    |
 | [RFC 1073](http://www.faqs.org/rfcs/rfc1073.html)   | Window Size Negotiation (NAWS)     | Full       |                    |
 | [GMCP](https://tintin.mudhalla.net/protocols/gmcp)  | Generic Mud Communication Protocol | Full       |                    |
-| [MSSP](https://tintin.mudhalla.net/protocols/mssp)  | MSSP Negotiation                   | Full       | Untested           |
-| [RFC 885](http://www.faqs.org/rfcs/rfc885.html)     | End Of Record Negotiation          | Full       | Untested           | 
-| [EOR](https://tintin.mudhalla.net/protocols/eor)    | End Of Record Negotiation          | Full       | Untested           |
+| [MSSP](https://tintin.mudhalla.net/protocols/mssp)  | MSSP Negotiation                   | Full       |                    |
+| [RFC 885](http://www.faqs.org/rfcs/rfc885.html)     | End Of Record Negotiation          | Full       |                    | 
+| [EOR](https://tintin.mudhalla.net/protocols/eor)    | End Of Record Negotiation          | Full       |                    |
 | [MSDP](https://tintin.mudhalla.net/protocols/msdp)  | Mud Server Data Protocol           | Partial    | Partial Tested     |
 | [RFC 2066](http://www.faqs.org/rfcs/rfc2066.html)   | Charset Negotiation                | Partial    | No TTABLE support  |
-| [RFC 858](http://www.faqs.org/rfcs/rfc858.html)     | Suppress GOAHEAD Negotiation       | Full       | Untested           |
+| [RFC 858](http://www.faqs.org/rfcs/rfc858.html)     | Suppress GOAHEAD Negotiation       | Full       |                    |
 | [RFC 1572](http://www.faqs.org/rfcs/rfc1572.html)   | New Environment Negotiation        | No         | Planned            |
 | [MNES](https://tintin.mudhalla.net/protocols/mnes)  | Mud New Environment Negotiation    | No         | Planned            |
 | [MCCP](https://tintin.mudhalla.net/protocols/mccp)  | Mud Client Compression Protocol    | No         | Rejects            |
