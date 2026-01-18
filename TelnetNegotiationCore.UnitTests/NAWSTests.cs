@@ -68,10 +68,11 @@ public class NAWSTests : BaseTest
 	}
 
 	[Test]
-	public void ServerRequestsNAWSOnBuild()
+	public async Task ServerRequestsNAWSOnBuild()
 	{
 		// The server should have sent DO NAWS during initialization
 		// This is verified implicitly by the build process completing successfully
+		await Task.CompletedTask;
 		Assert.Pass("Server DO NAWS is sent during BuildAsync in Setup");
 	}
 

@@ -54,10 +54,11 @@ public class SuppressGATests : BaseTest
 	}
 
 	[Test]
-	public void ServerSendsWillSuppressGAOnBuild()
+	public async Task ServerSendsWillSuppressGAOnBuild()
 	{
 		// The server should have sent WILL SUPPRESSGOAHEAD during initialization
 		// This is verified implicitly by the build process completing successfully
+		await Task.CompletedTask;
 		Assert.Pass("Server WILL SUPPRESSGOAHEAD is sent during BuildAsync in Setup");
 	}
 
