@@ -21,79 +21,6 @@ public partial class TelnetInterpreter
 		FullMode = BoundedChannelFullMode.DropWrite  // Drop bytes if message too large (DOS protection)
 	});
 
-	private StateMachine<State, Trigger> SetupGMCPNegotiation(StateMachine<State, Trigger> tsm)
-	{
-		if (Mode == TelnetMode.Server)
-		{
-			tsm.Configure(State.Do)
-				.Permit(Trigger.GMCP, State.DoGMCP);
-
-			tsm.Configure(State.Dont)
-				.Permit(Trigger.GMCP, State.DontGMCP);
-
-			tsm.Configure(State.DoGMCP)
-				.SubstateOf(State.Accepting)
-				.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", "Client will do GMCP"));
-
-			tsm.Configure(State.DontGMCP)
-				.SubstateOf(State.Accepting)
-				.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", "Client will not GMCP"));
-
-			RegisterInitialWilling(async () => await WillGMCPAsync(null));
-		}
-		else if (Mode == TelnetMode.Client)
-		{
-			tsm.Configure(State.Willing)
-				.Permit(Trigger.GMCP, State.WillGMCP);
-
-			tsm.Configure(State.Refusing)
-				.Permit(Trigger.GMCP, State.WontGMCP);
-
-			tsm.Configure(State.WillGMCP)
-				.SubstateOf(State.Accepting)
-				.OnEntryAsync(async x => await DoGMCPAsync(x));
-
-			tsm.Configure(State.WontGMCP)
-				.SubstateOf(State.Accepting)
-				.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", "Client will GMCP"));
-		}
-
-		tsm.Configure(State.SubNegotiation)
-			.Permit(Trigger.GMCP, State.AlmostNegotiatingGMCP)
-			.OnEntry(() => {
-				// Reset channel for new message
-				_gmcpByteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(8192)
-				{
-					FullMode = BoundedChannelFullMode.DropWrite
-				});
-			});
-
-		TriggerHelper.ForAllTriggersButIAC(t => tsm
-				.Configure(State.EvaluatingGMCPValue)
-				.PermitReentry(t)
-				.OnEntryFrom(ParameterizedTrigger(t), RegisterGMCPValue));
-
-		TriggerHelper.ForAllTriggersButIAC(t => tsm
-				.Configure(State.AlmostNegotiatingGMCP)
-				.Permit(t, State.EvaluatingGMCPValue));
-
-		tsm.Configure(State.EvaluatingGMCPValue)
-			.Permit(Trigger.IAC, State.EscapingGMCPValue);
-
-		tsm.Configure(State.AlmostNegotiatingGMCP)
-			.Permit(Trigger.IAC, State.EscapingGMCPValue);
-
-		tsm.Configure(State.EscapingGMCPValue)
-			.Permit(Trigger.IAC, State.EvaluatingGMCPValue)
-			.Permit(Trigger.SE, State.CompletingGMCPValue);
-
-		tsm.Configure(State.CompletingGMCPValue)
-			.SubstateOf(State.Accepting)
-			.OnEntryAsync(async x => await CompleteGMCPNegotiation(x));
-
-		return tsm;
-	}
-
 	/// <summary>
 	/// Adds a byte to the register.
 	/// </summary>
@@ -201,24 +128,5 @@ public partial class TelnetInterpreter
 				await gmcpPlugin.OnGMCPMessageAsync((Package: package, Info: CurrentEncoding.GetString(rest)));
 			}
 		}
-	}
-
-	/// <summary>
-	/// Announces the Server will GMCP.
-	/// </summary>
-	/// <param name="_">Transition, ignored.</param>
-	/// <returns>ValueTask</returns>
-	private async ValueTask WillGMCPAsync(StateMachine<State, Trigger>.Transition? _)
-	{
-		_logger.LogDebug("Connection: {ConnectionState}", "Announcing the server will GMCP");
-
-		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP]);
-	}
-
-	private async ValueTask DoGMCPAsync(StateMachine<State, Trigger>.Transition _)
-	{
-		_logger.LogDebug("Connection: {ConnectionState}", "Announcing the client can do GMCP");
-
-		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP]);
 	}
 }

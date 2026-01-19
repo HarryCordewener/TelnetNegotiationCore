@@ -90,7 +90,7 @@ public partial class TelnetInterpreter
     /// </summary>
     /// <param name="t">The Trigger</param>
     /// <returns>A Parameterized trigger</returns>
-    private StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParameterizedTrigger(Trigger t)
+    internal StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParameterizedTrigger(Trigger t)
         => _parameterizedTriggers.ParameterizedTrigger(TelnetStateMachine, t);
 
     /// <summary>
@@ -156,15 +156,10 @@ public partial class TelnetInterpreter
 
         new List<Func<StateMachine<State, Trigger>, StateMachine<State, Trigger>>>
         {
-            SetupSafeNegotiation,
-            SetupEORNegotiation,
-            SetupSuppressGANegotiation,
-            SetupMSSPNegotiation,
-            SetupMSDPNegotiation,
-            SetupGMCPNegotiation,
-            SetupTelnetTerminalType,
-            SetupCharsetNegotiation,
-            SetupNAWS,
+            // NOTE: SetupSafeNegotiation must run AFTER protocol ConfigureStateMachine calls
+            // so it only adds safety catches for truly unhandled triggers.
+            // It's now called explicitly by TelnetInterpreterBuilder after ConfigureStateMachines.
+            
             SetupStandardProtocol
         }.AggregateRight(TelnetStateMachine, (func, stateMachine) => func(stateMachine));
 
@@ -305,7 +300,7 @@ public partial class TelnetInterpreter
         return this;
     }
 
-    private void RegisterInitialWilling(Func<ValueTask> fun)
+    internal void RegisterInitialWilling(Func<ValueTask> fun)
     {
         _initialCall.Add(fun);
     }

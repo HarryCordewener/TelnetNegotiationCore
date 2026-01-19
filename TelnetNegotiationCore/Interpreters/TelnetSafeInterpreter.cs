@@ -62,6 +62,11 @@ public partial class TelnetInterpreter
 	/// </remarks>
 	/// <param name="tsm">The state machine.</param>
 	/// <returns>Itself</returns>
+	internal void ApplySafetyConfiguration()
+	{
+		SetupSafeNegotiation(TelnetStateMachine);
+	}
+
 	private StateMachine<State, Trigger> SetupSafeNegotiation(StateMachine<State, Trigger> tsm)
 	{
 		var info = tsm.GetInfo();

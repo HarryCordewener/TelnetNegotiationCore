@@ -161,6 +161,10 @@ public class TelnetInterpreterBuilder
         // This matches the existing pattern where Setup* methods configure the state machine
         _pluginManager.ConfigureStateMachines(interpreter.TelnetStateMachine, context);
 
+        // Apply safety configuration AFTER protocol configuration
+        // This ensures safety catches only apply to truly unhandled triggers
+        interpreter.ApplySafetyConfiguration();
+
         // Initialize plugins in dependency order
         await _pluginManager.InitializePluginsAsync(context);
 

@@ -121,4 +121,18 @@ internal class ProtocolContext : IProtocolContext
         value = default;
         return false;
     }
+
+    /// <inheritdoc />
+    public void RegisterInitialNegotiation(Func<ValueTask> negotiationFunc)
+    {
+        if (negotiationFunc == null)
+            throw new ArgumentNullException(nameof(negotiationFunc));
+        
+        // Access the interpreter's internal registration method
+        // This requires making the method accessible or using reflection
+        _interpreter.RegisterInitialWilling(negotiationFunc);
+    }
+
+    /// <inheritdoc />
+    public TelnetInterpreter Interpreter => _interpreter;
 }

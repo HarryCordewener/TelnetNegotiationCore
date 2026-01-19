@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Stateless;
+using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -12,6 +13,11 @@ namespace TelnetNegotiationCore.Protocols;
 /// Suppress Go-Ahead protocol plugin
 /// Allows half-duplex operation without requiring GA after each transmission
 /// </summary>
+/// <remarks>
+/// This protocol optionally accepts configuration. Call <see cref="OnPrompt"/> to set up
+/// the callback that will handle prompts if you need to be notified when prompts are received.
+/// </remarks>
+[RequiredMethod("OnPrompt", Description = "Configure the callback to handle prompt events (optional but recommended)")]
 public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 {
     private bool? _doGA = true;
@@ -51,6 +57,45 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
         context.Logger.LogInformation("Configuring Suppress Go-Ahead state machine");
+        
+        // Register SuppressGA protocol handlers with the context
+        context.SetSharedState("SuppressGA_Protocol", this);
+        
+        // Configure state machine transitions for Suppress Go-Ahead protocol
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            stateMachine.Configure(State.Do)
+                .Permit(Trigger.SUPPRESSGOAHEAD, State.DoSUPPRESSGOAHEAD);
+
+            stateMachine.Configure(State.Dont)
+                .Permit(Trigger.SUPPRESSGOAHEAD, State.DontSUPPRESSGOAHEAD);
+
+            stateMachine.Configure(State.DoSUPPRESSGOAHEAD)
+                .SubstateOf(State.Accepting)
+                .OnEntryAsync(async x => await OnDoSuppressGAAsync(x, context));
+
+            stateMachine.Configure(State.DontSUPPRESSGOAHEAD)
+                .SubstateOf(State.Accepting)
+                .OnEntryAsync(async () => await OnDontSuppressGAAsync(context));
+
+            context.RegisterInitialNegotiation(async () => await WillingSuppressGAAsync(context));
+        }
+        else
+        {
+            stateMachine.Configure(State.Willing)
+                .Permit(Trigger.SUPPRESSGOAHEAD, State.WillSUPPRESSGOAHEAD);
+
+            stateMachine.Configure(State.Refusing)
+                .Permit(Trigger.SUPPRESSGOAHEAD, State.WontSUPPRESSGOAHEAD);
+
+            stateMachine.Configure(State.WontSUPPRESSGOAHEAD)
+                .SubstateOf(State.Accepting)
+                .OnEntryAsync(async () => await WontSuppressGAAsync(context));
+
+            stateMachine.Configure(State.WillSUPPRESSGOAHEAD)
+                .SubstateOf(State.Accepting)
+                .OnEntryAsync(async x => await OnWillSuppressGAAsync(x, context));
+        }
     }
 
     /// <inheritdoc />
@@ -136,4 +181,42 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
         if (_onPromptReceived != null)
             await _onPromptReceived().ConfigureAwait(false);
     }
+
+    #region State Machine Handlers
+
+    private ValueTask OnDontSuppressGAAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Client won't do SUPPRESSGOAHEAD - do nothing");
+        _doGA = true;
+        return ValueTask.CompletedTask;
+    }
+
+    private ValueTask WontSuppressGAAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Server won't do SUPPRESSGOAHEAD - do nothing");
+        _doGA = true;
+        return ValueTask.CompletedTask;
+    }
+
+    private async ValueTask WillingSuppressGAAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Announcing willingness to SUPPRESSGOAHEAD!");
+        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
+    }
+
+    private ValueTask OnDoSuppressGAAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    {
+        context.Logger.LogDebug("Client supports Suppress Go-Ahead.");
+        _doGA = false;
+        return ValueTask.CompletedTask;
+    }
+
+    private async ValueTask OnWillSuppressGAAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    {
+        context.Logger.LogDebug("Server supports Suppress Go-Ahead.");
+        _doGA = false;
+        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
+    }
+
+    #endregion
 }

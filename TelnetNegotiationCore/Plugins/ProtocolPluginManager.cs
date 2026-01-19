@@ -134,9 +134,14 @@ public class ProtocolPluginManager
     {
         _logger.LogInformation("Configuring state machines for {PluginCount} plugins", _plugins.Count);
 
-        foreach (var pluginType in _initializationOrder)
+        // If initialization order is already determined, use it for consistency
+        // Otherwise, configure plugins in registration order
+        var pluginsToConfig = _initializationOrder.Count > 0
+            ? _initializationOrder.Select(t => _plugins[t])
+            : _plugins.Values;
+
+        foreach (var plugin in pluginsToConfig)
         {
-            var plugin = _plugins[pluginType];
             _logger.LogDebug("Configuring state machine for: {PluginName}", plugin.ProtocolName);
             plugin.ConfigureStateMachine(stateMachine, context);
         }
