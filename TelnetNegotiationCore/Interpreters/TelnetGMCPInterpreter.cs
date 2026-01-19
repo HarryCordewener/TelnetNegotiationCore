@@ -21,8 +21,6 @@ public partial class TelnetInterpreter
 		FullMode = BoundedChannelFullMode.DropWrite  // Drop bytes if message too large (DOS protection)
 	});
 
-	public Func<(string Package, string Info), ValueTask>? SignalOnGMCPAsync { get; init; }
-
 	private StateMachine<State, Trigger> SetupGMCPNegotiation(StateMachine<State, Trigger> tsm)
 	{
 		if (Mode == TelnetMode.Server)
@@ -187,11 +185,21 @@ public partial class TelnetInterpreter
 
 		if(package == "MSDP")
 		{
-			await (SignalOnMSDPAsync?.Invoke(this, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(packageBytes, CurrentEncoding))) ?? ValueTask.CompletedTask);
+			// Call MSDP plugin if available
+			var msdpPlugin = PluginManager?.GetPlugin<Protocols.MSDPProtocol>();
+			if (msdpPlugin != null && msdpPlugin.IsEnabled)
+			{
+				await msdpPlugin.OnMSDPMessageAsync(this, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(packageBytes, CurrentEncoding)));
+			}
 		}
 		else
 		{
-			await (SignalOnGMCPAsync?.Invoke((Package: package, Info: CurrentEncoding.GetString(rest))) ?? ValueTask.CompletedTask);
+			// Call GMCP plugin if available
+			var gmcpPlugin = PluginManager?.GetPlugin<Protocols.GMCPProtocol>();
+			if (gmcpPlugin != null && gmcpPlugin.IsEnabled)
+			{
+				await gmcpPlugin.OnGMCPMessageAsync((Package: package, Info: CurrentEncoding.GetString(rest)));
+			}
 		}
 	}
 

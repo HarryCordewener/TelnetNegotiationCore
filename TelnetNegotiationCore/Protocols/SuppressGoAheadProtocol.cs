@@ -17,6 +17,12 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     private bool? _doGA = true;
 
     /// <summary>
+    /// Event that fires when the server is prompting with Suppress Go-Ahead.
+    /// Users should subscribe to this event to handle prompt signals.
+    /// </summary>
+    public event Func<ValueTask>? OnPromptReceived;
+
+    /// <summary>
     /// Indicates whether Go-Ahead is suppressed (true = suppressed, false = enabled)
     /// </summary>
     public bool IsGoAheadSuppressed => _doGA == false;
@@ -105,5 +111,22 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     {
         _doGA = null;
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Called by the interpreter when a prompt is signaled.
+    /// Internal method that fires the public event.
+    /// </summary>
+    internal async ValueTask OnPromptAsync()
+    {
+        if (!IsEnabled)
+            return;
+
+        Context.Logger.LogDebug("Server is prompting with Suppress Go-Ahead");
+        
+        if (OnPromptReceived != null)
+        {
+            await OnPromptReceived();
+        }
     }
 }

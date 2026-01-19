@@ -58,7 +58,13 @@ public partial class TelnetInterpreter
 	private async ValueTask OnSUPPRESSGOAHEADPrompt()
 	{
 		_logger.LogDebug("Connection: {ConnectionState}", "Server is prompting SUPPRESSGOAHEAD");
-		await (SignalOnPromptingAsync?.Invoke() ?? ValueTask.CompletedTask);
+		
+		// Call SuppressGoAhead plugin if available
+		var sgPlugin = PluginManager?.GetPlugin<Protocols.SuppressGoAheadProtocol>();
+		if (sgPlugin != null && sgPlugin.IsEnabled)
+		{
+			await sgPlugin.OnPromptAsync();
+		}
 	}
 
 	private async ValueTask OnDontSuppressGAAsync()

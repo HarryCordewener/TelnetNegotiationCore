@@ -17,6 +17,12 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     private const int MaxMessageSize = 8192; // 8KB DOS protection
     private readonly List<byte> _gmcpBytes = new();
 
+    /// <summary>
+    /// Event that fires when a GMCP message is received.
+    /// Users should subscribe to this event to handle GMCP messages.
+    /// </summary>
+    public event Func<(string Package, string Info), ValueTask>? OnGMCPReceived;
+
     /// <inheritdoc />
     public override Type ProtocolType => typeof(GMCPProtocol);
 
@@ -65,6 +71,23 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         Context.Logger.LogInformation("GMCP Protocol disabled");
         _gmcpBytes.Clear();
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Called by the interpreter when a GMCP message is received.
+    /// Internal method that fires the public event.
+    /// </summary>
+    internal async ValueTask OnGMCPMessageAsync((string Package, string Info) message)
+    {
+        if (!IsEnabled)
+            return;
+
+        Context.Logger.LogDebug("Received GMCP message: Package={Package}", message.Package);
+        
+        if (OnGMCPReceived != null)
+        {
+            await OnGMCPReceived(message);
+        }
     }
 
     /// <summary>
@@ -142,6 +165,12 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     private const int MaxMessageSize = 8192; // 8KB DOS protection
     private readonly List<byte> _msdpBytes = new();
 
+    /// <summary>
+    /// Event that fires when an MSDP message is received.
+    /// Users should subscribe to this event to handle MSDP messages.
+    /// </summary>
+    public event Func<Interpreters.TelnetInterpreter, string, ValueTask>? OnMSDPReceived;
+
     /// <inheritdoc />
     public override Type ProtocolType => typeof(MSDPProtocol);
 
@@ -177,6 +206,23 @@ public class MSDPProtocol : TelnetProtocolPluginBase
         Context.Logger.LogInformation("MSDP Protocol disabled");
         _msdpBytes.Clear();
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Called by the interpreter when an MSDP message is received.
+    /// Internal method that fires the public event.
+    /// </summary>
+    internal async ValueTask OnMSDPMessageAsync(Interpreters.TelnetInterpreter interpreter, string message)
+    {
+        if (!IsEnabled)
+            return;
+
+        Context.Logger.LogDebug("Received MSDP message");
+        
+        if (OnMSDPReceived != null)
+        {
+            await OnMSDPReceived(interpreter, message);
+        }
     }
 
     /// <summary>

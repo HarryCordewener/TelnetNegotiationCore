@@ -17,6 +17,12 @@ public class EORProtocol : TelnetProtocolPluginBase
     private bool? _doEOR = null;
 
     /// <summary>
+    /// Event that fires when the server is prompting with EOR.
+    /// Users should subscribe to this event to handle prompt signals.
+    /// </summary>
+    public event Func<ValueTask>? OnPromptReceived;
+
+    /// <summary>
     /// Indicates whether EOR is enabled
     /// </summary>
     public bool IsEOREnabled => _doEOR == true;
@@ -109,5 +115,22 @@ public class EORProtocol : TelnetProtocolPluginBase
     {
         _doEOR = null;
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Called by the interpreter when a prompt is signaled.
+    /// Internal method that fires the public event.
+    /// </summary>
+    internal async ValueTask OnPromptAsync()
+    {
+        if (!IsEnabled)
+            return;
+
+        Context.Logger.LogDebug("Server is prompting with EOR");
+        
+        if (OnPromptReceived != null)
+        {
+            await OnPromptReceived();
+        }
     }
 }

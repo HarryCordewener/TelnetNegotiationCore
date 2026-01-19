@@ -139,7 +139,8 @@ public class TelnetInterpreterBuilder
         var interpreter = new TelnetInterpreter(_mode, _logger)
         {
             CallbackOnSubmitAsync = _onSubmit,
-            CallbackNegotiationAsync = _onNegotiation
+            CallbackNegotiationAsync = _onNegotiation,
+            PluginManager = _pluginManager
         };
 
         // Set max buffer size if specified
