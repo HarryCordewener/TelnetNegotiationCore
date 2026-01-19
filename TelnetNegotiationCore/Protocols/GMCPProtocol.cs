@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Stateless;
+using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -12,6 +13,11 @@ namespace TelnetNegotiationCore.Protocols;
 /// GMCP (Generic MUD Communication Protocol) plugin implementation.
 /// This demonstrates the plugin architecture pattern.
 /// </summary>
+/// <remarks>
+/// This protocol optionally accepts configuration. Call <see cref="OnGMCPMessage"/> to set up
+/// the callback that will handle GMCP messages if you need to be notified of client messages.
+/// </remarks>
+[RequiredMethod("OnGMCPMessage", Description = "Configure the callback to handle GMCP messages (optional but recommended)")]
 public class GMCPProtocol : TelnetProtocolPluginBase
 {
     private const int MaxMessageSize = 8192; // 8KB DOS protection
@@ -167,6 +173,11 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 /// MSDP (MUD Server Data Protocol) plugin implementation.
 /// This demonstrates the plugin architecture pattern.
 /// </summary>
+/// <remarks>
+/// This protocol optionally accepts configuration. Call <see cref="OnMSDPMessage"/> to set up
+/// the callback that will handle MSDP messages if you need to be notified of client messages.
+/// </remarks>
+[RequiredMethod("OnMSDPMessage", Description = "Configure the callback to handle MSDP messages (optional but recommended)")]
 public class MSDPProtocol : TelnetProtocolPluginBase
 {
     private const int MaxMessageSize = 8192; // 8KB DOS protection

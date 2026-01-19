@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Stateless;
+using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -12,6 +13,12 @@ namespace TelnetNegotiationCore.Protocols;
 /// NAWS (Negotiate About Window Size) protocol plugin - RFC 1073
 /// Implements http://www.faqs.org/rfcs/rfc1073.html
 /// </summary>
+/// <remarks>
+/// This protocol optionally accepts configuration. Call <see cref="OnNAWS"/> to set up
+/// the callback that will handle window size changes if you need to be notified of client
+/// window size updates.
+/// </remarks>
+[RequiredMethod("OnNAWS", Description = "Configure the callback to handle window size changes (optional but recommended)")]
 public class NAWSProtocol : TelnetProtocolPluginBase
 {
     private byte[] _nawsByteState = [];

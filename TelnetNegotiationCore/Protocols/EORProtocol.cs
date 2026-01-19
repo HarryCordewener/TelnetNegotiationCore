@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Stateless;
+using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -12,6 +13,11 @@ namespace TelnetNegotiationCore.Protocols;
 /// EOR (End of Record) protocol plugin
 /// Used for prompting without requiring Go-Ahead
 /// </summary>
+/// <remarks>
+/// This protocol optionally accepts configuration. Call <see cref="OnPrompt"/> to set up
+/// the callback that will handle EOR prompts if you need to be notified when prompts are received.
+/// </remarks>
+[RequiredMethod("OnPrompt", Description = "Configure the callback to handle prompt events (optional but recommended)")]
 public class EORProtocol : TelnetProtocolPluginBase
 {
     private bool? _doEOR = null;

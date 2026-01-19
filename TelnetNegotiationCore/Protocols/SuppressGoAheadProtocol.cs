@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Stateless;
+using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -12,6 +13,11 @@ namespace TelnetNegotiationCore.Protocols;
 /// Suppress Go-Ahead protocol plugin
 /// Allows half-duplex operation without requiring GA after each transmission
 /// </summary>
+/// <remarks>
+/// This protocol optionally accepts configuration. Call <see cref="OnPrompt"/> to set up
+/// the callback that will handle prompts if you need to be notified when prompts are received.
+/// </remarks>
+[RequiredMethod("OnPrompt", Description = "Configure the callback to handle prompt events (optional but recommended)")]
 public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 {
     private bool? _doGA = true;
