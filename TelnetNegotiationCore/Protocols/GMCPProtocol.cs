@@ -85,9 +85,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         Context.Logger.LogDebug("Received GMCP message: Package={Package}", message.Package);
         
         if (OnGMCPReceived != null)
-        {
-            await OnGMCPReceived(message);
-        }
+            await OnGMCPReceived(message).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -220,9 +218,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
         Context.Logger.LogDebug("Received MSDP message");
         
         if (OnMSDPReceived != null)
-        {
-            await OnMSDPReceived(interpreter, message);
-        }
+            await OnMSDPReceived(interpreter, message).ConfigureAwait(false);
     }
 
     /// <summary>

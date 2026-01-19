@@ -142,8 +142,6 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         Context.Logger.LogInformation("NAWS negotiation complete: Width={Width}, Height={Height}", width, height);
         
         if (OnNAWSNegotiated != null)
-        {
-            await OnNAWSNegotiated(width, height);
-        }
+            await OnNAWSNegotiated(width, height).ConfigureAwait(false);
     }
 }

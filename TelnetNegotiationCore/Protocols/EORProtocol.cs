@@ -129,8 +129,6 @@ public class EORProtocol : TelnetProtocolPluginBase
         Context.Logger.LogDebug("Server is prompting with EOR");
         
         if (OnPromptReceived != null)
-        {
-            await OnPromptReceived();
-        }
+            await OnPromptReceived().ConfigureAwait(false);
     }
 }

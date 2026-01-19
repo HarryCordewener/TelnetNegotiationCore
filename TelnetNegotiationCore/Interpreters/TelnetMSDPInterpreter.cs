@@ -95,7 +95,7 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.CompletingMSDP)
 				.SubstateOf(State.Accepting)
-				.OnEntryAsync(async x => await ReadMSDPValues());
+				.OnEntryAsync(async _ => await ReadMSDPValues());
 
 			TriggerHelper.ForAllTriggersButIAC(t =>
 				tsm.Configure(State.EvaluatingMSDP).OnEntryFrom(ParameterizedTrigger(t), CaptureMSDPValue).PermitReentry(t));

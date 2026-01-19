@@ -206,8 +206,6 @@ public class MSSPProtocol : TelnetProtocolPluginBase
         Context.Logger.LogDebug("Received MSSP request");
         
         if (OnMSSPRequest != null)
-        {
-            await OnMSSPRequest(config);
-        }
+            await OnMSSPRequest(config).ConfigureAwait(false);
     }
 }

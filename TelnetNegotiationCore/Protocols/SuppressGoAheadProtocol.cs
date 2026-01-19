@@ -125,8 +125,6 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
         Context.Logger.LogDebug("Server is prompting with Suppress Go-Ahead");
         
         if (OnPromptReceived != null)
-        {
-            await OnPromptReceived();
-        }
+            await OnPromptReceived().ConfigureAwait(false);
     }
 }
