@@ -165,7 +165,7 @@ public partial class TelnetInterpreter
             // SetupSuppressGANegotiation,  // Moved to SuppressGoAheadProtocol.ConfigureStateMachine
             // SetupMSSPNegotiation,  // TODO: Move to MSSPProtocol.ConfigureStateMachine
             // SetupMSDPNegotiation,  // TODO: Move to MSDPProtocol.ConfigureStateMachine
-            // SetupGMCPNegotiation,  // TODO: Move to GMCPProtocol.ConfigureStateMachine
+            // SetupGMCPNegotiation,  // Moved to GMCPProtocol.ConfigureStateMachine
             // SetupTelnetTerminalType,  // TODO: Move to TerminalTypeProtocol.ConfigureStateMachine
             // SetupCharsetNegotiation,  // TODO: Move to CharsetProtocol.ConfigureStateMachine
             // SetupNAWS,  // Moved to NAWSProtocol.ConfigureStateMachine
