@@ -217,7 +217,8 @@ The `AddDefaultMUDProtocols()` helper method now supports optional parameters to
     msspConfig: () => new MSSPConfig { Name = "My Server", UTF_8 = true },
     onMSDPMessage: (telnet, data) => HandleMSDPAsync(telnet, data),
     onPrompt: () => HandlePromptAsync(),
-    charsetOrder: [Encoding.UTF8, Encoding.GetEncoding("iso-8859-1")]
+    charsetOrder: [Encoding.UTF8, Encoding.GetEncoding("iso-8859-1")],
+    onCompressionEnabled: (version, enabled) => HandleCompressionAsync(version, enabled)
 )
 ```
 
