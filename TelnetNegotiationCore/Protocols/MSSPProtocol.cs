@@ -17,11 +17,28 @@ namespace TelnetNegotiationCore.Protocols;
 /// </summary>
 public class MSSPProtocol : TelnetProtocolPluginBase
 {
+    private Func<MSSPConfig, ValueTask>? _onMSSPRequest;
+
     /// <summary>
-    /// Event that fires when an MSSP request is received.
-    /// Users should subscribe to this event to handle MSSP requests.
+    /// Sets the callback that is invoked when an MSSP request is received.
     /// </summary>
-    public event Func<MSSPConfig, ValueTask>? OnMSSPRequest;
+    /// <param name="callback">The callback to handle MSSP requests</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public MSSPProtocol OnMSSP(Func<MSSPConfig, ValueTask>? callback)
+    {
+        _onMSSPRequest = callback;
+        return this;
+    }
+
+    /// <summary>
+    /// Gets or sets the MSSP request callback.
+    /// Can be set directly or using the fluent OnMSSP method.
+    /// </summary>
+    public Func<MSSPConfig, ValueTask>? OnMSSPRequest
+    {
+        get => _onMSSPRequest;
+        set => _onMSSPRequest = value;
+    }
 
     private Func<MSSPConfig> _msspConfig = () => new MSSPConfig();
     private List<byte> _currentMSSPVariable = [];
@@ -196,7 +213,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 
     /// <summary>
     /// Called by the interpreter when an MSSP request is received.
-    /// Internal method that fires the public event.
+    /// Internal method that invokes the callback.
     /// </summary>
     internal async ValueTask OnMSSPRequestAsync(MSSPConfig config)
     {
@@ -205,7 +222,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 
         Context.Logger.LogDebug("Received MSSP request");
         
-        if (OnMSSPRequest != null)
-            await OnMSSPRequest(config).ConfigureAwait(false);
+        if (_onMSSPRequest != null)
+            await _onMSSPRequest(config).ConfigureAwait(false);
     }
 }

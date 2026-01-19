@@ -16,11 +16,28 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 {
     private bool? _doGA = true;
 
+    private Func<ValueTask>? _onPromptReceived;
+
     /// <summary>
-    /// Event that fires when the server is prompting with Suppress Go-Ahead.
-    /// Users should subscribe to this event to handle prompt signals.
+    /// Sets the callback that is invoked when a prompt is received (Suppress Go-Ahead marker).
     /// </summary>
-    public event Func<ValueTask>? OnPromptReceived;
+    /// <param name="callback">The callback to handle prompts</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public SuppressGoAheadProtocol OnPrompt(Func<ValueTask>? callback)
+    {
+        _onPromptReceived = callback;
+        return this;
+    }
+
+    /// <summary>
+    /// Gets or sets the prompt received callback.
+    /// Can be set directly or using the fluent OnPrompt method.
+    /// </summary>
+    public Func<ValueTask>? OnPromptReceived
+    {
+        get => _onPromptReceived;
+        set => _onPromptReceived = value;
+    }
 
     /// <summary>
     /// Indicates whether Go-Ahead is suppressed (true = suppressed, false = enabled)
@@ -115,7 +132,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 
     /// <summary>
     /// Called by the interpreter when a prompt is signaled.
-    /// Internal method that fires the public event.
+    /// Internal method that invokes the callback.
     /// </summary>
     internal async ValueTask OnPromptAsync()
     {
@@ -124,7 +141,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 
         Context.Logger.LogDebug("Server is prompting with Suppress Go-Ahead");
         
-        if (OnPromptReceived != null)
-            await OnPromptReceived().ConfigureAwait(false);
+        if (_onPromptReceived != null)
+            await _onPromptReceived().ConfigureAwait(false);
     }
 }

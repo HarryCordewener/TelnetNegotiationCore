@@ -17,11 +17,28 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     private const int MaxMessageSize = 8192; // 8KB DOS protection
     private readonly List<byte> _gmcpBytes = new();
 
+    private Func<(string Package, string Info), ValueTask>? _onGMCPReceived;
+
     /// <summary>
-    /// Event that fires when a GMCP message is received.
-    /// Users should subscribe to this event to handle GMCP messages.
+    /// Sets the callback that is invoked when a GMCP message is received.
     /// </summary>
-    public event Func<(string Package, string Info), ValueTask>? OnGMCPReceived;
+    /// <param name="callback">The callback to handle GMCP messages</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public GMCPProtocol OnGMCPMessage(Func<(string Package, string Info), ValueTask>? callback)
+    {
+        _onGMCPReceived = callback;
+        return this;
+    }
+
+    /// <summary>
+    /// Gets or sets the GMCP message callback.
+    /// Can be set directly or using the fluent OnGMCPMessage method.
+    /// </summary>
+    public Func<(string Package, string Info), ValueTask>? OnGMCPReceived
+    {
+        get => _onGMCPReceived;
+        set => _onGMCPReceived = value;
+    }
 
     /// <inheritdoc />
     public override Type ProtocolType => typeof(GMCPProtocol);
@@ -75,7 +92,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 
     /// <summary>
     /// Called by the interpreter when a GMCP message is received.
-    /// Internal method that fires the public event.
+    /// Internal method that invokes the callback.
     /// </summary>
     internal async ValueTask OnGMCPMessageAsync((string Package, string Info) message)
     {
@@ -84,8 +101,8 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 
         Context.Logger.LogDebug("Received GMCP message: Package={Package}", message.Package);
         
-        if (OnGMCPReceived != null)
-            await OnGMCPReceived(message).ConfigureAwait(false);
+        if (_onGMCPReceived != null)
+            await _onGMCPReceived(message).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -163,11 +180,28 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     private const int MaxMessageSize = 8192; // 8KB DOS protection
     private readonly List<byte> _msdpBytes = new();
 
+    private Func<Interpreters.TelnetInterpreter, string, ValueTask>? _onMSDPReceived;
+
     /// <summary>
-    /// Event that fires when an MSDP message is received.
-    /// Users should subscribe to this event to handle MSDP messages.
+    /// Sets the callback that is invoked when an MSDP message is received.
     /// </summary>
-    public event Func<Interpreters.TelnetInterpreter, string, ValueTask>? OnMSDPReceived;
+    /// <param name="callback">The callback to handle MSDP messages</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public MSDPProtocol OnMSDPMessage(Func<Interpreters.TelnetInterpreter, string, ValueTask>? callback)
+    {
+        _onMSDPReceived = callback;
+        return this;
+    }
+
+    /// <summary>
+    /// Gets or sets the MSDP message callback.
+    /// Can be set directly or using the fluent OnMSDPMessage method.
+    /// </summary>
+    public Func<Interpreters.TelnetInterpreter, string, ValueTask>? OnMSDPReceived
+    {
+        get => _onMSDPReceived;
+        set => _onMSDPReceived = value;
+    }
 
     /// <inheritdoc />
     public override Type ProtocolType => typeof(MSDPProtocol);
@@ -208,7 +242,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
 
     /// <summary>
     /// Called by the interpreter when an MSDP message is received.
-    /// Internal method that fires the public event.
+    /// Internal method that invokes the callback.
     /// </summary>
     internal async ValueTask OnMSDPMessageAsync(Interpreters.TelnetInterpreter interpreter, string message)
     {
@@ -217,8 +251,8 @@ public class MSDPProtocol : TelnetProtocolPluginBase
 
         Context.Logger.LogDebug("Received MSDP message");
         
-        if (OnMSDPReceived != null)
-            await OnMSDPReceived(interpreter, message).ConfigureAwait(false);
+        if (_onMSDPReceived != null)
+            await _onMSDPReceived(interpreter, message).ConfigureAwait(false);
     }
 
     /// <summary>
