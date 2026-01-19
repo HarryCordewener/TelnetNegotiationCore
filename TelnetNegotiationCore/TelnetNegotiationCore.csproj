@@ -61,4 +61,15 @@
 		<ProjectReference Include="..\TelnetNegotiationCore.Functional\TelnetNegotiationCore.Functional.fsproj" PrivateAssets="all" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<!-- Roslyn Analyzer for compile-time plugin validation -->
+		<ProjectReference Include="..\TelnetNegotiationCore.Analyzers\TelnetNegotiationCore.Analyzers.csproj"
+		                  OutputItemType="Analyzer"
+		                  ReferenceOutputAssembly="false" />
+		<!-- Source Generator for reflection elimination -->
+		<ProjectReference Include="..\TelnetNegotiationCore.SourceGenerators\TelnetNegotiationCore.SourceGenerators.csproj"
+		                  OutputItemType="Analyzer"
+		                  ReferenceOutputAssembly="false" />
+	</ItemGroup>
+
 </Project>
