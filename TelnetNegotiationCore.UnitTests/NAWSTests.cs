@@ -3,8 +3,10 @@ using NUnit.Framework;
 using System;
 using System.Text;
 using System.Threading.Tasks;
+using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
+using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
@@ -42,29 +44,43 @@ public class NAWSTests : BaseTest
 		_receivedHeight = 0;
 		_receivedWidth = 0;
 
-		_server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnNAWSAsync = WriteBackToNAWS,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
+		_server_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<NAWSProtocol>()
+			.AddPlugin<GMCPProtocol>()
+			.AddPlugin<MSSPProtocol>()
+			.BuildAsync();
+
+		var serverNaws = _server_ti.PluginManager!.GetPlugin<NAWSProtocol>();
+		serverNaws!.OnNAWSNegotiated += WriteBackToNAWS;
+
+		var serverMssp = _server_ti.PluginManager!.GetPlugin<MSSPProtocol>();
+		serverMssp!.SetMSSPConfig(() => new MSSPConfig
 		{
 			Name = "Test Server"
-		}).BuildAsync();
+		});
 
-		_client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnNAWSAsync = WriteBackToNAWS,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
+		_client_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<NAWSProtocol>()
+			.AddPlugin<GMCPProtocol>()
+			.AddPlugin<MSSPProtocol>()
+			.BuildAsync();
+
+		var clientNaws = _client_ti.PluginManager!.GetPlugin<NAWSProtocol>();
+		clientNaws!.OnNAWSNegotiated += WriteBackToNAWS;
+
+		var clientMssp = _client_ti.PluginManager!.GetPlugin<MSSPProtocol>();
+		clientMssp!.SetMSSPConfig(() => new MSSPConfig
 		{
 			Name = "Test Client"
-		}).BuildAsync();
+		});
 	}
 
 	[TearDown]

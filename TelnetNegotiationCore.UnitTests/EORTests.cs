@@ -4,8 +4,10 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
+using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
+using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
@@ -40,29 +42,27 @@ public class EORTests : BaseTest
 		_negotiationOutput = null;
 		_promptReceived = false;
 
-		_server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnPromptingAsync = WriteBackToPrompt,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
-		{
-			Name = "Test Server"
-		}).BuildAsync();
+		_server_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<EORProtocol>()
+			.BuildAsync();
 
-		_client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnPromptingAsync = WriteBackToPrompt,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
-		{
-			Name = "Test Client"
-		}).BuildAsync();
+		var serverEor = _server_ti.PluginManager!.GetPlugin<EORProtocol>();
+		serverEor!.OnPromptReceived += WriteBackToPrompt;
+
+		_client_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<EORProtocol>()
+			.BuildAsync();
+
+		var clientEor = _client_ti.PluginManager!.GetPlugin<EORProtocol>();
+		clientEor!.OnPromptReceived += WriteBackToPrompt;
 	}
 
 	[TearDown]
@@ -219,14 +219,16 @@ public class EORTests : BaseTest
 	public async Task EORNegotiationSequenceComplete()
 	{
 		// This test verifies the complete negotiation sequence
-		var testClient = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnPromptingAsync = WriteBackToPrompt,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig()).BuildAsync();
+		var testClient = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<EORProtocol>()
+			.BuildAsync();
+
+		var eor = testClient.PluginManager!.GetPlugin<EORProtocol>();
+		eor!.OnPromptReceived += WriteBackToPrompt;
 
 		// Step 1: Server sends WILL EOR
 		_negotiationOutput = null;

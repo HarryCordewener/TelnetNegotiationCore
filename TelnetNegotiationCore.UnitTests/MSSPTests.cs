@@ -5,8 +5,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
+using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
@@ -41,14 +43,17 @@ public class MSSPTests : BaseTest
 		_receivedMSSP = null;
 		_negotiationOutput = null;
 
-		_server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnMSSPAsync = WriteBackToMSSP,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
+		_server_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<MSSPProtocol>()
+			.BuildAsync();
+
+		var serverMssp = _server_ti.PluginManager!.GetPlugin<MSSPProtocol>();
+		serverMssp!.OnMSSPRequest += WriteBackToMSSP;
+		serverMssp!.SetMSSPConfig(() => new MSSPConfig
 		{
 			Name = "Test MUD Server",
 			Players = 42,
@@ -66,19 +71,22 @@ public class MSSPTests : BaseTest
 			{
 				{ "CustomField", "CustomValue" }
 			}
-		}).BuildAsync();
+		});
 
-		_client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnMSSPAsync = WriteBackToMSSP,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
+		_client_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<MSSPProtocol>()
+			.BuildAsync();
+
+		var clientMssp = _client_ti.PluginManager!.GetPlugin<MSSPProtocol>();
+		clientMssp!.OnMSSPRequest += WriteBackToMSSP;
+		clientMssp!.SetMSSPConfig(() => new MSSPConfig
 		{
 			Name = "Test MUD Client"
-		}).BuildAsync();
+		});
 	}
 
 	[TearDown]
@@ -180,20 +188,22 @@ public class MSSPTests : BaseTest
 	public async Task MSSPDataContainsBooleanFieldsCorrectly()
 	{
 		// Arrange - Server with boolean fields set
-		var testServer = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnMSSPAsync = WriteBackToMSSP,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
+		var testServer = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<MSSPProtocol>()
+			.BuildAsync();
+
+		var mssp = testServer.PluginManager!.GetPlugin<MSSPProtocol>();
+		mssp!.SetMSSPConfig(() => new MSSPConfig
 		{
 			Name = "Boolean Test MUD",
 			UTF_8 = true,
 			Ansi = false,
 			VT100 = true
-		}).BuildAsync();
+		});
 
 		_negotiationOutput = null;
 
@@ -293,14 +303,16 @@ public class MSSPTests : BaseTest
 	public async Task MSSPDataContainsIntegerFieldsCorrectly()
 	{
 		// Arrange - Server with integer fields set
-		var testServer = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnMSSPAsync = WriteBackToMSSP,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
+		var testServer = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<MSSPProtocol>()
+			.BuildAsync();
+
+		var mssp = testServer.PluginManager!.GetPlugin<MSSPProtocol>();
+		mssp!.SetMSSPConfig(() => new MSSPConfig
 		{
 			Name = "Integer Test MUD",
 			Players = 123,
@@ -308,7 +320,7 @@ public class MSSPTests : BaseTest
 			Areas = 50,
 			Rooms = 1000,
 			Mobiles = 500
-		}).BuildAsync();
+		});
 
 		_negotiationOutput = null;
 
@@ -337,20 +349,22 @@ public class MSSPTests : BaseTest
 	public async Task MSSPDataContainsArrayFieldsCorrectly()
 	{
 		// Arrange - Server with array fields set
-		var testServer = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnMSSPAsync = WriteBackToMSSP,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
+		var testServer = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<MSSPProtocol>()
+			.BuildAsync();
+
+		var mssp = testServer.PluginManager!.GetPlugin<MSSPProtocol>();
+		mssp!.SetMSSPConfig(() => new MSSPConfig
 		{
 			Name = "Array Test MUD",
 			Gameplay = ["Adventure", "Roleplaying", "Hack and Slash"],
 			Codebase = ["Custom", "DikuMUD"],
 			Family = ["DikuMUD"]
-		}).BuildAsync();
+		});
 
 		_negotiationOutput = null;
 

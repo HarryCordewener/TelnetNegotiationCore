@@ -5,8 +5,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
+using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests
 {
@@ -33,23 +35,13 @@ namespace TelnetNegotiationCore.UnitTests
 		[TestCaseSource(nameof(ServerCHARSETSequences), Category = nameof(TelnetInterpreter.TelnetMode.Server))]
 		public async Task ServerEvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<Encoding> currentEncoding)
 		{
-			var server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-			{
-				CallbackNegotiationAsync = ServerWriteBackToNegotiate,
-				CallbackOnSubmitAsync = WriteBackToOutput,
-				SignalOnGMCPAsync = WriteBackToGMCP,
-				CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-			}.RegisterMSSPConfig(() => new MSSPConfig
-			{
-				Name = "My Telnet Negotiated Server",
-				UTF_8 = true,
-				Gameplay = new[] { "ABC", "DEF" },
-				Extended = new Dictionary<string, dynamic>
-				{
-					{ "Foo",  "Bar"},
-					{ "Baz",  new [] {"Moo", "Meow" }}
-				}
-			}).BuildAsync();
+			var server_ti = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(ServerWriteBackToNegotiate)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
 
 			if (clientSends.Count() != serverShouldRespondWith.Count())
 				throw new Exception("Invalid Testcase.");
@@ -71,24 +63,13 @@ namespace TelnetNegotiationCore.UnitTests
 		[TestCaseSource(nameof(ClientCHARSETSequences), Category = nameof(TelnetInterpreter.TelnetMode.Client))]
 		public async Task ClientEvaluationCheck(IEnumerable<byte[]> serverSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<Encoding> currentEncoding)
 		{
-			var client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
-			{
-				CallbackNegotiationAsync = ClientWriteBackToNegotiate,
-				CallbackOnSubmitAsync = WriteBackToOutput,
-				SignalOnGMCPAsync = WriteBackToGMCP,
-				CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-				CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
-			}.RegisterMSSPConfig(() => new MSSPConfig
-			{
-				Name = "My Telnet Negotiated Client",
-				UTF_8 = true,
-				Gameplay = new[] { "ABC", "DEF" },
-				Extended = new Dictionary<string, dynamic>
-				{
-					{ "Foo",  "Bar"},
-					{ "Baz",  new [] {"Moo", "Meow" }}
-				}
-			}).BuildAsync();
+			var client_ti = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(ClientWriteBackToNegotiate)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
 
 			if (serverSends.Count() != serverShouldRespondWith.Count())
 				throw new Exception("Invalid Testcase.");
