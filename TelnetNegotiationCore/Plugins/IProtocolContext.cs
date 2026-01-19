@@ -107,4 +107,16 @@ public interface IProtocolContext
     /// <param name="value">The value if found and of correct type</param>
     /// <returns>True if the value was found and is of the correct type</returns>
     bool TryGetSharedState<T>(string key, out T? value);
+
+    /// <summary>
+    /// Registers a function to be called during initial negotiation (after BuildAsync).
+    /// This is used by protocols to announce their willingness to negotiate.
+    /// </summary>
+    /// <param name="negotiationFunc">The async function to call during initialization</param>
+    void RegisterInitialNegotiation(Func<ValueTask> negotiationFunc);
+
+    /// <summary>
+    /// Gets the underlying telnet interpreter instance for advanced protocol scenarios.
+    /// </summary>
+    Interpreters.TelnetInterpreter Interpreter { get; }
 }
