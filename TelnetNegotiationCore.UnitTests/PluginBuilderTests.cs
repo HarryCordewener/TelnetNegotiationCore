@@ -131,10 +131,10 @@ public class PluginBuilderTests : BaseTest
     }
 
     [Test]
-    public void BuilderRequiresMode()
+    public async Task BuilderRequiresMode()
     {
         // Arrange & Act & Assert
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await new TelnetInterpreterBuilder()
                 .UseLogger(logger)
@@ -147,10 +147,10 @@ public class PluginBuilderTests : BaseTest
     }
 
     [Test]
-    public void BuilderRequiresLogger()
+    public async Task BuilderRequiresLogger()
     {
         // Arrange & Act & Assert
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await new TelnetInterpreterBuilder()
                 .UseMode(TelnetInterpreter.TelnetMode.Server)
@@ -163,10 +163,10 @@ public class PluginBuilderTests : BaseTest
     }
 
     [Test]
-    public void BuilderRequiresSubmitCallback()
+    public async Task BuilderRequiresSubmitCallback()
     {
         // Arrange & Act & Assert
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await new TelnetInterpreterBuilder()
                 .UseMode(TelnetInterpreter.TelnetMode.Server)
@@ -179,10 +179,10 @@ public class PluginBuilderTests : BaseTest
     }
 
     [Test]
-    public void BuilderRequiresNegotiationCallback()
+    public async Task BuilderRequiresNegotiationCallback()
     {
         // Arrange & Act & Assert
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await new TelnetInterpreterBuilder()
                 .UseMode(TelnetInterpreter.TelnetMode.Server)

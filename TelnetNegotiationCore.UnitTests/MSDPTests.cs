@@ -3,6 +3,7 @@ using TUnit.Core;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
 using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.UnitTests;
@@ -14,23 +15,23 @@ public class MSDPTests : BaseTest
 
 	[Test]
 	[MethodDataSource(nameof(FSharpScanTestSequences))]
-	public void TestFSharpScan(byte[] testcase, dynamic expectedObject)
+	public async Task TestFSharpScan(byte[] testcase, object expectedObject)
 	{
 		var result = Functional.MSDPLibrary.MSDPScan(testcase, Encoding);
 		logger.LogInformation("Serialized: {Serialized}", JsonSerializer.Serialize(result));
-		Assert.AreEqual(JsonSerializer.Serialize(expectedObject), JsonSerializer.Serialize(result));
+		await Assert.That(JsonSerializer.Serialize(result)).IsEqualTo(JsonSerializer.Serialize(expectedObject));
 	}
 
 	[Test]
 	[MethodDataSource(nameof(FSharpReportTestSequences))]
-	public void TestFSharpReport(dynamic obj, byte[] expectedSequence)
+	public async Task TestFSharpReport(object obj, byte[] expectedSequence)
 	{
 		byte[] result = Functional.MSDPLibrary.Report(JsonSerializer.Serialize(obj), Encoding);
 		logger.LogInformation("Sequence: {@Serialized}", result);
 		await Assert.That(result).IsEqualTo(expectedSequence);
 	}
 
-	public static IEnumerable<(byte[], dynamic)> FSharpScanTestSequences()
+	public static IEnumerable<(byte[], object)> FSharpScanTestSequences()
 	{
 		yield return ((byte[])[
 				(byte)Trigger.MSDP_VAR,
@@ -87,7 +88,7 @@ public class MSDPTests : BaseTest
 			],
 			new { ROOM = new { AREA = "Haon Dor", EXITS = new { e = "6012", n = "6011" }, NAME = "The Forest clearing", VNUM = "6008" } });
 	}
-	public static IEnumerable<(dynamic, byte[])> FSharpReportTestSequences()
+	public static IEnumerable<(object, byte[])> FSharpReportTestSequences()
 	{
 		yield return (new { LIST = "COMMANDS" }, (byte[])[
 			(byte)Trigger.MSDP_TABLE_OPEN,

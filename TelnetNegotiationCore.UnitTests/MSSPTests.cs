@@ -110,7 +110,7 @@ public class MSSPTests : BaseTest
 
 		// Assert
 		await Assert.That(_negotiationOutput).IsNotNull();
-		CollectionAssert.AreEqual(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP }, _negotiationOutput);
+		await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
 	}
 
 	[Test]
@@ -126,9 +126,9 @@ public class MSSPTests : BaseTest
 
 		// Assert - Server should send MSSP subnegotiation with data
 		await Assert.That(_negotiationOutput).IsNotNull();
-		Assert.That(_negotiationOutput[0], Is.EqualTo((byte)Trigger.IAC));
-		Assert.That(_negotiationOutput[1], Is.EqualTo((byte)Trigger.SB));
-		Assert.That(_negotiationOutput[2], Is.EqualTo((byte)Trigger.MSSP));
+		await Assert.That(_negotiationOutput[0]).IsEqualTo((byte)Trigger.IAC);
+		await Assert.That(_negotiationOutput[1]).IsEqualTo((byte)Trigger.SB);
+		await Assert.That(_negotiationOutput[2]).IsEqualTo((byte)Trigger.MSSP);
 		
 		// Should contain NAME variable
 		var encoding = Encoding.ASCII;
@@ -137,8 +137,8 @@ public class MSSPTests : BaseTest
 		await Assert.That(responseString).Contains("Test MUD Server");
 		
 		// Should end with IAC SE
-		Assert.That(_negotiationOutput[^2], Is.EqualTo((byte)Trigger.IAC));
-		Assert.That(_negotiationOutput[^1], Is.EqualTo((byte)Trigger.SE));
+		await Assert.That(_negotiationOutput[^2]).IsEqualTo((byte)Trigger.IAC);
+		await Assert.That(_negotiationOutput[^1]).IsEqualTo((byte)Trigger.SE);
 	}
 
 	[Test]

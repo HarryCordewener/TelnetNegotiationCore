@@ -200,11 +200,11 @@ public class NAWSTests : BaseTest
 
 		// Assert
 		await Assert.That(_negotiationOutput).IsNotNull();
-		Assert.That(_negotiationOutput[0], Is.EqualTo((byte)Trigger.IAC));
-		Assert.That(_negotiationOutput[1], Is.EqualTo((byte)Trigger.SB));
-		Assert.That(_negotiationOutput[2], Is.EqualTo((byte)Trigger.NAWS));
-		Assert.That(_negotiationOutput[^2], Is.EqualTo((byte)Trigger.IAC));
-		Assert.That(_negotiationOutput[^1], Is.EqualTo((byte)Trigger.SE));
+		await Assert.That(_negotiationOutput[0]).IsEqualTo((byte)Trigger.IAC);
+		await Assert.That(_negotiationOutput[1]).IsEqualTo((byte)Trigger.SB);
+		await Assert.That(_negotiationOutput[2]).IsEqualTo((byte)Trigger.NAWS);
+		await Assert.That(_negotiationOutput[^2]).IsEqualTo((byte)Trigger.IAC);
+		await Assert.That(_negotiationOutput[^1]).IsEqualTo((byte)Trigger.SE);
 	}
 
 	[Test]
@@ -353,6 +353,6 @@ public class NAWSTests : BaseTest
 
 		// Assert - Server should send WONT NAWS
 		await Assert.That(_negotiationOutput).IsNotNull();
-		CollectionAssert.AreEqual(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS }, _negotiationOutput);
+		await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
 	}
 }

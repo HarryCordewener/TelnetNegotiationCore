@@ -82,7 +82,7 @@ public class EORTests : BaseTest
 
 		// Assert
 		await Assert.That(_negotiationOutput).IsNotNull();
-		CollectionAssert.AreEqual(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR }, _negotiationOutput);
+		await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
 	}
 
 	[Test]
@@ -113,7 +113,7 @@ public class EORTests : BaseTest
 
 		// Assert - Client should send DO EOR
 		await Assert.That(_negotiationOutput).IsNotNull();
-		CollectionAssert.AreEqual(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR }, _negotiationOutput);
+		await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
 	}
 
 	[Test]
@@ -221,7 +221,7 @@ public class EORTests : BaseTest
 		await testClient.WaitForProcessingAsync();
 		
 		await Assert.That(_negotiationOutput).IsNotNull();
-		Assert.That(_negotiationOutput, Is.EqualTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR }));
+		await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
 
 		// Step 2: Client receives EOR prompt
 		_promptReceived = false;
