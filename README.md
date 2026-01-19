@@ -53,14 +53,14 @@ using TelnetNegotiationCore.Protocols;
 
 // Create interpreter with fluent plugin configuration
 var telnet = await new TelnetInterpreterBuilder()
-    .UseMode(TelnetMode.Server)
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
     .UseLogger(logger)
-    .OnSubmit((data, encoding) => HandleSubmitAsync(data, encoding))
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
     .OnNegotiation((data) => WriteToNetworkAsync(data))
     .AddPlugin<NAWSProtocol>()
         .OnNAWS((height, width) => HandleWindowSizeAsync(height, width))
     .AddPlugin<GMCPProtocol>()
-        .OnGMCPMessage((package, info) => HandleGMCPAsync(package, info))
+        .OnGMCPMessage((packageInfo) => HandleGMCPAsync(packageInfo))
     .AddPlugin<MSDPProtocol>()
         .OnMSDPMessage((telnet, data) => HandleMSDPAsync(telnet, data))
     .AddPlugin<MSSPProtocol>()
@@ -71,6 +71,25 @@ var telnet = await new TelnetInterpreterBuilder()
         .OnPrompt(() => HandlePromptAsync())
     .AddPlugin<SuppressGoAheadProtocol>()
     .BuildAsync();
+
+// Configure MSSP (optional - set server information)
+var msspPlugin = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
+if (msspPlugin != null)
+{
+    msspPlugin.SetMSSPConfig(() => new MSSPConfig
+    {
+        Name = "My MUD Server",
+        UTF_8 = true,
+        Gameplay = ["Fantasy", "Adventure"]
+    });
+}
+
+// Configure Charset (optional - set encoding preferences)
+var charsetPlugin = telnet.PluginManager!.GetPlugin<CharsetProtocol>();
+if (charsetPlugin != null)
+{
+    charsetPlugin.CharsetOrder = [Encoding.UTF8, Encoding.GetEncoding("iso-8859-1")];
+}
 
 // Use the interpreter (non-blocking with automatic backpressure)
 await telnet.InterpretByteArrayAsync(bytes);
@@ -83,15 +102,20 @@ await telnet.DisposeAsync();
 
 ```csharp
 var telnet = await new TelnetInterpreterBuilder()
-    .UseMode(TelnetMode.Server)
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
     .UseLogger(logger)
-    .OnSubmit(HandleSubmitAsync)
-    .OnNegotiation(WriteToNetworkAsync)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
     .AddDefaultMUDProtocols()  // Adds all 7 common MUD protocols
     .BuildAsync();
+
+// Configure callbacks and settings after build if needed
+var gmcpPlugin = telnet.PluginManager!.GetPlugin<GMCPProtocol>();
+if (gmcpPlugin != null)
+    gmcpPlugin.OnGMCPMessage((packageInfo) => HandleGMCPAsync(packageInfo));
 ```
 
-**Note:** With AddDefaultMUDProtocols(), all protocols are registered but no callbacks are set. You must configure callbacks inline by adding plugins individually if you need to handle protocol events.
+**Note:** With AddDefaultMUDProtocols(), all protocols are registered but no callbacks are set. You can configure callbacks after building by getting the plugin from PluginManager, or add plugins individually for inline callback configuration.
 
 **Key Benefits:**
 - **Fluent callback configuration** - Set callbacks inline during builder setup
@@ -105,7 +129,7 @@ var telnet = await new TelnetInterpreterBuilder()
 
 ### Legacy API (Deprecated)
 
-**Note:** The legacy direct instantiation API with callback properties is deprecated and will be removed in a future version. Please migrate to the plugin-based API shown above.
+**Note:** The legacy direct instantiation API with callback properties is deprecated. Please migrate to the plugin-based Fluent API shown above for better performance, type safety, and maintainability.
 
 ### Client
 A documented example exists in the [TestClient Project](TelnetNegotiationCore.TestClient/MockPipelineClient.cs).
@@ -116,7 +140,7 @@ var log = new LoggerConfiguration()
   .Enrich.FromLogContext()
   .WriteTo.Console()
   .WriteTo.File(new CompactJsonFormatter(), "LogResult.log")
-  .MinimumLevel.LogDebug()
+  .MinimumLevel.Debug()
   .CreateLogger();
 
 Log.Logger = log;
@@ -132,38 +156,62 @@ private async ValueTask WriteToOutputStreamAsync(byte[] arg, StreamWriter writer
   }
   catch(ObjectDisposedException ode)
   {
-    _Logger.LogInformation("Stream has been closed", ode);
+    _Logger.LogInformation(ode, "Stream has been closed");
   }
 }
 
-public static ValueTask WriteBackAsync(byte[] writeback, Encoding encoding) =>
+public static ValueTask WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter telnet) =>
   Task.Run(() => Console.WriteLine(encoding.GetString(writeback)));
 
-public ValueTask SignalGMCPAsync((string module, string writeback) val, Encoding encoding) =>
-  Task.Run(() => _Logger.LogDebug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback));
+public ValueTask SignalGMCPAsync((string module, string info) val)
+{
+  _Logger.LogDebug("GMCP Signal: {Module}: {Info}", val.module, val.info);
+  return ValueTask.CompletedTask;
+}
 
-public ValueTask SignalMSSPAsync(MSSPConfig val) =>
-  Task.Run(() => _Logger.LogDebug("New MSSP: {@MSSP}", val));
+public ValueTask SignalMSSPAsync(MSSPConfig val)
+{
+  _Logger.LogDebug("New MSSP: {@MSSP}", val);
+  return ValueTask.CompletedTask;
+}
 
-public ValueTask SignalPromptAsync() =>
-  Task.Run(() => _Logger.LogDebug("Prompt"));
+public ValueTask SignalPromptAsync()
+{
+  _Logger.LogDebug("Prompt");
+  return ValueTask.CompletedTask;
+}
 
-public ValueTask SignalNAWSAsync(int height, int width) => 
-  Task.Run(() => _Logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width));
+public ValueTask SignalNAWSAsync(int height, int width)
+{
+  _Logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width);
+  return ValueTask.CompletedTask;
+}
 ```
 
-Initialize the Interpreter.
+Initialize the Interpreter using the fluent builder.
 ```csharp
-var telnet = new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, _Logger.ForContext<TelnetInterpreter>())
-{
-  CallbackOnSubmitAsync = WriteBackAsync,
-  CallbackNegotiationAsync = (x) => WriteToOutputStreamAsync(x, output),
-  SignalOnGMCPAsync = SignalGMCPAsync,
-  SignalOnMSSPAsync = SignalMSSPAsync,
-  SignalOnNAWSAsync = SignalNAWSAsync,
-  SignalOnPromptingAsync = SignalPromptAsync,
-  CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
-}.BuildAsync();
+var telnet = await new TelnetInterpreterBuilder()
+  .UseMode(TelnetInterpreter.TelnetMode.Client)
+  .UseLogger(_Logger)
+  .OnSubmit(WriteBackAsync)
+  .OnNegotiation((x) => WriteToOutputStreamAsync(x, output))
+  .AddPlugin<NAWSProtocol>()
+    .OnNAWS(SignalNAWSAsync)
+  .AddPlugin<GMCPProtocol>()
+    .OnGMCPMessage(SignalGMCPAsync)
+  .AddPlugin<MSSPProtocol>()
+    .OnMSSP(SignalMSSPAsync)
+  .AddPlugin<TerminalTypeProtocol>()
+  .AddPlugin<CharsetProtocol>()
+  .AddPlugin<EORProtocol>()
+    .OnPrompt(SignalPromptAsync)
+  .AddPlugin<SuppressGoAheadProtocol>()
+  .BuildAsync();
+
+// Configure Charset preferences (optional)
+var charsetPlugin = telnet.PluginManager!.GetPlugin<CharsetProtocol>();
+if (charsetPlugin != null)
+  charsetPlugin.CharsetOrder = [Encoding.UTF8, Encoding.GetEncoding("iso-8859-1")];
 ```
 
 ### Sending GMCP Messages
@@ -187,9 +235,20 @@ To receive GMCP messages, implement the `SignalOnGMCPAsync` callback as shown in
 
 Start interpreting.
 ```csharp
-for (int currentByte = 0; currentByte != -1; currentByte = input.BaseStream.ReadByte())
+while (true)
 {
-  telnet.InterpretAsync((byte)currentByte).GetAwaiter().GetResult();
+  var result = await input.ReadAsync();
+  var buffer = result.Buffer;
+  
+  foreach (var segment in buffer)
+  {
+    await telnet.InterpretByteArrayAsync(segment);
+  }
+  
+  if (result.IsCompleted)
+    break;
+    
+  input.AdvanceTo(buffer.End);
 }
 ```
 
@@ -199,12 +258,12 @@ This uses a Kestrel server to make the TCP handling easier.
 ```csharp
 public class KestrelMockServer : ConnectionHandler
 {
-  private readonly ILogger _Logger;
+  private readonly ILogger _logger;
 
   public KestrelMockServer(ILogger<KestrelMockServer> logger) : base()
   {
     Console.OutputEncoding = Encoding.UTF8;
-    _Logger = logger;
+    _logger = logger;
   }
 
   private async ValueTask WriteToOutputStreamAsync(byte[] arg, PipeWriter writer)
@@ -215,25 +274,25 @@ public class KestrelMockServer : ConnectionHandler
     }
     catch (ObjectDisposedException ode)
     {
-      _Logger.LogError(ode, "Stream has been closed");
+      _logger.LogError(ode, "Stream has been closed");
     }
   }
 
-  public ValueTask SignalGMCPAsync((string module, string writeback) val)
+  public ValueTask SignalGMCPAsync((string module, string info) val)
   {
-    _Logger.LogDebug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback);
+    _logger.LogDebug("GMCP Signal: {Module}: {Info}", val.module, val.info);
     return ValueTask.CompletedTask;
   }
 
   public ValueTask SignalMSSPAsync(MSSPConfig val)
   {
-    _Logger.LogDebug("New MSSP: {@MSSPConfig}", val);
+    _logger.LogDebug("New MSSP: {@MSSPConfig}", val);
     return ValueTask.CompletedTask;
   }
 
   public ValueTask SignalNAWSAsync(int height, int width)
   {
-    _Logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width);
+    _logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width);
     return ValueTask.CompletedTask;
   }
 
@@ -252,17 +311,17 @@ public class KestrelMockServer : ConnectionHandler
 
   private async ValueTask MSDPUpdateBehavior(string resetVariable)
   {
-    _Logger.LogDebug("MSDP Reset Request: {@Reset}", resetVariable);
+    _logger.LogDebug("MSDP Reset Request: {@Reset}", resetVariable);
     await ValueTask.CompletedTask;
   }
 
-  public async override ValueTask OnConnectedAsync(ConnectionContext connection)
+  public async override Task OnConnectedAsync(ConnectionContext connection)
   {
-    using (_Logger.BeginScope(new Dictionary<string, object> { { "ConnectionId", connection.ConnectionId } }))
+    using (_logger.BeginScope(new Dictionary<string, object> { { "ConnectionId", connection.ConnectionId } }))
     {
-      _Logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
+      _logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
 
-      var MSDPHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
+      var msdpHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
       {
         Commands = () => ["help", "stats", "info"],
         Configurable_Variables = () => ["CLIENT_NAME", "CLIENT_VERSION", "PLUGIN_ID"],
@@ -270,28 +329,46 @@ public class KestrelMockServer : ConnectionHandler
         Sendable_Variables = () => ["ROOM"],
       });
 
-      var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, _Logger)
+      var telnet = await new TelnetInterpreterBuilder()
+        .UseMode(TelnetInterpreter.TelnetMode.Server)
+        .UseLogger(_logger)
+        .OnSubmit(WriteBackAsync)
+        .OnNegotiation(x => WriteToOutputStreamAsync(x, connection.Transport.Output))
+        .AddPlugin<NAWSProtocol>()
+          .OnNAWS(SignalNAWSAsync)
+        .AddPlugin<GMCPProtocol>()
+          .OnGMCPMessage(SignalGMCPAsync)
+        .AddPlugin<MSDPProtocol>()
+          .OnMSDPMessage((t, config) => SignalMSDPAsync(msdpHandler, t, config))
+        .AddPlugin<MSSPProtocol>()
+          .OnMSSP(SignalMSSPAsync)
+        .AddPlugin<TerminalTypeProtocol>()
+        .AddPlugin<CharsetProtocol>()
+        .AddPlugin<EORProtocol>()
+        .AddPlugin<SuppressGoAheadProtocol>()
+        .BuildAsync();
+
+      // Configure MSSP
+      var msspPlugin = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
+      if (msspPlugin != null)
       {
-        CallbackOnSubmitAsync = WriteBackAsync,
-        SignalOnGMCPAsync = SignalGMCPAsync,
-        SignalOnMSSPAsync = SignalMSSPAsync,
-        SignalOnNAWSAsync = SignalNAWSAsync,
-        SignalOnMSDPAsync = (telnet, config) => SignalMSDPAsync(MSDPHandler, telnet, config),
-        CallbackNegotiationAsync = (x) => WriteToOutputStreamAsync(x, connection.Transport.Output),
-        CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") }
-      }
-        .RegisterMSSPConfig(() => new MSSPConfig
+        msspPlugin.SetMSSPConfig(() => new MSSPConfig
         {
           Name = "My Telnet Negotiated Server",
           UTF_8 = true,
           Gameplay = ["ABC", "DEF"],
           Extended = new Dictionary<string, dynamic>
-        {
-          { "Foo",  "Bar"},
-          { "Baz", (string[])["Moo", "Meow"] }
-        }
-        })
-        .BuildAsync();
+          {
+            { "Foo",  "Bar"},
+            { "Baz", (string[])["Moo", "Meow"] }
+          }
+        });
+      }
+
+      // Configure Charset
+      var charsetPlugin = telnet.PluginManager!.GetPlugin<CharsetProtocol>();
+      if (charsetPlugin != null)
+        charsetPlugin.CharsetOrder = [Encoding.UTF8, Encoding.GetEncoding("iso-8859-1")];
 
       while (true)
       {
@@ -300,7 +377,7 @@ public class KestrelMockServer : ConnectionHandler
 
         foreach (var segment in buffer)
         {
-          await telnet.InterpretByteArrayAsync(segment.Span.ToImmutableArray());
+          await telnet.InterpretByteArrayAsync(segment);
         }
 
         if (result.IsCompleted)
@@ -310,7 +387,7 @@ public class KestrelMockServer : ConnectionHandler
 
         connection.Transport.Input.AdvanceTo(buffer.End);
       }
-      _Logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
+      _logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
     }
   }
 }
