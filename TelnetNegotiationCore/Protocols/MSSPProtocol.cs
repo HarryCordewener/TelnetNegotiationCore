@@ -1,13 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
-using System.Linq;
-using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Stateless;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
+using TelnetNegotiationCore.Generated;
 
 namespace TelnetNegotiationCore.Protocols;
 
@@ -38,17 +36,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     private List<byte> _currentMSSPValue = [];
     private List<List<byte>> _currentMSSPVariableList = [];
 
-    private readonly IImmutableDictionary<string, (MemberInfo Member, NameAttribute Attribute)> _msspAttributeMembers;
-
-    public MSSPProtocol()
-    {
-        _msspAttributeMembers = typeof(MSSPConfig)
-            .GetMembers()
-            .Select(x => (Member: x, Attribute: x.GetCustomAttribute<NameAttribute>()))
-            .Where(x => x.Attribute != null)
-            .Select(x => (x.Member, Attribute: x.Attribute!))
-            .ToImmutableDictionary(x => x.Attribute.Name.ToUpper());
-    }
+    // No longer needs reflection - uses generated MSSPConfigAccessor instead
 
     /// <inheritdoc />
     public override Type ProtocolType => typeof(MSSPProtocol);
@@ -163,16 +151,22 @@ public class MSSPProtocol : TelnetProtocolPluginBase
             {
                 var variableName = System.Text.Encoding.ASCII.GetString(_currentMSSPVariableList[i].ToArray()).ToUpper();
                 
-                if (_msspAttributeMembers.TryGetValue(variableName, out var memberInfo))
+                // Use generated accessor instead of reflection
+                if (MSSPConfigAccessor.PropertyMap.ContainsKey(variableName))
                 {
-                    // Set the value on the config object
-                    var values = _currentMSSPValueList[i]
-                        .Select(b => System.Text.Encoding.ASCII.GetString(new[] { b }))
-                        .ToList();
-
-                    // This is simplified - full implementation would properly set the member values
-                    Context.Logger.LogDebug("MSSP variable: {Variable} = {Values}", 
-                        variableName, string.Join(", ", values));
+                    // Get the value bytes and convert to string
+                    var valueString = System.Text.Encoding.ASCII.GetString(_currentMSSPValueList[i].ToArray());
+                    
+                    // Use the generated accessor to set the property (zero reflection!)
+                    if (MSSPConfigAccessor.TrySetProperty(config, variableName, valueString))
+                    {
+                        Context.Logger.LogDebug("MSSP variable set: {Variable} = {Value}", 
+                            variableName, valueString);
+                    }
+                    else
+                    {
+                        Context.Logger.LogWarning("Failed to set MSSP variable: {Variable}", variableName);
+                    }
                 }
             }
 
