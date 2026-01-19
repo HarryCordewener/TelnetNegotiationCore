@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Stateless;
 using TelnetNegotiationCore.Models;
@@ -26,7 +28,7 @@ public partial class TelnetInterpreter
     /// <summary>
     /// The current Encoding used for interpreting incoming non-negotiation text, and what we should send on outbound.
     /// </summary>
-    public Encoding CurrentEncoding { get; private set; } = Encoding.ASCII;
+    public Encoding CurrentEncoding { get; internal set; } = Encoding.ASCII;
 
     /// <summary>
     /// Telnet state machine
@@ -39,14 +41,43 @@ public partial class TelnetInterpreter
     private readonly ParameterizedTriggers _parameterizedTriggers;
 
     /// <summary>
-    /// Local buffer. We only take up to 5mb in buffer space. 
+    /// Maximum buffer size for telnet messages (default 5MB).
     /// </summary>
-    private readonly byte[] _buffer = new byte[5242880];
+    public int MaxBufferSize { get; init; } = 5242880;
+
+    /// <summary>
+    /// Local buffer for accumulating line data.
+    /// </summary>
+    private readonly byte[] _buffer;
 
     /// <summary>
     /// Buffer position where we are writing.
     /// </summary>
     private int _bufferPosition;
+
+    /// <summary>
+    /// Channel for byte processing pipeline with backpressure.
+    /// </summary>
+    private readonly Channel<byte> _byteChannel;
+
+    /// <summary>
+    /// Unbounded channel for protocol negotiation messages (typically low volume).
+    /// </summary>
+    private readonly Channel<byte[]> _negotiationChannel = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions
+    {
+        SingleReader = true,
+        SingleWriter = false
+    });
+
+    /// <summary>
+    /// Cancellation token source for graceful shutdown.
+    /// </summary>
+    private readonly CancellationTokenSource _processingCts = new();
+
+    /// <summary>
+    /// Background processing task.
+    /// </summary>
+    private Task? _processingTask;
 
     /// <summary>
     /// Helper function for Byte parameterized triggers.
@@ -77,6 +108,7 @@ public partial class TelnetInterpreter
 
     /// <summary>
     /// Callback to the output stream directly for negotiation.
+    /// Internal use - negotiation messages are queued through _negotiationChannel.
     /// </summary>
     public required Func<byte[], ValueTask> CallbackNegotiationAsync { get; init; }
 
@@ -102,6 +134,17 @@ public partial class TelnetInterpreter
         _initialCall = [];
         TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
         _parameterizedTriggers = new ParameterizedTriggers();
+
+        // Initialize buffer with configurable size
+        _buffer = new byte[MaxBufferSize];
+
+        // Create bounded channel with backpressure (max 10,000 bytes buffered)
+        _byteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(10000)
+        {
+            FullMode = BoundedChannelFullMode.Wait,  // Backpressure: block producer if full
+            SingleReader = true,   // Optimization: only one consumer
+            SingleWriter = false   // Multiple threads may write
+        });
 
         SupportedCharacterSets = new Lazy<byte[]>(CharacterSets, true);
 
@@ -134,6 +177,9 @@ public partial class TelnetInterpreter
     public async ValueTask<TelnetInterpreter> BuildAsync()
     {
         var validatedInterpreter = Validate();
+
+        // Start background processing task
+        _processingTask = Task.Run(() => ProcessBytesAsync(_processingCts.Token));
 
         foreach (var t in _initialCall)
         {
@@ -265,32 +311,104 @@ public partial class TelnetInterpreter
 
     /// <summary>
     /// Interprets the next byte in an asynchronous way.
+    /// Non-blocking - submits byte to processing channel and returns immediately.
     /// </summary>
     /// <param name="bt">An integer representation of a byte.</param>
     /// <returns>ValueTask</returns>
     public async ValueTask InterpretAsync(byte bt)
     {
-        if (!_isDefinedDictionary.TryGetValue(bt, out var triggerOrByte))
-        {
-            triggerOrByte = Enum.IsDefined(typeof(Trigger), (short)bt)
-                ? (Trigger)bt
-                : Trigger.ReadNextCharacter;
-            _isDefinedDictionary.Add(bt, triggerOrByte);
-        }
-        
-        await TelnetStateMachine.FireAsync(ParameterizedTrigger(triggerOrByte), bt);
+        await _byteChannel.Writer.WriteAsync(bt);
     }
 
     /// <summary>
     /// Interprets the next byte in an asynchronous way.
+    /// Non-blocking - submits bytes to processing channel and returns immediately.
     /// </summary>
     /// <param name="byteArray">An integer representation of a byte.</param>
     /// <returns>ValueTask</returns>
     public async ValueTask InterpretByteArrayAsync(ReadOnlyMemory<byte> byteArray)
     {
-        foreach (var b in byteArray.ToArray())
+        // Convert to array first to avoid Span across await boundary
+        var bytes = byteArray.ToArray();
+        foreach (var b in bytes)
         {
-            await InterpretAsync(b);
+            await _byteChannel.Writer.WriteAsync(b);
         }
+    }
+
+    /// <summary>
+    /// Waits for all pending bytes in the channel to be processed.
+    /// Useful for tests and ensuring all data is processed before continuing.
+    /// </summary>
+    /// <param name="maxWaitMs">Maximum time to wait for channel to drain (default: 1000ms)</param>
+    /// <param name="additionalDelayMs">Additional delay after channel drains to allow callbacks to complete (default: 100ms)</param>
+    public async ValueTask WaitForProcessingAsync(int maxWaitMs = 1000, int additionalDelayMs = 100)
+    {
+        var startTime = DateTime.UtcNow;
+        while (_byteChannel.Reader.Count > 0 && (DateTime.UtcNow - startTime).TotalMilliseconds < maxWaitMs)
+        {
+            await Task.Delay(10);
+        }
+        
+        // Give additional time for state machine transitions and callbacks to complete
+        if (additionalDelayMs > 0)
+        {
+            await Task.Delay(additionalDelayMs);
+        }
+    }
+
+    /// <summary>
+    /// Background task that processes bytes from the channel.
+    /// </summary>
+    private async Task ProcessBytesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var bt in _byteChannel.Reader.ReadAllAsync(cancellationToken))
+            {
+                if (!_isDefinedDictionary.TryGetValue(bt, out var triggerOrByte))
+                {
+                    triggerOrByte = Enum.IsDefined(typeof(Trigger), (short)bt)
+                        ? (Trigger)bt
+                        : Trigger.ReadNextCharacter;
+                    _isDefinedDictionary.Add(bt, triggerOrByte);
+                }
+
+                await TelnetStateMachine.FireAsync(ParameterizedTrigger(triggerOrByte), bt);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on shutdown
+            _logger.LogDebug("Byte processing cancelled");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in byte processing pipeline");
+        }
+    }
+
+    /// <summary>
+    /// Graceful shutdown of the interpreter.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        _byteChannel.Writer.Complete();  // Signal no more data
+        
+        await _processingCts.CancelAsync();  // Cancel processing
+        
+        if (_processingTask != null)
+        {
+            try
+            {
+                await _processingTask;  // Wait for processing to finish
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected
+            }
+        }
+        
+        _processingCts.Dispose();
     }
 }

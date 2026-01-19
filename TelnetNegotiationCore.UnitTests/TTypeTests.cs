@@ -62,6 +62,15 @@ public class TTypeTests: BaseTest
 		}).BuildAsync();
 	}
 
+	[TearDown]
+	public async Task TearDown()
+	{
+		if (_server_ti != null)
+			await _server_ti.DisposeAsync();
+		if (_client_ti != null)
+			await _client_ti.DisposeAsync();
+	}
+
 	[TestCaseSource(nameof(ServerTTypeSequences), Category = nameof(TelnetInterpreter.TelnetMode.Server))]
 	public async Task ServerEvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<string[]> RegisteredTTypes)
 	{
@@ -75,6 +84,7 @@ public class TTypeTests: BaseTest
 			{
 				await _server_ti.InterpretAsync(x);
 			}
+			await _server_ti.WaitForProcessingAsync();
 			CollectionAssert.AreEqual(shouldHaveTTypeList ?? Enumerable.Empty<string>(), _server_ti.TerminalTypes);
 			CollectionAssert.AreEqual(serverShouldRespond, _negotiationOutput);
 		}
@@ -93,6 +103,8 @@ public class TTypeTests: BaseTest
 			{
 				await _client_ti.InterpretAsync(x);
 			}
+			await _client_ti.WaitForProcessingAsync();
+			await Task.Delay(50);
 			CollectionAssert.AreEqual(clientShouldRespond, _negotiationOutput);
 		}
 	}

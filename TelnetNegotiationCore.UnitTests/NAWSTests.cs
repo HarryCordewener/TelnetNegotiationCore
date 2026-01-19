@@ -67,6 +67,15 @@ public class NAWSTests : BaseTest
 		}).BuildAsync();
 	}
 
+	[TearDown]
+	public async Task TearDown()
+	{
+		if (_server_ti != null)
+			await _server_ti.DisposeAsync();
+		if (_client_ti != null)
+			await _client_ti.DisposeAsync();
+	}
+
 	[Test]
 	public async Task ServerRequestsNAWSOnBuild()
 	{
@@ -84,6 +93,7 @@ public class NAWSTests : BaseTest
 
 		// Act - Client receives DO NAWS from server
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
+		await _client_ti.WaitForProcessingAsync();
 
 		// Assert - Client accepts DO NAWS by setting internal flag (no WILL response sent)
 		// The client can now send NAWS data when ready
@@ -95,6 +105,7 @@ public class NAWSTests : BaseTest
 	{
 		// Arrange - Complete NAWS negotiation
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NAWS });
+		await _server_ti.WaitForProcessingAsync();
 		_receivedWidth = 0;
 		_receivedHeight = 0;
 
@@ -126,6 +137,7 @@ public class NAWSTests : BaseTest
 
 		// Act
 		await _server_ti.InterpretByteArrayAsync(nawsData);
+		await _server_ti.WaitForProcessingAsync();
 
 		// Assert
 		Assert.AreEqual(80, _receivedWidth, "Width should be 80");
@@ -148,6 +160,7 @@ public class NAWSTests : BaseTest
 		{
 			// Arrange
 			await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NAWS });
+			await _server_ti.WaitForProcessingAsync();
 			_receivedWidth = 0;
 			_receivedHeight = 0;
 
@@ -175,6 +188,7 @@ public class NAWSTests : BaseTest
 
 			// Act
 			await _server_ti.InterpretByteArrayAsync(nawsData);
+			await _server_ti.WaitForProcessingAsync();
 
 			// Assert
 			Assert.AreEqual(testCase.width, _receivedWidth, $"Width should be {testCase.width}");
@@ -187,6 +201,7 @@ public class NAWSTests : BaseTest
 	{
 		// Arrange - Complete NAWS negotiation
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
+		await _client_ti.WaitForProcessingAsync();
 		_negotiationOutput = null;
 
 		short width = 100;
@@ -212,6 +227,7 @@ public class NAWSTests : BaseTest
 
 		// Act - Server receives DONT NAWS from client
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.NAWS });
+		await _server_ti.WaitForProcessingAsync();
 
 		// Assert - Server should accept the rejection gracefully
 		Assert.Pass("Server handles DONT NAWS gracefully");
@@ -225,6 +241,7 @@ public class NAWSTests : BaseTest
 
 		// Act - Client receives WONT NAWS from server
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
+		await _client_ti.WaitForProcessingAsync();
 
 		// Assert - Client should accept the rejection gracefully
 		Assert.Pass("Client handles WONT NAWS gracefully");
@@ -246,6 +263,7 @@ public class NAWSTests : BaseTest
 		// Step 1: Server sends DO NAWS
 		_negotiationOutput = null;
 		await testClient.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
+		await testClient.WaitForProcessingAsync();
 		
 		// Client accepts DO NAWS (no WILL response in this implementation)
 		// Step 2: Client can now send NAWS data
@@ -274,6 +292,7 @@ public class NAWSTests : BaseTest
 
 		// Send NAWS data
 		await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NAWS });
+		await testServer.WaitForProcessingAsync();
 
 		short width = 120;
 		short height = 40;
@@ -301,6 +320,7 @@ public class NAWSTests : BaseTest
 		};
 
 		await testServer.InterpretByteArrayAsync(nawsData);
+		await testServer.WaitForProcessingAsync();
 
 		// Assert updated values
 		Assert.AreEqual(120, testServer.ClientWidth, "Width should be updated to 120");
@@ -312,6 +332,7 @@ public class NAWSTests : BaseTest
 	{
 		// Test that window can be resized multiple times
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NAWS });
+		await _server_ti.WaitForProcessingAsync();
 
 		// First size: 80x24
 		var sizes = new[] { (80, 24), (120, 40), (100, 30), (132, 43) };
@@ -344,6 +365,7 @@ public class NAWSTests : BaseTest
 			};
 
 			await _server_ti.InterpretByteArrayAsync(nawsData);
+			await _server_ti.WaitForProcessingAsync();
 
 			Assert.AreEqual(width, _receivedWidth, $"Width should be {width}");
 			Assert.AreEqual(height, _receivedHeight, $"Height should be {height}");
@@ -384,6 +406,7 @@ public class NAWSTests : BaseTest
 
 		// Act - Server receives DO NAWS (client asking server to send NAWS)
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
+		await _server_ti.WaitForProcessingAsync();
 
 		// Assert - Server should send WONT NAWS
 		Assert.IsNotNull(_negotiationOutput, "Server should respond to DO NAWS");

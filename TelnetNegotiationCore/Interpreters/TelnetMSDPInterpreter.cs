@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
+using System.Threading.Channels;
 
 namespace TelnetNegotiationCore.Interpreters;
 
@@ -18,7 +19,13 @@ namespace TelnetNegotiationCore.Interpreters;
 /// </remarks>
 public partial class TelnetInterpreter
 {
-	private List<byte> _currentMSDPInfo = [];
+	/// <summary>
+	/// Bounded channel for MSDP message assembly (max 8KB per message).
+	/// </summary>
+	private Channel<byte> _msdpByteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(8192)
+	{
+		FullMode = BoundedChannelFullMode.DropWrite  // Drop bytes if message too large (DOS protection)
+	});
 
 	public Func<TelnetInterpreter, string, ValueTask>? SignalOnMSDPAsync { get; init; }
 
@@ -65,7 +72,13 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.SubNegotiation)
 				.Permit(Trigger.MSDP, State.AlmostNegotiatingMSDP)
-				.OnEntry(() => _currentMSDPInfo = []);
+				.OnEntry(() => {
+					// Reset channel for new message
+					_msdpByteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(8192)
+					{
+						FullMode = BoundedChannelFullMode.DropWrite
+					});
+				});
 
 			tsm.Configure(State.AlmostNegotiatingMSDP)
 				.Permit(Trigger.MSDP_VAR, State.EvaluatingMSDP)
@@ -93,9 +106,27 @@ public partial class TelnetInterpreter
 		return tsm;
 	}
 
-	private void CaptureMSDPValue(OneOf<byte, Trigger> b) => _currentMSDPInfo.Add(b.AsT0);
+	private void CaptureMSDPValue(OneOf<byte, Trigger> b) => _msdpByteChannel.Writer.TryWrite(b.AsT0);
 
-	private void ReadMSDPValues() => SignalOnMSDPAsync?.Invoke(this, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(_currentMSDPInfo.Skip(1), CurrentEncoding)));
+	private void ReadMSDPValues()
+	{
+		// Read all bytes from channel
+		var msdpBytes = new List<byte>(256);
+		while (_msdpByteChannel.Reader.TryRead(out var bt))
+		{
+			msdpBytes.Add(bt);
+			if (msdpBytes.Count >= 8192)
+			{
+				_logger.LogWarning("MSDP message too large (>8KB), truncating");
+				break;
+			}
+		}
+
+		if (msdpBytes.Count > 0)
+		{
+			SignalOnMSDPAsync?.Invoke(this, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(msdpBytes.Skip(1), CurrentEncoding)));
+		}
+	}
 
 	/// <summary>
 	/// Announce we do MSDP negotiation to the client.

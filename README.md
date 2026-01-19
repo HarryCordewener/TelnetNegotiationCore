@@ -6,10 +6,10 @@
 This project provides a library that implements telnet functionality, and as many of its RFCs are viable, in a testable manner. 
 This is done with an eye on MUDs at this time, but may improve to support more terminal capabilities as time permits and if there is ask for it.
 
-At this time, this repository is in a rough state and does not yet implement some common modern code standards, but is constantly evolving.
+The library now features a modern plugin-based architecture with System.Threading.Channels for high-performance async processing, making it suitable for production use with proper backpressure handling and DOS protection.
 
 ## State
-This library is in a state where breaking changes to the interface are expected.
+This library is in a stable state. The legacy API remains fully supported for backward compatibility, while a new plugin-based architecture is available for modern applications.
 
 ## Support
 | RFC                                                 | Description                        | Supported  | Comments           |
@@ -41,7 +41,50 @@ This library is in a state where breaking changes to the interface are expected.
 ## ANSI Support, ETC?
 Being a Telnet Negotiation Library, this library doesn't give support for extensions like ANSI, Pueblo, MXP, etc at this time.
 
-## Use 
+## Use
+
+### Modern Plugin-Based API (Recommended)
+
+The library now supports a modern, type-safe plugin architecture for protocol management:
+
+```csharp
+using TelnetNegotiationCore.Builders;
+using TelnetNegotiationCore.Protocols;
+
+// Create interpreter with plugin-based protocols
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetMode.Server)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding) => HandleSubmitAsync(data, encoding))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddProtocol<GMCPProtocol>()
+    .AddProtocol<MSDPProtocol>()
+    .AddProtocol<NAWSProtocol>()
+    .AddProtocol<TerminalTypeProtocol>()
+    .AddProtocol<CharsetProtocol>()
+    .AddProtocol<MSSPProtocol>()
+    .AddProtocol<EORProtocol>()
+    .AddProtocol<SuppressGoAheadProtocol>()
+    .BuildAsync();
+
+// Use the interpreter (non-blocking with automatic backpressure)
+await telnet.InterpretByteArrayAsync(bytes);
+
+// Proper cleanup
+await telnet.DisposeAsync();
+```
+
+**Key Benefits:**
+- **Type-safe protocol registration** - Use class types instead of magic numbers
+- **Non-blocking operations** - System.Threading.Channels with automatic backpressure (10,000 byte buffer)
+- **Configurable buffer size** - Default 5MB line buffer, customizable via `MaxBufferSize` property
+- **DOS protection** - 8KB message limits for GMCP and MSDP protocols
+- **Runtime protocol management** - Enable/disable protocols dynamically
+- **Better performance** - Parallel byte processing while network I/O continues
+- **Proper resource cleanup** - IAsyncDisposable support
+
+### Legacy API (Still Supported)
+
 ### Client
 A documented example exists in the [TestClient Project](TelnetNegotiationCore.TestClient/MockPipelineClient.cs).
 
