@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Connections;
 using System.IO.Pipelines;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Handlers;
+using TelnetNegotiationCore.Builders;
+using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.TestServer
 {
@@ -85,28 +87,47 @@ namespace TelnetNegotiationCore.TestServer
 					Sendable_Variables = () => ["ROOM"],
 				});
 
-				var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, _logger)
+				var telnet = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(_logger)
+				.OnSubmit(WriteBackAsync)
+				.OnNegotiation(x => WriteToOutputStreamAsync(x, connection.Transport.Output))
+				.AddDefaultMUDProtocols()
+				.BuildAsync();
+
+			// Subscribe to protocol events
+			var gmcp = telnet.PluginManager!.GetPlugin<GMCPProtocol>();
+			if (gmcp != null)
+				gmcp.OnGMCPReceived += SignalGMCPAsync;
+
+			var mssp = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
+			if (mssp != null)
+			{
+				mssp.OnMSSPRequest += SignalMSSPAsync;
+				mssp.SetMSSPConfig(() => new MSSPConfig
 				{
-					CallbackOnSubmitAsync = WriteBackAsync,
-					SignalOnGMCPAsync = SignalGMCPAsync,
-					SignalOnMSSPAsync = SignalMSSPAsync,
-					SignalOnNAWSAsync = SignalNAWSAsync,
-					SignalOnMSDPAsync = (telnet, config) => SignalMSDPAsync(msdpHandler, telnet, config),
-					CallbackNegotiationAsync = x => WriteToOutputStreamAsync(x, connection.Transport.Output),
-					CharsetOrder = [Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1")]
-				}
-					.RegisterMSSPConfig(() => new MSSPConfig
-					{
-						Name = "My Telnet Negotiated Server",
-						UTF_8 = true,
-						Gameplay = ["ABC", "DEF"],
-						Extended = new Dictionary<string, dynamic>
+					Name = "My Telnet Negotiated Server",
+					UTF_8 = true,
+					Gameplay = ["ABC", "DEF"],
+					Extended = new Dictionary<string, dynamic>
 					{
 						{ "Foo",  "Bar"},
 						{ "Baz", (string[])["Moo", "Meow"] }
 					}
-					})
-					.BuildAsync();
+				});
+			}
+
+			var naws = telnet.PluginManager!.GetPlugin<NAWSProtocol>();
+			if (naws != null)
+				naws.OnNAWSNegotiated += SignalNAWSAsync;
+
+			var msdp = telnet.PluginManager!.GetPlugin<MSDPProtocol>();
+			if (msdp != null)
+				msdp.OnMSDPReceived += (t, config) => SignalMSDPAsync(msdpHandler, t, config);
+
+			var charset = telnet.PluginManager!.GetPlugin<CharsetProtocol>();
+			if (charset != null)
+				charset.CharsetOrder = [Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1")];
 
 				while (true)
 				{

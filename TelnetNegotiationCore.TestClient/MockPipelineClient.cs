@@ -5,6 +5,8 @@ using Pipelines.Sockets.Unofficial;
 using System.Text;
 using TelnetNegotiationCore.Models;
 using Microsoft.Extensions.Logging;
+using TelnetNegotiationCore.Builders;
+using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.TestClient;
 
@@ -46,15 +48,26 @@ public class MockPipelineClient(ILogger<MockPipelineClient> logger)
 		var stream = client.GetStream();
 		var pipe = StreamConnection.GetDuplex(stream, new PipeOptions());
 
-		var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
-		{
-			CallbackOnSubmitAsync = WriteBackAsync,
-			CallbackNegotiationAsync = (x) => WriteToOutputStreamAsync(x, pipe.Output),
-			SignalOnGMCPAsync = SignalGMCPAsync,
-			SignalOnMSSPAsync = SignalMSSPAsync,
-			SignalOnPromptingAsync = SignalPromptAsync,
-			CharsetOrder = [Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1")]
-		}.BuildAsync();
+		var telnet = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackAsync)
+			.OnNegotiation((x) => WriteToOutputStreamAsync(x, pipe.Output))
+			.AddDefaultMUDProtocols()
+			.BuildAsync();
+
+		// Subscribe to protocol events
+		var gmcp = telnet.PluginManager!.GetPlugin<GMCPProtocol>();
+		if (gmcp != null)
+			gmcp.OnGMCPReceived += SignalGMCPAsync;
+
+		var mssp = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
+		if (mssp != null)
+			mssp.OnMSSPRequest += SignalMSSPAsync;
+
+		var eor = telnet.PluginManager!.GetPlugin<EORProtocol>();
+		if (eor != null)
+			eor.OnPromptReceived += SignalPromptAsync;
 
 		var backgroundTask = Task.Run(() => ReadFromPipeline(telnet, pipe.Input));
 
