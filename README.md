@@ -89,11 +89,9 @@ var telnet = await new TelnetInterpreterBuilder()
     .OnNegotiation(WriteToNetworkAsync)
     .AddDefaultMUDProtocols()  // Adds all 7 common MUD protocols
     .BuildAsync();
-
-// Configure specific protocols after build
-var gmcp = telnet.PluginManager.GetPlugin<GMCPProtocol>();
-gmcp?.OnGMCPMessage(HandleGMCPAsync);
 ```
+
+**Note:** With AddDefaultMUDProtocols(), all protocols are registered but no callbacks are set. You must configure callbacks inline by adding plugins individually if you need to handle protocol events.
 
 **Key Benefits:**
 - **Fluent callback configuration** - Set callbacks inline during builder setup
