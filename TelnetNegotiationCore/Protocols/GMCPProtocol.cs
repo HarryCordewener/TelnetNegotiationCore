@@ -310,9 +310,6 @@ public class MSDPProtocol : TelnetProtocolPluginBase
         // - MSDP message collection and parsing
         // - DOS protection (max message size enforcement)
         // - Callback invocation for received messages
-        //
-        // Note: Full state machine transitions are currently configured by
-        // TelnetInterpreter.SetupMSDPNegotiation() for backward compatibility.
     }
 
     /// <inheritdoc />

@@ -160,18 +160,6 @@ public partial class TelnetInterpreter
             // so it only adds safety catches for truly unhandled triggers.
             // It's now called explicitly by TelnetInterpreterBuilder after ConfigureStateMachines.
             
-            // Protocol-based configuration - moved to ConfigureStateMachine:
-            // SetupEORNegotiation, // Moved to EORProtocol.ConfigureStateMachine
-            // SetupSuppressGANegotiation,  // Moved to SuppressGoAheadProtocol.ConfigureStateMachine
-            // SetupMSSPNegotiation,  // Moved to MSSPProtocol.ConfigureStateMachine
-            // SetupMSDPNegotiation,  // TODO: Move to MSDPProtocol.ConfigureStateMachine
-            // SetupGMCPNegotiation,  // Moved to GMCPProtocol.ConfigureStateMachine
-            // SetupNAWS,  // Moved to NAWSProtocol.ConfigureStateMachine
-            
-            // Not yet migrated - still using interpreter-based configuration:
-            // SetupTelnetTerminalType,  // Moved to TerminalTypeProtocol.ConfigureStateMachine
-            // SetupCharsetNegotiation,  // Moved to CharsetProtocol.ConfigureStateMachine
-            
             SetupStandardProtocol
         }.AggregateRight(TelnetStateMachine, (func, stateMachine) => func(stateMachine));
 
