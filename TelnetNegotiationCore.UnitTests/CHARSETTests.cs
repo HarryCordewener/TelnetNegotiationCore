@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using NUnit.Framework;
+using TUnit.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,7 +12,7 @@ using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests
 {
-	[TestFixture]
+	
 	public class CharsetTests() : BaseTest
 	{
 		private byte[] _negotiationOutput;
@@ -25,14 +25,15 @@ namespace TelnetNegotiationCore.UnitTests
 
 		private ValueTask ServerWriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return ValueTask.CompletedTask; }
 
-	[SetUp]
+	[Before(Test)]
 		public void Setup()
 		{
 			_negotiationOutput = null;
 
 		}
 
-		[TestCaseSource(nameof(ServerCHARSETSequences), Category = nameof(TelnetInterpreter.TelnetMode.Server))]
+		[Test]
+		[MethodDataSource(nameof(ServerCHARSETSequences))]
 		public async Task ServerEvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<Encoding> currentEncoding)
 		{
 			var server_ti = await new TelnetInterpreterBuilder()
@@ -55,12 +56,13 @@ namespace TelnetNegotiationCore.UnitTests
 				}
 				await server_ti.WaitForProcessingAsync();
 
-				Assert.AreEqual(shouldHaveCurrentEncoding, server_ti.CurrentEncoding);
-				CollectionAssert.AreEqual(serverShouldRespond, _negotiationOutput);
+				await Assert.That(server_ti.CurrentEncoding).IsEqualTo(shouldHaveCurrentEncoding);
+				await Assert.That(_negotiationOutput).IsEquivalentTo(serverShouldRespond);
 			}
 		}
 
-		[TestCaseSource(nameof(ClientCHARSETSequences), Category = nameof(TelnetInterpreter.TelnetMode.Client))]
+		[Test]
+		[MethodDataSource(nameof(ClientCHARSETSequences))]
 		public async Task ClientEvaluationCheck(IEnumerable<byte[]> serverSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<Encoding> currentEncoding)
 		{
 			var client_ti = await new TelnetInterpreterBuilder()
@@ -85,119 +87,113 @@ namespace TelnetNegotiationCore.UnitTests
 					await client_ti.InterpretAsync(x);
 				}
 				await client_ti.WaitForProcessingAsync();
-				Assert.AreEqual(shouldHaveCurrentEncoding, client_ti.CurrentEncoding);
-				CollectionAssert.AreEqual(clientShouldRespond, _negotiationOutput);
+				await Assert.That(client_ti.CurrentEncoding).IsEqualTo(shouldHaveCurrentEncoding);
+				await Assert.That(_negotiationOutput).IsEquivalentTo(clientShouldRespond);
 			}
 			await client_ti.DisposeAsync();
 		}
 
-		public static IEnumerable<TestCaseData> ClientCHARSETSequences
+		public static IEnumerable<(IEnumerable<byte[]>, IEnumerable<byte[]>, IEnumerable<Encoding>)> ClientCHARSETSequences()
 		{
-			get
-			{
-				yield return new TestCaseData(
-					new[]
-					{
-						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET }
-					},
-					new[]
-					{
-						new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET }
-					},
-					new[] // Registered CHARSET List After Negotiation
-					{
-						Encoding.ASCII,
-					}).SetName("Basic responds to Server CHARSET WILL");
-				yield return new TestCaseData(
-					new byte[][]
-					{
-						[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET],
-						[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET],
-						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED, (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8', (byte)Trigger.IAC, (byte)Trigger.SE]
+			yield return (
+				new[]
+				{
+					new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET }
+				},
+				new[]
+				{
+					new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET }
+				},
+				new[] // Registered CHARSET List After Negotiation
+				{
+					Encoding.ASCII,
+				});
+			yield return (
+				new byte[][]
+				{
+					[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET],
+					[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET],
+					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED, (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8', (byte)Trigger.IAC, (byte)Trigger.SE]
 
-					},
-					new byte[][]
-					{
-						[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET],
-						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
-						 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8',
-						 (byte)';', (byte)'i', (byte)'s', (byte)'o', (byte)'-', (byte)'8', (byte)'8',(byte)'5', (byte)'9',(byte)'-', (byte)'1',
-						 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6',
-						 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6',(byte)'B', (byte)'E',
-						 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'3', (byte)'2',
-						 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'3', (byte)'2',(byte)'B', (byte)'E',
-						 (byte)';', (byte)'u', (byte)'s', (byte)'-', (byte)'a', (byte)'s', (byte)'c',(byte)'i', (byte)'i',
-						 (byte)Trigger.IAC, (byte)Trigger.SE],
-						null
-					},
-					new[] // Registered CHARSET List After Negotiation
-					{
-						Encoding.ASCII,
-						Encoding.ASCII,
-						Encoding.UTF8
-					}).SetName("Capable of sending a CHARSET list");
-			}
+				},
+				new byte[][]
+				{
+					[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET],
+					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
+					 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8',
+					 (byte)';', (byte)'i', (byte)'s', (byte)'o', (byte)'-', (byte)'8', (byte)'8',(byte)'5', (byte)'9',(byte)'-', (byte)'1',
+					 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6',
+					 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6',(byte)'B', (byte)'E',
+					 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'3', (byte)'2',
+					 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'3', (byte)'2',(byte)'B', (byte)'E',
+					 (byte)';', (byte)'u', (byte)'s', (byte)'-', (byte)'a', (byte)'s', (byte)'c',(byte)'i', (byte)'i',
+					 (byte)Trigger.IAC, (byte)Trigger.SE],
+					null
+				},
+				new[] // Registered CHARSET List After Negotiation
+				{
+					Encoding.ASCII,
+					Encoding.ASCII,
+					Encoding.UTF8
+				});
 		}
 
-		public static IEnumerable<TestCaseData> ServerCHARSETSequences
+		public static IEnumerable<(IEnumerable<byte[]>, IEnumerable<byte[]>, IEnumerable<Encoding>)> ServerCHARSETSequences()
 		{
-			get
-			{
-				yield return new TestCaseData(
-					new[] { // Client Sends
-						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET }
-					},
-					new[] { // Server Should Respond With
-						new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET }
-					},
-					new[] // Registered CHARSET List After Negotiation
-					{
-						Encoding.ASCII
-					}).SetName("Basic responds to Client CHARSET Willing");
-				yield return new TestCaseData(
-					new byte[][] { // Client Sends
-						[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET ],
-						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
-						 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6',
-						 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6',(byte)'B', (byte)'E',
-						 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'3', (byte)'2',(byte)'B', (byte)'E',
-						 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'3', (byte)'2',
-						 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8',
-						 (byte)';', (byte)'i', (byte)'s', (byte)'o', (byte)'-', (byte)'8', (byte)'8',(byte)'5', (byte)'9',(byte)'-', (byte)'1',
-						 (byte)';', (byte)'u', (byte)'s', (byte)'-', (byte)'a', (byte)'s', (byte)'c',(byte)'i', (byte)'i',
-						 (byte)Trigger.IAC, (byte)Trigger.SE ]
-					},
-					new[] { // Server Should Respond With
-						[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET],
-						new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED, 
-							(byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6', 
-							(byte)Trigger.IAC, (byte)Trigger.SE }
-					},
-					new[] // Registered CHARSET List After Negotiation
-					{
-						Encoding.ASCII,
-						Encoding.GetEncoding("UTF-16")
-					}).SetName("Basic response to Client Negotiation with many options");
-				yield return new TestCaseData(
-					new byte[][] { // Client Sends
-						[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET],
-						[ (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
-							(byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8',
-							(byte)';', (byte)'a', (byte)'n', (byte)'s', (byte)'i',
-							(byte)Trigger.IAC, (byte)Trigger.SE ]
-					},
-					new byte[][] { // Server Should Respond With
-						[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET],
-						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED, 
-							(byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8', 
-							(byte)Trigger.IAC, (byte)Trigger.SE]
-					},
-					new[] // Registered CHARSET List After Negotiation
-					{
-						Encoding.ASCII,
-						Encoding.UTF8
-					}).SetName("Basic response to Client Negotiation with two options");
-			}
+			yield return (
+				new[] { // Client Sends
+					new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET }
+				},
+				new[] { // Server Should Respond With
+					new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET }
+				},
+				new[] // Registered CHARSET List After Negotiation
+				{
+					Encoding.ASCII
+				});
+			yield return (
+				new byte[][] { // Client Sends
+					[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET ],
+					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
+					 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6',
+					 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6',(byte)'B', (byte)'E',
+					 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'3', (byte)'2',(byte)'B', (byte)'E',
+					 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'3', (byte)'2',
+					 (byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8',
+					 (byte)';', (byte)'i', (byte)'s', (byte)'o', (byte)'-', (byte)'8', (byte)'8',(byte)'5', (byte)'9',(byte)'-', (byte)'1',
+					 (byte)';', (byte)'u', (byte)'s', (byte)'-', (byte)'a', (byte)'s', (byte)'c',(byte)'i', (byte)'i',
+					 (byte)Trigger.IAC, (byte)Trigger.SE ]
+				},
+				new[] { // Server Should Respond With
+					[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET],
+					new [] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED, 
+						(byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'1', (byte)'6', 
+						(byte)Trigger.IAC, (byte)Trigger.SE }
+				},
+				new[] // Registered CHARSET List After Negotiation
+				{
+					Encoding.ASCII,
+					Encoding.GetEncoding("UTF-16")
+				});
+			yield return (
+				new byte[][] { // Client Sends
+					[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET],
+					[ (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
+						(byte)';', (byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8',
+						(byte)';', (byte)'a', (byte)'n', (byte)'s', (byte)'i',
+						(byte)Trigger.IAC, (byte)Trigger.SE ]
+				},
+				new byte[][] { // Server Should Respond With
+					[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET],
+					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED, 
+						(byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8', 
+						(byte)Trigger.IAC, (byte)Trigger.SE]
+				},
+				new[] // Registered CHARSET List After Negotiation
+				{
+					Encoding.ASCII,
+					Encoding.UTF8
+				});
 		}
 	}
 }

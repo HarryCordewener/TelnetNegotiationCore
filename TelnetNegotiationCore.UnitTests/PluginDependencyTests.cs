@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using NUnit.Framework;
+using TUnit.Core;
 using System;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Builders;
@@ -11,7 +11,7 @@ using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.UnitTests;
 
-[TestFixture]
+
 public class PluginDependencyTests : BaseTest
 {
     private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
@@ -75,10 +75,10 @@ public class PluginDependencyTests : BaseTest
     }
 
     [Test]
-    public void ThrowsExceptionWhenDependencyIsMissing()
+    public async Task ThrowsExceptionWhenDependencyIsMissing()
     {
         // Arrange & Act & Assert
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await new TelnetInterpreterBuilder()
                 .UseMode(TelnetInterpreter.TelnetMode.Server)
@@ -89,9 +89,9 @@ public class PluginDependencyTests : BaseTest
                 .BuildAsync();
         });
 
-        Assert.That(ex!.Message, Does.Contain("depends on"));
-        Assert.That(ex.Message, Does.Contain("GMCPProtocol"));
-        Assert.That(ex.Message, Does.Contain("not registered"));
+        await Assert.That(ex!.Message).Contains("depends on");
+        await Assert.That(ex.Message).Contains("GMCPProtocol");
+        await Assert.That(ex.Message).Contains("not registered");
     }
 
     [Test]
@@ -108,18 +108,18 @@ public class PluginDependencyTests : BaseTest
             .BuildAsync();
 
         // Assert
-        Assert.IsNotNull(interpreter, "Interpreter should be created");
+        await Assert.That(interpreter).IsNotNull();
         var plugin = interpreter.PluginManager!.GetPlugin<TestPluginWithDependency>();
-        Assert.IsNotNull(plugin, "Test plugin should be registered");
+        await Assert.That(plugin).IsNotNull();
 
         await interpreter.DisposeAsync();
     }
 
     [Test]
-    public void ThrowsExceptionOnCircularDependency()
+    public async Task ThrowsExceptionOnCircularDependency()
     {
         // Arrange & Act & Assert
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await new TelnetInterpreterBuilder()
                 .UseMode(TelnetInterpreter.TelnetMode.Server)
@@ -131,7 +131,7 @@ public class PluginDependencyTests : BaseTest
                 .BuildAsync();
         });
 
-        Assert.That(ex!.Message, Does.Contain("Circular dependency"));
+        await Assert.That(ex!.Message).Contains("Circular dependency");
     }
 
     [Test]
@@ -158,10 +158,10 @@ public class PluginDependencyTests : BaseTest
         var gmcp = interpreter.PluginManager!.GetPlugin<Protocols.GMCPProtocol>();
         var test = interpreter.PluginManager!.GetPlugin<TestPluginWithDependency>();
         
-        Assert.IsNotNull(gmcp, "GMCP plugin should be registered");
-        Assert.IsNotNull(test, "Test plugin should be registered");
-        Assert.IsTrue(gmcp.IsEnabled, "GMCP should be enabled");
-        Assert.IsTrue(test.IsEnabled, "Test plugin should be enabled");
+        await Assert.That(gmcp).IsNotNull();
+        await Assert.That(test).IsNotNull();
+        await Assert.That(gmcp.IsEnabled).IsTrue();
+        await Assert.That(test.IsEnabled).IsTrue();
 
         await interpreter.DisposeAsync();
     }
@@ -183,16 +183,16 @@ public class PluginDependencyTests : BaseTest
 
         // Assert
         var gmcp = interpreter.PluginManager.GetPlugin<Protocols.GMCPProtocol>();
-        Assert.IsFalse(gmcp!.IsEnabled, "GMCP should be disabled");
+        await Assert.That(gmcp!.IsEnabled).IsFalse();
 
         await interpreter.DisposeAsync();
     }
 
     [Test]
-    public void CannotDisablePluginWhenHasDependents()
+    public async Task CannotDisablePluginWhenHasDependents()
     {
         // Arrange & Act & Assert
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             var interpreter = await new TelnetInterpreterBuilder()
                 .UseMode(TelnetInterpreter.TelnetMode.Server)
@@ -207,8 +207,8 @@ public class PluginDependencyTests : BaseTest
             await interpreter.PluginManager!.DisablePluginAsync<Protocols.GMCPProtocol>();
         });
 
-        Assert.That(ex!.Message, Does.Contain("Cannot disable"));
-        Assert.That(ex.Message, Does.Contain("required by"));
+        await Assert.That(ex!.Message).Contains("Cannot disable");
+        await Assert.That(ex.Message).Contains("required by");
     }
 
     [Test]
@@ -224,13 +224,13 @@ public class PluginDependencyTests : BaseTest
             .BuildAsync();
 
         // Assert - Verify all default protocols are registered
-        Assert.IsNotNull(interpreter.PluginManager!.GetPlugin<Protocols.NAWSProtocol>());
-        Assert.IsNotNull(interpreter.PluginManager.GetPlugin<Protocols.GMCPProtocol>());
-        Assert.IsNotNull(interpreter.PluginManager.GetPlugin<Protocols.MSSPProtocol>());
-        Assert.IsNotNull(interpreter.PluginManager.GetPlugin<Protocols.TerminalTypeProtocol>());
-        Assert.IsNotNull(interpreter.PluginManager.GetPlugin<Protocols.CharsetProtocol>());
-        Assert.IsNotNull(interpreter.PluginManager.GetPlugin<Protocols.EORProtocol>());
-        Assert.IsNotNull(interpreter.PluginManager.GetPlugin<Protocols.SuppressGoAheadProtocol>());
+        await Assert.That(interpreter.PluginManager!.GetPlugin<Protocols.NAWSProtocol>()).IsNotNull();
+        await Assert.That(interpreter.PluginManager.GetPlugin<Protocols.GMCPProtocol>()).IsNotNull();
+        await Assert.That(interpreter.PluginManager.GetPlugin<Protocols.MSSPProtocol>()).IsNotNull();
+        await Assert.That(interpreter.PluginManager.GetPlugin<Protocols.TerminalTypeProtocol>()).IsNotNull();
+        await Assert.That(interpreter.PluginManager.GetPlugin<Protocols.CharsetProtocol>()).IsNotNull();
+        await Assert.That(interpreter.PluginManager.GetPlugin<Protocols.EORProtocol>()).IsNotNull();
+        await Assert.That(interpreter.PluginManager.GetPlugin<Protocols.SuppressGoAheadProtocol>()).IsNotNull();
 
         await interpreter.DisposeAsync();
     }

@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using NUnit.Framework;
+using TUnit.Core;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -11,7 +11,7 @@ using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
-[TestFixture]
+
 public class PluginBuilderTests : BaseTest
 {
     private byte[] _negotiationOutput = Array.Empty<byte>();
@@ -39,8 +39,8 @@ public class PluginBuilderTests : BaseTest
             .BuildAsync();
 
         // Assert
-        Assert.IsNotNull(interpreter, "Interpreter should be created");
-        Assert.IsNotNull(interpreter.PluginManager, "Plugin manager should be set");
+        await Assert.That(interpreter).IsNotNull();
+        await Assert.That(interpreter.PluginManager).IsNotNull();
         
         // Verify all default protocols are registered
         var gmcpPlugin = interpreter.PluginManager.GetPlugin<GMCPProtocol>();
@@ -51,13 +51,13 @@ public class PluginBuilderTests : BaseTest
         var eorPlugin = interpreter.PluginManager.GetPlugin<EORProtocol>();
         var sgPlugin = interpreter.PluginManager.GetPlugin<SuppressGoAheadProtocol>();
 
-        Assert.IsNotNull(gmcpPlugin, "GMCP protocol should be registered");
-        Assert.IsNotNull(nawsPlugin, "NAWS protocol should be registered");
-        Assert.IsNotNull(msspPlugin, "MSSP protocol should be registered");
-        Assert.IsNotNull(ttypePlugin, "Terminal Type protocol should be registered");
-        Assert.IsNotNull(charsetPlugin, "Charset protocol should be registered");
-        Assert.IsNotNull(eorPlugin, "EOR protocol should be registered");
-        Assert.IsNotNull(sgPlugin, "Suppress Go-Ahead protocol should be registered");
+        await Assert.That(gmcpPlugin).IsNotNull();
+        await Assert.That(nawsPlugin).IsNotNull();
+        await Assert.That(msspPlugin).IsNotNull();
+        await Assert.That(ttypePlugin).IsNotNull();
+        await Assert.That(charsetPlugin).IsNotNull();
+        await Assert.That(eorPlugin).IsNotNull();
+        await Assert.That(sgPlugin).IsNotNull();
 
         await interpreter.DisposeAsync();
     }
@@ -80,7 +80,7 @@ public class PluginBuilderTests : BaseTest
             .BuildAsync();
 
         var gmcpPlugin = interpreter.PluginManager!.GetPlugin<GMCPProtocol>();
-        Assert.IsNotNull(gmcpPlugin, "GMCP plugin should be registered");
+        await Assert.That(gmcpPlugin).IsNotNull();
 
         await interpreter.DisposeAsync();
     }
@@ -102,7 +102,7 @@ public class PluginBuilderTests : BaseTest
             .BuildAsync();
 
         var nawsPlugin = interpreter.PluginManager!.GetPlugin<NAWSProtocol>();
-        Assert.IsNotNull(nawsPlugin, "NAWS plugin should be registered");
+        await Assert.That(nawsPlugin).IsNotNull();
 
         await interpreter.DisposeAsync();
     }
@@ -125,16 +125,16 @@ public class PluginBuilderTests : BaseTest
             .BuildAsync();
 
         var msspPlugin = interpreter.PluginManager!.GetPlugin<MSSPProtocol>();
-        Assert.IsNotNull(msspPlugin, "MSSP plugin should be registered");
+        await Assert.That(msspPlugin).IsNotNull();
 
         await interpreter.DisposeAsync();
     }
 
     [Test]
-    public void BuilderRequiresMode()
+    public async Task BuilderRequiresMode()
     {
         // Arrange & Act & Assert
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await new TelnetInterpreterBuilder()
                 .UseLogger(logger)
@@ -143,14 +143,14 @@ public class PluginBuilderTests : BaseTest
                 .BuildAsync();
         });
 
-        Assert.That(ex!.Message, Does.Contain("mode"));
+        await Assert.That(ex!.Message).Contains("mode");
     }
 
     [Test]
-    public void BuilderRequiresLogger()
+    public async Task BuilderRequiresLogger()
     {
         // Arrange & Act & Assert
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await new TelnetInterpreterBuilder()
                 .UseMode(TelnetInterpreter.TelnetMode.Server)
@@ -159,14 +159,14 @@ public class PluginBuilderTests : BaseTest
                 .BuildAsync();
         });
 
-        Assert.That(ex!.Message, Does.Contain("Logger"));
+        await Assert.That(ex!.Message).Contains("Logger");
     }
 
     [Test]
-    public void BuilderRequiresSubmitCallback()
+    public async Task BuilderRequiresSubmitCallback()
     {
         // Arrange & Act & Assert
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await new TelnetInterpreterBuilder()
                 .UseMode(TelnetInterpreter.TelnetMode.Server)
@@ -175,14 +175,14 @@ public class PluginBuilderTests : BaseTest
                 .BuildAsync();
         });
 
-        Assert.That(ex!.Message, Does.Contain("Submit callback"));
+        await Assert.That(ex!.Message).Contains("Submit callback");
     }
 
     [Test]
-    public void BuilderRequiresNegotiationCallback()
+    public async Task BuilderRequiresNegotiationCallback()
     {
         // Arrange & Act & Assert
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await new TelnetInterpreterBuilder()
                 .UseMode(TelnetInterpreter.TelnetMode.Server)
@@ -191,7 +191,7 @@ public class PluginBuilderTests : BaseTest
                 .BuildAsync();
         });
 
-        Assert.That(ex!.Message, Does.Contain("Negotiation callback"));
+        await Assert.That(ex!.Message).Contains("Negotiation callback");
     }
 
     [Test]
@@ -221,16 +221,16 @@ public class PluginBuilderTests : BaseTest
             .BuildAsync();
 
         // Assert
-        Assert.IsNotNull(interpreter, "Interpreter should be created");
+        await Assert.That(interpreter).IsNotNull();
         
         // Retrieve plugins from manager to verify they were created
         var nawsPlugin = interpreter.PluginManager.GetPlugin<NAWSProtocol>();
         var gmcpPlugin = interpreter.PluginManager.GetPlugin<GMCPProtocol>();
         var msspPlugin = interpreter.PluginManager.GetPlugin<MSSPProtocol>();
         
-        Assert.IsNotNull(nawsPlugin, "NAWS plugin should be created");
-        Assert.IsNotNull(gmcpPlugin, "GMCP plugin should be created");
-        Assert.IsNotNull(msspPlugin, "MSSP plugin should be created");
+        await Assert.That(nawsPlugin).IsNotNull();
+        await Assert.That(gmcpPlugin).IsNotNull();
+        await Assert.That(msspPlugin).IsNotNull();
 
         // Note: The callbacks are stored internally and will be triggered when protocol events occur
     }

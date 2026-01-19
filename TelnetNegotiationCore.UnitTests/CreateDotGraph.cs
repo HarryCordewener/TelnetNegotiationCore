@@ -1,4 +1,4 @@
-﻿using NUnit.Framework;
+﻿using TUnit.Core;
 using Stateless.Graph;
 using System.Collections.Generic;
 using System.IO;
@@ -11,9 +11,6 @@ using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
-[TestFixture(
-    Category = "Tool",
-    Description = "Creates the DotGraph files for Server and Client forms. Some of these are combined.")]
 public class CreateDotGraph : BaseTest
 {
     [Test]
