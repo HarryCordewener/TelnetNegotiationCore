@@ -131,7 +131,7 @@ public class NAWSProtocol : TelnetProtocolPluginBase
     /// Called by the interpreter when NAWS negotiation is complete.
     /// Internal method that fires the public event.
     /// </summary>
-    internal async ValueTask OnNAWSNegotiatedAsync(int width, int height)
+    internal async ValueTask OnNAWSNegotiatedAsync(int height, int width)
     {
         if (!IsEnabled)
             return;
@@ -142,6 +142,6 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         Context.Logger.LogInformation("NAWS negotiation complete: Width={Width}, Height={Height}", width, height);
         
         if (OnNAWSNegotiated != null)
-            await OnNAWSNegotiated(width, height).ConfigureAwait(false);
+            await OnNAWSNegotiated(height, width).ConfigureAwait(false);
     }
 }

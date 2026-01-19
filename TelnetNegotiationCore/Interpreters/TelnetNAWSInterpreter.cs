@@ -201,7 +201,7 @@ public partial class TelnetInterpreter
 		var nawsPlugin = PluginManager?.GetPlugin<Protocols.NAWSProtocol>();
 		if (nawsPlugin != null && nawsPlugin.IsEnabled)
 		{
-			await nawsPlugin.OnNAWSNegotiatedAsync(ClientWidth, ClientHeight);
+			await nawsPlugin.OnNAWSNegotiatedAsync(ClientHeight, ClientWidth);
 		}
 	}
 }
