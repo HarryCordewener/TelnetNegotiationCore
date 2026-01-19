@@ -103,7 +103,10 @@ public static class PluginConfigurationExtensions
         this PluginConfigurationContext<CharsetProtocol> context,
         params System.Text.Encoding[] charsetOrder)
     {
-        context.Plugin.CharsetOrder = charsetOrder;
+        if (charsetOrder != null && charsetOrder.Length > 0)
+        {
+            context.Plugin.CharsetOrder = charsetOrder;
+        }
         return context;
     }
 

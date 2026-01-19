@@ -65,7 +65,7 @@ public static class TelnetInterpreterBuilderExtensions
 
         // Add Charset protocol
         var charsetContext = ttypeContext.AddPlugin<CharsetProtocol>();
-        if (charsetOrder != null && charsetOrder.Length > 0)
+        if (charsetOrder != null)
             charsetContext = charsetContext.WithCharsetOrder(charsetOrder);
 
         // Add EOR protocol
