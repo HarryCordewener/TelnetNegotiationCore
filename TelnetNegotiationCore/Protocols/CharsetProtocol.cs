@@ -31,6 +31,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         => x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
     private Func<Encoding, ValueTask>? _signalCharsetChangeAsync;
     private Lazy<byte[]>? _supportedCharacterSets;
+    private static System.Reflection.PropertyInfo? _cachedEncodingProperty;
 
     /// <summary>
     /// Sets the CharacterSet Order for negotiation priority
@@ -222,13 +223,14 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
     private void CaptureCharset(OneOf<byte, Trigger> b)
     {
-        if (_charsetByteIndex > _charsetByteState.Length) return;
+        if (_charsetByteIndex >= _charsetByteState.Length) return;
         _charsetByteState[_charsetByteIndex] = b.AsT0;
         _charsetByteIndex++;
     }
 
     private void CaptureAcceptedCharset(OneOf<byte, Trigger> b)
     {
+        if (_acceptedCharsetByteIndex >= _acceptedCharsetByteState.Length) return;
         _acceptedCharsetByteState![_acceptedCharsetByteIndex] = b.AsT0;
         _acceptedCharsetByteIndex++;
     }
@@ -333,9 +335,13 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     private void UpdateInterpreterEncoding(IProtocolContext context)
     {
         var interpreter = context.Interpreter;
-        var encodingProp = interpreter.GetType().GetProperty("CurrentEncoding");
-        if (encodingProp != null && encodingProp.CanWrite)
-            encodingProp.SetValue(interpreter, CurrentEncoding);
+        if (_cachedEncodingProperty == null)
+        {
+            _cachedEncodingProperty = interpreter.GetType().GetProperty("CurrentEncoding");
+        }
+        
+        if (_cachedEncodingProperty != null && _cachedEncodingProperty.CanWrite)
+            _cachedEncodingProperty.SetValue(interpreter, CurrentEncoding);
     }
 
     #endregion
