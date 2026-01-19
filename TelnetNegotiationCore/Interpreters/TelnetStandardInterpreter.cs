@@ -169,7 +169,7 @@ public partial class TelnetInterpreter
             // SetupNAWS,  // Moved to NAWSProtocol.ConfigureStateMachine
             
             // Not yet migrated - still using interpreter-based configuration:
-            SetupTelnetTerminalType,  // TODO: Move to TerminalTypeProtocol.ConfigureStateMachine
+            // SetupTelnetTerminalType,  // Moved to TerminalTypeProtocol.ConfigureStateMachine
             SetupCharsetNegotiation,  // TODO: Move to CharsetProtocol.ConfigureStateMachine
             
             SetupStandardProtocol
