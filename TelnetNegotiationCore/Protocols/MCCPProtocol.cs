@@ -237,8 +237,18 @@ public class MCCPProtocol : TelnetProtocolPluginBase
         catch (Exception ex)
         {
             Context.Logger.LogError(ex, "Error decompressing data");
-            // Signal decompression error
-            _ = DisableCompressionWithErrorAsync();
+            // Signal decompression error - fire and forget with error handling
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await DisableCompressionWithErrorAsync();
+                }
+                catch (Exception disableEx)
+                {
+                    Context.Logger.LogError(disableEx, "Error disabling compression after decompression failure");
+                }
+            });
             return Array.Empty<byte>();
         }
     }
