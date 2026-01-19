@@ -27,9 +27,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private bool _mccp2Enabled = false;
     private bool _mccp3Enabled = false;
     private ZLibStream? _compressionStream;
-    private ZLibStream? _decompressionStream;
     private MemoryStream? _compressionBuffer;
-    private MemoryStream? _decompressionBuffer;
 
     private Func<int, bool, ValueTask>? _onCompressionEnabled;
 
@@ -223,19 +221,17 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     /// <returns>The decompressed data</returns>
     public byte[] DecompressData(byte[] data)
     {
-        if (_decompressionStream == null || _decompressionBuffer == null)
-            return data;
+        if (data == null || data.Length == 0)
+            return Array.Empty<byte>();
 
         try
         {
-            // Write compressed data to decompression buffer
-            _decompressionBuffer.SetLength(0);
-            _decompressionBuffer.Write(data, 0, data.Length);
-            _decompressionBuffer.Position = 0;
-
-            // Read decompressed data
+            // Create a new memory stream for the compressed input data
+            using var compressedStream = new MemoryStream(data);
+            using var zlibStream = new ZLibStream(compressedStream, CompressionMode.Decompress);
             using var outputStream = new MemoryStream();
-            _decompressionStream.CopyTo(outputStream);
+            
+            zlibStream.CopyTo(outputStream);
             return outputStream.ToArray();
         }
         catch (Exception ex)
@@ -253,10 +249,6 @@ public class MCCPProtocol : TelnetProtocolPluginBase
         _compressionStream = null;
         _compressionBuffer?.Dispose();
         _compressionBuffer = null;
-        _decompressionStream?.Dispose();
-        _decompressionStream = null;
-        _decompressionBuffer?.Dispose();
-        _decompressionBuffer = null;
         _mccp2Enabled = false;
         _mccp3Enabled = false;
     }
@@ -307,9 +299,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogDebug("Client will use MCCP3 compression");
         // Client will send IAC SB MCCP3 IAC SE and start compressing
-        // Server needs to be ready to decompress
-        _decompressionBuffer = new MemoryStream();
-        _decompressionStream = new ZLibStream(_decompressionBuffer, CompressionMode.Decompress);
+        // Server is ready to decompress (done per-message in DecompressData)
         _mccp3Enabled = true;
 
         if (_onCompressionEnabled != null)
@@ -377,9 +367,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogInformation("MCCP3 decompression ready");
         
-        // Initialize decompression stream for client-to-server decompression
-        _decompressionBuffer = new MemoryStream();
-        _decompressionStream = new ZLibStream(_decompressionBuffer, CompressionMode.Decompress);
+        // Server is ready to decompress client data (done per-message in DecompressData)
         _mccp3Enabled = true;
 
         if (_onCompressionEnabled != null)
