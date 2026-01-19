@@ -71,6 +71,9 @@ namespace TelnetNegotiationCore.UnitTests
 				.AddPlugin<CharsetProtocol>()
 				.BuildAsync();
 
+			var charsetPlugin = client_ti.PluginManager!.GetPlugin<CharsetProtocol>();
+			charsetPlugin!.CharsetOrder = new[] { Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1") };
+
 			if (serverSends.Count() != serverShouldRespondWith.Count())
 				throw new Exception("Invalid Testcase.");
 
