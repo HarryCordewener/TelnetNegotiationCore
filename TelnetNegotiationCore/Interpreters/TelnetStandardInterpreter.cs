@@ -162,7 +162,7 @@ public partial class TelnetInterpreter
             
             // Protocol-based configuration - moved to ConfigureStateMachine:
             // SetupEORNegotiation, // Moved to EORProtocol.ConfigureStateMachine
-            // SetupSuppressGANegotiation,  // TODO: Move to SuppressGoAheadProtocol.ConfigureStateMachine
+            // SetupSuppressGANegotiation,  // Moved to SuppressGoAheadProtocol.ConfigureStateMachine
             // SetupMSSPNegotiation,  // TODO: Move to MSSPProtocol.ConfigureStateMachine
             // SetupMSDPNegotiation,  // TODO: Move to MSDPProtocol.ConfigureStateMachine
             // SetupGMCPNegotiation,  // TODO: Move to GMCPProtocol.ConfigureStateMachine
