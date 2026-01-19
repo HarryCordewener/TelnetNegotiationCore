@@ -16,7 +16,8 @@ namespace TelnetNegotiationCore.Protocols;
 /// </summary>
 /// <remarks>
 /// This protocol requires configuration before use. Call <see cref="OnMSSP"/> to set up
-/// the callback that will handle MSSP requests and provide server information.
+/// the callback that will handle MSSP requests and provide server information. Without
+/// this configuration, the protocol will not be able to respond to client MSSP queries.
 /// </remarks>
 [RequiredMethod("OnMSSP", Description = "Configure the callback to handle MSSP requests and provide server information")]
 public class MSSPProtocol : TelnetProtocolPluginBase

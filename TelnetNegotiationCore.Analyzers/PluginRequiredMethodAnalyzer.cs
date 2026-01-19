@@ -20,8 +20,7 @@ namespace TelnetNegotiationCore.Analyzers
             "Plugin requires method calls before initialization";
         
         private static readonly LocalizableString MessageFormat = 
-            "Plugin '{0}' requires calls to the following methods before InitializeAsync: {1}. " +
-            "Use [RequiredMethod] attribute to document required setup methods.";
+            "Plugin '{0}' requires calls to the following methods before InitializeAsync: {1}";
         
         private static readonly LocalizableString Description = 
             "Plugins decorated with [RequiredMethod] attributes must document which methods " +
@@ -69,7 +68,15 @@ namespace TelnetNegotiationCore.Analyzers
 
             // Find all [RequiredMethod] attributes on the class
             var requiredMethods = classSymbol.GetAttributes()
-                .Where(attr => attr.AttributeClass?.Name == "RequiredMethodAttribute")
+                .Where(attr => 
+                {
+                    if (attr.AttributeClass == null)
+                        return false;
+                    
+                    // Match both name and namespace to avoid false positives
+                    return attr.AttributeClass.Name == "RequiredMethodAttribute" &&
+                           attr.AttributeClass.ContainingNamespace?.ToString() == "TelnetNegotiationCore.Attributes";
+                })
                 .Select(attr => attr.ConstructorArguments.FirstOrDefault().Value?.ToString())
                 .Where(name => !string.IsNullOrEmpty(name))
                 .ToList();
