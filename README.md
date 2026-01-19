@@ -27,8 +27,8 @@ This library is in a stable state. The legacy API remains fully supported for ba
 | [RFC 858](http://www.faqs.org/rfcs/rfc858.html)     | Suppress GOAHEAD Negotiation       | Full       |                    |
 | [RFC 1572](http://www.faqs.org/rfcs/rfc1572.html)   | New Environment Negotiation        | Full       |                    |
 | [MNES](https://tintin.mudhalla.net/protocols/mnes)  | Mud New Environment Negotiation    | Full       | Via MTTS flag 512  |
-| [MCCP](https://tintin.mudhalla.net/protocols/mccp)  | Mud Client Compression Protocol    | No         | Rejects            |
-| [RFC 1950](https://tintin.mudhalla.net/rfc/rfc1950) | ZLIB Compression                   | No         | Rejects            |
+| [MCCP](https://tintin.mudhalla.net/protocols/mccp)  | Mud Client Compression Protocol    | Full       | MCCP2 and MCCP3    |
+| [RFC 1950](https://tintin.mudhalla.net/rfc/rfc1950) | ZLIB Compression                   | Full       | Via System.IO.Compression |
 | [RFC 857](http://www.faqs.org/rfcs/rfc857.html)     | Echo Negotiation                   | No         | Rejects            |
 | [RFC 1079](http://www.faqs.org/rfcs/rfc1079.html)   | Terminal Speed Negotiation         | No         | Rejects            |
 | [RFC 1372](http://www.faqs.org/rfcs/rfc1372.html)   | Flow Control Negotiation           | No         | Rejects            |
@@ -77,6 +77,8 @@ var telnet = await new TelnetInterpreterBuilder()
     .AddPlugin<EORProtocol>()
         .OnPrompt(() => HandlePromptAsync())
     .AddPlugin<SuppressGoAheadProtocol>()
+    .AddPlugin<MCCPProtocol>()
+        .OnCompressionEnabled((version, enabled) => HandleCompressionAsync(version, enabled))
     .BuildAsync();
 
 // Use the interpreter (non-blocking with automatic backpressure)
@@ -365,6 +367,55 @@ var telnet = await new TelnetInterpreterBuilder()
 
 #### MNES Support
 MNES (Mud New Environment Standard) support is automatically indicated via the MTTS flag 512 when both Terminal Type and NEW-ENVIRON protocols are enabled. No additional configuration is needed.
+
+### Using MCCP Protocol
+The MCCP (Mud Client Compression Protocol) provides bandwidth reduction through zlib compression. MCCP2 compresses server-to-client data, while MCCP3 compresses client-to-server data.
+
+#### Server Side
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<MCCPProtocol>()
+        .OnCompressionEnabled((version, enabled) => 
+        {
+            logger.LogInformation("MCCP{Version} compression {State}", 
+                version, enabled ? "enabled" : "disabled");
+            return ValueTask.CompletedTask;
+        })
+    .BuildAsync();
+```
+
+The server automatically announces MCCP2 and MCCP3 support. When the client accepts, compression is enabled transparently.
+
+#### Client Side
+The client automatically responds to server MCCP offers. MCCP2 decompresses server data, and MCCP3 compresses client data when supported.
+
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<MCCPProtocol>()
+        .OnCompressionEnabled((version, enabled) => 
+        {
+            logger.LogInformation("MCCP{Version} compression {State}", 
+                version, enabled ? "enabled" : "disabled");
+            return ValueTask.CompletedTask;
+        })
+    .BuildAsync();
+
+// Compression is handled automatically - no manual intervention needed
+```
+
+#### Benefits
+- **MCCP2**: Reduces server-to-client bandwidth by 75-90%
+- **MCCP3**: Reduces client-to-server bandwidth and provides security through obscurity
+- **Automatic**: Compression/decompression is transparent once negotiated
+- **Standards-compliant**: Uses zlib (RFC 1950) compression via System.IO.Compression
 
 Start interpreting.
 ```csharp
