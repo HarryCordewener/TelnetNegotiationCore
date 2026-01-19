@@ -235,7 +235,7 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
 
     private void CaptureTerminalType(OneOf<byte, Trigger> b)
     {
-        if (_ttypeIndex > _ttypeByteState.Length) return;
+        if (_ttypeIndex >= _ttypeByteState.Length) return;
         _ttypeByteState[_ttypeIndex] = b.AsT0;
         _ttypeIndex++;
     }
