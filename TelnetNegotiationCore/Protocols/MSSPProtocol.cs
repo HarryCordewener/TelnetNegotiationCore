@@ -71,6 +71,18 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
         context.Logger.LogInformation("Configuring MSSP state machine");
+        
+        // Register MSSP protocol handlers with the context
+        context.SetSharedState("MSSP_Protocol", this);
+        
+        // State machine configuration for MSSP protocol handles:
+        // - Server mode: WILL/DO MSSP negotiation and response generation
+        // - Client mode: Variable/value parsing with MSSP_VAR and MSSP_VAL states
+        // - Escape sequences for IAC handling
+        // - Message completion and callback invocation
+        //
+        // Note: Full state machine transitions are currently configured by
+        // TelnetInterpreter.SetupMSSPNegotiation() for backward compatibility.
     }
 
     /// <inheritdoc />

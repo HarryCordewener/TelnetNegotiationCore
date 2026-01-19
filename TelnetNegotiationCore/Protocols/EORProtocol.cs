@@ -57,6 +57,17 @@ public class EORProtocol : TelnetProtocolPluginBase
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
         context.Logger.LogInformation("Configuring EOR state machine");
+        
+        // Register EOR protocol handlers with the context
+        context.SetSharedState("EOR_Protocol", this);
+        
+        // State machine configuration for EOR protocol would handle:
+        // - EOR marker detection and processing
+        // - Prompt notification callbacks
+        // - Integration with SuppressGA for fallback behavior
+        //
+        // Note: Full state machine transitions are currently configured by
+        // TelnetInterpreter.SetupEORNegotiation() for backward compatibility.
     }
 
     /// <inheritdoc />

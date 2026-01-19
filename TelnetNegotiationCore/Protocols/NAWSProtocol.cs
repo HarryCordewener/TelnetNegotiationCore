@@ -63,8 +63,17 @@ public class NAWSProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogInformation("Configuring NAWS state machine");
         
-        // State machine configuration would go here
-        // This integrates with the main telnet state machine
+        // Register NAWS protocol handlers with the context
+        // This allows the interpreter to call back into the protocol when needed
+        context.SetSharedState("NAWS_Protocol", this);
+        
+        // State machine configuration for NAWS protocol handles:
+        // - Window size negotiation (WILL/WONT/DO/DONT)
+        // - Byte collection for width and height values
+        // - Completion and callback invocation
+        //
+        // Note: Full state machine transitions are currently configured by
+        // TelnetInterpreter.SetupNAWS() for backward compatibility.
     }
 
     /// <inheritdoc />

@@ -47,6 +47,18 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
         context.Logger.LogInformation("Configuring Terminal Type state machine");
+        
+        // Register TerminalType protocol handlers with the context
+        context.SetSharedState("TerminalType_Protocol", this);
+        
+        // State machine configuration for Terminal Type protocol would handle:
+        // - Terminal type negotiation (RFC 1091)
+        // - MTTS (MUD Terminal Type Standard) support
+        // - Multiple terminal type cycling
+        // - Terminal capability detection
+        //
+        // Note: Full state machine transitions are currently configured by
+        // TelnetInterpreter.SetupTelnetTerminalType() for backward compatibility.
     }
 
     /// <inheritdoc />

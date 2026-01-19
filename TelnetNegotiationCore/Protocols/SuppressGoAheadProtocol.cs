@@ -57,6 +57,17 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
         context.Logger.LogInformation("Configuring Suppress Go-Ahead state machine");
+        
+        // Register SuppressGA protocol handlers with the context
+        context.SetSharedState("SuppressGA_Protocol", this);
+        
+        // State machine configuration for Suppress Go-Ahead protocol would handle:
+        // - Go-Ahead suppression negotiation
+        // - Prompt notification when GA is suppressed
+        // - Fallback coordination with EOR protocol
+        //
+        // Note: Full state machine transitions are currently configured by
+        // TelnetInterpreter.SetupSuppressGANegotiation() for backward compatibility.
     }
 
     /// <inheritdoc />

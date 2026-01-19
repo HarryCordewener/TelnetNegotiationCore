@@ -56,14 +56,17 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         // For now, this is a placeholder showing the pattern
         context.Logger.LogInformation("Configuring GMCP state machine");
         
-        // Example of how this would work (simplified):
-        // stateMachine.Configure(State.Accepting)
-        //     .Permit(Trigger.GMCP_Start, State.GMCP_Collecting);
+        // Register GMCP protocol handlers with the context
+        context.SetSharedState("GMCP_Protocol", this);
+        
+        // State machine configuration for GMCP protocol would handle:
+        // - GMCP message collection and parsing
+        // - Package and data separation
+        // - DOS protection (max message size enforcement)
+        // - Callback invocation for received messages
         //
-        // stateMachine.Configure(State.GMCP_Collecting)
-        //     .OnEntry(() => _gmcpBytes.Clear())
-        //     .Permit(Trigger.GMCP_Data, State.GMCP_Collecting)
-        //     .Permit(Trigger.GMCP_End, State.Accepting);
+        // Note: Full state machine transitions are currently configured by
+        // TelnetInterpreter.SetupGMCPNegotiation() for backward compatibility.
     }
 
     /// <inheritdoc />
@@ -211,6 +214,17 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
         context.Logger.LogInformation("Configuring MSDP state machine");
+        
+        // Register MSDP protocol handlers with the context
+        context.SetSharedState("MSDP_Protocol", this);
+        
+        // State machine configuration for MSDP protocol would handle:
+        // - MSDP message collection and parsing
+        // - DOS protection (max message size enforcement)
+        // - Callback invocation for received messages
+        //
+        // Note: Full state machine transitions are currently configured by
+        // TelnetInterpreter.SetupMSDPNegotiation() for backward compatibility.
     }
 
     /// <inheritdoc />

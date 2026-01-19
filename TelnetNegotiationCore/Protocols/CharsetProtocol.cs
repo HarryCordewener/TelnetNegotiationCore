@@ -57,6 +57,18 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
         context.Logger.LogInformation("Configuring Charset state machine");
+        
+        // Register Charset protocol handlers with the context
+        context.SetSharedState("Charset_Protocol", this);
+        
+        // State machine configuration for Charset protocol handles:
+        // - WILL/DO charset negotiation
+        // - REQUEST/ACCEPTED/REJECTED states for charset offers
+        // - Byte collection for charset names
+        // - Charset selection and encoding updates
+        //
+        // Note: Full state machine transitions are currently configured by
+        // TelnetInterpreter.SetupCharsetNegotiation() for backward compatibility.
     }
 
     /// <inheritdoc />
