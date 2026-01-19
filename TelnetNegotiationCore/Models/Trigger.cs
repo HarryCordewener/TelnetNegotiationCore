@@ -60,21 +60,26 @@ public enum Trigger : short
 {
 	/// <summary>
 	/// Sub-negotiation IS command.	
+	/// Sub-negotiation NEW-ENVIRON VAR command
 	/// </summary>
 	/// <remarks>
 	/// RFC 855: http://www.faqs.org/rfcs/rfc855.html
+	/// RFC 1572: http://www.faqs.org/rfcs/rfc1572.html
 	/// </remarks>
 	IS = 0,
+	NEWENVIRON_VAR = 0,
 	/// <summary>
 	/// Sub-negotiation SEND command
 	/// ECHO negotiation (Unsupported)
 	/// Sub-negotiation MSSP_VAR
 	/// Sub-negotiation MSDP_VAR
+	/// Sub-negotiation NEW-ENVIRON VALUE command
 	/// </summary>
 	/// <remarks>
 	/// RFC 855: http://www.faqs.org/rfcs/rfc855.html
 	/// RFC 857: http://www.faqs.org/rfcs/rfc857.html
 	/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+	/// RFC 1572: http://www.faqs.org/rfcs/rfc1572.html
 	/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
 	/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
 	/// </remarks>
@@ -83,32 +88,41 @@ public enum Trigger : short
 	MSDP_VAR = 1,
 	SEND = 1,
 	REQUEST = 1,
+	NEWENVIRON_VALUE = 1,
 	/// <summary>
 	/// Sub-negotiation ACCEPTED command.	
 	/// Sub-negotiation MSSP_VAL
 	/// Sub-negotiation MSDP_VAL
+	/// Sub-negotiation NEW-ENVIRON INFO command
+	/// Sub-negotiation NEW-ENVIRON ESC command
 	/// </summary>
 	/// <remarks>
 	/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
 	/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+	/// RFC 1572: http://www.faqs.org/rfcs/rfc1572.html
 	/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
 	/// </remarks>
 	MSSP_VAL = 2,
 	MSDP_VAL = 2,
 	ACCEPTED = 2,
+	NEWENVIRON_INFO = 2,
+	NEWENVIRON_ESC = 2,
 	/// <summary>
 	/// Sub-negotiation REJECTED command.	
 	/// Suppress Go Ahead
 	/// Sub-negotiation MSDP_TABLE_OPEN
+	/// Sub-negotiation NEW-ENVIRON USERVAR command
 	/// </summary>
 	/// <remarks>
 	/// RFC 858: http://www.faqs.org/rfcs/rfc858.html
 	/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
+	/// RFC 1572: http://www.faqs.org/rfcs/rfc1572.html
 	/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
 	/// </remarks>
 	SUPPRESSGOAHEAD = 3,
 	REJECTED = 3,
 	MSDP_TABLE_OPEN = 3,
+	NEWENVIRON_USERVAR = 3,
 	/// <summary>
 	/// Sub-negotiation TTABLE-IS command. (Unsupported)
 	/// Sub-negotiation MSDP_TABLE_CLOSE
@@ -232,7 +246,7 @@ public enum Trigger : short
 	/// </remarks>
 	ENCRYPT = 38,
 	/// <summary>
-	/// New Environment (Unsupported) (Support Planned)
+	/// New Environment
 	/// </summary>
 	/// <remarks>
 	/// MNES: https://tintin.mudhalla.net/protocols/mnes/
