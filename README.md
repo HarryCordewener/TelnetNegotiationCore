@@ -65,31 +65,19 @@ var telnet = await new TelnetInterpreterBuilder()
         .OnMSDPMessage((telnet, data) => HandleMSDPAsync(telnet, data))
     .AddPlugin<MSSPProtocol>()
         .OnMSSP((config) => HandleMSSPAsync(config))
+        .WithMSSPConfig(() => new MSSPConfig
+        {
+            Name = "My MUD Server",
+            UTF_8 = true,
+            Gameplay = ["Fantasy", "Adventure"]
+        })
     .AddPlugin<TerminalTypeProtocol>()
     .AddPlugin<CharsetProtocol>()
+        .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
     .AddPlugin<EORProtocol>()
         .OnPrompt(() => HandlePromptAsync())
     .AddPlugin<SuppressGoAheadProtocol>()
     .BuildAsync();
-
-// Configure MSSP (optional - set server information)
-var msspPlugin = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
-if (msspPlugin != null)
-{
-    msspPlugin.SetMSSPConfig(() => new MSSPConfig
-    {
-        Name = "My MUD Server",
-        UTF_8 = true,
-        Gameplay = ["Fantasy", "Adventure"]
-    });
-}
-
-// Configure Charset (optional - set encoding preferences)
-var charsetPlugin = telnet.PluginManager!.GetPlugin<CharsetProtocol>();
-if (charsetPlugin != null)
-{
-    charsetPlugin.CharsetOrder = [Encoding.UTF8, Encoding.GetEncoding("iso-8859-1")];
-}
 
 // Use the interpreter (non-blocking with automatic backpressure)
 await telnet.InterpretByteArrayAsync(bytes);
@@ -98,7 +86,31 @@ await telnet.InterpretByteArrayAsync(bytes);
 await telnet.DisposeAsync();
 ```
 
-**Alternatively, use AddDefaultMUDProtocols() for quick setup:**
+**Alternatively, use AddDefaultMUDProtocols() for quick setup with inline configuration:**
+
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddDefaultMUDProtocols(
+        onNAWS: (height, width) => HandleWindowSizeAsync(height, width),
+        onGMCPMessage: (msg) => HandleGMCPAsync(msg.Package, msg.Info),
+        onMSSP: (config) => HandleMSSPAsync(config),
+        msspConfig: () => new MSSPConfig
+        {
+            Name = "My MUD Server",
+            UTF_8 = true,
+            Gameplay = ["Fantasy", "Adventure"]
+        },
+        onPrompt: () => HandlePromptAsync(),
+        charsetOrder: [Encoding.UTF8, Encoding.GetEncoding("iso-8859-1")]
+    )
+    .BuildAsync();
+```
+
+**Or use the parameterless version and configure later:**
 
 ```csharp
 var telnet = await new TelnetInterpreterBuilder()
@@ -115,7 +127,7 @@ if (gmcpPlugin != null)
     gmcpPlugin.OnGMCPMessage((msg) => HandleGMCPAsync(msg.Package, msg.Info));
 ```
 
-**Note:** With AddDefaultMUDProtocols(), all protocols are registered but no callbacks are set. You can configure callbacks after building by getting the plugin from PluginManager, or add plugins individually for inline callback configuration.
+**Note:** AddDefaultMUDProtocols() adds NAWS, GMCP, MSDP, MSSP, Terminal Type, Charset, EOR, and Suppress Go-Ahead protocols. You can configure them inline with the overload parameters, or configure them after building by getting the plugin from PluginManager.
 
 **Key Benefits:**
 - **Fluent callback configuration** - Set callbacks inline during builder setup
@@ -203,15 +215,11 @@ var telnet = await new TelnetInterpreterBuilder()
     .OnMSSP(SignalMSSPAsync)
   .AddPlugin<TerminalTypeProtocol>()
   .AddPlugin<CharsetProtocol>()
+    .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
   .AddPlugin<EORProtocol>()
     .OnPrompt(SignalPromptAsync)
   .AddPlugin<SuppressGoAheadProtocol>()
   .BuildAsync();
-
-// Configure Charset preferences (optional)
-var charsetPlugin = telnet.PluginManager!.GetPlugin<CharsetProtocol>();
-if (charsetPlugin != null)
-  charsetPlugin.CharsetOrder = [Encoding.UTF8, Encoding.GetEncoding("iso-8859-1")];
 ```
 
 ### Sending GMCP Messages
@@ -342,33 +350,23 @@ public class KestrelMockServer : ConnectionHandler
           .OnMSDPMessage((t, config) => SignalMSDPAsync(msdpHandler, t, config))
         .AddPlugin<MSSPProtocol>()
           .OnMSSP(SignalMSSPAsync)
+          .WithMSSPConfig(() => new MSSPConfig
+          {
+            Name = "My Telnet Negotiated Server",
+            UTF_8 = true,
+            Gameplay = ["ABC", "DEF"],
+            Extended = new Dictionary<string, dynamic>
+            {
+              { "Foo",  "Bar"},
+              { "Baz", (string[])["Moo", "Meow"] }
+            }
+          })
         .AddPlugin<TerminalTypeProtocol>()
         .AddPlugin<CharsetProtocol>()
+          .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
         .AddPlugin<EORProtocol>()
         .AddPlugin<SuppressGoAheadProtocol>()
         .BuildAsync();
-
-      // Configure MSSP
-      var msspPlugin = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
-      if (msspPlugin != null)
-      {
-        msspPlugin.SetMSSPConfig(() => new MSSPConfig
-        {
-          Name = "My Telnet Negotiated Server",
-          UTF_8 = true,
-          Gameplay = ["ABC", "DEF"],
-          Extended = new Dictionary<string, dynamic>
-          {
-            { "Foo",  "Bar"},
-            { "Baz", (string[])["Moo", "Meow"] }
-          }
-        });
-      }
-
-      // Configure Charset
-      var charsetPlugin = telnet.PluginManager!.GetPlugin<CharsetProtocol>();
-      if (charsetPlugin != null)
-        charsetPlugin.CharsetOrder = [Encoding.UTF8, Encoding.GetEncoding("iso-8859-1")];
 
       while (true)
       {
