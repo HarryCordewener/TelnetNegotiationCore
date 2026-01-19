@@ -98,11 +98,15 @@ public partial class TelnetInterpreter
 	 */
 	private void CaptureMSSPVariable(OneOf<byte, Trigger> b)
 	{
+		// We could increment here based on having switched... Somehow?
+		// We need a better state tracking for this, to indicate the transition.
 		_currentMSSPVariable.Add(b.AsT0);
 	}
 
 	private void CaptureMSSPValue(OneOf<byte, Trigger> b)
 	{
+		// We could increment here based on having switched... Somehow?
+		// We need a better state tracking for this, to indicate the transition.
 		_currentMSSPValue.Add(b.AsT0);
 	}
 
