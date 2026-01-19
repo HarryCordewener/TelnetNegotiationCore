@@ -234,7 +234,23 @@ public partial class TelnetInterpreter
 	private async ValueTask OnDoMSSPAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		_logger.LogDebug("Connection: {ConnectionState}", "Writing MSSP output");
-		await CallbackNegotiationAsync(ReportMSSP(_msspConfig()));
+		
+		// Get config from plugin if available, otherwise use interpreter's config
+		var config = GetMSSPConfig();
+		await CallbackNegotiationAsync(ReportMSSP(config));
+	}
+
+	/// <summary>
+	/// Gets the MSSP configuration, preferring plugin config over interpreter config
+	/// </summary>
+	private MSSPConfig GetMSSPConfig()
+	{
+		var msspPlugin = PluginManager?.GetPlugin<Protocols.MSSPProtocol>();
+		if (msspPlugin != null && msspPlugin.IsEnabled)
+		{
+			return msspPlugin.GetMSSPConfig();
+		}
+		return _msspConfig();
 	}
 
 	/// <summary>
