@@ -60,7 +60,7 @@ var telnet = await new TelnetInterpreterBuilder()
     .AddPlugin<NAWSProtocol>()
         .OnNAWS((height, width) => HandleWindowSizeAsync(height, width))
     .AddPlugin<GMCPProtocol>()
-        .OnGMCPMessage((packageInfo) => HandleGMCPAsync(packageInfo))
+        .OnGMCPMessage((msg) => HandleGMCPAsync(msg.Package, msg.Info))
     .AddPlugin<MSDPProtocol>()
         .OnMSDPMessage((telnet, data) => HandleMSDPAsync(telnet, data))
     .AddPlugin<MSSPProtocol>()
@@ -112,7 +112,7 @@ var telnet = await new TelnetInterpreterBuilder()
 // Configure callbacks and settings after build if needed
 var gmcpPlugin = telnet.PluginManager!.GetPlugin<GMCPProtocol>();
 if (gmcpPlugin != null)
-    gmcpPlugin.OnGMCPMessage((packageInfo) => HandleGMCPAsync(packageInfo));
+    gmcpPlugin.OnGMCPMessage((msg) => HandleGMCPAsync(msg.Package, msg.Info));
 ```
 
 **Note:** With AddDefaultMUDProtocols(), all protocols are registered but no callbacks are set. You can configure callbacks after building by getting the plugin from PluginManager, or add plugins individually for inline callback configuration.
@@ -163,9 +163,9 @@ private async ValueTask WriteToOutputStreamAsync(byte[] arg, StreamWriter writer
 public static ValueTask WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter telnet) =>
   Task.Run(() => Console.WriteLine(encoding.GetString(writeback)));
 
-public ValueTask SignalGMCPAsync((string module, string info) val)
+public ValueTask SignalGMCPAsync((string Package, string Info) val)
 {
-  _Logger.LogDebug("GMCP Signal: {Module}: {Info}", val.module, val.info);
+  _Logger.LogDebug("GMCP Signal: {Module}: {Info}", val.Package, val.Info);
   return ValueTask.CompletedTask;
 }
 
@@ -231,7 +231,7 @@ await telnet.SendGMCPCommand("Room.Info", "{\"num\":12345,\"name\":\"A dark room
 // Messages will only be sent if the remote party supports GMCP
 ```
 
-To receive GMCP messages, implement the `SignalOnGMCPAsync` callback as shown in the initialization example above.
+To receive GMCP messages, use the `OnGMCPMessage` callback as shown in the initialization example above.
 
 Start interpreting.
 ```csharp
@@ -278,9 +278,9 @@ public class KestrelMockServer : ConnectionHandler
     }
   }
 
-  public ValueTask SignalGMCPAsync((string module, string info) val)
+  public ValueTask SignalGMCPAsync((string Package, string Info) val)
   {
-    _logger.LogDebug("GMCP Signal: {Module}: {Info}", val.module, val.info);
+    _logger.LogDebug("GMCP Signal: {Module}: {Info}", val.Package, val.Info);
     return ValueTask.CompletedTask;
   }
 
