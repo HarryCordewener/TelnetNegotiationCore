@@ -1,6 +1,6 @@
 # TelnetNegotiationCore.Analyzers
 
-**Proof-of-Concept Roslyn Analyzer** for compile-time validation of Telnet protocol plugins.
+**Roslyn Analyzer** for compile-time validation of Telnet protocol plugins.
 
 ## Purpose
 
@@ -30,76 +30,102 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 }
 ```
 
-### TNCP004: ConfigureStateMachine should configure state transitions (NEW in Phase 3)
+### TNCP002: Circular dependency detection (NEW)
+
+**Severity:** Error
+
+**Description:** Detects circular dependencies between plugins at compile time, preventing runtime initialization failures.
+
+**Purpose:** The plugin system uses topological sort to initialize plugins in dependency order. Circular dependencies make this impossible and cause runtime failures.
+
+**Example:**
+
+```csharp
+// ❌ ERROR - Circular dependency detected
+public class PluginA : TelnetProtocolPluginBase
+{
+    public override IReadOnlyCollection<Type> Dependencies => new[] { typeof(PluginB) };
+}
+
+public class PluginB : TelnetProtocolPluginBase
+{
+    public override IReadOnlyCollection<Type> Dependencies => new[] { typeof(PluginA) };
+}
+
+// ✅ CORRECT - No circular dependencies
+public class PluginA : TelnetProtocolPluginBase
+{
+    public override IReadOnlyCollection<Type> Dependencies => Array.Empty<Type>();
+}
+
+public class PluginB : TelnetProtocolPluginBase
+{
+    public override IReadOnlyCollection<Type> Dependencies => new[] { typeof(PluginA) };
+}
+```
+
+### TNCP003: Dependency type validation (NEW)
+
+**Severity:** Error
+
+**Description:** Validates that all types in the `Dependencies` property implement `ITelnetProtocolPlugin`.
+
+**Example:**
+
+```csharp
+// ❌ ERROR - Invalid dependency type
+public class MyProtocol : TelnetProtocolPluginBase
+{
+    public override IReadOnlyCollection<Type> Dependencies => new[] { typeof(StringBuilder) };
+}
+
+// ✅ CORRECT - All dependencies are plugins
+public class MyProtocol : TelnetProtocolPluginBase
+{
+    public override IReadOnlyCollection<Type> Dependencies => new[] { typeof(GMCPProtocol) };
+}
+```
+
+### TNCP004: ConfigureStateMachine should configure state transitions
 
 **Severity:** Info
 
 **Description:** Detects `ConfigureStateMachine` methods that are empty or only contain logging statements, suggesting incomplete plugin integration.
 
-**Purpose:** Highlights protocols where the state machine configuration has not been migrated from the old interpreter-based approach to the plugin-based approach.
+**Current Detections:** Identifies 8 protocols with incomplete implementations (CharsetProtocol, EORProtocol, GMCPProtocol, MSDPProtocol, MSSPProtocol, NAWSProtocol, SuppressGoAheadProtocol, TerminalTypeProtocol)
+
+### TNCP005: Plugin must have parameterless constructor (NEW)
+
+**Severity:** Warning
+
+**Description:** Ensures plugin classes have a public or internal parameterless constructor for use with the builder pattern.
 
 **Example:**
 
 ```csharp
-// ⚠️ INFO - Detected by analyzer
-public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+// ⚠️ WARNING - No parameterless constructor
+public class MyProtocol : TelnetProtocolPluginBase
 {
-    context.Logger.LogInformation("Configuring MSSP state machine"); // Only logging - no actual configuration!
+    public MyProtocol(string requiredParameter) { }
 }
 
-// ✅ PROPER - No analyzer warning
-public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+// ✅ CORRECT - Has parameterless constructor
+public class MyProtocol : TelnetProtocolPluginBase
 {
-    // Actually configure state transitions
-    stateMachine.Configure(State.Do)
-        .Permit(Trigger.MSSP, State.DoMSSP);
-        
-    stateMachine.Configure(State.DoMSSP)
-        .SubstateOf(State.Accepting)
-        .OnEntryAsync(async x => await HandleMSSPAsync(x));
+    public MyProtocol() { }
 }
 ```
 
-**Current Detections:**
-The analyzer currently identifies 8 protocols with incomplete `ConfigureStateMachine` implementations:
-- CharsetProtocol
-- EORProtocol  
-- GMCPProtocol
-- MSDPProtocol
-- MSSPProtocol
-- NAWSProtocol
-- SuppressGoAheadProtocol
-- TerminalTypeProtocol
+## Benefits
 
-These protocols currently rely on the old interpreter-based state machine configuration and represent opportunities for future migration to the plugin-based architecture.
+**Compile-Time Safety:**
+- ✅ Catches ProtocolType mismatches, circular dependencies, invalid dependencies
+- ✅ Warns about missing parameterless constructors
+- ✅ Highlights incomplete plugin migrations
 
-## Integration
-
-To use this analyzer in the main TelnetNegotiationCore library:
-
-```xml
-<ItemGroup>
-  <ProjectReference Include="..\TelnetNegotiationCore.Analyzers\TelnetNegotiationCore.Analyzers.csproj"
-                    OutputItemType="Analyzer"
-                    ReferenceOutputAssembly="false" />
-</ItemGroup>
-```
-
-## Future Rules (Planned)
-
-- **TNCP002:** Circular dependency detection
-- **TNCP003:** Missing dependency validation
-- **TNCP005:** Missing parameterless constructor
-
-## Building
-
-```bash
-dotnet build TelnetNegotiationCore.Analyzers.csproj
-```
-
-## Testing
-
-Create a test project that references the analyzer to validate diagnostic behavior.
+**Developer Experience:**
+- ✅ Errors appear in IDE immediately with clear messages
+- ✅ Prevents runtime failures during development
 
 ## License
 
