@@ -83,9 +83,9 @@ public class SuppressGATests : BaseTest
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
 		await _server_ti.WaitForProcessingAsync();
 
-		// Assert - Server should accept without error
+		// Assert - Server should accept without error (no response sent)
 		// The server just records that GA suppression is active
-		// Test passed: "Server accepts DO SUPPRESSGOAHEAD successfully"
+		await Assert.That(_negotiationOutput).IsNull();
 	}
 
 	[Test]
@@ -113,8 +113,8 @@ public class SuppressGATests : BaseTest
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD });
 		await _server_ti.WaitForProcessingAsync();
 
-		// Assert - Server should accept the rejection gracefully
-		// Test passed: "Server handles DONT SUPPRESSGOAHEAD gracefully"
+		// Assert - Server should accept the rejection gracefully (no error thrown)
+		await Assert.That(_negotiationOutput).IsNull();
 	}
 
 	[Test]
@@ -127,8 +127,8 @@ public class SuppressGATests : BaseTest
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.SUPPRESSGOAHEAD });
 		await _client_ti.WaitForProcessingAsync();
 
-		// Assert - Client should accept the rejection gracefully
-		// Test passed: "Client handles WONT SUPPRESSGOAHEAD gracefully"
+		// Assert - Client should accept the rejection gracefully (no error thrown)
+		await Assert.That(_negotiationOutput).IsNull();
 	}
 
 	[Test]
@@ -169,8 +169,8 @@ public class SuppressGATests : BaseTest
 		await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
 		await testServer.WaitForProcessingAsync();
 		
-		// Server should accept (no error, negotiation completes)
-		// Test passed: "Server completes SUPPRESSGOAHEAD negotiation successfully"
+		// Server should accept (no error, negotiation completes, no response sent)
+		await Assert.That(_negotiationOutput).IsNull();
 	}
 
 	[Test]
@@ -198,8 +198,8 @@ public class SuppressGATests : BaseTest
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD });
 		await _server_ti.WaitForProcessingAsync();
 		
-		// Server should handle DONT gracefully and record that GA is not suppressed
-		// Test passed: "Server handles DONT SUPPRESSGOAHEAD and maintains GA mode"
+		// Server should handle DONT gracefully and record that GA is not suppressed (no error thrown)
+		await Assert.That(_negotiationOutput).IsNull();
 	}
 
 	[Test]
@@ -211,7 +211,7 @@ public class SuppressGATests : BaseTest
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.SUPPRESSGOAHEAD });
 		await _client_ti.WaitForProcessingAsync();
 		
-		// Client should handle WONT gracefully and record that GA is not suppressed
-		// Test passed: "Client handles WONT SUPPRESSGOAHEAD and maintains GA mode"
+		// Client should handle WONT gracefully and record that GA is not suppressed (no error thrown)
+		await Assert.That(_negotiationOutput).IsNull();
 	}
 }

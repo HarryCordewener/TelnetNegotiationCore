@@ -217,8 +217,8 @@ public class NAWSTests : BaseTest
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.NAWS });
 		await _server_ti.WaitForProcessingAsync();
 
-		// Assert - Server should accept the rejection gracefully
-		// Test passed: "Server handles DONT NAWS gracefully"
+		// Assert - Server should accept the rejection gracefully (no error thrown)
+		await Assert.That(_negotiationOutput).IsNull();
 	}
 
 	[Test]
@@ -229,10 +229,10 @@ public class NAWSTests : BaseTest
 
 		// Act - Client receives WONT NAWS from server
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
-		await _client_ti.WaitForProcessingAsync();
+		await _server_ti.WaitForProcessingAsync();
 
-		// Assert - Client should accept the rejection gracefully
-		// Test passed: "Client handles WONT NAWS gracefully"
+		// Assert - Client should accept the rejection gracefully (no error thrown)
+		await Assert.That(_negotiationOutput).IsNull();
 	}
 
 	[Test]

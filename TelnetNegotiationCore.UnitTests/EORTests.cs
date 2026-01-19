@@ -95,9 +95,9 @@ public class EORTests : BaseTest
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
 		await _server_ti.WaitForProcessingAsync();
 
-		// Assert - Server should accept without error (no specific response expected)
+		// Assert - Server should accept without error (no response sent)
 		// The server just records that EOR is active
-		// Test passed: "Server accepts DO EOR successfully"
+		await Assert.That(_negotiationOutput).IsNull();
 	}
 
 	[Test]
@@ -126,8 +126,8 @@ public class EORTests : BaseTest
 		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.TELOPT_EOR });
 		await _server_ti.WaitForProcessingAsync();
 
-		// Assert - Server should accept the rejection gracefully
-		// Test passed: "Server handles DONT EOR gracefully"
+		// Assert - Server should accept the rejection gracefully (no error thrown)
+		await Assert.That(_negotiationOutput).IsNull();
 	}
 
 	[Test]
@@ -140,8 +140,8 @@ public class EORTests : BaseTest
 		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.TELOPT_EOR });
 		await _client_ti.WaitForProcessingAsync();
 
-		// Assert - Client should accept the rejection gracefully
-		// Test passed: "Client handles WONT EOR gracefully"
+		// Assert - Client should accept the rejection gracefully (no error thrown)
+		await Assert.That(_negotiationOutput).IsNull();
 	}
 
 	[Test]

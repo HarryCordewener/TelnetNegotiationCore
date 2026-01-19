@@ -153,7 +153,7 @@ public class MSSPTests : BaseTest
 
 		// Assert - Server should just accept the rejection without error
 		// No specific response expected, just ensure no crash
-		// Test passed: "Server handles DONT MSSP gracefully"
+		await Assert.That(_negotiationOutput).IsNull();
 	}
 
 	[Test]
@@ -168,7 +168,7 @@ public class MSSPTests : BaseTest
 
 		// Assert - Client should just accept the rejection without error
 		// No specific response expected, just ensure no crash
-		// Test passed: "Client handles WONT MSSP gracefully"
+		await Assert.That(_negotiationOutput).IsNull();
 	}
 
 	[Test]
