@@ -1,6 +1,43 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.0.0] - 2026-01-19
+
+### Added
+- **Plugin Architecture**: Class-based plugin system for protocol management
+  - `ITelnetProtocolPlugin` interface for type-safe protocol contracts
+  - `TelnetProtocolPluginBase` abstract base class
+  - `ProtocolPluginManager` for dependency resolution and lifecycle management
+  - `IProtocolContext` for plugin-to-plugin communication
+  - `TelnetInterpreterBuilder` fluent API for construction
+- **System.Threading.Channels Integration**: High-performance async byte processing
+  - Bounded channel with 10,000 byte capacity for automatic backpressure
+  - Non-blocking `InterpretAsync()` and `InterpretByteArrayAsync()` operations
+  - Background processing with graceful shutdown via `IAsyncDisposable`
+- **DOS Protection**: 8KB message size limits for GMCP and MSDP protocols
+- **Protocol Plugins**: All 8 protocols migrated to plugin architecture
+  - `GMCPProtocol` - Generic MUD Communication Protocol
+  - `MSDPProtocol` - MUD Server Data Protocol
+  - `NAWSProtocol` - Negotiate About Window Size (RFC 1073)
+  - `TerminalTypeProtocol` - Terminal Type (RFC 1091 + MTTS)
+  - `CharsetProtocol` - Character encoding (RFC 2066)
+  - `MSSPProtocol` - MUD Server Status Protocol
+  - `EORProtocol` - End of Record
+  - `SuppressGoAheadProtocol` - Suppress Go-Ahead
+- **Configurable Buffer**: `MaxBufferSize` property for line buffer (default 5MB)
+
+### Changed
+- Library architecture modernized with plugin-based design patterns
+- Improved performance with non-blocking async operations
+- Enhanced testability with independent protocol implementations
+
+### Security
+- Added comprehensive input validation and size limits
+- Implemented automatic backpressure to prevent memory bloat
+- DOS protection for protocol message buffers
+
+**Note**: The legacy API remains fully supported for backward compatibility. All existing code will continue to work without modifications.
+
 ## [1.1.1] - 2024-12-30
 
 ### Fixed

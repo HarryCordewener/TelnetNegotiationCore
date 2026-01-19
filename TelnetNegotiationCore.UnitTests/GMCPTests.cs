@@ -206,6 +206,7 @@ public class GMCPTests : BaseTest
 		// Act
 		await _client_ti.InterpretByteArrayAsync(gmcpBytes.ToArray());
 		await _client_ti.WaitForProcessingAsync();
+		await Task.Delay(100); // Give callback time to execute
 
 		// Assert
 		Assert.IsNotNull(_receivedGMCP, "Should have received GMCP message");
