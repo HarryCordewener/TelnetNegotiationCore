@@ -50,12 +50,10 @@ public class NAWSTests : BaseTest
 			.OnSubmit(WriteBackToOutput)
 			.OnNegotiation(WriteBackToNegotiate)
 			.AddPlugin<NAWSProtocol>()
+				.OnNAWS(WriteBackToNAWS)
 			.AddPlugin<GMCPProtocol>()
 			.AddPlugin<MSSPProtocol>()
 			.BuildAsync();
-
-		var serverNaws = _server_ti.PluginManager!.GetPlugin<NAWSProtocol>();
-		serverNaws!. OnNAWSNegotiated = WriteBackToNAWS;
 
 		var serverMssp = _server_ti.PluginManager!.GetPlugin<MSSPProtocol>();
 		serverMssp!.SetMSSPConfig(() => new MSSPConfig
@@ -69,12 +67,10 @@ public class NAWSTests : BaseTest
 			.OnSubmit(WriteBackToOutput)
 			.OnNegotiation(WriteBackToNegotiate)
 			.AddPlugin<NAWSProtocol>()
+				.OnNAWS(WriteBackToNAWS)
 			.AddPlugin<GMCPProtocol>()
 			.AddPlugin<MSSPProtocol>()
 			.BuildAsync();
-
-		var clientNaws = _client_ti.PluginManager!.GetPlugin<NAWSProtocol>();
-		clientNaws!. OnNAWSNegotiated = WriteBackToNAWS;
 
 		var clientMssp = _client_ti.PluginManager!.GetPlugin<MSSPProtocol>();
 		clientMssp!.SetMSSPConfig(() => new MSSPConfig
@@ -273,12 +269,10 @@ public class NAWSTests : BaseTest
 			.OnSubmit(WriteBackToOutput)
 			.OnNegotiation(WriteBackToNegotiate)
 			.AddPlugin<NAWSProtocol>()
+				.OnNAWS(WriteBackToNAWS)
 			.AddPlugin<GMCPProtocol>()
 			.AddPlugin<MSSPProtocol>()
 			.BuildAsync();
-
-		var clientNaws = testClient.PluginManager!.GetPlugin<NAWSProtocol>();
-		clientNaws!. OnNAWSNegotiated = WriteBackToNAWS;
 
 		var clientMssp = testClient.PluginManager!.GetPlugin<MSSPProtocol>();
 		clientMssp!.SetMSSPConfig(() => new MSSPConfig());
@@ -306,12 +300,10 @@ public class NAWSTests : BaseTest
 			.OnSubmit(WriteBackToOutput)
 			.OnNegotiation(WriteBackToNegotiate)
 			.AddPlugin<NAWSProtocol>()
+				.OnNAWS(WriteBackToNAWS)
 			.AddPlugin<GMCPProtocol>()
 			.AddPlugin<MSSPProtocol>()
 			.BuildAsync();
-
-		var serverNaws = testServer.PluginManager!.GetPlugin<NAWSProtocol>();
-		serverNaws!. OnNAWSNegotiated = WriteBackToNAWS;
 
 		var serverMssp = testServer.PluginManager!.GetPlugin<MSSPProtocol>();
 		serverMssp!.SetMSSPConfig(() => new MSSPConfig());
@@ -414,12 +406,10 @@ public class NAWSTests : BaseTest
 			.OnSubmit(WriteBackToOutput)
 			.OnNegotiation(WriteBackToNegotiate)
 			.AddPlugin<NAWSProtocol>()
+				.OnNAWS(WriteBackToNAWS)
 			.AddPlugin<GMCPProtocol>()
 			.AddPlugin<MSSPProtocol>()
 			.BuildAsync();
-
-		var serverNaws = testServer.PluginManager!.GetPlugin<NAWSProtocol>();
-		serverNaws!. OnNAWSNegotiated = WriteBackToNAWS;
 
 		var serverMssp = testServer.PluginManager!.GetPlugin<MSSPProtocol>();
 		serverMssp!.SetMSSPConfig(() => new MSSPConfig());

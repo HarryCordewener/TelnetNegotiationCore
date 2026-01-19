@@ -53,21 +53,17 @@ public class MockPipelineClient(ILogger<MockPipelineClient> logger)
 			.UseLogger(logger)
 			.OnSubmit(WriteBackAsync)
 			.OnNegotiation((x) => WriteToOutputStreamAsync(x, pipe.Output))
-			.AddDefaultMUDProtocols()
+			.AddPlugin<NAWSProtocol>()
+			.AddPlugin<GMCPProtocol>()
+				.OnGMCPMessage(SignalGMCPAsync)
+			.AddPlugin<MSSPProtocol>()
+				.OnMSSP(SignalMSSPAsync)
+			.AddPlugin<TerminalTypeProtocol>()
+			.AddPlugin<CharsetProtocol>()
+			.AddPlugin<EORProtocol>()
+				.OnPrompt(SignalPromptAsync)
+			.AddPlugin<SuppressGoAheadProtocol>()
 			.BuildAsync();
-
-		// Subscribe to protocol callbacks
-		var gmcp = telnet.PluginManager!.GetPlugin<GMCPProtocol>();
-		if (gmcp != null)
-			gmcp.OnGMCPReceived = SignalGMCPAsync;
-
-		var mssp = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
-		if (mssp != null)
-			mssp.OnMSSPRequest = SignalMSSPAsync;
-
-		var eor = telnet.PluginManager!.GetPlugin<EORProtocol>();
-		if (eor != null)
-			eor.OnPromptReceived = SignalPromptAsync;
 
 		var backgroundTask = Task.Run(() => ReadFromPipeline(telnet, pipe.Input));
 

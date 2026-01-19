@@ -30,15 +30,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
         return this;
     }
 
-    /// <summary>
-    /// Gets or sets the MSSP request callback.
-    /// Can be set directly or using the fluent OnMSSP method.
-    /// </summary>
-    public Func<MSSPConfig, ValueTask>? OnMSSPRequest
-    {
-        get => _onMSSPRequest;
-        set => _onMSSPRequest = value;
-    }
+
 
     private Func<MSSPConfig> _msspConfig = () => new MSSPConfig();
     private List<byte> _currentMSSPVariable = [];

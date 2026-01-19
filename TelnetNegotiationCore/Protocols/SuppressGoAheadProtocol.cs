@@ -29,15 +29,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
         return this;
     }
 
-    /// <summary>
-    /// Gets or sets the prompt received callback.
-    /// Can be set directly or using the fluent OnPrompt method.
-    /// </summary>
-    public Func<ValueTask>? OnPromptReceived
-    {
-        get => _onPromptReceived;
-        set => _onPromptReceived = value;
-    }
+
 
     /// <summary>
     /// Indicates whether Go-Ahead is suppressed (true = suppressed, false = enabled)

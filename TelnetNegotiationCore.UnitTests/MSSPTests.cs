@@ -49,10 +49,10 @@ public class MSSPTests : BaseTest
 			.OnSubmit(WriteBackToOutput)
 			.OnNegotiation(WriteBackToNegotiate)
 			.AddPlugin<MSSPProtocol>()
+				.OnMSSP(WriteBackToMSSP)
 			.BuildAsync();
 
 		var serverMssp = _server_ti.PluginManager!.GetPlugin<MSSPProtocol>();
-		serverMssp!.OnMSSPRequest = WriteBackToMSSP;
 		serverMssp!.SetMSSPConfig(() => new MSSPConfig
 		{
 			Name = "Test MUD Server",
@@ -79,10 +79,10 @@ public class MSSPTests : BaseTest
 			.OnSubmit(WriteBackToOutput)
 			.OnNegotiation(WriteBackToNegotiate)
 			.AddPlugin<MSSPProtocol>()
+				.OnMSSP(WriteBackToMSSP)
 			.BuildAsync();
 
 		var clientMssp = _client_ti.PluginManager!.GetPlugin<MSSPProtocol>();
-		clientMssp!.OnMSSPRequest = WriteBackToMSSP;
 		clientMssp!.SetMSSPConfig(() => new MSSPConfig
 		{
 			Name = "Test MUD Client"

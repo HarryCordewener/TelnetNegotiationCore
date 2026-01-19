@@ -92,18 +92,24 @@ namespace TelnetNegotiationCore.TestServer
 				.UseLogger(_logger)
 				.OnSubmit(WriteBackAsync)
 				.OnNegotiation(x => WriteToOutputStreamAsync(x, connection.Transport.Output))
-				.AddDefaultMUDProtocols()
+				.AddPlugin<NAWSProtocol>()
+					.OnNAWS(SignalNAWSAsync)
+				.AddPlugin<GMCPProtocol>()
+					.OnGMCPMessage(SignalGMCPAsync)
+				.AddPlugin<MSDPProtocol>()
+					.OnMSDPMessage((t, config) => SignalMSDPAsync(msdpHandler, t, config))
+				.AddPlugin<MSSPProtocol>()
+					.OnMSSP(SignalMSSPAsync)
+				.AddPlugin<TerminalTypeProtocol>()
+				.AddPlugin<CharsetProtocol>()
+				.AddPlugin<EORProtocol>()
+				.AddPlugin<SuppressGoAheadProtocol>()
 				.BuildAsync();
 
-			// Subscribe to protocol callbacks
-			var gmcp = telnet.PluginManager!.GetPlugin<GMCPProtocol>();
-			if (gmcp != null)
-				gmcp.OnGMCPReceived = SignalGMCPAsync;
-
+			// Configure MSSP
 			var mssp = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
 			if (mssp != null)
 			{
-				mssp.OnMSSPRequest = SignalMSSPAsync;
 				mssp.SetMSSPConfig(() => new MSSPConfig
 				{
 					Name = "My Telnet Negotiated Server",
@@ -117,14 +123,7 @@ namespace TelnetNegotiationCore.TestServer
 				});
 			}
 
-			var naws = telnet.PluginManager!.GetPlugin<NAWSProtocol>();
-			if (naws != null)
-				naws.OnNAWSNegotiated = SignalNAWSAsync;
-
-			var msdp = telnet.PluginManager!.GetPlugin<MSDPProtocol>();
-			if (msdp != null)
-				msdp.OnMSDPReceived = (t, config) => SignalMSDPAsync(msdpHandler, t, config);
-
+			// Configure Charset
 			var charset = telnet.PluginManager!.GetPlugin<CharsetProtocol>();
 			if (charset != null)
 				charset.CharsetOrder = [Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1")];

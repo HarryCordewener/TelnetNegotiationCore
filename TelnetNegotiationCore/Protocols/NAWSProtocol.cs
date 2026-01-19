@@ -30,15 +30,7 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         return this;
     }
 
-    /// <summary>
-    /// Gets or sets the NAWS negotiation callback.
-    /// Can be set directly or using the fluent OnNAWS method.
-    /// </summary>
-    public Func<int, int, ValueTask>? OnNAWSNegotiated
-    {
-        get => _onNAWSNegotiated;
-        set => _onNAWSNegotiated = value;
-    }
+
 
     /// <summary>
     /// Currently known Client Height (defaults to 24)

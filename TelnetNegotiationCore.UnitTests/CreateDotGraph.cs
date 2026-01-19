@@ -25,10 +25,8 @@ public class CreateDotGraph : BaseTest
             .OnSubmit(WriteBack)
             .OnNegotiation(WriteToOutputStream)
             .AddPlugin<NAWSProtocol>()
+                .OnNAWS(SignalNAWS)
             .BuildAsync();
-
-        var naws = telnet.PluginManager!.GetPlugin<NAWSProtocol>();
-        naws!.OnNAWSNegotiated = SignalNAWS;
 
         var dotGraph = UmlDotGraph.Format(telnet.TelnetStateMachine.GetInfo());
         await File.WriteAllTextAsync(Path.Combine(Directory.GetCurrentDirectory(), "..", "ClientDotGraph.dot"), dotGraph);
@@ -43,11 +41,9 @@ public class CreateDotGraph : BaseTest
             .OnSubmit(WriteBack)
             .OnNegotiation(WriteToOutputStream)
             .AddPlugin<NAWSProtocol>()
+                .OnNAWS(SignalNAWS)
             .AddPlugin<MSSPProtocol>()
             .BuildAsync();
-
-        var naws = telnet.PluginManager!.GetPlugin<NAWSProtocol>();
-        naws!.OnNAWSNegotiated = SignalNAWS;
 
         var mssp = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
         mssp!.SetMSSPConfig(() => new MSSPConfig

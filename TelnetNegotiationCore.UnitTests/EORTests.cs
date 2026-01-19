@@ -48,10 +48,8 @@ public class EORTests : BaseTest
 			.OnSubmit(WriteBackToOutput)
 			.OnNegotiation(WriteBackToNegotiate)
 			.AddPlugin<EORProtocol>()
+				.OnPrompt(WriteBackToPrompt)
 			.BuildAsync();
-
-		var serverEor = _server_ti.PluginManager!.GetPlugin<EORProtocol>();
-		serverEor!.OnPromptReceived = WriteBackToPrompt;
 
 		_client_ti = await new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
@@ -59,10 +57,8 @@ public class EORTests : BaseTest
 			.OnSubmit(WriteBackToOutput)
 			.OnNegotiation(WriteBackToNegotiate)
 			.AddPlugin<EORProtocol>()
+				.OnPrompt(WriteBackToPrompt)
 			.BuildAsync();
-
-		var clientEor = _client_ti.PluginManager!.GetPlugin<EORProtocol>();
-		clientEor!.OnPromptReceived = WriteBackToPrompt;
 	}
 
 	[TearDown]
@@ -225,10 +221,8 @@ public class EORTests : BaseTest
 			.OnSubmit(WriteBackToOutput)
 			.OnNegotiation(WriteBackToNegotiate)
 			.AddPlugin<EORProtocol>()
+				.OnPrompt(WriteBackToPrompt)
 			.BuildAsync();
-
-		var eor = testClient.PluginManager!.GetPlugin<EORProtocol>();
-		eor!.OnPromptReceived = WriteBackToPrompt;
 
 		// Step 1: Server sends WILL EOR
 		_negotiationOutput = null;

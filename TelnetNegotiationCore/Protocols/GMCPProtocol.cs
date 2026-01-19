@@ -30,15 +30,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         return this;
     }
 
-    /// <summary>
-    /// Gets or sets the GMCP message callback.
-    /// Can be set directly or using the fluent OnGMCPMessage method.
-    /// </summary>
-    public Func<(string Package, string Info), ValueTask>? OnGMCPReceived
-    {
-        get => _onGMCPReceived;
-        set => _onGMCPReceived = value;
-    }
+
 
     /// <inheritdoc />
     public override Type ProtocolType => typeof(GMCPProtocol);
@@ -193,15 +185,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
         return this;
     }
 
-    /// <summary>
-    /// Gets or sets the MSDP message callback.
-    /// Can be set directly or using the fluent OnMSDPMessage method.
-    /// </summary>
-    public Func<Interpreters.TelnetInterpreter, string, ValueTask>? OnMSDPReceived
-    {
-        get => _onMSDPReceived;
-        set => _onMSDPReceived = value;
-    }
+
 
     /// <inheritdoc />
     public override Type ProtocolType => typeof(MSDPProtocol);
