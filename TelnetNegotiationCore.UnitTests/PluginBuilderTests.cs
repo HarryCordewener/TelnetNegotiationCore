@@ -77,17 +77,15 @@ public class PluginBuilderTests : BaseTest
         var gmcpPlugin = interpreter.PluginManager!.GetPlugin<GMCPProtocol>();
         Assert.IsNotNull(gmcpPlugin, "GMCP plugin should be registered");
 
-        // Act - Subscribe to GMCP events
-        bool subscribed = false;
-        gmcpPlugin!.OnGMCPReceived += (message) =>
+        // Act - Set GMCP callback
+        gmcpPlugin!.OnGMCPReceived = (message) =>
         {
             _receivedGMCP = message;
-            subscribed = true;
             return ValueTask.CompletedTask;
         };
 
-        // Assert - verify subscription worked by checking we can subscribe
-        Assert.IsTrue(subscribed || !subscribed, "Should be able to subscribe to GMCP events");
+        // Assert - verify callback was set
+        Assert.IsNotNull(gmcpPlugin.OnGMCPReceived, "Should be able to set GMCP callback");
 
         await interpreter.DisposeAsync();
     }
@@ -107,16 +105,14 @@ public class PluginBuilderTests : BaseTest
         var nawsPlugin = interpreter.PluginManager!.GetPlugin<NAWSProtocol>();
         Assert.IsNotNull(nawsPlugin, "NAWS plugin should be registered");
 
-        // Act - Subscribe to NAWS events
-        bool subscribed = false;
-        nawsPlugin!.OnNAWSNegotiated += (width, height) =>
+        // Act - Set NAWS callback
+        nawsPlugin!.OnNAWSNegotiated = (width, height) =>
         {
-            subscribed = true;
             return ValueTask.CompletedTask;
         };
 
-        // Assert - verify subscription worked
-        Assert.IsTrue(subscribed || !subscribed, "Should be able to subscribe to NAWS events");
+        // Assert - verify callback was set
+        Assert.IsNotNull(nawsPlugin.OnNAWSNegotiated, "Should be able to set NAWS callback");
 
         await interpreter.DisposeAsync();
     }
@@ -136,17 +132,15 @@ public class PluginBuilderTests : BaseTest
         var msspPlugin = interpreter.PluginManager!.GetPlugin<MSSPProtocol>();
         Assert.IsNotNull(msspPlugin, "MSSP plugin should be registered");
 
-        // Act - Subscribe to MSSP events
-        bool subscribed = false;
-        msspPlugin!.OnMSSPRequest += (config) =>
+        // Act - Set MSSP callback
+        msspPlugin!.OnMSSPRequest = (config) =>
         {
             _receivedMSSP = config;
-            subscribed = true;
             return ValueTask.CompletedTask;
         };
 
-        // Assert - verify subscription worked
-        Assert.IsTrue(subscribed || !subscribed, "Should be able to subscribe to MSSP events");
+        // Assert - verify callback was set
+        Assert.IsNotNull(msspPlugin.OnMSSPRequest, "Should be able to set MSSP callback");
 
         await interpreter.DisposeAsync();
     }

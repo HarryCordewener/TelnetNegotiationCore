@@ -51,7 +51,7 @@ public class GMCPTests : BaseTest
 			.BuildAsync();
 
 		var serverGmcp = _server_ti.PluginManager!.GetPlugin<GMCPProtocol>();
-		serverGmcp!.OnGMCPReceived += WriteBackToGMCP;
+		serverGmcp!.OnGMCPReceived = WriteBackToGMCP;
 
 		var serverMssp = _server_ti.PluginManager!.GetPlugin<MSSPProtocol>();
 		serverMssp!.SetMSSPConfig(() => new MSSPConfig
@@ -76,7 +76,7 @@ public class GMCPTests : BaseTest
 			.BuildAsync();
 
 		var clientGmcp = _client_ti.PluginManager!.GetPlugin<GMCPProtocol>();
-		clientGmcp!.OnGMCPReceived += WriteBackToGMCP;
+		clientGmcp!.OnGMCPReceived = WriteBackToGMCP;
 
 		var clientMssp = _client_ti.PluginManager!.GetPlugin<MSSPProtocol>();
 		clientMssp!.SetMSSPConfig(() => new MSSPConfig

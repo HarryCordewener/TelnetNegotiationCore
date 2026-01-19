@@ -95,15 +95,15 @@ namespace TelnetNegotiationCore.TestServer
 				.AddDefaultMUDProtocols()
 				.BuildAsync();
 
-			// Subscribe to protocol events
+			// Subscribe to protocol callbacks
 			var gmcp = telnet.PluginManager!.GetPlugin<GMCPProtocol>();
 			if (gmcp != null)
-				gmcp.OnGMCPReceived += SignalGMCPAsync;
+				gmcp.OnGMCPReceived = SignalGMCPAsync;
 
 			var mssp = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
 			if (mssp != null)
 			{
-				mssp.OnMSSPRequest += SignalMSSPAsync;
+				mssp.OnMSSPRequest = SignalMSSPAsync;
 				mssp.SetMSSPConfig(() => new MSSPConfig
 				{
 					Name = "My Telnet Negotiated Server",
@@ -119,11 +119,11 @@ namespace TelnetNegotiationCore.TestServer
 
 			var naws = telnet.PluginManager!.GetPlugin<NAWSProtocol>();
 			if (naws != null)
-				naws.OnNAWSNegotiated += SignalNAWSAsync;
+				naws.OnNAWSNegotiated = SignalNAWSAsync;
 
 			var msdp = telnet.PluginManager!.GetPlugin<MSDPProtocol>();
 			if (msdp != null)
-				msdp.OnMSDPReceived += (t, config) => SignalMSDPAsync(msdpHandler, t, config);
+				msdp.OnMSDPReceived = (t, config) => SignalMSDPAsync(msdpHandler, t, config);
 
 			var charset = telnet.PluginManager!.GetPlugin<CharsetProtocol>();
 			if (charset != null)

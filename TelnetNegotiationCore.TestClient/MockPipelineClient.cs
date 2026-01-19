@@ -56,18 +56,18 @@ public class MockPipelineClient(ILogger<MockPipelineClient> logger)
 			.AddDefaultMUDProtocols()
 			.BuildAsync();
 
-		// Subscribe to protocol events
+		// Subscribe to protocol callbacks
 		var gmcp = telnet.PluginManager!.GetPlugin<GMCPProtocol>();
 		if (gmcp != null)
-			gmcp.OnGMCPReceived += SignalGMCPAsync;
+			gmcp.OnGMCPReceived = SignalGMCPAsync;
 
 		var mssp = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
 		if (mssp != null)
-			mssp.OnMSSPRequest += SignalMSSPAsync;
+			mssp.OnMSSPRequest = SignalMSSPAsync;
 
 		var eor = telnet.PluginManager!.GetPlugin<EORProtocol>();
 		if (eor != null)
-			eor.OnPromptReceived += SignalPromptAsync;
+			eor.OnPromptReceived = SignalPromptAsync;
 
 		var backgroundTask = Task.Run(() => ReadFromPipeline(telnet, pipe.Input));
 
