@@ -25,8 +25,8 @@ This library is in a stable state. The legacy API remains fully supported for ba
 | [MSDP](https://tintin.mudhalla.net/protocols/msdp)  | Mud Server Data Protocol           | Partial    | Partial Tested     |
 | [RFC 2066](http://www.faqs.org/rfcs/rfc2066.html)   | Charset Negotiation                | Partial    | No TTABLE support  |
 | [RFC 858](http://www.faqs.org/rfcs/rfc858.html)     | Suppress GOAHEAD Negotiation       | Full       |                    |
-| [RFC 1572](http://www.faqs.org/rfcs/rfc1572.html)   | New Environment Negotiation        | No         | Planned            |
-| [MNES](https://tintin.mudhalla.net/protocols/mnes)  | Mud New Environment Negotiation    | No         | Planned            |
+| [RFC 1572](http://www.faqs.org/rfcs/rfc1572.html)   | New Environment Negotiation        | Full       |                    |
+| [MNES](https://tintin.mudhalla.net/protocols/mnes)  | Mud New Environment Negotiation    | Full       | Via MTTS flag 512  |
 | [MCCP](https://tintin.mudhalla.net/protocols/mccp)  | Mud Client Compression Protocol    | No         | Rejects            |
 | [RFC 1950](https://tintin.mudhalla.net/rfc/rfc1950) | ZLIB Compression                   | No         | Rejects            |
 | [RFC 857](http://www.faqs.org/rfcs/rfc857.html)     | Echo Negotiation                   | No         | Rejects            |
@@ -322,6 +322,49 @@ await telnet.SendGMCPCommand("Room.Info", "{\"num\":12345,\"name\":\"A dark room
 ```
 
 To receive GMCP messages, use the `OnGMCPMessage` callback as shown in the initialization example above.
+
+### Using NEW-ENVIRON Protocol
+The NEW-ENVIRON protocol (RFC 1572) allows exchange of environment variables between client and server. MNES (Mud New Environment Standard) extends this with the MTTS flag 512.
+
+#### Server Side
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<NewEnvironProtocol>()
+        .OnEnvironmentVariables((envVars, userVars) => 
+        {
+            // envVars contains standard environment variables (USER, LANG, etc.)
+            // userVars contains user-defined variables
+            logger.LogInformation("Received {EnvCount} environment variables", envVars.Count);
+            foreach (var (key, value) in envVars)
+            {
+                logger.LogInformation("  {Key} = {Value}", key, value);
+            }
+            return ValueTask.CompletedTask;
+        })
+    .BuildAsync();
+```
+
+#### Client Side
+The client automatically responds to server requests for environment variables. Common variables like USER and LANG are sent automatically.
+
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<NewEnvironProtocol>()
+    .BuildAsync();
+
+// Environment variables are automatically sent when the server requests them
+```
+
+#### MNES Support
+MNES (Mud New Environment Standard) support is automatically indicated via the MTTS flag 512 when both Terminal Type and NEW-ENVIRON protocols are enabled. No additional configuration is needed.
 
 Start interpreting.
 ```csharp

@@ -123,4 +123,18 @@ public static class PluginConfigurationExtensions
         context.Plugin.SetMSSPConfig(configProvider);
         return context;
     }
+
+    /// <summary>
+    /// Sets the NEW-ENVIRON callback in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle environment variables (regular, user)</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<NewEnvironProtocol> OnEnvironmentVariables(
+        this PluginConfigurationContext<NewEnvironProtocol> context,
+        Func<System.Collections.Generic.Dictionary<string, string>, System.Collections.Generic.Dictionary<string, string>, ValueTask>? callback)
+    {
+        context.Plugin.OnEnvironmentVariables(callback);
+        return context;
+    }
 }
