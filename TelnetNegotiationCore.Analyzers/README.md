@@ -116,16 +116,77 @@ public class MyProtocol : TelnetProtocolPluginBase
 }
 ```
 
+### TNCP006: Required method call documentation (NEW)
+
+**Severity:** Info
+
+**Description:** Documents which methods must be called on a plugin before initialization. Uses the `[RequiredMethod]` attribute to provide executable documentation for plugin consumers.
+
+**Purpose:** Plugins may require specific setup methods to be called before they are initialized. This analyzer makes those requirements visible at compile time.
+
+**Example:**
+
+```csharp
+// Plugin declares required methods using attributes
+[RequiredMethod("SetConfiguration")]
+[RequiredMethod("EnableFeature", Description = "Required for advanced features")]
+public class MyProtocol : TelnetProtocolPluginBase
+{
+    private bool _configured;
+    private bool _featureEnabled;
+    
+    public void SetConfiguration(MyConfig config)
+    {
+        _configured = true;
+        // Configure the plugin
+    }
+    
+    public void EnableFeature()
+    {
+        _featureEnabled = true;
+        // Enable specific features
+    }
+    
+    protected override ValueTask OnInitializeAsync()
+    {
+        // Validate required methods were called
+        if (!_configured || !_featureEnabled)
+            throw new InvalidOperationException("Required methods not called");
+        return ValueTask.CompletedTask;
+    }
+}
+
+// Compiler shows:
+// Info TNCP006: Plugin 'MyProtocol' requires calls to the following methods 
+//               before InitializeAsync: SetConfiguration, EnableFeature
+```
+
+**Usage:** This serves as executable documentation. When a developer uses a plugin, the IDE will show an info message listing all required setup methods, making the plugin's requirements explicit.
+
 ## Benefits
 
 **Compile-Time Safety:**
 - ✅ Catches ProtocolType mismatches, circular dependencies, invalid dependencies
 - ✅ Warns about missing parameterless constructors
 - ✅ Highlights incomplete plugin migrations
+- ✅ Documents required method calls
 
 **Developer Experience:**
 - ✅ Errors appear in IDE immediately with clear messages
 - ✅ Prevents runtime failures during development
+- ✅ Executable documentation shows plugin requirements
+- ✅ Makes plugin contract explicit and discoverable
+
+## Analyzer Rules Summary
+
+| Rule | Severity | Description |
+|------|----------|-------------|
+| TNCP001 | Error | ProtocolType must return declaring type |
+| TNCP002 | Error | No circular dependencies |
+| TNCP003 | Error | Dependencies must implement ITelnetProtocolPlugin |
+| TNCP004 | Info | ConfigureStateMachine should not be empty |
+| TNCP005 | Warning | Plugin must have parameterless constructor |
+| TNCP006 | Info | Documents required method calls |
 
 ## License
 

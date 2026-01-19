@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Stateless;
+using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 using TelnetNegotiationCore.Generated;
@@ -13,6 +14,11 @@ namespace TelnetNegotiationCore.Protocols;
 /// MSSP (Mud Server Status Protocol) plugin
 /// Provides server information to clients
 /// </summary>
+/// <remarks>
+/// This protocol requires configuration before use. Call <see cref="OnMSSP"/> to set up
+/// the callback that will handle MSSP requests and provide server information.
+/// </remarks>
+[RequiredMethod("OnMSSP", Description = "Configure the callback to handle MSSP requests and provide server information")]
 public class MSSPProtocol : TelnetProtocolPluginBase
 {
     private Func<MSSPConfig, ValueTask>? _onMSSPRequest;
