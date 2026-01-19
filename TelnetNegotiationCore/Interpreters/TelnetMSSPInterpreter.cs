@@ -27,93 +27,6 @@ public partial class TelnetInterpreter
 		.Select(x => (x.Member, Attribute: x.Attribute!))
 		.ToImmutableDictionary(x => x.Attribute.Name.ToUpper());
 
-	/// <summary>
-	/// Mud Server Status Protocol will provide information to the requestee about the server's contents.
-	/// </summary>
-	/// <param name="tsm">The state machine.</param>
-	/// <returns>Itself</returns>
-	private StateMachine<State, Trigger> SetupMSSPNegotiation(StateMachine<State, Trigger> tsm)
-	{
-		if (Mode == TelnetMode.Server)
-		{
-			tsm.Configure(State.Do)
-				.Permit(Trigger.MSSP, State.DoMSSP);
-
-			tsm.Configure(State.Dont)
-				.Permit(Trigger.MSSP, State.DontMSSP);
-
-			tsm.Configure(State.DoMSSP)
-				.SubstateOf(State.Accepting)
-				.OnEntryAsync(async x => await OnDoMSSPAsync(x));
-
-			tsm.Configure(State.DontMSSP)
-				.SubstateOf(State.Accepting)
-				.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", "Client won't do MSSP - do nothing"));
-
-			RegisterInitialWilling(async () => await WillingMSSPAsync());
-		}
-		else
-		{
-			tsm.Configure(State.Willing)
-				.Permit(Trigger.MSSP, State.WillMSSP);
-
-			tsm.Configure(State.Refusing)
-				.Permit(Trigger.MSSP, State.WontMSSP);
-
-			tsm.Configure(State.WillMSSP)
-				.SubstateOf(State.Accepting)
-				.OnEntryAsync(async () => await OnWillMSSPAsync());
-
-			tsm.Configure(State.WontMSSP)
-				.SubstateOf(State.Accepting)
-				.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", "Server won't do MSSP - do nothing"));
-
-			tsm.Configure(State.SubNegotiation)
-				.Permit(Trigger.MSSP, State.AlmostNegotiatingMSSP)
-				.OnEntry(() =>
-				{
-					_currentMSSPValue = [];
-					_currentMSSPVariable = [];
-					_currentMSSPValueList = [];
-					_currentMSSPVariableList = [];
-				});
-
-			tsm.Configure(State.AlmostNegotiatingMSSP)
-				.Permit(Trigger.MSSP_VAR, State.EvaluatingMSSPVar);
-
-			tsm.Configure(State.EvaluatingMSSPVar)
-				.Permit(Trigger.MSSP_VAL, State.EvaluatingMSSPVal)
-				.Permit(Trigger.IAC, State.EscapingMSSPVar)
-				.OnEntryFrom(Trigger.MSSP_VAR, RegisterMSSPVal);
-
-			tsm.Configure(State.EscapingMSSPVar)
-				.Permit(Trigger.IAC, State.EvaluatingMSSPVar);
-
-			tsm.Configure(State.EvaluatingMSSPVal)
-				.Permit(Trigger.MSSP_VAR, State.EvaluatingMSSPVar)
-				.Permit(Trigger.IAC, State.EscapingMSSPVal)
-				.OnEntryFrom(Trigger.MSSP_VAL, RegisterMSSPVar);
-
-			tsm.Configure(State.EscapingMSSPVal)
-				.Permit(Trigger.IAC, State.EvaluatingMSSPVal)
-				.Permit(Trigger.SE, State.CompletingMSSP);
-
-			tsm.Configure(State.CompletingMSSP)
-				.SubstateOf(State.Accepting)
-				.OnEntryAsync(async () => await ReadMSSPValues());
-
-			TriggerHelper.ForAllTriggersExcept([Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC], t => tsm.Configure(State.EvaluatingMSSPVal).OnEntryFrom(ParameterizedTrigger(t), CaptureMSSPValue));
-			TriggerHelper.ForAllTriggersExcept([Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC], t => tsm.Configure(State.EvaluatingMSSPVar).OnEntryFrom(ParameterizedTrigger(t), CaptureMSSPVariable));
-
-			TriggerHelper.ForAllTriggersExcept([Trigger.IAC, Trigger.MSSP_VAR],
-				t => tsm.Configure(State.EvaluatingMSSPVal).PermitReentry(t));
-			TriggerHelper.ForAllTriggersExcept([Trigger.IAC, Trigger.MSSP_VAL],
-				t => tsm.Configure(State.EvaluatingMSSPVar).PermitReentry(t));
-		}
-
-		return tsm;
-	}
-
 	private void RegisterMSSPVal()
 	{
 		if (_currentMSSPValue.Count == 0) return;
@@ -128,28 +41,6 @@ public partial class TelnetInterpreter
 
 		_currentMSSPVariableList.Add(_currentMSSPVariable);
 		_currentMSSPVariable = [];
-	}
-
-	private async ValueTask ReadMSSPValues()
-	{
-		RegisterMSSPVal();
-		RegisterMSSPVar();
-
-		var grouping = _currentMSSPVariableList
-			.Zip(_currentMSSPValueList)
-			.GroupBy(x => CurrentEncoding.GetString([.. x.First]));
-
-		foreach (var group in grouping)
-		{
-			StoreClientMSSPDetails(group.Key, group.Select(x => CurrentEncoding.GetString([.. x.Second])));
-		}
-
-		// Call MSSP plugin if available
-		var msspPlugin = PluginManager?.GetPlugin<Protocols.MSSPProtocol>();
-		if (msspPlugin != null && msspPlugin.IsEnabled)
-		{
-			await msspPlugin.OnMSSPRequestAsync(_msspConfig());
-		}
 	}
 
 	/// <summary>
@@ -207,37 +98,34 @@ public partial class TelnetInterpreter
 	 */
 	private void CaptureMSSPVariable(OneOf<byte, Trigger> b)
 	{
-		// We could increment here based on having switched... Somehow?
-		// We need a better state tracking for this, to indicate the transition.
 		_currentMSSPVariable.Add(b.AsT0);
 	}
 
 	private void CaptureMSSPValue(OneOf<byte, Trigger> b)
 	{
-		// We could increment here based on having switched... Somehow?
-		// We need a better state tracking for this, to indicate the transition.
 		_currentMSSPValue.Add(b.AsT0);
 	}
 
-	/// <summary>
-	/// Announce we do MSSP negotiation to the client.
-	/// </summary>
-	private async ValueTask WillingMSSPAsync()
+	private async ValueTask ReadMSSPValues()
 	{
-		_logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSSP!");
-		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP]);
-	}
+		RegisterMSSPVal();
+		RegisterMSSPVar();
 
-	/// <summary>
-	/// Announce the MSSP we support to the client after getting a Do.
-	/// </summary>
-	private async ValueTask OnDoMSSPAsync(StateMachine<State, Trigger>.Transition _)
-	{
-		_logger.LogDebug("Connection: {ConnectionState}", "Writing MSSP output");
-		
-		// Get config from plugin if available, otherwise use interpreter's config
-		var config = GetMSSPConfig();
-		await CallbackNegotiationAsync(ReportMSSP(config));
+		var grouping = _currentMSSPVariableList
+			.Zip(_currentMSSPValueList)
+			.GroupBy(x => CurrentEncoding.GetString([.. x.First]));
+
+		foreach (var group in grouping)
+		{
+			StoreClientMSSPDetails(group.Key, group.Select(x => CurrentEncoding.GetString([.. x.Second])));
+		}
+
+		// Call MSSP plugin if available
+		var msspPlugin = PluginManager?.GetPlugin<Protocols.MSSPProtocol>();
+		if (msspPlugin != null && msspPlugin.IsEnabled)
+		{
+			await msspPlugin.OnMSSPRequestAsync(_msspConfig());
+		}
 	}
 
 	/// <summary>
@@ -251,15 +139,6 @@ public partial class TelnetInterpreter
 			return msspPlugin.GetMSSPConfig();
 		}
 		return _msspConfig();
-	}
-
-	/// <summary>
-	/// Announce we do MSSP negotiation to the server.
-	/// </summary>
-	private async ValueTask OnWillMSSPAsync()
-	{
-		_logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to MSSP!");
-		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP]);
 	}
 
 	/// <summary>

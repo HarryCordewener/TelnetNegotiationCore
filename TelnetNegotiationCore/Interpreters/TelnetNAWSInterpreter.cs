@@ -16,6 +16,7 @@ namespace TelnetNegotiationCore.Interpreters;
 /// </remarks>
 public partial class TelnetInterpreter
 {
+#pragma warning disable CS0414 // Field is assigned but never used in this partial - used in NAWSProtocol
 	/// <summary>
 	/// Internal NAWS Byte State
 	/// </summary>
@@ -25,6 +26,7 @@ public partial class TelnetInterpreter
 	/// Internal NAWS Byte Index Value
 	/// </summary>
 	private int _nawsIndex = 0;
+#pragma warning restore CS0414
 
 	/// <summary>
 	/// Currently known Client Height
@@ -46,86 +48,6 @@ public partial class TelnetInterpreter
 	/// NAWS Callback function to alert server of Width & Height negotiation
 	/// </summary>
 	private bool _WillingToDoNAWS = false;
-
-	/// <summary>
-	/// If the server you are connected to makes use of the client window in ways that are linked to its width and height, 
-	/// then is useful for it to be able to find out how big it is, and also to get notified when it is resized.
-	/// 
-	/// NAWS can be initiated from the Client or the Server.
-	/// </summary>
-	/// <param name="tsm">The state machine.</param>
-	/// <returns>Itself</returns>
-	private StateMachine<State, Trigger> SetupNAWS(StateMachine<State, Trigger> tsm)
-	{
-		tsm.Configure(State.Willing)
-			.Permit(Trigger.NAWS, State.WillDoNAWS);
-
-		tsm.Configure(State.Refusing)
-			.Permit(Trigger.NAWS, State.WontDoNAWS);
-
-		tsm.Configure(State.Dont)
-			.Permit(Trigger.NAWS, State.DontNAWS);
-
-		tsm.Configure(State.Do)
-			.Permit(Trigger.NAWS, State.DoNAWS);
-
-		if (Mode == TelnetMode.Server)
-		{
-			tsm.Configure(State.DontNAWS)
-				.SubstateOf(State.Accepting)
-				.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", "Client won't do NAWS - do nothing"));
-
-			tsm.Configure(State.DoNAWS)
-				.SubstateOf(State.Accepting)
-				.OnEntryAsync(async () => await ServerWontNAWSAsync());
-		}
-
-		if (Mode == TelnetMode.Client)
-		{
-			tsm.Configure(State.DontNAWS)
-				.SubstateOf(State.Accepting)
-				.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", "Server won't do NAWS - do nothing"));
-
-			tsm.Configure(State.DoNAWS)
-				.SubstateOf(State.Accepting)
-				.OnEntry(() => _WillingToDoNAWS = true);
-		}
-
-		tsm.Configure(State.WillDoNAWS)
-			.SubstateOf(State.Accepting)
-			.OnEntryAsync(async x => await RequestNAWSAsync(x));
-
-		tsm.Configure(State.WontDoNAWS)
-			.SubstateOf(State.Accepting)
-			.OnEntry(() => _WillingToDoNAWS = false);
-
-		tsm.Configure(State.SubNegotiation)
-			.Permit(Trigger.NAWS, State.NegotiatingNAWS);
-
-		tsm.Configure(State.NegotiatingNAWS)
-			.Permit(Trigger.IAC, State.EscapingNAWSValue)
-			.OnEntry(GetNAWS);
-
-		TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.NegotiatingNAWS).Permit(t, State.EvaluatingNAWS));
-
-		tsm.Configure(State.EvaluatingNAWS)
-			.PermitDynamic(Trigger.IAC, () => _nawsIndex < 4 ? State.EscapingNAWSValue : State.CompletingNAWS);
-
-		TriggerHelper.ForAllTriggers(t => tsm.Configure(State.EvaluatingNAWS).OnEntryFrom(ParameterizedTrigger(t), CaptureNAWS));
-
-		TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.EvaluatingNAWS).PermitReentry(t));
-
-		tsm.Configure(State.EscapingNAWSValue)
-			.Permit(Trigger.IAC, State.EvaluatingNAWS);
-
-		tsm.Configure(State.CompletingNAWS)
-			.SubstateOf(State.EndSubNegotiation)
-			.OnEntryAsync(async x => await CompleteNAWSAsync(x));
-
-		RegisterInitialWilling(async () => await RequestNAWSAsync());
-
-		return tsm;
-	}
 
 	public async ValueTask SendNAWS(short width, short height)
 	{
@@ -150,37 +72,6 @@ public partial class TelnetInterpreter
 		}
 	}
 
-	/// <summary>
-	/// Capture a byte and write it into the NAWS buffer
-	/// </summary>
-	/// <param name="b">The current byte</param>
-	private void CaptureNAWS(OneOf<byte, Trigger> b)
-	{
-		if (_nawsIndex > _nawsByteState.Length) return;
-		_nawsByteState[_nawsIndex] = b.AsT0;
-		_nawsIndex++;
-	}
-
-	/// <summary>
-	/// Initialize internal state values for NAWS.
-	/// </summary>
-	/// <param name="_">Ignored</param>
-	private void GetNAWS(StateMachine<State, Trigger>.Transition _)
-	{
-		_nawsByteState = new byte[4];
-		_nawsIndex = 0;
-	}
-
-	private async ValueTask ServerWontNAWSAsync()
-	{
-		_logger.LogDebug("Connection: {ConnectionState}", "Announcing refusing to send NAWS, this is a Server!");
-		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS]);
-	}
-
-	/// <summary>
-	/// Read the NAWS state values and finalize it into width and height values.
-	/// </summary>
-	/// <param name="_">Ignored</param>
 	private async ValueTask CompleteNAWSAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		byte[] width = [_nawsByteState[0], _nawsByteState[1]];
