@@ -250,7 +250,7 @@ namespace TelnetNegotiationCore.UnitTests
 		[Test]
 		public async Task ServerAndClientHandleASCIIWithIACEscaping()
 		{
-			// ASCII can't represent byte 255 as a character, but should handle it in binary data
+			// ASCII test with basic ASCII characters
 			await TestEncodingWithIACEscaping(
 				Encoding.ASCII,
 				"us-ascii",
@@ -262,6 +262,61 @@ namespace TelnetNegotiationCore.UnitTests
 				"us-ascii",
 				"Client ASCII test",
 				TelnetInterpreter.TelnetMode.Client);
+		}
+
+		[Test]
+		public async Task ServerAndClientHandleBinaryDataWithIACEscaping()
+		{
+			// Test binary data containing actual byte 255 (IAC) with UTF-8 encoding
+			var receivedData = new List<(byte[] data, Encoding encoding)>();
+			
+			ValueTask CaptureOutput(byte[] data, Encoding enc, TelnetInterpreter ti)
+			{
+				receivedData.Add((data, enc));
+				return ValueTask.CompletedTask;
+			}
+
+			ValueTask CaptureNegotiation(byte[] data)
+			{
+				_negotiationOutput = data;
+				return ValueTask.CompletedTask;
+			}
+
+			var server = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(CaptureOutput)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			// Negotiate UTF-8
+			await NegotiateCharset(server, "utf-8", TelnetInterpreter.TelnetMode.Server);
+			await server.WaitForProcessingAsync();
+
+			// Create binary data with actual byte 255
+			var binaryData = new byte[] { 72, 101, 108, 108, 111, 255, 87, 111, 114, 108, 100 }; // "Hello[255]World"
+			
+			// Escape the IAC bytes
+			var escapedData = server.TelnetSafeBytes(binaryData);
+			
+			// Verify IAC was doubled
+			var originalIACCount = binaryData.Count(b => b == 255);
+			var escapedIACCount = escapedData.Count(b => b == 255);
+			await Assert.That(originalIACCount).IsEqualTo(1);
+			await Assert.That(escapedIACCount).IsEqualTo(2);
+
+			// Send the escaped data with newline
+			var withNewline = escapedData.Concat(new byte[] { (byte)'\n' }).ToArray();
+			await server.InterpretByteArrayAsync(withNewline);
+			await server.WaitForProcessingAsync();
+
+			// Verify the data was received correctly (IAC unescaped)
+			await Assert.That(receivedData.Count).IsGreaterThan(0);
+			var received = receivedData.Last();
+			await Assert.That(received.data).IsEquivalentTo(binaryData);
+
+			await server.DisposeAsync();
 		}
 
 		[Test]
@@ -410,89 +465,52 @@ namespace TelnetNegotiationCore.UnitTests
 				.OnNegotiation(CaptureNegotiation)
 				.AddPlugin<CharsetProtocol>();
 
+			var ti = await builder.BuildAsync();
+			
+			// For client mode, configure charset order
 			if (mode == TelnetInterpreter.TelnetMode.Client)
 			{
-				var ti = await builder.BuildAsync();
 				var charsetPlugin = ti.PluginManager!.GetPlugin<CharsetProtocol>();
 				charsetPlugin!.CharsetOrder = new[] { encoding };
-
-				// Negotiate the charset
-				await NegotiateCharset(ti, webName, mode);
-				await ti.WaitForProcessingAsync();
-
-				// Verify encoding was set
-				await Assert.That(ti.CurrentEncoding.WebName).IsEqualTo(encoding.WebName);
-
-				// Convert test string to bytes in the target encoding
-				var originalBytes = encoding.GetBytes(testString);
-				
-				// Escape IAC bytes (255) by doubling them
-				var escapedBytes = ti.TelnetSafeBytes(originalBytes);
-				
-				// Verify IAC escaping: count 255s in original and escaped
-				var originalIACCount = originalBytes.Count(b => b == 255);
-				var escapedIACCount = escapedBytes.Count(b => b == 255);
-				
-				if (originalIACCount > 0)
-				{
-					// Each IAC (255) should be doubled
-					await Assert.That(escapedIACCount).IsEqualTo(originalIACCount * 2);
-				}
-
-				// Send the escaped bytes with newline to trigger OnSubmit
-				var withNewline = escapedBytes.Concat(new byte[] { (byte)'\n' }).ToArray();
-				await ti.InterpretByteArrayAsync(withNewline);
-				await ti.WaitForProcessingAsync();
-
-				// Verify the data was received correctly (IAC unescaped)
-				await Assert.That(receivedData.Count).IsGreaterThan(0);
-				var received = receivedData.Last();
-				var receivedString = received.encoding.GetString(received.data);
-				
-				// The received string should match the original
-				await Assert.That(receivedString).IsEqualTo(testString);
-
-				await ti.DisposeAsync();
 			}
-			else
+
+			// Negotiate the charset
+			await NegotiateCharset(ti, webName, mode);
+			await ti.WaitForProcessingAsync();
+
+			// Verify encoding was set
+			await Assert.That(ti.CurrentEncoding.WebName).IsEqualTo(encoding.WebName);
+
+			// Convert test string to bytes in the target encoding
+			var originalBytes = encoding.GetBytes(testString);
+			
+			// Escape IAC bytes (255) by doubling them
+			var escapedBytes = ti.TelnetSafeBytes(originalBytes);
+			
+			// Verify IAC escaping: count 255s in original and escaped
+			var originalIACCount = originalBytes.Count(b => b == 255);
+			var escapedIACCount = escapedBytes.Count(b => b == 255);
+			
+			if (originalIACCount > 0)
 			{
-				var ti = await builder.BuildAsync();
-
-				// Negotiate the charset
-				await NegotiateCharset(ti, webName, mode);
-				await ti.WaitForProcessingAsync();
-
-				// Verify encoding was set
-				await Assert.That(ti.CurrentEncoding.WebName).IsEqualTo(encoding.WebName);
-
-				// Convert test string to bytes in the target encoding
-				var originalBytes = encoding.GetBytes(testString);
-				
-				// Escape IAC bytes (255) by doubling them
-				var escapedBytes = ti.TelnetSafeBytes(originalBytes);
-				
-				// Verify IAC escaping
-				var originalIACCount = originalBytes.Count(b => b == 255);
-				var escapedIACCount = escapedBytes.Count(b => b == 255);
-				
-				if (originalIACCount > 0)
-				{
-					await Assert.That(escapedIACCount).IsEqualTo(originalIACCount * 2);
-				}
-
-				// Send the escaped bytes with newline to trigger OnSubmit
-				var withNewline = escapedBytes.Concat(new byte[] { (byte)'\n' }).ToArray();
-				await ti.InterpretByteArrayAsync(withNewline);
-				await ti.WaitForProcessingAsync();
-
-				// Verify the data was received correctly
-				await Assert.That(receivedData.Count).IsGreaterThan(0);
-				var received = receivedData.Last();
-				var receivedString = received.encoding.GetString(received.data);
-				await Assert.That(receivedString).IsEqualTo(testString);
-
-				await ti.DisposeAsync();
+				// Each IAC (255) should be doubled
+				await Assert.That(escapedIACCount).IsEqualTo(originalIACCount * 2);
 			}
+
+			// Send the escaped bytes with newline to trigger OnSubmit
+			var withNewline = escapedBytes.Concat(new byte[] { (byte)'\n' }).ToArray();
+			await ti.InterpretByteArrayAsync(withNewline);
+			await ti.WaitForProcessingAsync();
+
+			// Verify the data was received correctly (IAC unescaped)
+			await Assert.That(receivedData.Count).IsGreaterThan(0);
+			var received = receivedData.Last();
+			var receivedString = received.encoding.GetString(received.data);
+			
+			// The received string should match the original
+			await Assert.That(receivedString).IsEqualTo(testString);
+
+			await ti.DisposeAsync();
 		}
 
 		// Helper to negotiate charset
