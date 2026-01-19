@@ -30,6 +30,49 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 }
 ```
 
+### TNCP004: ConfigureStateMachine should configure state transitions (NEW in Phase 3)
+
+**Severity:** Info
+
+**Description:** Detects `ConfigureStateMachine` methods that are empty or only contain logging statements, suggesting incomplete plugin integration.
+
+**Purpose:** Highlights protocols where the state machine configuration has not been migrated from the old interpreter-based approach to the plugin-based approach.
+
+**Example:**
+
+```csharp
+// ⚠️ INFO - Detected by analyzer
+public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+{
+    context.Logger.LogInformation("Configuring MSSP state machine"); // Only logging - no actual configuration!
+}
+
+// ✅ PROPER - No analyzer warning
+public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+{
+    // Actually configure state transitions
+    stateMachine.Configure(State.Do)
+        .Permit(Trigger.MSSP, State.DoMSSP);
+        
+    stateMachine.Configure(State.DoMSSP)
+        .SubstateOf(State.Accepting)
+        .OnEntryAsync(async x => await HandleMSSPAsync(x));
+}
+```
+
+**Current Detections:**
+The analyzer currently identifies 8 protocols with incomplete `ConfigureStateMachine` implementations:
+- CharsetProtocol
+- EORProtocol  
+- GMCPProtocol
+- MSDPProtocol
+- MSSPProtocol
+- NAWSProtocol
+- SuppressGoAheadProtocol
+- TerminalTypeProtocol
+
+These protocols currently rely on the old interpreter-based state machine configuration and represent opportunities for future migration to the plugin-based architecture.
+
 ## Integration
 
 To use this analyzer in the main TelnetNegotiationCore library:
@@ -46,7 +89,6 @@ To use this analyzer in the main TelnetNegotiationCore library:
 
 - **TNCP002:** Circular dependency detection
 - **TNCP003:** Missing dependency validation
-- **TNCP004:** Empty ConfigureStateMachine warning
 - **TNCP005:** Missing parameterless constructor
 
 ## Building
