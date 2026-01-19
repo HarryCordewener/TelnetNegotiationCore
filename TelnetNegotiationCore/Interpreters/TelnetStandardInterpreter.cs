@@ -26,9 +26,9 @@ public partial class TelnetInterpreter
     private readonly List<Func<ValueTask>> _initialCall;
 
     /// <summary>
-    /// The plugin manager for protocol plugins (optional, for modern plugin-based API).
+    /// The plugin manager for protocol plugins (null if not using plugin-based API).
     /// </summary>
-    internal Plugins.ProtocolPluginManager? PluginManager { get; set; }
+    public Plugins.ProtocolPluginManager? PluginManager { get; internal set; }
 
     /// <summary>
     /// The current Encoding used for interpreting incoming non-negotiation text, and what we should send on outbound.
