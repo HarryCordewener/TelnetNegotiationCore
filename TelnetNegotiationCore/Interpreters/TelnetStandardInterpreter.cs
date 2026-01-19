@@ -340,12 +340,20 @@ public partial class TelnetInterpreter
     /// Waits for all pending bytes in the channel to be processed.
     /// Useful for tests and ensuring all data is processed before continuing.
     /// </summary>
-    public async ValueTask WaitForProcessingAsync(int maxWaitMs = 1000)
+    /// <param name="maxWaitMs">Maximum time to wait for channel to drain (default: 1000ms)</param>
+    /// <param name="additionalDelayMs">Additional delay after channel drains to allow callbacks to complete (default: 100ms)</param>
+    public async ValueTask WaitForProcessingAsync(int maxWaitMs = 1000, int additionalDelayMs = 100)
     {
         var startTime = DateTime.UtcNow;
         while (_byteChannel.Reader.Count > 0 && (DateTime.UtcNow - startTime).TotalMilliseconds < maxWaitMs)
         {
             await Task.Delay(10);
+        }
+        
+        // Give additional time for state machine transitions and callbacks to complete
+        if (additionalDelayMs > 0)
+        {
+            await Task.Delay(additionalDelayMs);
         }
     }
 
