@@ -83,25 +83,14 @@ public class TelnetInterpreterBuilder
 
     /// <summary>
     /// Adds a protocol plugin to the interpreter.
+    /// Returns a configuration context that allows fluent chaining of plugin-specific configuration
+    /// and builder methods. Implicitly converts back to TelnetInterpreterBuilder for continued chaining.
     /// </summary>
     /// <typeparam name="T">The plugin type</typeparam>
-    /// <returns>This builder for chaining</returns>
-    public TelnetInterpreterBuilder AddPlugin<T>() where T : ITelnetProtocolPlugin, new()
+    /// <returns>A configuration context that allows chaining plugin configuration and builder methods</returns>
+    public PluginConfigurationContext<T> AddPlugin<T>() where T : ITelnetProtocolPlugin, new()
     {
         var plugin = new T();
-        _plugins.Add(plugin);
-        return this;
-    }
-
-    /// <summary>
-    /// Adds a protocol plugin to the interpreter and returns a configuration context for fluent setup.
-    /// </summary>
-    /// <typeparam name="T">The plugin type</typeparam>
-    /// <param name="plugin">Output parameter containing the created plugin instance</param>
-    /// <returns>A configuration context that allows chaining plugin configuration and builder methods</returns>
-    public PluginConfigurationContext<T> AddPlugin<T>(out T plugin) where T : ITelnetProtocolPlugin, new()
-    {
-        plugin = new T();
         _plugins.Add(plugin);
         return new PluginConfigurationContext<T>(this, plugin);
     }
@@ -218,19 +207,21 @@ public class PluginConfigurationContext<T> where T : ITelnetProtocolPlugin
     }
 
     /// <summary>
-    /// Continues building with another plugin.
+    /// Continues building with another plugin and returns its configuration context.
     /// </summary>
-    public TelnetInterpreterBuilder AddPlugin<TNext>() where TNext : ITelnetProtocolPlugin, new()
+    public PluginConfigurationContext<TNext> AddPlugin<TNext>() where TNext : ITelnetProtocolPlugin, new()
     {
         return _builder.AddPlugin<TNext>();
     }
 
     /// <summary>
-    /// Continues building with another plugin and returns its configuration context.
+    /// Adds a protocol plugin instance to the interpreter.
     /// </summary>
-    public PluginConfigurationContext<TNext> AddPlugin<TNext>(out TNext plugin) where TNext : ITelnetProtocolPlugin, new()
+    /// <param name="plugin">The plugin instance</param>
+    /// <returns>The builder for continued chaining</returns>
+    public TelnetInterpreterBuilder AddPlugin(ITelnetProtocolPlugin plugin)
     {
-        return _builder.AddPlugin(out plugin);
+        return _builder.AddPlugin(plugin);
     }
 
     /// <summary>

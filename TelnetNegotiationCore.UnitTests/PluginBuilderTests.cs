@@ -229,19 +229,19 @@ public class PluginBuilderTests : BaseTest
             .UseLogger(logger)
             .OnSubmit(WriteBackToOutput)
             .OnNegotiation(WriteBackToNegotiate)
-            .AddPlugin<NAWSProtocol>(out var nawsPlugin)
+            .AddPlugin<NAWSProtocol>()
                 .OnNAWS((height, width) =>
                 {
                     nawsCalled = true;
                     return ValueTask.CompletedTask;
                 })
-            .AddPlugin<GMCPProtocol>(out var gmcpPlugin)
+            .AddPlugin<GMCPProtocol>()
                 .OnGMCPMessage((message) =>
                 {
                     gmcpCalled = true;
                     return ValueTask.CompletedTask;
                 })
-            .AddPlugin<MSSPProtocol>(out var msspPlugin)
+            .AddPlugin<MSSPProtocol>()
                 .OnMSSP((config) =>
                 {
                     msspCalled = true;
@@ -251,6 +251,12 @@ public class PluginBuilderTests : BaseTest
 
         // Assert
         Assert.IsNotNull(interpreter, "Interpreter should be created");
+        
+        // Retrieve plugins from manager to verify they were created and configured
+        var nawsPlugin = interpreter.PluginManager.GetPlugin<NAWSProtocol>();
+        var gmcpPlugin = interpreter.PluginManager.GetPlugin<GMCPProtocol>();
+        var msspPlugin = interpreter.PluginManager.GetPlugin<MSSPProtocol>();
+        
         Assert.IsNotNull(nawsPlugin, "NAWS plugin should be created");
         Assert.IsNotNull(gmcpPlugin, "GMCP plugin should be created");
         Assert.IsNotNull(msspPlugin, "MSSP plugin should be created");
