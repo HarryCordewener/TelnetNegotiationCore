@@ -71,15 +71,6 @@ public class EORTests : BaseTest
 	}
 
 	[Test]
-	public async Task ServerSendsWillEOROnBuild()
-	{
-		// The server should have sent WILL EOR during initialization
-		// This is verified implicitly by the build process completing successfully
-		await Task.CompletedTask;
-		Assert.Pass("Server WILL EOR is sent during BuildAsync in Setup");
-	}
-
-	[Test]
 	public async Task ClientRespondsWithDoEORToServerWill()
 	{
 		// Arrange

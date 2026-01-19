@@ -99,19 +99,6 @@ public class MSSPTests : BaseTest
 	}
 
 	[Test]
-	public async Task ServerSendsWillMSSPOnBuild()
-	{
-		// The server should have sent WILL MSSP during initialization
-		// Reset negotiation output and check what was sent
-		_negotiationOutput = null;
-		
-		// Server announces willingness on build, which happens in Setup
-		// We can verify by checking that WILL MSSP was sent
-		await Task.CompletedTask;
-		Assert.Pass("Server WILL MSSP is sent during BuildAsync in Setup");
-	}
-
-	[Test]
 	public async Task ClientRespondsWithDoMSSPToServerWill()
 	{
 		// Arrange

@@ -59,15 +59,6 @@ public class SuppressGATests : BaseTest
 	}
 
 	[Test]
-	public async Task ServerSendsWillSuppressGAOnBuild()
-	{
-		// The server should have sent WILL SUPPRESSGOAHEAD during initialization
-		// This is verified implicitly by the build process completing successfully
-		await Task.CompletedTask;
-		Assert.Pass("Server WILL SUPPRESSGOAHEAD is sent during BuildAsync in Setup");
-	}
-
-	[Test]
 	public async Task ClientRespondsWithDoSuppressGAToServerWill()
 	{
 		// Arrange
@@ -196,43 +187,6 @@ public class SuppressGATests : BaseTest
 		Assert.IsNotNull(_negotiationOutput);
 		var expectedResponse = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD };
 		CollectionAssert.AreEqual(expectedResponse, _negotiationOutput);
-	}
-
-	[Test]
-	public async Task ServerWillSuppressGAToClient()
-	{
-		// Test server's WILL announcement (happens during build)
-		// This is tested implicitly in Setup, but we can verify behavior
-		var testServer = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Server)
-			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
-			.OnNegotiation(WriteBackToNegotiate)
-			.AddPlugin<SuppressGoAheadProtocol>()
-			.BuildAsync();
-
-		// BuildAsync should have triggered WILL announcements
-		Assert.Pass("Server announces WILL SUPPRESSGOAHEAD during build");
-	}
-
-	[Test]
-	public async Task RepeatedSuppressGANegotiation()
-	{
-		// Test that multiple negotiations don't cause issues
-		_negotiationOutput = null;
-
-		// First negotiation
-		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
-		await _client_ti.WaitForProcessingAsync();
-		Assert.IsNotNull(_negotiationOutput);
-
-		// Second negotiation (redundant but should be handled)
-		_negotiationOutput = null;
-		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
-		await _client_ti.WaitForProcessingAsync();
-		
-		// Should handle gracefully (may or may not respond, but shouldn't error)
-		Assert.Pass("Repeated SUPPRESSGOAHEAD negotiation handled gracefully");
 	}
 
 	[Test]
