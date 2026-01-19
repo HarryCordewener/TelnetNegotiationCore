@@ -111,7 +111,7 @@ public class MSDPTests : BaseTest
 			(byte)Trigger.MSDP_ARRAY_CLOSE,
 			(byte)Trigger.MSDP_TABLE_CLOSE]);
 
-		yield return (new { LIST = (dynamic[])["COMMANDS", (dynamic[])["JIM"]] }, (byte[])[
+		yield return (new { LIST = (object[])["COMMANDS", (object[])["JIM"]] }, (byte[])[
 			(byte)Trigger.MSDP_TABLE_OPEN,
 			(byte)Trigger.MSDP_VAR,
 			.. Encoding.GetBytes("LIST"),
