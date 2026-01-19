@@ -6,6 +6,7 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using Stateless;
 using TelnetNegotiationCore.Models;
+using TelnetNegotiationCore.Generated;
 using OneOf;
 using Microsoft.Extensions.Logging;
 using LocalMoreLinq;
@@ -368,7 +369,8 @@ public partial class TelnetInterpreter
             {
                 if (!_isDefinedDictionary.TryGetValue(bt, out var triggerOrByte))
                 {
-                    triggerOrByte = Enum.IsDefined(typeof(Trigger), (short)bt)
+                    // Use generated IsDefined method instead of reflection
+                    triggerOrByte = TriggerExtensions.IsDefined((short)bt)
                         ? (Trigger)bt
                         : Trigger.ReadNextCharacter;
                     _isDefinedDictionary.Add(bt, triggerOrByte);
