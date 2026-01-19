@@ -170,7 +170,7 @@ public partial class TelnetInterpreter
             
             // Not yet migrated - still using interpreter-based configuration:
             // SetupTelnetTerminalType,  // Moved to TerminalTypeProtocol.ConfigureStateMachine
-            SetupCharsetNegotiation,  // TODO: Move to CharsetProtocol.ConfigureStateMachine
+            // SetupCharsetNegotiation,  // Moved to CharsetProtocol.ConfigureStateMachine
             
             SetupStandardProtocol
         }.AggregateRight(TelnetStateMachine, (func, stateMachine) => func(stateMachine));
