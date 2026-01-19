@@ -94,6 +94,19 @@ public class TelnetInterpreterBuilder
     }
 
     /// <summary>
+    /// Adds a protocol plugin to the interpreter and returns a configuration context for fluent setup.
+    /// </summary>
+    /// <typeparam name="T">The plugin type</typeparam>
+    /// <param name="plugin">Output parameter containing the created plugin instance</param>
+    /// <returns>A configuration context that allows chaining plugin configuration and builder methods</returns>
+    public PluginConfigurationContext<T> AddPlugin<T>(out T plugin) where T : ITelnetProtocolPlugin, new()
+    {
+        plugin = new T();
+        _plugins.Add(plugin);
+        return new PluginConfigurationContext<T>(this, plugin);
+    }
+
+    /// <summary>
     /// Adds a protocol plugin instance to the interpreter.
     /// </summary>
     /// <param name="plugin">The plugin instance</param>
@@ -173,4 +186,58 @@ public class TelnetInterpreterBuilder
     /// Call this after BuildAsync() to access the plugin manager.
     /// </summary>
     public ProtocolPluginManager? GetPluginManager() => _pluginManager;
+}
+
+/// <summary>
+/// Provides a fluent configuration context for protocol plugins.
+/// Allows chaining plugin-specific configuration methods with builder methods.
+/// </summary>
+/// <typeparam name="T">The plugin type</typeparam>
+public class PluginConfigurationContext<T> where T : ITelnetProtocolPlugin
+{
+    private readonly TelnetInterpreterBuilder _builder;
+    private readonly T _plugin;
+
+    internal PluginConfigurationContext(TelnetInterpreterBuilder builder, T plugin)
+    {
+        _builder = builder;
+        _plugin = plugin;
+    }
+
+    /// <summary>
+    /// Gets the plugin instance for configuration.
+    /// </summary>
+    public T Plugin => _plugin;
+
+    /// <summary>
+    /// Implicitly converts back to the builder for continued chaining.
+    /// </summary>
+    public static implicit operator TelnetInterpreterBuilder(PluginConfigurationContext<T> context)
+    {
+        return context._builder;
+    }
+
+    /// <summary>
+    /// Continues building with another plugin.
+    /// </summary>
+    public TelnetInterpreterBuilder AddPlugin<TNext>() where TNext : ITelnetProtocolPlugin, new()
+    {
+        return _builder.AddPlugin<TNext>();
+    }
+
+    /// <summary>
+    /// Continues building with another plugin and returns its configuration context.
+    /// </summary>
+    public PluginConfigurationContext<TNext> AddPlugin<TNext>(out TNext plugin) where TNext : ITelnetProtocolPlugin, new()
+    {
+        return _builder.AddPlugin(out plugin);
+    }
+
+    /// <summary>
+    /// Builds the TelnetInterpreter instance.
+    /// </summary>
+    public Task<Interpreters.TelnetInterpreter> BuildAsync()
+    {
+        return _builder.BuildAsync();
+    }
 }

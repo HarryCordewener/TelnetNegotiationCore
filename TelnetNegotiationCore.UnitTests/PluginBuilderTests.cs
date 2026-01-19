@@ -214,4 +214,59 @@ public class PluginBuilderTests : BaseTest
 
         Assert.That(ex!.Message, Does.Contain("Negotiation callback"));
     }
+
+    [Test]
+    public async Task CanUseFluentPluginConfiguration()
+    {
+        // Arrange
+        var nawsCalled = false;
+        var gmcpCalled = false;
+        var msspCalled = false;
+
+        // Act - Using the fluent API to chain plugin configuration
+        var interpreter = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(WriteBackToOutput)
+            .OnNegotiation(WriteBackToNegotiate)
+            .AddPlugin<NAWSProtocol>(out var nawsPlugin)
+                .OnNAWS((height, width) =>
+                {
+                    nawsCalled = true;
+                    return ValueTask.CompletedTask;
+                })
+            .AddPlugin<GMCPProtocol>(out var gmcpPlugin)
+                .OnGMCPMessage((message) =>
+                {
+                    gmcpCalled = true;
+                    return ValueTask.CompletedTask;
+                })
+            .AddPlugin<MSSPProtocol>(out var msspPlugin)
+                .OnMSSP((config) =>
+                {
+                    msspCalled = true;
+                    return ValueTask.CompletedTask;
+                })
+            .BuildAsync();
+
+        // Assert
+        Assert.IsNotNull(interpreter, "Interpreter should be created");
+        Assert.IsNotNull(nawsPlugin, "NAWS plugin should be created");
+        Assert.IsNotNull(gmcpPlugin, "GMCP plugin should be created");
+        Assert.IsNotNull(msspPlugin, "MSSP plugin should be created");
+
+        // Verify callbacks are set
+        Assert.IsNotNull(nawsPlugin.OnNAWSNegotiated, "NAWS callback should be set");
+        Assert.IsNotNull(gmcpPlugin.OnGMCPReceived, "GMCP callback should be set");
+        Assert.IsNotNull(msspPlugin.OnMSSPRequest, "MSSP callback should be set");
+
+        // Trigger callbacks to verify they work
+        await nawsPlugin.OnNAWSNegotiated(24, 80);
+        await gmcpPlugin.OnGMCPReceived(("test.package", "info"));
+        await msspPlugin.OnMSSPRequest(new MSSPConfig());
+
+        Assert.IsTrue(nawsCalled, "NAWS callback should have been called");
+        Assert.IsTrue(gmcpCalled, "GMCP callback should have been called");
+        Assert.IsTrue(msspCalled, "MSSP callback should have been called");
+    }
 }
