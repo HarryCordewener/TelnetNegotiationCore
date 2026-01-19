@@ -129,8 +129,8 @@ namespace TelnetNegotiationCore.TestServer
 			if (charset != null)
 				charset.CharsetOrder = [Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1")];
 
-				while (true)
-				{
+			while (true)
+			{
 					var result = await connection.Transport.Input.ReadAsync();
 					var buffer = result.Buffer;
 
