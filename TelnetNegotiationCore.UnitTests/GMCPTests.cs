@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using NUnit.Framework;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,10 +8,10 @@ using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Protocols;
+using TUnit.Core;
 
 namespace TelnetNegotiationCore.UnitTests;
 
-[TestFixture]
 public class GMCPTests : BaseTest
 {
 	private TelnetInterpreter _server_ti;
@@ -35,7 +34,7 @@ public class GMCPTests : BaseTest
 		return ValueTask.CompletedTask;
 	}
 
-	[SetUp]
+	[Before(Test)]
 	public async Task Setup()
 	{
 		_receivedGMCP = null;
@@ -88,7 +87,7 @@ public class GMCPTests : BaseTest
 		});
 	}
 
-	[TearDown]
+	[After(Test)]
 	public async Task TearDown()
 	{
 		if (_server_ti != null)
@@ -108,7 +107,7 @@ public class GMCPTests : BaseTest
 		await _server_ti.SendGMCPCommand(package, message);
 
 		// Assert
-		Assert.IsNotNull(_negotiationOutput, "Negotiation output should not be null");
+		await Assert.That(_negotiationOutput).IsNotNull();
 		
 		// Verify the message format: IAC SB GMCP <package> <space> <message> IAC SE
 		var encoding = _server_ti.CurrentEncoding;
@@ -124,7 +123,7 @@ public class GMCPTests : BaseTest
 		expectedBytes.Add((byte)Trigger.IAC);
 		expectedBytes.Add((byte)Trigger.SE);
 
-		CollectionAssert.AreEqual(expectedBytes, _negotiationOutput);
+		await Assert.That(_negotiationOutput).IsEquivalentTo(expectedBytes);
 	}
 
 	[Test]
@@ -138,7 +137,7 @@ public class GMCPTests : BaseTest
 		await _client_ti.SendGMCPCommand(package, message);
 
 		// Assert
-		Assert.IsNotNull(_negotiationOutput, "Negotiation output should not be null");
+		await Assert.That(_negotiationOutput).IsNotNull();
 		
 		// Verify the message format
 		var encoding = _client_ti.CurrentEncoding;
@@ -154,7 +153,7 @@ public class GMCPTests : BaseTest
 		expectedBytes.Add((byte)Trigger.IAC);
 		expectedBytes.Add((byte)Trigger.SE);
 
-		CollectionAssert.AreEqual(expectedBytes, _negotiationOutput);
+		await Assert.That(_negotiationOutput).IsEquivalentTo(expectedBytes);
 	}
 
 	[Test]
@@ -186,9 +185,9 @@ public class GMCPTests : BaseTest
 		await _server_ti.WaitForProcessingAsync();
 
 		// Assert
-		Assert.IsNotNull(_receivedGMCP, "Should have received GMCP message");
-		Assert.AreEqual(package, _receivedGMCP.Value.Package, "Package name should match");
-		Assert.AreEqual(message, _receivedGMCP.Value.Info, "Message content should match");
+		await Assert.That(_receivedGMCP).IsNotNull();
+		await Assert.That(_receivedGMCP.Value.Package).IsEqualTo(package);
+		await Assert.That(_receivedGMCP.Value.Info).IsEqualTo(message);
 	}
 
 	[Test]
@@ -220,9 +219,9 @@ public class GMCPTests : BaseTest
 		await _client_ti.WaitForProcessingAsync();
 
 		// Assert
-		Assert.IsNotNull(_receivedGMCP, "Should have received GMCP message");
-		Assert.AreEqual(package, _receivedGMCP.Value.Package, "Package name should match");
-		Assert.AreEqual(message, _receivedGMCP.Value.Info, "Message content should match");
+		await Assert.That(_receivedGMCP).IsNotNull();
+		await Assert.That(_receivedGMCP.Value.Package).IsEqualTo(package);
+		await Assert.That(_receivedGMCP.Value.Info).IsEqualTo(message);
 	}
 
 	[Test]
@@ -254,9 +253,9 @@ public class GMCPTests : BaseTest
 		await _server_ti.WaitForProcessingAsync();
 
 		// Assert
-		Assert.IsNotNull(_receivedGMCP, "Should have received GMCP message");
-		Assert.AreEqual(package, _receivedGMCP.Value.Package, "Package name should match");
-		Assert.AreEqual(message, _receivedGMCP.Value.Info, "Message content should match");
+		await Assert.That(_receivedGMCP).IsNotNull();
+		await Assert.That(_receivedGMCP.Value.Package).IsEqualTo(package);
+		await Assert.That(_receivedGMCP.Value.Info).IsEqualTo(message);
 	}
 
 	[Test]
@@ -267,16 +266,16 @@ public class GMCPTests : BaseTest
 		await _client_ti.WaitForProcessingAsync();
 
 		// Assert
-		Assert.IsNotNull(_negotiationOutput);
-		CollectionAssert.AreEqual(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP }, _negotiationOutput);
+		await Assert.That(_negotiationOutput).IsNotNull();
+		await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP });
 	}
 
 	[Test]
-	public void GMCPNegotiationServerWillAnnounce()
+	public async Task GMCPNegotiationServerWillAnnounce()
 	{
 		// The server should announce WILL GMCP during initialization
 		// This is done in the SetupGMCPNegotiation method
 		// We can verify the negotiation output was set during build
-		Assert.IsNotNull(_negotiationOutput, "Server should have sent GMCP negotiation during build");
+		await Assert.That(_negotiationOutput).IsNotNull();
 	}
 }

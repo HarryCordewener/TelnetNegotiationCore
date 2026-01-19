@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using NUnit.Framework;
+using TUnit.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,7 +12,7 @@ using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
-[TestFixture]
+
 public class MSSPTests : BaseTest
 {
 	private TelnetInterpreter _server_ti;
@@ -37,7 +37,7 @@ public class MSSPTests : BaseTest
 
 	private ValueTask WriteBackToGMCP((string Package, string Info) tuple) => ValueTask.CompletedTask;
 
-	[SetUp]
+	[Before(Test)]
 	public async Task Setup()
 	{
 		_receivedMSSP = null;
@@ -89,7 +89,7 @@ public class MSSPTests : BaseTest
 		});
 	}
 
-	[TearDown]
+	[After(Test)]
 	public async Task TearDown()
 	{
 		if (_server_ti != null)
@@ -109,7 +109,7 @@ public class MSSPTests : BaseTest
 		await _client_ti.WaitForProcessingAsync();
 
 		// Assert
-		Assert.IsNotNull(_negotiationOutput, "Client should respond to WILL MSSP");
+		await Assert.That(_negotiationOutput).IsNotNull();
 		CollectionAssert.AreEqual(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP }, _negotiationOutput);
 	}
 
@@ -125,7 +125,7 @@ public class MSSPTests : BaseTest
 		await Task.Delay(100);
 
 		// Assert - Server should send MSSP subnegotiation with data
-		Assert.IsNotNull(_negotiationOutput, "Server should send MSSP data");
+		await Assert.That(_negotiationOutput).IsNotNull();
 		Assert.That(_negotiationOutput[0], Is.EqualTo((byte)Trigger.IAC));
 		Assert.That(_negotiationOutput[1], Is.EqualTo((byte)Trigger.SB));
 		Assert.That(_negotiationOutput[2], Is.EqualTo((byte)Trigger.MSSP));
@@ -133,8 +133,8 @@ public class MSSPTests : BaseTest
 		// Should contain NAME variable
 		var encoding = Encoding.ASCII;
 		var responseString = encoding.GetString(_negotiationOutput);
-		Assert.That(responseString, Does.Contain("NAME"));
-		Assert.That(responseString, Does.Contain("Test MUD Server"));
+		await Assert.That(responseString).Contains("NAME");
+		await Assert.That(responseString).Contains("Test MUD Server");
 		
 		// Should end with IAC SE
 		Assert.That(_negotiationOutput[^2], Is.EqualTo((byte)Trigger.IAC));
@@ -153,7 +153,7 @@ public class MSSPTests : BaseTest
 
 		// Assert - Server should just accept the rejection without error
 		// No specific response expected, just ensure no crash
-		Assert.Pass("Server handles DONT MSSP gracefully");
+		// Test passed: "Server handles DONT MSSP gracefully"
 	}
 
 	[Test]
@@ -168,7 +168,7 @@ public class MSSPTests : BaseTest
 
 		// Assert - Client should just accept the rejection without error
 		// No specific response expected, just ensure no crash
-		Assert.Pass("Client handles WONT MSSP gracefully");
+		// Test passed: "Client handles WONT MSSP gracefully"
 	}
 
 	[Test]
@@ -200,14 +200,14 @@ public class MSSPTests : BaseTest
 		await Task.Delay(100);
 
 		// Assert
-		Assert.IsNotNull(_negotiationOutput);
+		await Assert.That(_negotiationOutput).IsNotNull();
 		
 		// Verify MSSP protocol structure
-		Assert.AreEqual((byte)Trigger.IAC, _negotiationOutput[0]);
-		Assert.AreEqual((byte)Trigger.SB, _negotiationOutput[1]);
-		Assert.AreEqual((byte)Trigger.MSSP, _negotiationOutput[2]);
-		Assert.AreEqual((byte)Trigger.IAC, _negotiationOutput[^2]);
-		Assert.AreEqual((byte)Trigger.SE, _negotiationOutput[^1]);
+		await Assert.That(_negotiationOutput[0]).IsEqualTo((byte)Trigger.IAC);
+		await Assert.That(_negotiationOutput[1]).IsEqualTo((byte)Trigger.SB);
+		await Assert.That(_negotiationOutput[2]).IsEqualTo((byte)Trigger.MSSP);
+		await Assert.That(_negotiationOutput[^2]).IsEqualTo((byte)Trigger.IAC);
+		await Assert.That(_negotiationOutput[^1]).IsEqualTo((byte)Trigger.SE);
 		
 		// Parse and verify specific MSSP variables
 		var encoding = Encoding.ASCII;
@@ -215,15 +215,15 @@ public class MSSPTests : BaseTest
 		
 		// Look for UTF-8 VAR/VAL pair
 		var utf8VarIndex = FindMSSPVariable(data, encoding, "UTF-8");
-		Assert.GreaterOrEqual(utf8VarIndex, 0, "UTF-8 variable should be present");
+		await Assert.That(utf8VarIndex).IsGreaterThanOrEqualTo(0);
 		var utf8Value = GetMSSPValue(data, utf8VarIndex, encoding);
-		Assert.AreEqual("1", utf8Value, "UTF-8 should be '1' (true)");
+		await Assert.That(utf8Value).IsEqualTo("1");
 		
 		// Look for ANSI VAR/VAL pair  
 		var ansiVarIndex = FindMSSPVariable(data, encoding, "ANSI");
-		Assert.GreaterOrEqual(ansiVarIndex, 0, "ANSI variable should be present");
+		await Assert.That(ansiVarIndex).IsGreaterThanOrEqualTo(0);
 		var ansiValue = GetMSSPValue(data, ansiVarIndex, encoding);
-		Assert.AreEqual("0", ansiValue, "ANSI should be '0' (false)");
+		await Assert.That(ansiValue).IsEqualTo("0");
 	}
 	
 	private int FindMSSPVariable(byte[] data, Encoding encoding, string varName)
@@ -316,20 +316,20 @@ public class MSSPTests : BaseTest
 		await testServer.WaitForProcessingAsync();
 
 		// Assert
-		Assert.IsNotNull(_negotiationOutput);
+		await Assert.That(_negotiationOutput).IsNotNull();
 		
 		var encoding = Encoding.ASCII;
 		var data = _negotiationOutput.Skip(3).Take(_negotiationOutput.Length - 5).ToArray();
 		
 		// Verify integer fields
 		var playersValue = GetMSSPValue(data, FindMSSPVariable(data, encoding, "PLAYERS"), encoding);
-		Assert.AreEqual("123", playersValue);
+		await Assert.That(playersValue).IsEqualTo("123");
 		
 		var portValue = GetMSSPValue(data, FindMSSPVariable(data, encoding, "PORT"), encoding);
-		Assert.AreEqual("4000", portValue);
+		await Assert.That(portValue).IsEqualTo("4000");
 		
 		var areasValue = GetMSSPValue(data, FindMSSPVariable(data, encoding, "AREAS"), encoding);
-		Assert.AreEqual("50", areasValue);
+		await Assert.That(areasValue).IsEqualTo("50");
 	}
 
 	[Test]
@@ -360,21 +360,21 @@ public class MSSPTests : BaseTest
 		await testServer.WaitForProcessingAsync();
 
 		// Assert
-		Assert.IsNotNull(_negotiationOutput);
+		await Assert.That(_negotiationOutput).IsNotNull();
 		
 		var encoding = Encoding.ASCII;
 		var data = _negotiationOutput.Skip(3).Take(_negotiationOutput.Length - 5).ToArray();
 		
 		// Verify array fields - for arrays, MSSP uses multiple VAL entries for the same VAR
 		var gameplayIndex = FindMSSPVariable(data, encoding, "GAMEPLAY");
-		Assert.GreaterOrEqual(gameplayIndex, 0, "GAMEPLAY variable should be present");
+		await Assert.That(gameplayIndex).IsGreaterThanOrEqualTo(0);
 		
 		// Count consecutive VAL entries after GAMEPLAY VAR
 		var values = GetMSSPArrayValues(data, gameplayIndex, encoding);
-		Assert.AreEqual(3, values.Count, "GAMEPLAY should have 3 values");
-		Assert.Contains("Adventure", values);
-		Assert.Contains("Roleplaying", values);
-		Assert.Contains("Hack and Slash", values);
+		await Assert.That(values.Count).IsEqualTo(3);
+		await Assert.That(values).Contains("Adventure");
+		await Assert.That(values).Contains("Roleplaying");
+		await Assert.That(values).Contains("Hack and Slash");
 	}
 	
 	private List<string> GetMSSPArrayValues(byte[] data, int varIndex, Encoding encoding)

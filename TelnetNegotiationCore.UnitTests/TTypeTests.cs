@@ -1,4 +1,4 @@
-using NUnit.Framework;
+using TUnit.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,7 +11,7 @@ using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
-[TestFixture]
+
 public class TTypeTests: BaseTest
 {
 	private TelnetInterpreter _server_ti;
@@ -24,7 +24,7 @@ public class TTypeTests: BaseTest
 
 	private ValueTask WriteBackToGMCP((string Package, string Info) tuple) => throw new NotImplementedException();
 
-	[SetUp]
+	[Before(Test)]
 	public async Task Setup()
 	{
 		_server_ti = await new TelnetInterpreterBuilder()
@@ -44,7 +44,7 @@ public class TTypeTests: BaseTest
 			.BuildAsync();
 	}
 
-	[TearDown]
+	[After(Test)]
 	public async Task TearDown()
 	{
 		if (_server_ti != null)
@@ -53,7 +53,8 @@ public class TTypeTests: BaseTest
 			await _client_ti.DisposeAsync();
 	}
 
-	[TestCaseSource(nameof(ServerTTypeSequences), Category = nameof(TelnetInterpreter.TelnetMode.Server))]
+	[Test]
+	[MethodDataSource(nameof(ServerTTypeSequences))]
 	public async Task ServerEvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<string[]> RegisteredTTypes)
 	{
 		if (clientSends.Count() != serverShouldRespondWith.Count())
@@ -67,12 +68,13 @@ public class TTypeTests: BaseTest
 				await _server_ti.InterpretAsync(x);
 			}
 			await _server_ti.WaitForProcessingAsync();
-			CollectionAssert.AreEqual(shouldHaveTTypeList ?? Enumerable.Empty<string>(), _server_ti.TerminalTypes);
-			CollectionAssert.AreEqual(serverShouldRespond, _negotiationOutput);
+			await Assert.That(_server_ti.TerminalTypes).IsEquivalentTo(shouldHaveTTypeList ?? Enumerable.Empty<string>());
+			await Assert.That(_negotiationOutput).IsEquivalentTo(serverShouldRespond);
 		}
 	}
 
-	[TestCaseSource(nameof(ClientTTypeSequences), Category = nameof(TelnetInterpreter.TelnetMode.Client))]
+	[Test]
+	[MethodDataSource(nameof(ClientTTypeSequences))]
 	public async Task ClientEvaluationCheck(IEnumerable<byte[]> serverSends, IEnumerable<byte[]> serverShouldRespondWith)
 	{
 		if (serverSends.Count() != serverShouldRespondWith.Count())
@@ -87,80 +89,74 @@ public class TTypeTests: BaseTest
 			}
 			await _client_ti.WaitForProcessingAsync();
 			await Task.Delay(50);
-			CollectionAssert.AreEqual(clientShouldRespond, _negotiationOutput);
+			await Assert.That(_negotiationOutput).IsEquivalentTo(clientShouldRespond);
 		}
 	}
 
-	public static IEnumerable<TestCaseData> ClientTTypeSequences
+	public static IEnumerable<(IEnumerable<byte[]>, IEnumerable<byte[]>)> ClientTTypeSequences()
 	{
-		get
-		{
-			yield return new TestCaseData(
-				new[]
-				{
-					new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE }
-				},
-				new[]
-				{
-					new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE }
-				}).SetName("Basic responds to Server TType DO");
-			yield return new TestCaseData(
-				new byte[][]
-				{
-					[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE]
-				},
-				new byte[][]
-				{
-					[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'T', (byte)'N', (byte)'C', (byte)Trigger.IAC, (byte)Trigger.SE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'X', (byte)'T', (byte)'E', (byte)'R', (byte)'M', (byte)Trigger.IAC, (byte)Trigger.SE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'M', (byte)'T', (byte)'T', (byte)'S', (byte)' ', (byte)'3', (byte)'8', (byte)'5', (byte)'3', (byte)Trigger.IAC, (byte)Trigger.SE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'M', (byte)'T', (byte)'T', (byte)'S', (byte)' ', (byte)'3', (byte)'8', (byte)'5', (byte)'3', (byte)Trigger.IAC, (byte)Trigger.SE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'T', (byte)'N', (byte)'C', (byte)Trigger.IAC, (byte)Trigger.SE]
-				}).SetName("Capable of sending a TType in a cycling manner, with a repeat for the last item");
-		}
+		yield return (
+			new[]
+			{
+				new [] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE }
+			},
+			new[]
+			{
+				new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE }
+			});
+		yield return (
+			new byte[][]
+			{
+				[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE]
+			},
+			new byte[][]
+			{
+				[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'T', (byte)'N', (byte)'C', (byte)Trigger.IAC, (byte)Trigger.SE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'X', (byte)'T', (byte)'E', (byte)'R', (byte)'M', (byte)Trigger.IAC, (byte)Trigger.SE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'M', (byte)'T', (byte)'T', (byte)'S', (byte)' ', (byte)'3', (byte)'8', (byte)'5', (byte)'3', (byte)Trigger.IAC, (byte)Trigger.SE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'M', (byte)'T', (byte)'T', (byte)'S', (byte)' ', (byte)'3', (byte)'8', (byte)'5', (byte)'3', (byte)Trigger.IAC, (byte)Trigger.SE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'T', (byte)'N', (byte)'C', (byte)Trigger.IAC, (byte)Trigger.SE]
+			});
 	}
 
-	public static IEnumerable<TestCaseData> ServerTTypeSequences
+	public static IEnumerable<(IEnumerable<byte[]>, IEnumerable<byte[]>, IEnumerable<string[]>)> ServerTTypeSequences()
 	{
-		get
-		{
-			yield return new TestCaseData(
-				new[] { // Client Sends
-					new[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE },
-				},
-				new[] { // Server Should Respond With
-					new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
-				},
-				new[] // Registered TType List After Negotiation
-				{
-					Array.Empty<string>()
-				}).SetName("Basic responds to Client TType Willing");
-			yield return new TestCaseData(
-				new byte[][] { // Client Sends
-					[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'A', (byte)'N', (byte)'S', (byte)'I', (byte)Trigger.IAC, (byte)Trigger.SE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'V', (byte)'T', (byte)'1', (byte)'0', (byte)'0', (byte)Trigger.IAC, (byte)Trigger.SE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'V', (byte)'T', (byte)'1', (byte)'0', (byte)'0', (byte)Trigger.IAC, (byte)Trigger.SE]
-				},
-				new byte[][] { // Server Should Respond With
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
-					[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
-					null
-				},
-				new[] // Registered TType List After Negotiation
-				{
-					Array.Empty<string>(),
-					["ANSI"],
-					["ANSI", "VT100"],
-					["ANSI", "VT100"]
-				}).SetName("Long response to Client TType Willing");
-		}
+		yield return (
+			new[] { // Client Sends
+				new[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE },
+			},
+			new[] { // Server Should Respond With
+				new[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE },
+			},
+			new[] // Registered TType List After Negotiation
+			{
+				Array.Empty<string>()
+			});
+		yield return (
+			new byte[][] { // Client Sends
+				[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'A', (byte)'N', (byte)'S', (byte)'I', (byte)Trigger.IAC, (byte)Trigger.SE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'V', (byte)'T', (byte)'1', (byte)'0', (byte)'0', (byte)Trigger.IAC, (byte)Trigger.SE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS, (byte)'V', (byte)'T', (byte)'1', (byte)'0', (byte)'0', (byte)Trigger.IAC, (byte)Trigger.SE]
+			},
+			new byte[][] { // Server Should Respond With
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
+				[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE],
+				null
+			},
+			new[] // Registered TType List After Negotiation
+			{
+				Array.Empty<string>(),
+				["ANSI"],
+				["ANSI", "VT100"],
+				["ANSI", "VT100"]
+			});
 	}
 }

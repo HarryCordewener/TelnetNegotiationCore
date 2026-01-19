@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using NUnit.Framework;
+using TUnit.Core;
 using System;
 using System.Text;
 using System.Threading.Tasks;
@@ -10,7 +10,7 @@ using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
-[TestFixture]
+
 public class NAWSTests : BaseTest
 {
 	private TelnetInterpreter _server_ti;
@@ -37,7 +37,7 @@ public class NAWSTests : BaseTest
 
 	private ValueTask WriteBackToGMCP((string Package, string Info) tuple) => ValueTask.CompletedTask;
 
-	[SetUp]
+	[Before(Test)]
 	public async Task Setup()
 	{
 		_negotiationOutput = null;
@@ -79,7 +79,7 @@ public class NAWSTests : BaseTest
 		});
 	}
 
-	[TearDown]
+	[After(Test)]
 	public async Task TearDown()
 	{
 		if (_server_ti != null)
@@ -128,8 +128,8 @@ public class NAWSTests : BaseTest
 		await _server_ti.WaitForProcessingAsync();
 
 		// Assert
-		Assert.AreEqual(80, _receivedWidth, "Width should be 80");
-		Assert.AreEqual(24, _receivedHeight, "Height should be 24");
+		await Assert.That(_receivedWidth).IsEqualTo(80);
+		await Assert.That(_receivedHeight).IsEqualTo(24);
 	}
 
 	[Test]
@@ -179,8 +179,8 @@ public class NAWSTests : BaseTest
 			await _server_ti.WaitForProcessingAsync();
 
 			// Assert
-			Assert.AreEqual(testCase.width, _receivedWidth, $"Width should be {testCase.width}");
-			Assert.AreEqual(testCase.height, _receivedHeight, $"Height should be {testCase.height}");
+			await Assert.That(_receivedWidth, $"Width should be {testCase.width}").IsEqualTo(testCase.width);
+			await Assert.That(_receivedHeight, $"Height should be {testCase.height}").IsEqualTo(testCase.height);
 		}
 	}
 
@@ -199,7 +199,7 @@ public class NAWSTests : BaseTest
 		await _client_ti.SendNAWS(width, height);
 
 		// Assert
-		Assert.IsNotNull(_negotiationOutput, "Client should send NAWS data");
+		await Assert.That(_negotiationOutput).IsNotNull();
 		Assert.That(_negotiationOutput[0], Is.EqualTo((byte)Trigger.IAC));
 		Assert.That(_negotiationOutput[1], Is.EqualTo((byte)Trigger.SB));
 		Assert.That(_negotiationOutput[2], Is.EqualTo((byte)Trigger.NAWS));
@@ -218,7 +218,7 @@ public class NAWSTests : BaseTest
 		await _server_ti.WaitForProcessingAsync();
 
 		// Assert - Server should accept the rejection gracefully
-		Assert.Pass("Server handles DONT NAWS gracefully");
+		// Test passed: "Server handles DONT NAWS gracefully"
 	}
 
 	[Test]
@@ -232,7 +232,7 @@ public class NAWSTests : BaseTest
 		await _client_ti.WaitForProcessingAsync();
 
 		// Assert - Client should accept the rejection gracefully
-		Assert.Pass("Client handles WONT NAWS gracefully");
+		// Test passed: "Client handles WONT NAWS gracefully"
 	}
 
 	[Test]
@@ -254,8 +254,8 @@ public class NAWSTests : BaseTest
 		serverMssp!.SetMSSPConfig(() => new MSSPConfig());
 
 		// Default values
-		Assert.AreEqual(78, testServer.ClientWidth, "Default width should be 78");
-		Assert.AreEqual(24, testServer.ClientHeight, "Default height should be 24");
+		await Assert.That(testServer.ClientWidth).IsEqualTo(78);
+		await Assert.That(testServer.ClientHeight).IsEqualTo(24);
 
 		// Send NAWS data
 		await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NAWS });
@@ -290,8 +290,8 @@ public class NAWSTests : BaseTest
 		await testServer.WaitForProcessingAsync();
 
 		// Assert updated values
-		Assert.AreEqual(120, testServer.ClientWidth, "Width should be updated to 120");
-		Assert.AreEqual(40, testServer.ClientHeight, "Height should be updated to 40");
+		await Assert.That(testServer.ClientWidth).IsEqualTo(120);
+		await Assert.That(testServer.ClientHeight).IsEqualTo(40);
 	}
 
 	[Test]
@@ -334,10 +334,10 @@ public class NAWSTests : BaseTest
 			await _server_ti.InterpretByteArrayAsync(nawsData);
 			await _server_ti.WaitForProcessingAsync();
 
-			Assert.AreEqual(width, _receivedWidth, $"Width should be {width}");
-			Assert.AreEqual(height, _receivedHeight, $"Height should be {height}");
-			Assert.AreEqual(width, _server_ti.ClientWidth, $"Stored width should be {width}");
-			Assert.AreEqual(height, _server_ti.ClientHeight, $"Stored height should be {height}");
+			await Assert.That(_receivedWidth, $"Width should be {width}").IsEqualTo(width);
+			await Assert.That(_receivedHeight, $"Height should be {height}").IsEqualTo(height);
+			await Assert.That(_server_ti.ClientWidth, $"Stored width should be {width}").IsEqualTo(width);
+			await Assert.That(_server_ti.ClientHeight, $"Stored height should be {height}").IsEqualTo(height);
 		}
 	}
 
@@ -352,7 +352,7 @@ public class NAWSTests : BaseTest
 		await _server_ti.WaitForProcessingAsync();
 
 		// Assert - Server should send WONT NAWS
-		Assert.IsNotNull(_negotiationOutput, "Server should respond to DO NAWS");
+		await Assert.That(_negotiationOutput).IsNotNull();
 		CollectionAssert.AreEqual(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS }, _negotiationOutput);
 	}
 }

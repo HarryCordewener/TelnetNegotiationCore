@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using NUnit.Framework;
+using TUnit.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,7 +12,7 @@ using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests
 {
-	[TestFixture]
+	
 	public class CharsetTests() : BaseTest
 	{
 		private byte[] _negotiationOutput;
@@ -25,14 +25,15 @@ namespace TelnetNegotiationCore.UnitTests
 
 		private ValueTask ServerWriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return ValueTask.CompletedTask; }
 
-	[SetUp]
+	[Before(Test)]
 		public void Setup()
 		{
 			_negotiationOutput = null;
 
 		}
 
-		[TestCaseSource(nameof(ServerCHARSETSequences), Category = nameof(TelnetInterpreter.TelnetMode.Server))]
+		[Test]
+		[MethodDataSource(nameof(ServerCHARSETSequences))]
 		public async Task ServerEvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<Encoding> currentEncoding)
 		{
 			var server_ti = await new TelnetInterpreterBuilder()
@@ -55,12 +56,13 @@ namespace TelnetNegotiationCore.UnitTests
 				}
 				await server_ti.WaitForProcessingAsync();
 
-				Assert.AreEqual(shouldHaveCurrentEncoding, server_ti.CurrentEncoding);
-				CollectionAssert.AreEqual(serverShouldRespond, _negotiationOutput);
+				await Assert.That(server_ti.CurrentEncoding).IsEqualTo(shouldHaveCurrentEncoding);
+				await Assert.That(_negotiationOutput).IsEquivalentTo(serverShouldRespond);
 			}
 		}
 
-		[TestCaseSource(nameof(ClientCHARSETSequences), Category = nameof(TelnetInterpreter.TelnetMode.Client))]
+		[Test]
+		[MethodDataSource(nameof(ClientCHARSETSequences))]
 		public async Task ClientEvaluationCheck(IEnumerable<byte[]> serverSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<Encoding> currentEncoding)
 		{
 			var client_ti = await new TelnetInterpreterBuilder()
@@ -85,17 +87,17 @@ namespace TelnetNegotiationCore.UnitTests
 					await client_ti.InterpretAsync(x);
 				}
 				await client_ti.WaitForProcessingAsync();
-				Assert.AreEqual(shouldHaveCurrentEncoding, client_ti.CurrentEncoding);
-				CollectionAssert.AreEqual(clientShouldRespond, _negotiationOutput);
+				await Assert.That(client_ti.CurrentEncoding).IsEqualTo(shouldHaveCurrentEncoding);
+				await Assert.That(_negotiationOutput).IsEquivalentTo(clientShouldRespond);
 			}
 			await client_ti.DisposeAsync();
 		}
 
-		public static IEnumerable<TestCaseData> ClientCHARSETSequences
+		public static IEnumerable<(IEnumerable<byte[]>, IEnumerable<byte[]>, IEnumerable<Encoding>)> ClientCHARSETSequences
 		{
 			get
 			{
-				yield return new TestCaseData(
+				yield return (
 					new[]
 					{
 						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET }
@@ -107,8 +109,8 @@ namespace TelnetNegotiationCore.UnitTests
 					new[] // Registered CHARSET List After Negotiation
 					{
 						Encoding.ASCII,
-					}).SetName("Basic responds to Server CHARSET WILL");
-				yield return new TestCaseData(
+					});
+				yield return (
 					new byte[][]
 					{
 						[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET],
@@ -135,15 +137,15 @@ namespace TelnetNegotiationCore.UnitTests
 						Encoding.ASCII,
 						Encoding.ASCII,
 						Encoding.UTF8
-					}).SetName("Capable of sending a CHARSET list");
+					});
 			}
 		}
 
-		public static IEnumerable<TestCaseData> ServerCHARSETSequences
+		public static IEnumerable<(IEnumerable<byte[]>, IEnumerable<byte[]>, IEnumerable<Encoding>)> ServerCHARSETSequences
 		{
 			get
 			{
-				yield return new TestCaseData(
+				yield return (
 					new[] { // Client Sends
 						new [] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET }
 					},
@@ -153,8 +155,8 @@ namespace TelnetNegotiationCore.UnitTests
 					new[] // Registered CHARSET List After Negotiation
 					{
 						Encoding.ASCII
-					}).SetName("Basic responds to Client CHARSET Willing");
-				yield return new TestCaseData(
+					});
+				yield return (
 					new byte[][] { // Client Sends
 						[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET ],
 						[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
@@ -177,8 +179,8 @@ namespace TelnetNegotiationCore.UnitTests
 					{
 						Encoding.ASCII,
 						Encoding.GetEncoding("UTF-16")
-					}).SetName("Basic response to Client Negotiation with many options");
-				yield return new TestCaseData(
+					});
+				yield return (
 					new byte[][] { // Client Sends
 						[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET],
 						[ (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
@@ -196,7 +198,7 @@ namespace TelnetNegotiationCore.UnitTests
 					{
 						Encoding.ASCII,
 						Encoding.UTF8
-					}).SetName("Basic response to Client Negotiation with two options");
+					});
 			}
 		}
 	}
