@@ -166,9 +166,12 @@ public partial class TelnetInterpreter
             // SetupMSSPNegotiation,  // Moved to MSSPProtocol.ConfigureStateMachine
             // SetupMSDPNegotiation,  // TODO: Move to MSDPProtocol.ConfigureStateMachine
             // SetupGMCPNegotiation,  // Moved to GMCPProtocol.ConfigureStateMachine
-            // SetupTelnetTerminalType,  // TODO: Move to TerminalTypeProtocol.ConfigureStateMachine
-            // SetupCharsetNegotiation,  // TODO: Move to CharsetProtocol.ConfigureStateMachine
             // SetupNAWS,  // Moved to NAWSProtocol.ConfigureStateMachine
+            
+            // Not yet migrated - still using interpreter-based configuration:
+            SetupTelnetTerminalType,  // TODO: Move to TerminalTypeProtocol.ConfigureStateMachine
+            SetupCharsetNegotiation,  // TODO: Move to CharsetProtocol.ConfigureStateMachine
+            
             SetupStandardProtocol
         }.AggregateRight(TelnetStateMachine, (func, stateMachine) => func(stateMachine));
 
