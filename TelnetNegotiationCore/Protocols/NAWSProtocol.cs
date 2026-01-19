@@ -17,6 +17,21 @@ public class NAWSProtocol : TelnetProtocolPluginBase
     private byte[] _nawsByteState = [];
     private int _nawsIndex = 0;
 
+    private Func<int, int, ValueTask>? _onNAWSNegotiated;
+
+    /// <summary>
+    /// Sets the callback that is invoked when NAWS negotiation is complete.
+    /// </summary>
+    /// <param name="callback">The callback to handle window size changes</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public NAWSProtocol OnNAWS(Func<int, int, ValueTask>? callback)
+    {
+        _onNAWSNegotiated = callback;
+        return this;
+    }
+
+
+
     /// <summary>
     /// Currently known Client Height (defaults to 24)
     /// </summary>
@@ -119,5 +134,23 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         _nawsByteState = [];
         _nawsIndex = 0;
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Called by the interpreter when NAWS negotiation is complete.
+    /// Internal method that invokes the callback.
+    /// </summary>
+    internal async ValueTask OnNAWSNegotiatedAsync(int height, int width)
+    {
+        if (!IsEnabled)
+            return;
+
+        ClientWidth = width;
+        ClientHeight = height;
+
+        Context.Logger.LogInformation("NAWS negotiation complete: Width={Width}, Height={Height}", width, height);
+        
+        if (_onNAWSNegotiated != null)
+            await _onNAWSNegotiated(height, width).ConfigureAwait(false);
     }
 }

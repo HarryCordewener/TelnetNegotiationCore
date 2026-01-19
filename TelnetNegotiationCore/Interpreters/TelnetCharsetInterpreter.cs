@@ -41,12 +41,26 @@ public partial class TelnetInterpreter
 
 	private Func<IEnumerable<EncodingInfo>> AllowedEncodings { get; set; } = Encoding.GetEncodings;
 
-	private readonly Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetOrder = x 
+	private Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetOrder = x 
 		=> x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
 
 	private Func<Encoding, ValueTask>? SignalCharsetChangeAsync { get; set; }
 
 	private Lazy<byte[]> SupportedCharacterSets { get; }
+
+	/// <summary>
+	/// Gets the charset order, preferring plugin config over interpreter config
+	/// </summary>
+	private IOrderedEnumerable<Encoding> GetCharsetOrder(IEnumerable<EncodingInfo> encodings)
+	{
+		var charsetPlugin = PluginManager?.GetPlugin<Protocols.CharsetProtocol>();
+		if (charsetPlugin != null && charsetPlugin.IsEnabled && charsetPlugin.CharsetOrder != null)
+		{
+			var ordered = charsetPlugin.CharsetOrder.Reverse().ToList();
+			return encodings.Select(y => y.GetEncoding()).OrderByDescending(z => ordered.IndexOf(z));
+		}
+		return _charsetOrder(encodings);
+	}
 
 	/// <summary>
 	/// Sets the CharacterSet Order
@@ -216,7 +230,7 @@ public partial class TelnetInterpreter
 			.Select(x => { try { return encodingDict[Encoding.GetEncoding(x).WebName]; } catch { return null; } })
 			.Where(x => x != null)
 			.Select(x => x!);
-		var preferredEncoding = _charsetOrder(offeredEncodingInfo);
+		var preferredEncoding = GetCharsetOrder(offeredEncodingInfo);
 		var chosenEncoding = preferredEncoding.FirstOrDefault();
 
 		if (chosenEncoding == null)
@@ -283,7 +297,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private async ValueTask OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _)
 	{
-		_logger.LogDebug("Charsets String: {CharsetList}", ";" + string.Join(";", _charsetOrder(AllowedEncodings()).Select(x => x.WebName)));
+		_logger.LogDebug("Charsets String: {CharsetList}", ";" + string.Join(";", GetCharsetOrder(AllowedEncodings()).Select(x => x.WebName)));
 		await CallbackNegotiationAsync(SupportedCharacterSets.Value);
 		_charsetOffered = true;
 	}
@@ -295,7 +309,7 @@ public partial class TelnetInterpreter
 	private byte[] CharacterSets()
 	{
 		return [(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
-						.. ascii.GetBytes($";{string.Join(";", _charsetOrder(AllowedEncodings()).Select(x => x.WebName))}"),
+						.. ascii.GetBytes($";{string.Join(";", GetCharsetOrder(AllowedEncodings()).Select(x => x.WebName))}"),
 						(byte)Trigger.IAC, (byte)Trigger.SE];
 	}
 }

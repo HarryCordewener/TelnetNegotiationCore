@@ -27,8 +27,6 @@ public partial class TelnetInterpreter
 		FullMode = BoundedChannelFullMode.DropWrite  // Drop bytes if message too large (DOS protection)
 	});
 
-	public Func<TelnetInterpreter, string, ValueTask>? SignalOnMSDPAsync { get; init; }
-
 	/// <summary>
 	/// Mud Server Status Protocol will provide information to the requestee about the server's contents.
 	/// </summary>
@@ -97,7 +95,7 @@ public partial class TelnetInterpreter
 
 			tsm.Configure(State.CompletingMSDP)
 				.SubstateOf(State.Accepting)
-				.OnEntry(ReadMSDPValues);
+				.OnEntryAsync(async _ => await ReadMSDPValues());
 
 			TriggerHelper.ForAllTriggersButIAC(t =>
 				tsm.Configure(State.EvaluatingMSDP).OnEntryFrom(ParameterizedTrigger(t), CaptureMSDPValue).PermitReentry(t));
@@ -108,7 +106,7 @@ public partial class TelnetInterpreter
 
 	private void CaptureMSDPValue(OneOf<byte, Trigger> b) => _msdpByteChannel.Writer.TryWrite(b.AsT0);
 
-	private void ReadMSDPValues()
+	private async ValueTask ReadMSDPValues()
 	{
 		// Read all bytes from channel
 		var msdpBytes = new List<byte>(256);
@@ -124,7 +122,12 @@ public partial class TelnetInterpreter
 
 		if (msdpBytes.Count > 0)
 		{
-			SignalOnMSDPAsync?.Invoke(this, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(msdpBytes.Skip(1), CurrentEncoding)));
+			// Call MSDP plugin if available
+			var msdpPlugin = PluginManager?.GetPlugin<Protocols.MSDPProtocol>();
+			if (msdpPlugin != null && msdpPlugin.IsEnabled)
+			{
+				await msdpPlugin.OnMSDPMessageAsync(this, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(msdpBytes.Skip(1), CurrentEncoding)));
+			}
 		}
 	}
 

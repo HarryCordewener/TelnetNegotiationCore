@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Connections;
 using System.IO.Pipelines;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Handlers;
+using TelnetNegotiationCore.Builders;
+using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.TestServer
 {
@@ -85,31 +87,49 @@ namespace TelnetNegotiationCore.TestServer
 					Sendable_Variables = () => ["ROOM"],
 				});
 
-				var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, _logger)
+				var telnet = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(_logger)
+				.OnSubmit(WriteBackAsync)
+				.OnNegotiation(x => WriteToOutputStreamAsync(x, connection.Transport.Output))
+				.AddPlugin<NAWSProtocol>()
+					.OnNAWS(SignalNAWSAsync)
+				.AddPlugin<GMCPProtocol>()
+					.OnGMCPMessage(SignalGMCPAsync)
+				.AddPlugin<MSDPProtocol>()
+					.OnMSDPMessage((t, config) => SignalMSDPAsync(msdpHandler, t, config))
+				.AddPlugin<MSSPProtocol>()
+					.OnMSSP(SignalMSSPAsync)
+				.AddPlugin<TerminalTypeProtocol>()
+				.AddPlugin<CharsetProtocol>()
+				.AddPlugin<EORProtocol>()
+				.AddPlugin<SuppressGoAheadProtocol>()
+				.BuildAsync();
+
+			// Configure MSSP
+			var mssp = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
+			if (mssp != null)
+			{
+				mssp.SetMSSPConfig(() => new MSSPConfig
 				{
-					CallbackOnSubmitAsync = WriteBackAsync,
-					SignalOnGMCPAsync = SignalGMCPAsync,
-					SignalOnMSSPAsync = SignalMSSPAsync,
-					SignalOnNAWSAsync = SignalNAWSAsync,
-					SignalOnMSDPAsync = (telnet, config) => SignalMSDPAsync(msdpHandler, telnet, config),
-					CallbackNegotiationAsync = x => WriteToOutputStreamAsync(x, connection.Transport.Output),
-					CharsetOrder = [Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1")]
-				}
-					.RegisterMSSPConfig(() => new MSSPConfig
-					{
-						Name = "My Telnet Negotiated Server",
-						UTF_8 = true,
-						Gameplay = ["ABC", "DEF"],
-						Extended = new Dictionary<string, dynamic>
+					Name = "My Telnet Negotiated Server",
+					UTF_8 = true,
+					Gameplay = ["ABC", "DEF"],
+					Extended = new Dictionary<string, dynamic>
 					{
 						{ "Foo",  "Bar"},
 						{ "Baz", (string[])["Moo", "Meow"] }
 					}
-					})
-					.BuildAsync();
+				});
+			}
 
-				while (true)
-				{
+			// Configure Charset
+			var charset = telnet.PluginManager!.GetPlugin<CharsetProtocol>();
+			if (charset != null)
+				charset.CharsetOrder = [Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1")];
+
+			while (true)
+			{
 					var result = await connection.Transport.Input.ReadAsync();
 					var buffer = result.Buffer;
 

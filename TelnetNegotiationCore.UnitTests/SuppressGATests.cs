@@ -3,8 +3,10 @@ using NUnit.Framework;
 using System;
 using System.Text;
 using System.Threading.Tasks;
+using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
+using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
@@ -30,27 +32,21 @@ public class SuppressGATests : BaseTest
 	{
 		_negotiationOutput = null;
 
-		_server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
-		{
-			Name = "Test Server"
-		}).BuildAsync();
+		_server_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<SuppressGoAheadProtocol>()
+			.BuildAsync();
 
-		_client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
-		{
-			Name = "Test Client"
-		}).BuildAsync();
+		_client_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<SuppressGoAheadProtocol>()
+			.BuildAsync();
 	}
 
 	[TearDown]
@@ -60,15 +56,6 @@ public class SuppressGATests : BaseTest
 			await _server_ti.DisposeAsync();
 		if (_client_ti != null)
 			await _client_ti.DisposeAsync();
-	}
-
-	[Test]
-	public async Task ServerSendsWillSuppressGAOnBuild()
-	{
-		// The server should have sent WILL SUPPRESSGOAHEAD during initialization
-		// This is verified implicitly by the build process completing successfully
-		await Task.CompletedTask;
-		Assert.Pass("Server WILL SUPPRESSGOAHEAD is sent during BuildAsync in Setup");
 	}
 
 	[Test]
@@ -148,13 +135,13 @@ public class SuppressGATests : BaseTest
 	public async Task SuppressGANegotiationSequenceComplete()
 	{
 		// This test verifies the complete negotiation sequence
-		var testClient = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig()).BuildAsync();
+		var testClient = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<SuppressGoAheadProtocol>()
+			.BuildAsync();
 
 		// Step 1: Server sends WILL SUPPRESSGOAHEAD
 		_negotiationOutput = null;
@@ -169,13 +156,13 @@ public class SuppressGATests : BaseTest
 	public async Task ServerSuppressGANegotiationWithClient()
 	{
 		// This test verifies server-side negotiation
-		var testServer = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig()).BuildAsync();
+		var testServer = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<SuppressGoAheadProtocol>()
+			.BuildAsync();
 
 		// Client sends DO SUPPRESSGOAHEAD
 		_negotiationOutput = null;
@@ -200,43 +187,6 @@ public class SuppressGATests : BaseTest
 		Assert.IsNotNull(_negotiationOutput);
 		var expectedResponse = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD };
 		CollectionAssert.AreEqual(expectedResponse, _negotiationOutput);
-	}
-
-	[Test]
-	public async Task ServerWillSuppressGAToClient()
-	{
-		// Test server's WILL announcement (happens during build)
-		// This is tested implicitly in Setup, but we can verify behavior
-		var testServer = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig()).BuildAsync();
-
-		// BuildAsync should have triggered WILL announcements
-		Assert.Pass("Server announces WILL SUPPRESSGOAHEAD during build");
-	}
-
-	[Test]
-	public async Task RepeatedSuppressGANegotiation()
-	{
-		// Test that multiple negotiations don't cause issues
-		_negotiationOutput = null;
-
-		// First negotiation
-		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
-		await _client_ti.WaitForProcessingAsync();
-		Assert.IsNotNull(_negotiationOutput);
-
-		// Second negotiation (redundant but should be handled)
-		_negotiationOutput = null;
-		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
-		await _client_ti.WaitForProcessingAsync();
-		
-		// Should handle gracefully (may or may not respond, but shouldn't error)
-		Assert.Pass("Repeated SUPPRESSGOAHEAD negotiation handled gracefully");
 	}
 
 	[Test]

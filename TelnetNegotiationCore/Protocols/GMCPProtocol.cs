@@ -17,6 +17,21 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     private const int MaxMessageSize = 8192; // 8KB DOS protection
     private readonly List<byte> _gmcpBytes = new();
 
+    private Func<(string Package, string Info), ValueTask>? _onGMCPReceived;
+
+    /// <summary>
+    /// Sets the callback that is invoked when a GMCP message is received.
+    /// </summary>
+    /// <param name="callback">The callback to handle GMCP messages</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public GMCPProtocol OnGMCPMessage(Func<(string Package, string Info), ValueTask>? callback)
+    {
+        _onGMCPReceived = callback;
+        return this;
+    }
+
+
+
     /// <inheritdoc />
     public override Type ProtocolType => typeof(GMCPProtocol);
 
@@ -65,6 +80,21 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         Context.Logger.LogInformation("GMCP Protocol disabled");
         _gmcpBytes.Clear();
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Called by the interpreter when a GMCP message is received.
+    /// Internal method that invokes the callback.
+    /// </summary>
+    internal async ValueTask OnGMCPMessageAsync((string Package, string Info) message)
+    {
+        if (!IsEnabled)
+            return;
+
+        Context.Logger.LogDebug("Received GMCP message: Package={Package}", message.Package);
+        
+        if (_onGMCPReceived != null)
+            await _onGMCPReceived(message).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -142,6 +172,21 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     private const int MaxMessageSize = 8192; // 8KB DOS protection
     private readonly List<byte> _msdpBytes = new();
 
+    private Func<Interpreters.TelnetInterpreter, string, ValueTask>? _onMSDPReceived;
+
+    /// <summary>
+    /// Sets the callback that is invoked when an MSDP message is received.
+    /// </summary>
+    /// <param name="callback">The callback to handle MSDP messages</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public MSDPProtocol OnMSDPMessage(Func<Interpreters.TelnetInterpreter, string, ValueTask>? callback)
+    {
+        _onMSDPReceived = callback;
+        return this;
+    }
+
+
+
     /// <inheritdoc />
     public override Type ProtocolType => typeof(MSDPProtocol);
 
@@ -177,6 +222,21 @@ public class MSDPProtocol : TelnetProtocolPluginBase
         Context.Logger.LogInformation("MSDP Protocol disabled");
         _msdpBytes.Clear();
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Called by the interpreter when an MSDP message is received.
+    /// Internal method that invokes the callback.
+    /// </summary>
+    internal async ValueTask OnMSDPMessageAsync(Interpreters.TelnetInterpreter interpreter, string message)
+    {
+        if (!IsEnabled)
+            return;
+
+        Context.Logger.LogDebug("Received MSDP message");
+        
+        if (_onMSDPReceived != null)
+            await _onMSDPReceived(interpreter, message).ConfigureAwait(false);
     }
 
     /// <summary>

@@ -4,8 +4,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
+using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
@@ -25,41 +27,21 @@ public class TTypeTests: BaseTest
 	[SetUp]
 	public async Task Setup()
 	{
-		_server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
-		{
-			Name = "My Telnet Negotiated Server",
-			UTF_8 = true,
-			Gameplay = ["ABC", "DEF"],
-			Extended = new Dictionary<string, dynamic>
-			{
-				{ "Foo", "Bar"},
-				{ "Baz", (string[]) ["Moo", "Meow"] }
-			}
-		}).BuildAsync();
+		_server_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<TerminalTypeProtocol>()
+			.BuildAsync();
 
-		_client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
-		{
-			Name = "My Telnet Negotiated Client",
-			UTF_8 = true,
-			Gameplay = ["ABC", "DEF"],
-			Extended = new Dictionary<string, dynamic>
-			{
-				{ "Foo", "Bar"},
-				{ "Baz", new [] {"Moo", "Meow" }}
-			}
-		}).BuildAsync();
+		_client_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<TerminalTypeProtocol>()
+			.BuildAsync();
 	}
 
 	[TearDown]

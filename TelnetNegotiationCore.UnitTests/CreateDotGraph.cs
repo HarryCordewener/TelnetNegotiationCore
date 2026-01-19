@@ -4,8 +4,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
+using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
@@ -17,14 +19,14 @@ public class CreateDotGraph : BaseTest
     [Test]
     public async Task WriteClientDotGraph()
     {
-        var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
-        {
-            CallbackOnSubmitAsync = WriteBack,
-            SignalOnGMCPAsync = WriteBackToGMCP,
-            CallbackNegotiationAsync = WriteToOutputStream,
-            SignalOnNAWSAsync = SignalNAWS,
-            CharsetOrder = [Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1")]
-        }.BuildAsync();
+        var telnet = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit(WriteBack)
+            .OnNegotiation(WriteToOutputStream)
+            .AddPlugin<NAWSProtocol>()
+                .OnNAWS(SignalNAWS)
+            .BuildAsync();
 
         var dotGraph = UmlDotGraph.Format(telnet.TelnetStateMachine.GetInfo());
         await File.WriteAllTextAsync(Path.Combine(Directory.GetCurrentDirectory(), "..", "ClientDotGraph.dot"), dotGraph);
@@ -33,25 +35,28 @@ public class CreateDotGraph : BaseTest
     [Test]
     public async Task WriteServerDotGraph()
     {
-        var telnet = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
+        var telnet = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(WriteBack)
+            .OnNegotiation(WriteToOutputStream)
+            .AddPlugin<NAWSProtocol>()
+                .OnNAWS(SignalNAWS)
+            .AddPlugin<MSSPProtocol>()
+            .BuildAsync();
+
+        var mssp = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
+        mssp!.SetMSSPConfig(() => new MSSPConfig
+        {
+            Name = "My Telnet Negotiated Server",
+            UTF_8 = true,
+            Gameplay = ["ABC", "DEF"],
+            Extended = new Dictionary<string, dynamic>
             {
-                CallbackOnSubmitAsync = WriteBack,
-                SignalOnGMCPAsync = WriteBackToGMCP,
-                CallbackNegotiationAsync = WriteToOutputStream,
-                SignalOnNAWSAsync = SignalNAWS,
-                CharsetOrder = [Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1")]
+                { "Foo", "Bar" },
+                { "Baz", (string[]) ["Moo", "Meow"] }
             }
-            .RegisterMSSPConfig(() => new MSSPConfig
-            {
-                Name = "My Telnet Negotiated Server",
-                UTF_8 = true,
-                Gameplay = ["ABC", "DEF"],
-                Extended = new Dictionary<string, dynamic>
-                {
-                    { "Foo", "Bar" },
-                    { "Baz", (string[]) ["Moo", "Meow"] }
-                }
-            }).BuildAsync();
+        });
 
         var dotGraph = UmlDotGraph.Format(telnet.TelnetStateMachine.GetInfo());
         await File.WriteAllTextAsync(Path.Combine(Directory.GetCurrentDirectory(), "..", "ServerDotGraph.dot"),

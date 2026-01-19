@@ -45,11 +45,6 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// NAWS Callback function to alert server of Width & Height negotiation
 	/// </summary>
-	public Func<int, int, ValueTask>? SignalOnNAWSAsync { get; init; }
-
-	/// <summary>
-	/// This exists to avoid an infinite loop with badly conforming clients.
-	/// </summary>
 	private bool _WillingToDoNAWS = false;
 
 	/// <summary>
@@ -201,6 +196,12 @@ public partial class TelnetInterpreter
 		ClientHeight = BitConverter.ToInt16(height);
 
 		_logger.LogDebug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
-		await (SignalOnNAWSAsync?.Invoke(ClientHeight, ClientWidth) ?? ValueTask.CompletedTask);
+		
+		// Call NAWS plugin if available
+		var nawsPlugin = PluginManager?.GetPlugin<Protocols.NAWSProtocol>();
+		if (nawsPlugin != null && nawsPlugin.IsEnabled)
+		{
+			await nawsPlugin.OnNAWSNegotiatedAsync(ClientHeight, ClientWidth);
+		}
 	}
 }

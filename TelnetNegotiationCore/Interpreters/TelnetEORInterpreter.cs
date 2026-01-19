@@ -10,8 +10,6 @@ public partial class TelnetInterpreter
 {
 	private bool? _doEOR = null;
 
-	public Func<ValueTask>? SignalOnPromptingAsync { get; init; }
-
 	/// <summary>
 	/// Character set Negotiation will set the Character Set and Character Page Server & Client have agreed to.
 	/// </summary>
@@ -67,7 +65,13 @@ public partial class TelnetInterpreter
 	private async ValueTask OnEORPrompt()
 	{
 		_logger.LogDebug("Connection: {ConnectionState}", "Server is prompting EOR");
-		await (SignalOnPromptingAsync?.Invoke() ?? ValueTask.CompletedTask);
+		
+		// Call EOR plugin if available
+		var eorPlugin = PluginManager?.GetPlugin<Protocols.EORProtocol>();
+		if (eorPlugin != null && eorPlugin.IsEnabled)
+		{
+			await eorPlugin.OnPromptAsync();
+		}
 	}
 
 	private ValueTask OnDontEORAsync()

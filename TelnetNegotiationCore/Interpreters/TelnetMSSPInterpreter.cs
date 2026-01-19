@@ -20,8 +20,6 @@ public partial class TelnetInterpreter
 	private List<byte> _currentMSSPValue = [];
 	private List<List<byte>> _currentMSSPVariableList = [];
 
-	public Func<MSSPConfig, ValueTask>? SignalOnMSSPAsync { get; init; }
-
 	private readonly IImmutableDictionary<string, (MemberInfo Member, NameAttribute Attribute)> _msspAttributeMembers = typeof(MSSPConfig)
 		.GetMembers()
 		.Select(x => (Member: x, Attribute: x.GetCustomAttribute<NameAttribute>()))
@@ -146,7 +144,12 @@ public partial class TelnetInterpreter
 			StoreClientMSSPDetails(group.Key, group.Select(x => CurrentEncoding.GetString([.. x.Second])));
 		}
 
-		await (SignalOnMSSPAsync?.Invoke(_msspConfig()) ?? ValueTask.CompletedTask);
+		// Call MSSP plugin if available
+		var msspPlugin = PluginManager?.GetPlugin<Protocols.MSSPProtocol>();
+		if (msspPlugin != null && msspPlugin.IsEnabled)
+		{
+			await msspPlugin.OnMSSPRequestAsync(_msspConfig());
+		}
 	}
 
 	/// <summary>
@@ -231,7 +234,23 @@ public partial class TelnetInterpreter
 	private async ValueTask OnDoMSSPAsync(StateMachine<State, Trigger>.Transition _)
 	{
 		_logger.LogDebug("Connection: {ConnectionState}", "Writing MSSP output");
-		await CallbackNegotiationAsync(ReportMSSP(_msspConfig()));
+		
+		// Get config from plugin if available, otherwise use interpreter's config
+		var config = GetMSSPConfig();
+		await CallbackNegotiationAsync(ReportMSSP(config));
+	}
+
+	/// <summary>
+	/// Gets the MSSP configuration, preferring plugin config over interpreter config
+	/// </summary>
+	private MSSPConfig GetMSSPConfig()
+	{
+		var msspPlugin = PluginManager?.GetPlugin<Protocols.MSSPProtocol>();
+		if (msspPlugin != null && msspPlugin.IsEnabled)
+		{
+			return msspPlugin.GetMSSPConfig();
+		}
+		return _msspConfig();
 	}
 
 	/// <summary>

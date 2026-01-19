@@ -20,6 +20,14 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     private int _charsetByteIndex = 0;
 
     /// <summary>
+    /// Sets the CharacterSet Order for negotiation priority
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">codepage is less than zero or greater than 65535.</exception>
+    /// <exception cref="ArgumentException">codepage is not supported by the underlying platform.</exception>
+    /// <exception cref="NotSupportedException">codepage is not supported by the underlying platform.</exception>
+    public IEnumerable<Encoding>? CharsetOrder { get; set; }
+
+    /// <summary>
     /// Function to get allowed encodings (defaults to all system encodings)
     /// </summary>
     public Func<IEnumerable<EncodingInfo>> AllowedEncodings { get; set; } = Encoding.GetEncodings;

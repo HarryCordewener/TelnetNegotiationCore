@@ -26,6 +26,11 @@ public partial class TelnetInterpreter
     private readonly List<Func<ValueTask>> _initialCall;
 
     /// <summary>
+    /// The plugin manager for protocol plugins (null if not using plugin-based API).
+    /// </summary>
+    public Plugins.ProtocolPluginManager? PluginManager { get; internal set; }
+
+    /// <summary>
     /// The current Encoding used for interpreting incoming non-negotiation text, and what we should send on outbound.
     /// </summary>
     public Encoding CurrentEncoding { get; internal set; } = Encoding.ASCII;
@@ -294,11 +299,6 @@ public partial class TelnetInterpreter
         if (CallbackNegotiationAsync == null)
         {
             throw new ApplicationException($"{CallbackNegotiationAsync} is null and has not been registered.");
-        }
-
-        if (SignalOnGMCPAsync == null)
-        {
-            throw new ApplicationException($"{SignalOnGMCPAsync} is null and has not been registered.");
         }
 
         return this;

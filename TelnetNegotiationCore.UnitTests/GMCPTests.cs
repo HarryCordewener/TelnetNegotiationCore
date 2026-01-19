@@ -5,8 +5,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
+using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
@@ -39,13 +41,18 @@ public class GMCPTests : BaseTest
 		_receivedGMCP = null;
 		_negotiationOutput = null;
 
-		_server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
+		_server_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<GMCPProtocol>()
+				.OnGMCPMessage(WriteBackToGMCP)
+			.AddPlugin<MSSPProtocol>()
+			.BuildAsync();
+
+		var serverMssp = _server_ti.PluginManager!.GetPlugin<MSSPProtocol>();
+		serverMssp!.SetMSSPConfig(() => new MSSPConfig
 		{
 			Name = "My Telnet Negotiated Server",
 			UTF_8 = true,
@@ -55,15 +62,20 @@ public class GMCPTests : BaseTest
 				{ "Foo", "Bar"},
 				{ "Baz", (string[]) ["Moo", "Meow"] }
 			}
-		}).BuildAsync();
+		});
 
-		_client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
+		_client_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<GMCPProtocol>()
+				.OnGMCPMessage(WriteBackToGMCP)
+			.AddPlugin<MSSPProtocol>()
+			.BuildAsync();
+
+		var clientMssp = _client_ti.PluginManager!.GetPlugin<MSSPProtocol>();
+		clientMssp!.SetMSSPConfig(() => new MSSPConfig
 		{
 			Name = "My Telnet Negotiated Client",
 			UTF_8 = true,
@@ -73,7 +85,7 @@ public class GMCPTests : BaseTest
 				{ "Foo", "Bar"},
 				{ "Baz", (string[]) ["Moo", "Meow"] }
 			}
-		}).BuildAsync();
+		});
 	}
 
 	[TearDown]

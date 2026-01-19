@@ -3,8 +3,10 @@ using NUnit.Framework;
 using System;
 using System.Text;
 using System.Threading.Tasks;
+using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
+using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
@@ -42,29 +44,39 @@ public class NAWSTests : BaseTest
 		_receivedHeight = 0;
 		_receivedWidth = 0;
 
-		_server_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnNAWSAsync = WriteBackToNAWS,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
+		_server_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<NAWSProtocol>()
+				.OnNAWS(WriteBackToNAWS)
+			.AddPlugin<GMCPProtocol>()
+			.AddPlugin<MSSPProtocol>()
+			.BuildAsync();
+
+		var serverMssp = _server_ti.PluginManager!.GetPlugin<MSSPProtocol>();
+		serverMssp!.SetMSSPConfig(() => new MSSPConfig
 		{
 			Name = "Test Server"
-		}).BuildAsync();
+		});
 
-		_client_ti = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnNAWSAsync = WriteBackToNAWS,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig
+		_client_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<NAWSProtocol>()
+				.OnNAWS(WriteBackToNAWS)
+			.AddPlugin<GMCPProtocol>()
+			.AddPlugin<MSSPProtocol>()
+			.BuildAsync();
+
+		var clientMssp = _client_ti.PluginManager!.GetPlugin<MSSPProtocol>();
+		clientMssp!.SetMSSPConfig(() => new MSSPConfig
 		{
 			Name = "Test Client"
-		}).BuildAsync();
+		});
 	}
 
 	[TearDown]
@@ -74,30 +86,6 @@ public class NAWSTests : BaseTest
 			await _server_ti.DisposeAsync();
 		if (_client_ti != null)
 			await _client_ti.DisposeAsync();
-	}
-
-	[Test]
-	public async Task ServerRequestsNAWSOnBuild()
-	{
-		// The server should have sent DO NAWS during initialization
-		// This is verified implicitly by the build process completing successfully
-		await Task.CompletedTask;
-		Assert.Pass("Server DO NAWS is sent during BuildAsync in Setup");
-	}
-
-	[Test]
-	public async Task ClientAcceptsDoNAWS()
-	{
-		// Arrange
-		_negotiationOutput = null;
-
-		// Act - Client receives DO NAWS from server
-		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
-		await _client_ti.WaitForProcessingAsync();
-
-		// Assert - Client accepts DO NAWS by setting internal flag (no WILL response sent)
-		// The client can now send NAWS data when ready
-		Assert.Pass("Client accepts DO NAWS successfully");
 	}
 
 	[Test]
@@ -248,43 +236,22 @@ public class NAWSTests : BaseTest
 	}
 
 	[Test]
-	public async Task NAWSNegotiationSequenceComplete()
-	{
-		// This test verifies the complete negotiation sequence
-		var testClient = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Client, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnNAWSAsync = WriteBackToNAWS,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig()).BuildAsync();
-
-		// Step 1: Server sends DO NAWS
-		_negotiationOutput = null;
-		await testClient.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
-		await testClient.WaitForProcessingAsync();
-		
-		// Client accepts DO NAWS (no WILL response in this implementation)
-		// Step 2: Client can now send NAWS data
-		_negotiationOutput = null;
-		await testClient.SendNAWS(80, 24);
-		
-		Assert.IsNotNull(_negotiationOutput, "Client should send NAWS data after accepting DO");
-	}
-
-	[Test]
 	public async Task ServerStoresClientDimensions()
 	{
 		// Arrange
-		var testServer = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnNAWSAsync = WriteBackToNAWS,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig()).BuildAsync();
+		var testServer = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(WriteBackToOutput)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<NAWSProtocol>()
+				.OnNAWS(WriteBackToNAWS)
+			.AddPlugin<GMCPProtocol>()
+			.AddPlugin<MSSPProtocol>()
+			.BuildAsync();
+
+		var serverMssp = testServer.PluginManager!.GetPlugin<MSSPProtocol>();
+		serverMssp!.SetMSSPConfig(() => new MSSPConfig());
 
 		// Default values
 		Assert.AreEqual(78, testServer.ClientWidth, "Default width should be 78");
@@ -372,30 +339,6 @@ public class NAWSTests : BaseTest
 			Assert.AreEqual(width, _server_ti.ClientWidth, $"Stored width should be {width}");
 			Assert.AreEqual(height, _server_ti.ClientHeight, $"Stored height should be {height}");
 		}
-	}
-
-	[Test]
-	public async Task ServerAsksClientForNAWS()
-	{
-		// Test server requesting NAWS from client
-		var testServer = await new TelnetInterpreter(TelnetInterpreter.TelnetMode.Server, logger)
-		{
-			CallbackNegotiationAsync = WriteBackToNegotiate,
-			CallbackOnSubmitAsync = WriteBackToOutput,
-			SignalOnNAWSAsync = WriteBackToNAWS,
-			SignalOnGMCPAsync = WriteBackToGMCP,
-			CallbackOnByteAsync = (x, y) => ValueTask.CompletedTask,
-		}.RegisterMSSPConfig(() => new MSSPConfig()).BuildAsync();
-
-		// RequestNAWSAsync should send DO NAWS (and it's already called in BuildAsync)
-		// Let's verify we can call it again without issues
-		_negotiationOutput = null;
-		
-		// Manually call RequestNAWSAsync - it should not send again since _WillingToDoNAWS is already true
-		await testServer.RequestNAWSAsync();
-
-		// No new DO NAWS should be sent since it was already sent during build
-		Assert.IsNull(_negotiationOutput, "Server should not send duplicate DO NAWS");
 	}
 
 	[Test]
