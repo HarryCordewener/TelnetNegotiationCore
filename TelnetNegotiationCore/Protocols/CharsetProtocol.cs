@@ -5,7 +5,6 @@ using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Stateless;
-using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -20,7 +19,6 @@ namespace TelnetNegotiationCore.Protocols;
 /// the priority of character sets for negotiation, and <see cref="AllowedEncodings"/> to control
 /// which character sets are allowed.
 /// </remarks>
-[RequiredMethod("CharsetOrder", Description = "Set the character set priority order for negotiation (optional)")]
 public class CharsetProtocol : TelnetProtocolPluginBase
 {
     private byte[] _charsetByteState = [];
