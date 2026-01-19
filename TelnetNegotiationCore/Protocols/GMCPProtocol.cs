@@ -306,10 +306,74 @@ public class MSDPProtocol : TelnetProtocolPluginBase
         // Register MSDP protocol handlers with the context
         context.SetSharedState("MSDP_Protocol", this);
         
-        // State machine configuration for MSDP protocol would handle:
-        // - MSDP message collection and parsing
-        // - DOS protection (max message size enforcement)
-        // - Callback invocation for received messages
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            // Server-side MSDP negotiation
+            stateMachine.Configure(State.Do)
+                .Permit(Trigger.MSDP, State.DoMSDP);
+
+            stateMachine.Configure(State.Dont)
+                .Permit(Trigger.MSDP, State.DontMSDP);
+
+            stateMachine.Configure(State.DoMSDP)
+                .SubstateOf(State.Accepting)
+                .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client will do MSDP"));
+
+            stateMachine.Configure(State.DontMSDP)
+                .SubstateOf(State.Accepting)
+                .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client will not MSDP"));
+
+            context.RegisterInitialNegotiation(async () => await WillMSDPAsync(context));
+        }
+        else if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client)
+        {
+            // Client-side MSDP negotiation
+            stateMachine.Configure(State.Willing)
+                .Permit(Trigger.MSDP, State.WillMSDP);
+
+            stateMachine.Configure(State.Refusing)
+                .Permit(Trigger.MSDP, State.WontMSDP);
+
+            stateMachine.Configure(State.WillMSDP)
+                .SubstateOf(State.Accepting)
+                .OnEntryAsync(async x => await DoMSDPAsync(x, context));
+
+            stateMachine.Configure(State.WontMSDP)
+                .SubstateOf(State.Accepting)
+                .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Server will not MSDP"));
+        }
+
+        // Sub-negotiation states (common to both server and client)
+        stateMachine.Configure(State.SubNegotiation)
+            .Permit(Trigger.MSDP, State.AlmostNegotiatingMSDP);
+
+        stateMachine.Configure(State.AlmostNegotiatingMSDP)
+            .Permit(Trigger.IAC, State.EscapingMSDP)
+            .OnEntry(() => {
+                // Reset byte collection for new message
+                _msdpBytes.Clear();
+            });
+
+        // Configure transitions for all non-IAC triggers to capture MSDP values
+        TriggerHelper.ForAllTriggersButIAC(t => stateMachine
+            .Configure(State.EvaluatingMSDP)
+            .PermitReentry(t)
+            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), CaptureMSDPByte));
+
+        TriggerHelper.ForAllTriggersButIAC(t => stateMachine
+            .Configure(State.AlmostNegotiatingMSDP)
+            .Permit(t, State.EvaluatingMSDP));
+
+        stateMachine.Configure(State.EvaluatingMSDP)
+            .Permit(Trigger.IAC, State.EscapingMSDP);
+
+        stateMachine.Configure(State.EscapingMSDP)
+            .Permit(Trigger.IAC, State.EvaluatingMSDP)
+            .Permit(Trigger.SE, State.CompletingMSDP);
+
+        stateMachine.Configure(State.CompletingMSDP)
+            .SubstateOf(State.Accepting)
+            .OnEntryAsync(async x => await CompleteMSDPNegotiation(x, context));
     }
 
     /// <inheritdoc />
@@ -349,10 +413,16 @@ public class MSDPProtocol : TelnetProtocolPluginBase
             await _onMSDPReceived(interpreter, message).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Handles an MSDP message byte.
-    /// </summary>
-    public void AddMSDPByte(byte value)
+    /// <inheritdoc />
+    protected override ValueTask OnDisposeAsync()
+    {
+        _msdpBytes.Clear();
+        return ValueTask.CompletedTask;
+    }
+
+    #region State Machine Handlers
+
+    private void CaptureMSDPByte(OneOf<byte, Trigger> b)
     {
         if (!IsEnabled)
             return;
@@ -364,26 +434,34 @@ public class MSDPProtocol : TelnetProtocolPluginBase
             return;
         }
 
-        _msdpBytes.Add(value);
+        _msdpBytes.Add(b.AsT0);
     }
 
-    /// <summary>
-    /// Processes a complete MSDP message.
-    /// </summary>
-    public async ValueTask ProcessMSDPMessageAsync()
+    private async ValueTask CompleteMSDPNegotiation(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
-        if (!IsEnabled || _msdpBytes.Count == 0)
+        if (_msdpBytes.Count == 0)
+        {
+            context.Logger.LogWarning("Empty MSDP message received");
             return;
+        }
 
         try
         {
-            Context.Logger.LogDebug("Received MSDP message with {ByteCount} bytes", _msdpBytes.Count);
+            context.Logger.LogDebug("Processing MSDP message with {ByteCount} bytes", _msdpBytes.Count);
 
-            // Trigger callback if registered
-            if (Context.TryGetSharedState<Func<byte[], ValueTask>>("MSDP_Callback", out var callback) && callback != null)
+            // Parse MSDP bytes using the F# library
+            var parsedData = Functional.MSDPLibrary.MSDPScan(_msdpBytes, context.CurrentEncoding);
+            var jsonString = JsonSerializer.Serialize(parsedData);
+
+            // Invoke the callback if registered
+            if (_onMSDPReceived != null)
             {
-                await callback(_msdpBytes.ToArray());
+                await _onMSDPReceived(context.Interpreter, jsonString);
             }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(ex, "Error processing MSDP message");
         }
         finally
         {
@@ -391,10 +469,17 @@ public class MSDPProtocol : TelnetProtocolPluginBase
         }
     }
 
-    /// <inheritdoc />
-    protected override ValueTask OnDisposeAsync()
+    private async ValueTask WillMSDPAsync(IProtocolContext context)
     {
-        _msdpBytes.Clear();
-        return ValueTask.CompletedTask;
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing the server will MSDP");
+        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSDP });
     }
+
+    private async ValueTask DoMSDPAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing the client can do MSDP");
+        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP });
+    }
+
+    #endregion
 }
