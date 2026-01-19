@@ -45,26 +45,31 @@ Being a Telnet Negotiation Library, this library doesn't give support for extens
 
 ### Modern Plugin-Based API (Recommended)
 
-The library now supports a modern, type-safe plugin architecture for protocol management:
+The library uses a modern, type-safe plugin architecture with fluent configuration:
 
 ```csharp
 using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Protocols;
 
-// Create interpreter with plugin-based protocols
+// Create interpreter with fluent plugin configuration
 var telnet = await new TelnetInterpreterBuilder()
     .UseMode(TelnetMode.Server)
     .UseLogger(logger)
     .OnSubmit((data, encoding) => HandleSubmitAsync(data, encoding))
     .OnNegotiation((data) => WriteToNetworkAsync(data))
-    .AddProtocol<GMCPProtocol>()
-    .AddProtocol<MSDPProtocol>()
-    .AddProtocol<NAWSProtocol>()
-    .AddProtocol<TerminalTypeProtocol>()
-    .AddProtocol<CharsetProtocol>()
-    .AddProtocol<MSSPProtocol>()
-    .AddProtocol<EORProtocol>()
-    .AddProtocol<SuppressGoAheadProtocol>()
+    .AddPlugin<NAWSProtocol>()
+        .OnNAWS((height, width) => HandleWindowSizeAsync(height, width))
+    .AddPlugin<GMCPProtocol>()
+        .OnGMCPMessage((package, info) => HandleGMCPAsync(package, info))
+    .AddPlugin<MSDPProtocol>()
+        .OnMSDPMessage((telnet, data) => HandleMSDPAsync(telnet, data))
+    .AddPlugin<MSSPProtocol>()
+        .OnMSSP((config) => HandleMSSPAsync(config))
+    .AddPlugin<TerminalTypeProtocol>()
+    .AddPlugin<CharsetProtocol>()
+    .AddPlugin<EORProtocol>()
+        .OnPrompt(() => HandlePromptAsync())
+    .AddPlugin<SuppressGoAheadProtocol>()
     .BuildAsync();
 
 // Use the interpreter (non-blocking with automatic backpressure)
@@ -74,7 +79,24 @@ await telnet.InterpretByteArrayAsync(bytes);
 await telnet.DisposeAsync();
 ```
 
+**Alternatively, use AddDefaultMUDProtocols() for quick setup:**
+
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetMode.Server)
+    .UseLogger(logger)
+    .OnSubmit(HandleSubmitAsync)
+    .OnNegotiation(WriteToNetworkAsync)
+    .AddDefaultMUDProtocols()  // Adds all 7 common MUD protocols
+    .BuildAsync();
+
+// Configure specific protocols after build
+var gmcp = telnet.PluginManager.GetPlugin<GMCPProtocol>();
+gmcp?.OnGMCPMessage(HandleGMCPAsync);
+```
+
 **Key Benefits:**
+- **Fluent callback configuration** - Set callbacks inline during builder setup
 - **Type-safe protocol registration** - Use class types instead of magic numbers
 - **Non-blocking operations** - System.Threading.Channels with automatic backpressure (10,000 byte buffer)
 - **Configurable buffer size** - Default 5MB line buffer, customizable via `MaxBufferSize` property
@@ -83,7 +105,9 @@ await telnet.DisposeAsync();
 - **Better performance** - Parallel byte processing while network I/O continues
 - **Proper resource cleanup** - IAsyncDisposable support
 
-### Legacy API (Still Supported)
+### Legacy API (Deprecated)
+
+**Note:** The legacy direct instantiation API with callback properties is deprecated and will be removed in a future version. Please migrate to the plugin-based API shown above.
 
 ### Client
 A documented example exists in the [TestClient Project](TelnetNegotiationCore.TestClient/MockPipelineClient.cs).
