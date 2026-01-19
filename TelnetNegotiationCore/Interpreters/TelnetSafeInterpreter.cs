@@ -4,6 +4,7 @@ using System.Linq;
 using System;
 using System.Collections.Immutable;
 using TelnetNegotiationCore.Models;
+using TelnetNegotiationCore.Generated;
 using System.IO;
 using Microsoft.Extensions.Logging;
 
@@ -64,7 +65,8 @@ public partial class TelnetInterpreter
 	private StateMachine<State, Trigger> SetupSafeNegotiation(StateMachine<State, Trigger> tsm)
 	{
 		var info = tsm.GetInfo();
-		var triggers = Enum.GetValues<Trigger>().ToArray();
+		// Use generated AllValues instead of reflection
+		var triggers = TriggerExtensions.AllValues.ToArray();
 		var refuseThese = new List<State> { State.Willing, State.Refusing, State.Do, State.Dont };
 
 		foreach (var stateInfo in info.States.Join(refuseThese, x => x.UnderlyingState, y => y, (x, y) => x))
@@ -74,13 +76,15 @@ public partial class TelnetInterpreter
 
 			foreach (var trigger in outboundUnhandledTriggers)
 			{
-				tsm.Configure(state).Permit(trigger, Enum.Parse<State>($"Bad{state}"));
-				tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
+				// Use generated GetBadState method instead of Enum.Parse
+				var badState = StateExtensions.GetBadState(state);
+				tsm.Configure(state).Permit(trigger, badState);
+				tsm.Configure(badState)
 					.SubstateOf(State.Accepting);
 
 				if (state is State.Do)
 				{
-					tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
+					tsm.Configure(badState)
 						.OnEntryFromAsync(trigger, async () =>
 						{
 							_logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
@@ -89,7 +93,7 @@ public partial class TelnetInterpreter
 				}
 				else if (state is State.Willing)
 				{
-					tsm.Configure((State)Enum.Parse(typeof(State), $"Bad{state}"))
+					tsm.Configure(badState)
 						.OnEntryFromAsync(trigger, async () =>
 						{
 							_logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Don't send {trigger}.");

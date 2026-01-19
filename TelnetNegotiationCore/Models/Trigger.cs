@@ -4,6 +4,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using OneOf;
+using TelnetNegotiationCore.Generated;
 
 namespace TelnetNegotiationCore.Models;
 
@@ -37,7 +38,8 @@ public class ParameterizedTriggers
 /// </summary>
 public static class TriggerHelper
 {
-	private static readonly ImmutableHashSet<Trigger> AllTriggers = ImmutableHashSet<Trigger>.Empty.Union(((IEnumerable<Trigger>)Enum.GetValues(typeof(Trigger))).Distinct());
+	// Use generated AllValues instead of reflection
+	private static readonly ImmutableHashSet<Trigger> AllTriggers = TriggerExtensions.AllValues;
 
 	public static void ForAllTriggers(Action<Trigger> f)
 	{
