@@ -92,4 +92,35 @@ public static class PluginConfigurationExtensions
         context.Plugin.OnPrompt(callback);
         return context;
     }
+
+    /// <summary>
+    /// Sets the character set order for Charset negotiation in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="charsetOrder">The ordered list of preferred encodings</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<CharsetProtocol> WithCharsetOrder(
+        this PluginConfigurationContext<CharsetProtocol> context,
+        params System.Text.Encoding[] charsetOrder)
+    {
+        if (charsetOrder != null && charsetOrder.Length > 0)
+        {
+            context.Plugin.CharsetOrder = charsetOrder;
+        }
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the MSSP configuration in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="configProvider">The function that provides the MSSP configuration</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MSSPProtocol> WithMSSPConfig(
+        this PluginConfigurationContext<MSSPProtocol> context,
+        Func<Models.MSSPConfig> configProvider)
+    {
+        context.Plugin.SetMSSPConfig(configProvider);
+        return context;
+    }
 }
