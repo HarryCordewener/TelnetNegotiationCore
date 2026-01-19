@@ -106,6 +106,19 @@ public enum State : sbyte
 	DoSUPPRESSGOAHEAD,
 	DontSUPPRESSGOAHEAD,
 	WillSUPPRESSGOAHEAD,
-	WontSUPPRESSGOAHEAD
+	WontSUPPRESSGOAHEAD,
 	#endregion MSDP Negotiation
+	#region NEW-ENVIRON Negotiation
+	DoNEWENVIRON,
+	DontNEWENVIRON,
+	WillNEWENVIRON,
+	WontNEWENVIRON,
+	AlmostNegotiatingNEWENVIRON,
+	NegotiatingNEWENVIRON,
+	EvaluatingNEWENVIRONVar,
+	EvaluatingNEWENVIRONValue,
+	EscapingNEWENVIRONVar,
+	EscapingNEWENVIRONValue,
+	CompletingNEWENVIRON
+	#endregion NEW-ENVIRON Negotiation
 }
