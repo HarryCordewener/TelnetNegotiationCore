@@ -90,7 +90,7 @@ public partial class TelnetInterpreter
     /// </summary>
     /// <param name="t">The Trigger</param>
     /// <returns>A Parameterized trigger</returns>
-    private StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParameterizedTrigger(Trigger t)
+    internal StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParameterizedTrigger(Trigger t)
         => _parameterizedTriggers.ParameterizedTrigger(TelnetStateMachine, t);
 
     /// <summary>
@@ -168,7 +168,7 @@ public partial class TelnetInterpreter
             // SetupGMCPNegotiation,  // TODO: Move to GMCPProtocol.ConfigureStateMachine
             // SetupTelnetTerminalType,  // TODO: Move to TerminalTypeProtocol.ConfigureStateMachine
             // SetupCharsetNegotiation,  // TODO: Move to CharsetProtocol.ConfigureStateMachine
-            // SetupNAWS,  // TODO: Move to NAWSProtocol.ConfigureStateMachine
+            // SetupNAWS,  // Moved to NAWSProtocol.ConfigureStateMachine
             SetupStandardProtocol
         }.AggregateRight(TelnetStateMachine, (func, stateMachine) => func(stateMachine));
 
