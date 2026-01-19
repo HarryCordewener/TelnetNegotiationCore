@@ -139,6 +139,88 @@ if (gmcpPlugin != null)
 - **Better performance** - Parallel byte processing while network I/O continues
 - **Proper resource cleanup** - IAsyncDisposable support
 
+### Fluent Configuration API Reference
+
+The library provides fluent extension methods for inline protocol configuration:
+
+#### CharsetProtocol Configuration
+
+**WithCharsetOrder()** - Sets the preferred character encoding order for charset negotiation.
+
+```csharp
+.AddPlugin<CharsetProtocol>()
+    .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
+```
+
+This eliminates the need to access the plugin via PluginManager after building. The charset order determines the priority of encodings during negotiation with the remote party.
+
+#### MSSPProtocol Configuration
+
+**WithMSSPConfig()** - Provides MSSP (Mud Server Status Protocol) configuration inline.
+
+```csharp
+.AddPlugin<MSSPProtocol>()
+    .WithMSSPConfig(() => new MSSPConfig
+    {
+        Name = "My MUD Server",
+        UTF_8 = true,
+        Gameplay = ["Adventure", "Fantasy"],
+        Contact = "admin@example.com"
+    })
+```
+
+The MSSP configuration is sent to clients that request server information. This is commonly used by MUD listing sites and clients.
+
+#### Protocol Callback Configuration
+
+All protocol plugins support fluent callback configuration:
+
+- **OnNAWS()** - Window size changes (height, width)
+- **OnGMCPMessage()** - GMCP messages (package, info tuple)
+- **OnMSSP()** - MSSP requests
+- **OnMSDPMessage()** - MSDP messages
+- **OnPrompt()** - Prompt events (EOR/SuppressGoAhead)
+
+Example combining multiple configurations:
+
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<NAWSProtocol>()
+        .OnNAWS((height, width) => HandleWindowSizeAsync(height, width))
+    .AddPlugin<GMCPProtocol>()
+        .OnGMCPMessage((msg) => HandleGMCPAsync(msg.Package, msg.Info))
+    .AddPlugin<MSSPProtocol>()
+        .OnMSSP((config) => HandleMSSPAsync(config))
+        .WithMSSPConfig(() => new MSSPConfig { Name = "My Server" })
+    .AddPlugin<CharsetProtocol>()
+        .WithCharsetOrder(Encoding.UTF8)
+    .AddPlugin<EORProtocol>()
+        .OnPrompt(() => HandlePromptAsync())
+    .BuildAsync();
+```
+
+#### AddDefaultMUDProtocols with Inline Configuration
+
+The `AddDefaultMUDProtocols()` helper method now supports optional parameters to configure all protocols at once:
+
+```csharp
+.AddDefaultMUDProtocols(
+    onNAWS: (height, width) => HandleWindowSizeAsync(height, width),
+    onGMCPMessage: (msg) => HandleGMCPAsync(msg.Package, msg.Info),
+    onMSSP: (config) => HandleMSSPAsync(config),
+    msspConfig: () => new MSSPConfig { Name = "My Server", UTF_8 = true },
+    onMSDPMessage: (telnet, data) => HandleMSDPAsync(telnet, data),
+    onPrompt: () => HandlePromptAsync(),
+    charsetOrder: [Encoding.UTF8, Encoding.GetEncoding("iso-8859-1")]
+)
+```
+
+All parameters are optional. Omitted parameters will leave the corresponding protocols with default settings and no callbacks.
+
 ### Legacy API (Deprecated)
 
 **Note:** The legacy direct instantiation API with callback properties is deprecated. Please migrate to the plugin-based Fluent API shown above for better performance, type safety, and maintainability.

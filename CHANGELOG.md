@@ -25,6 +25,10 @@ All notable changes to this project will be documented in this file.
   - `EORProtocol` - End of Record
   - `SuppressGoAheadProtocol` - Suppress Go-Ahead
 - **Configurable Buffer**: `MaxBufferSize` property for line buffer (default 5MB)
+- **Fluent Configuration Extensions**: Inline protocol configuration methods
+  - `WithCharsetOrder()` - Configure charset order fluently on CharsetProtocol
+  - `WithMSSPConfig()` - Configure MSSP settings fluently on MSSPProtocol
+  - `AddDefaultMUDProtocols()` overload with optional parameters for inline configuration of all protocol callbacks and settings (onNAWS, onGMCPMessage, onMSSP, msspConfig, onMSDPMessage, onPrompt, charsetOrder)
 
 ### Changed
 - Library architecture modernized with plugin-based design patterns
