@@ -39,7 +39,7 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
     /// <summary>
     /// Sets the callback that is invoked when X display location information is received.
     /// </summary>
-    /// <param name="callback">The callback to handle X display location</param>
+    /// <param name="callback">The callback to handle X display location. Pass null to clear any existing callback.</param>
     /// <returns>This instance for fluent chaining</returns>
     public XDisplayProtocol OnDisplayLocation(Func<string, ValueTask>? callback)
     {
@@ -52,10 +52,14 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
     /// </summary>
     /// <param name="displayLocation">The X display location (e.g., "localhost:0.0", "host.example.com:0")</param>
     /// <returns>This instance for fluent chaining</returns>
+    /// <exception cref="ArgumentNullException">Thrown when displayLocation is null</exception>
+    /// <exception cref="ArgumentException">Thrown when displayLocation is empty</exception>
     public XDisplayProtocol WithClientDisplayLocation(string displayLocation)
     {
+        if (displayLocation == null)
+            throw new ArgumentNullException(nameof(displayLocation), "Display location cannot be null");
         if (string.IsNullOrEmpty(displayLocation))
-            throw new ArgumentNullException(nameof(displayLocation), "Display location cannot be null or empty");
+            throw new ArgumentException("Display location cannot be empty", nameof(displayLocation));
 
         _displayLocation = displayLocation;
         return this;

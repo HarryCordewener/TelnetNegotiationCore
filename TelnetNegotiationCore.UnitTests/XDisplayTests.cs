@@ -297,11 +297,12 @@ public class XDisplayTests : BaseTest
         // Arrange
         var xdisplayPlugin = new XDisplayProtocol();
 
-        // Act & Assert
+        // Act & Assert - Test null
         await Assert.That(() => xdisplayPlugin.WithClientDisplayLocation(null!))
             .Throws<ArgumentNullException>();
         
+        // Act & Assert - Test empty string
         await Assert.That(() => xdisplayPlugin.WithClientDisplayLocation(string.Empty))
-            .Throws<ArgumentNullException>();
+            .Throws<ArgumentException>();
     }
 }
