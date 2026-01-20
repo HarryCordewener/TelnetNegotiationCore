@@ -16,6 +16,7 @@ namespace TelnetNegotiationCore.Protocols;
 /// <remarks>
 /// This protocol optionally accepts configuration. Call <see cref="OnEchoStateChanged"/> to set up
 /// the callback that will be notified when echo state changes.
+/// To enable automatic echoing, call <see cref="UseDefaultEchoHandler"/> which will echo received bytes back to the client.
 /// </remarks>
 [RequiredMethod("OnEchoStateChanged", Description = "Configure the callback to handle echo state changes (optional but recommended)")]
 public class EchoProtocol : TelnetProtocolPluginBase
@@ -23,6 +24,8 @@ public class EchoProtocol : TelnetProtocolPluginBase
     private bool? _willEcho = null;
 
     private Func<bool, ValueTask>? _onEchoStateChanged;
+    
+    private Func<byte, System.Text.Encoding, ValueTask>? _echoHandler;
 
     /// <summary>
     /// Sets the callback that is invoked when echo state changes.
@@ -34,6 +37,34 @@ public class EchoProtocol : TelnetProtocolPluginBase
         _onEchoStateChanged = callback;
         return this;
     }
+
+    /// <summary>
+    /// Configures this protocol to use the default echo handler.
+    /// When echo is enabled (server mode), received bytes will automatically be sent back to the client.
+    /// </summary>
+    /// <returns>This instance for fluent chaining</returns>
+    public EchoProtocol UseDefaultEchoHandler()
+    {
+        _echoHandler = DefaultEchoHandlerAsync;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets a custom echo handler to process bytes when echo is enabled.
+    /// </summary>
+    /// <param name="handler">Custom handler that receives byte and encoding</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public EchoProtocol WithEchoHandler(Func<byte, System.Text.Encoding, ValueTask>? handler)
+    {
+        _echoHandler = handler;
+        return this;
+    }
+
+    /// <summary>
+    /// Gets the echo handler for processing bytes. This can be installed as the interpreter's CallbackOnByteAsync.
+    /// </summary>
+    /// <returns>The echo handler function, or null if not configured</returns>
+    public Func<byte, System.Text.Encoding, ValueTask>? GetEchoHandler() => _echoHandler;
 
     /// <summary>
     /// Indicates whether this end is echoing characters (true = this end echoes, false = this end does not echo)
@@ -155,7 +186,35 @@ public class EchoProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnDisposeAsync()
     {
         _willEcho = null;
+        _echoHandler = null;
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Default echo handler that sends received bytes back to the client.
+    /// Only echoes when echo is enabled.
+    /// </summary>
+    private async ValueTask DefaultEchoHandlerAsync(byte b, System.Text.Encoding encoding)
+    {
+        if (!IsEnabled || !IsEchoing)
+            return;
+
+        Context.Logger.LogTrace("Echoing byte: {Byte}", b);
+        await Context.SendNegotiationAsync(new byte[] { b });
+    }
+
+    /// <summary>
+    /// Processes a byte through the echo handler if configured and echo is enabled.
+    /// This should be called from the interpreter's byte processing pipeline.
+    /// </summary>
+    /// <param name="b">The byte to process</param>
+    /// <param name="encoding">The current encoding</param>
+    public async ValueTask ProcessByteAsync(byte b, System.Text.Encoding encoding)
+    {
+        if (_echoHandler != null && IsEnabled && IsEchoing)
+        {
+            await _echoHandler(b, encoding);
+        }
     }
 
     #region State Machine Handlers

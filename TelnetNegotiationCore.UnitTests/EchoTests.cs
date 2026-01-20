@@ -318,4 +318,81 @@ public class EchoTests : BaseTest
         await _server_ti.WaitForProcessingAsync();
         await Assert.That(echoPlugin.IsEchoing).IsFalse();
     }
+
+    [Test]
+    public async Task DefaultEchoHandlerEchoesReceivedBytes()
+    {
+        // Create a server with default echo handler
+        var echoedBytes = new System.Collections.Generic.List<byte>();
+        
+        var testServer = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(WriteBackToOutput)
+            .OnNegotiation(async (bytes) =>
+            {
+                // Capture echoed bytes (but not negotiation sequences)
+                if (bytes.Length == 1)
+                {
+                    echoedBytes.Add(bytes[0]);
+                }
+                await ValueTask.CompletedTask;
+            })
+            .AddPlugin<EchoProtocol>()
+                .UseDefaultEchoHandler()
+            .BuildAsync();
+
+        // Enable echo
+        await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
+        await testServer.WaitForProcessingAsync();
+
+        // Send some test bytes
+        byte[] testBytes = new byte[] { (byte)'H', (byte)'e', (byte)'l', (byte)'l', (byte)'o' };
+        await testServer.InterpretByteArrayAsync(testBytes);
+        await testServer.WaitForProcessingAsync();
+
+        // Verify that the bytes were echoed back
+        await Assert.That(echoedBytes).HasCount().EqualTo(5);
+        await Assert.That(echoedBytes[0]).IsEqualTo((byte)'H');
+        await Assert.That(echoedBytes[1]).IsEqualTo((byte)'e');
+        await Assert.That(echoedBytes[2]).IsEqualTo((byte)'l');
+        await Assert.That(echoedBytes[3]).IsEqualTo((byte)'l');
+        await Assert.That(echoedBytes[4]).IsEqualTo((byte)'o');
+
+        await testServer.DisposeAsync();
+    }
+
+    [Test]
+    public async Task DefaultEchoHandlerDoesNotEchoWhenDisabled()
+    {
+        // Create a server with default echo handler
+        var echoedBytes = new System.Collections.Generic.List<byte>();
+        
+        var testServer = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(WriteBackToOutput)
+            .OnNegotiation(async (bytes) =>
+            {
+                // Capture echoed bytes
+                if (bytes.Length == 1)
+                {
+                    echoedBytes.Add(bytes[0]);
+                }
+                await ValueTask.CompletedTask;
+            })
+            .AddPlugin<EchoProtocol>()
+                .UseDefaultEchoHandler()
+            .BuildAsync();
+
+        // Do NOT enable echo - send bytes directly
+        byte[] testBytes = new byte[] { (byte)'H', (byte)'i' };
+        await testServer.InterpretByteArrayAsync(testBytes);
+        await testServer.WaitForProcessingAsync();
+
+        // Verify that no bytes were echoed
+        await Assert.That(echoedBytes).HasCount().EqualTo(0);
+
+        await testServer.DisposeAsync();
+    }
 }
