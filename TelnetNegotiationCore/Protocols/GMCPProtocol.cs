@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -210,7 +211,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
             return;
         }
 
-        var space = context.CurrentEncoding.GetBytes(" ").First();
+        const byte space = (byte)' ';  // Literal instead of GetBytes(" ").First()
         var firstSpace = gmcpBytes.FindIndex(x => x == space);
         
         if (firstSpace < 0)
@@ -219,9 +220,9 @@ public class GMCPProtocol : TelnetProtocolPluginBase
             return;
         }
 
-        var packageBytes = gmcpBytes.Take(firstSpace).ToArray();
-        var rest = gmcpBytes.Skip(firstSpace + 1).ToArray();
-        
+        // Use GetRange instead of Take/Skip for better performance
+        var packageBytes = gmcpBytes.GetRange(0, firstSpace).ToArray();
+        var rest = gmcpBytes.GetRange(firstSpace + 1, gmcpBytes.Count - firstSpace - 1).ToArray();
         var package = context.CurrentEncoding.GetString(packageBytes);
 
         if(package == "MSDP")

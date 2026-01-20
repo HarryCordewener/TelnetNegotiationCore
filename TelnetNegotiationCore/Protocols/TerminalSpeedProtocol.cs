@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -233,7 +234,7 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
             return;
         }
 
-        var speedString = Encoding.ASCII.GetString(_speedBuffer.ToArray());
+        var speedString = Encoding.ASCII.GetString(CollectionsMarshal.AsSpan(_speedBuffer));
         context.Logger.LogDebug("Connection: {ConnectionState}: {SpeedString}",
             "Received Terminal Speed", speedString);
 

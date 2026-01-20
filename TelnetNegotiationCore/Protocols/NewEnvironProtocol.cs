@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -327,8 +328,11 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     {
         if (_currentVar.Count > 0)
         {
-            var varName = Encoding.ASCII.GetString(_currentVar.ToArray());
-            var varValue = _currentValue.Count > 0 ? Encoding.ASCII.GetString(_currentValue.ToArray()) : string.Empty;
+            var varNameSpan = CollectionsMarshal.AsSpan(_currentVar);
+            var varName = Encoding.ASCII.GetString(varNameSpan);
+            var varValue = _currentValue.Count > 0 
+                ? Encoding.ASCII.GetString(CollectionsMarshal.AsSpan(_currentValue)) 
+                : string.Empty;
 
             if (_isUserVar)
             {

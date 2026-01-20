@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -227,7 +228,7 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
             return;
         }
 
-        var displayString = Encoding.ASCII.GetString(_displayBuffer.ToArray());
+        var displayString = Encoding.ASCII.GetString(CollectionsMarshal.AsSpan(_displayBuffer));
         context.Logger.LogDebug("Connection: {ConnectionState}: {DisplayLocation}",
             "Received X Display Location", displayString);
 

@@ -1,7 +1,9 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using OneOf;
@@ -243,13 +245,16 @@ public class MSSPProtocol : TelnetProtocolPluginBase
             // Process all variable-value pairs
             for (int i = 0; i < Math.Min(_currentMSSPVariableList.Count, _currentMSSPValueList.Count); i++)
             {
-                var variableName = System.Text.Encoding.ASCII.GetString(_currentMSSPVariableList[i].ToArray()).ToUpper();
+                // Use CollectionsMarshal.AsSpan for zero-copy string conversion
+                var variableBytes = CollectionsMarshal.AsSpan(_currentMSSPVariableList[i]);
+                var variableName = System.Text.Encoding.ASCII.GetString(variableBytes).ToUpper();
                 
                 // Use generated accessor instead of reflection
                 if (MSSPConfigAccessor.PropertyMap.ContainsKey(variableName))
                 {
-                    // Get the value bytes and convert to string
-                    var valueString = System.Text.Encoding.ASCII.GetString(_currentMSSPValueList[i].ToArray());
+                    // Get the value bytes and convert to string using span
+                    var valueBytes = CollectionsMarshal.AsSpan(_currentMSSPValueList[i]);
+                    var valueString = System.Text.Encoding.ASCII.GetString(valueBytes);
                     
                     // Use the generated accessor to set the property (zero reflection!)
                     if (MSSPConfigAccessor.TrySetProperty(config, variableName, valueString))
@@ -434,11 +439,13 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 
         for (int i = 0; i < Math.Min(_currentMSSPVariableList.Count, _currentMSSPValueList.Count); i++)
         {
-            var variableName = System.Text.Encoding.ASCII.GetString(_currentMSSPVariableList[i].ToArray()).ToUpper();
+            var variableBytes = CollectionsMarshal.AsSpan(_currentMSSPVariableList[i]);
+            var variableName = System.Text.Encoding.ASCII.GetString(variableBytes).ToUpper();
             
             if (MSSPConfigAccessor.PropertyMap.ContainsKey(variableName))
             {
-                var valueString = System.Text.Encoding.ASCII.GetString(_currentMSSPValueList[i].ToArray());
+                var valueBytes = CollectionsMarshal.AsSpan(_currentMSSPValueList[i]);
+                var valueString = System.Text.Encoding.ASCII.GetString(valueBytes);
                 
                 if (MSSPConfigAccessor.TrySetProperty(config, variableName, valueString))
                 {
