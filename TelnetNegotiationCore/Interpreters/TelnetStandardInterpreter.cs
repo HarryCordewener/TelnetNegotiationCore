@@ -285,13 +285,13 @@ public partial class TelnetInterpreter
             byte[] cp;
             if (_bufferPosition <= 512)
             {
-                Span<byte> stackBuffer = stackalloc byte[_bufferPosition];
-                _buffer.AsSpan()[.._bufferPosition].CopyTo(stackBuffer);
-                cp = stackBuffer.ToArray(); // Still need array for callback
+                // For small buffers, allocate directly - no intermediate stackalloc needed
+                // since we must create a byte[] for the callback anyway
+                cp = _buffer.AsSpan()[.._bufferPosition].ToArray();
             }
             else
             {
-                // Rent from pool for larger buffers
+                // Rent from pool for larger buffers to reduce allocations
                 rentedBuffer = ArrayPool<byte>.Shared.Rent(_bufferPosition);
                 _buffer.AsSpan()[.._bufferPosition].CopyTo(rentedBuffer);
                 cp = rentedBuffer[.._bufferPosition];

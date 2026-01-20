@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -220,10 +221,11 @@ public class GMCPProtocol : TelnetProtocolPluginBase
             return;
         }
 
-        // Use GetRange instead of Take/Skip for better performance
-        var packageBytes = gmcpBytes.GetRange(0, firstSpace).ToArray();
-        var rest = gmcpBytes.GetRange(firstSpace + 1, gmcpBytes.Count - firstSpace - 1).ToArray();
-        var package = context.CurrentEncoding.GetString(packageBytes);
+        // Use CollectionsMarshal.AsSpan with slicing for zero-copy access
+        var gmcpSpan = CollectionsMarshal.AsSpan(gmcpBytes);
+        var packageBytes = gmcpSpan[..firstSpace].ToArray();
+        var rest = gmcpSpan[(firstSpace + 1)..].ToArray();
+        var package = context.CurrentEncoding.GetString(gmcpSpan[..firstSpace]);
 
         if(package == "MSDP")
         {

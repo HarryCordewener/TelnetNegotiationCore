@@ -48,11 +48,8 @@ public partial class TelnetInterpreter
 	private byte[] TelnetSafeBytesInternal(ReadOnlySpan<byte> input)
 	{
 		// Count how many 255s we have to determine final size
-		int count255 = 0;
-		foreach (var bt in input)
-		{
-			if (bt == 255) count255++;
-		}
+		// Use MemoryExtensions.Count for optimized SIMD counting
+		int count255 = input.Count((byte)255);
 
 		// If no 255s, return a copy of the input
 		if (count255 == 0)
