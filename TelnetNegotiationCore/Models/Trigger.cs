@@ -243,14 +243,14 @@ public enum Trigger : short
 	/// </remarks>
 	LINEMODE_MODE = 1,
 	/// <summary>
-	/// X-Display Location (Unsupported)
+	/// X-Display Location
 	/// </summary>
 	/// <remarks>
 	/// RFC 1096: http://www.faqs.org/rfcs/rfc1096.html
 	/// </remarks>
 	XDISPLOC = 35,
 	/// <summary>
-	/// Environment (Unsupported)
+	/// Environment
 	/// </summary>
 	/// <remarks>
 	/// RFC 1408: http://www.faqs.org/rfcs/rfc1408.html

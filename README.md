@@ -33,7 +33,7 @@ This library is in a stable state. The legacy API remains fully supported for ba
 | [RFC 1079](http://www.faqs.org/rfcs/rfc1079.html)   | Terminal Speed Negotiation         | Full       |                    |
 | [RFC 1372](http://www.faqs.org/rfcs/rfc1372.html)   | Flow Control Negotiation           | Full       |                    |
 | [RFC 1184](http://www.faqs.org/rfcs/rfc1184.html)   | Line Mode Negotiation              | Full       | MODE support       |
-| [RFC 1096](http://www.faqs.org/rfcs/rfc1096.html)   | X-Display Negotiation              | No         | Rejects            |
+| [RFC 1096](http://www.faqs.org/rfcs/rfc1096.html)   | X-Display Negotiation              | Full       |                    |
 | [RFC 1408](http://www.faqs.org/rfcs/rfc1408.html)   | Environment Negotiation            | Full       |                    | 
 | [RFC 2941](http://www.faqs.org/rfcs/rfc2941.html)   | Authentication Negotiation         | Full       |                    |
 | [RFC 2946](http://www.faqs.org/rfcs/rfc2946.html)   | Encryption Negotiation             | Full       |                    |
@@ -525,6 +525,66 @@ var telnet = await new TelnetInterpreterBuilder()
 - **Compatibility**: Support legacy systems that rely on terminal speed information
 
 **Note:** Most modern applications don't need terminal speed information as network speeds far exceed terminal speeds. This protocol is primarily useful for compatibility with legacy systems or specialized use cases.
+
+### Using X-Display Location Protocol
+The X-Display Location protocol (RFC 1096) allows clients and servers to exchange X Window System display location information. This is useful for X11 applications that need to know where to display their GUI.
+
+#### Server Side
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<XDisplayProtocol>()
+        .OnDisplayLocation((displayLocation) => 
+        {
+            logger.LogInformation("Client X display location: {DisplayLocation}", displayLocation);
+            return ValueTask.CompletedTask;
+        })
+    .BuildAsync();
+```
+
+The server automatically announces support and requests the X display location from clients that support it.
+
+#### Client Side
+The client automatically responds to server requests for X display location. You can customize the display location to send:
+
+```csharp
+// Option 1: Use default (empty display location)
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<XDisplayProtocol>()
+    .BuildAsync();
+
+// Option 2: Configure custom X display location
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<XDisplayProtocol>()
+        .WithClientDisplayLocation("localhost:0.0")  // Standard X display format
+    .BuildAsync();
+```
+
+#### Display Location Format
+The X display location typically follows the format: `hostname:displaynumber.screennumber`
+
+Examples:
+- `localhost:0.0` - Local X server, display 0, screen 0
+- `192.168.1.100:0` - Remote X server at specific IP
+- `myhost.example.com:10.0` - Remote X server via hostname
+
+#### Use Cases
+- **X11 Forwarding**: Enable X Window System applications to display on client's screen
+- **Remote Desktop**: Support applications that need to know the display location
+- **Legacy Unix Systems**: Compatibility with older Unix/Linux systems using X11
+
+**Note:** This protocol is primarily useful for X Window System applications. Modern applications often use different display protocols (like VNC, RDP, or web-based interfaces).
 
 ### Using Flow Control Protocol
 The Flow Control protocol (RFC 1372) allows servers to remotely control software flow control settings (XON/XOFF) on the client. This is useful for controlling when clients can send data and configuring restart behavior.
