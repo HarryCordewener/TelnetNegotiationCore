@@ -22,6 +22,12 @@ namespace TelnetNegotiationCore.Protocols;
 /// </remarks>
 public class FlowControlProtocol : TelnetProtocolPluginBase
 {
+    // Flow control command constants per RFC 1372
+    private const int CMD_OFF = 0;
+    private const int CMD_ON = 1;
+    private const int CMD_RESTART_ANY = 2;
+    private const int CMD_RESTART_XON = 3;
+    
     private bool _flowControlEnabled = false;
     private FlowControlRestartMode _restartMode = FlowControlRestartMode.SystemDefault;
     
@@ -145,10 +151,10 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
         // Configure parameterized trigger handlers to capture the command
         var interpreter = context.Interpreter;
         stateMachine.Configure(State.NegotiatingFLOWCONTROL)
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.FLOWCONTROL_OFF), _ => CaptureCommand(0))
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.FLOWCONTROL_ON), _ => CaptureCommand(1))
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.FLOWCONTROL_RESTART_ANY), _ => CaptureCommand(2))
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.FLOWCONTROL_RESTART_XON), _ => CaptureCommand(3))
+            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.FLOWCONTROL_OFF), _ => CaptureCommand(CMD_OFF))
+            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.FLOWCONTROL_ON), _ => CaptureCommand(CMD_ON))
+            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.FLOWCONTROL_RESTART_ANY), _ => CaptureCommand(CMD_RESTART_ANY))
+            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.FLOWCONTROL_RESTART_XON), _ => CaptureCommand(CMD_RESTART_XON))
             .Permit(Trigger.IAC, State.CompletingFLOWCONTROL);
 
         stateMachine.Configure(State.CompletingFLOWCONTROL)
@@ -203,15 +209,11 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
-    protected override async ValueTask OnProtocolEnabledAsync()
+    protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("Flow Control Protocol enabled");
-        
-        // Per RFC 1372, flow control must be enabled when negotiation completes
-        if (Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client)
-        {
-            await SetFlowControlStateAsync(true);
-        }
+        // Flow control state will be set by WillFlowControlAsync when negotiation completes
+        return ValueTask.CompletedTask;
     }
 
     /// <inheritdoc />
@@ -329,7 +331,7 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
 
     private async ValueTask CompleteFlowControlAsync(IProtocolContext context)
     {
-        if (_lastCommand < 0 || _lastCommand > 3)
+        if (_lastCommand < CMD_OFF || _lastCommand > CMD_RESTART_XON)
         {
             context.Logger.LogWarning("Invalid flow control command: {Command}", _lastCommand);
             return;
@@ -340,16 +342,16 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
 
         switch (_lastCommand)
         {
-            case 0: // OFF
+            case CMD_OFF:
                 await SetFlowControlStateAsync(false);
                 break;
-            case 1: // ON
+            case CMD_ON:
                 await SetFlowControlStateAsync(true);
                 break;
-            case 2: // RESTART_ANY
+            case CMD_RESTART_ANY:
                 await SetRestartModeAsync(FlowControlRestartMode.RestartAny);
                 break;
-            case 3: // RESTART_XON
+            case CMD_RESTART_XON:
                 await SetRestartModeAsync(FlowControlRestartMode.RestartXON);
                 break;
         }
