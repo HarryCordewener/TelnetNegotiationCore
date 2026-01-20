@@ -137,4 +137,18 @@ public static class PluginConfigurationExtensions
         context.Plugin.OnEnvironmentVariables(callback);
         return context;
     }
+
+    /// <summary>
+    /// Sets the MCCP compression state callback in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle compression state changes (version: 2 or 3, enabled: true/false)</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MCCPProtocol> OnCompressionEnabled(
+        this PluginConfigurationContext<MCCPProtocol> context,
+        Func<int, bool, ValueTask>? callback)
+    {
+        context.Plugin.OnCompressionEnabled(callback);
+        return context;
+    }
 }

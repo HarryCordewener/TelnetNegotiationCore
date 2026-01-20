@@ -15,6 +15,7 @@ public static class TelnetInterpreterBuilderExtensions
     /// <summary>
     /// Adds all default MUD protocols to the interpreter with optional configuration.
     /// This includes: NAWS, GMCP, MSSP, Terminal Type, Charset, EOR, and Suppress Go-Ahead.
+    /// Optionally includes MCCP (compression) if callback is provided.
     /// </summary>
     /// <param name="builder">The builder instance</param>
     /// <param name="onNAWS">Optional callback for NAWS (window size) events</param>
@@ -24,6 +25,7 @@ public static class TelnetInterpreterBuilderExtensions
     /// <param name="onMSDPMessage">Optional callback for MSDP message events</param>
     /// <param name="onPrompt">Optional callback for prompt events (EOR/SuppressGoAhead)</param>
     /// <param name="charsetOrder">Optional ordered list of preferred character encodings</param>
+    /// <param name="onCompressionEnabled">Optional callback for MCCP compression state changes. If provided, MCCP protocol is added.</param>
     /// <returns>The builder for method chaining</returns>
     public static TelnetInterpreterBuilder AddDefaultMUDProtocols(
         this TelnetInterpreterBuilder builder,
@@ -33,7 +35,8 @@ public static class TelnetInterpreterBuilderExtensions
         Func<MSSPConfig>? msspConfig = null,
         Func<Interpreters.TelnetInterpreter, string, ValueTask>? onMSDPMessage = null,
         Func<ValueTask>? onPrompt = null,
-        Encoding[]? charsetOrder = null)
+        Encoding[]? charsetOrder = null,
+        Func<int, bool, ValueTask>? onCompressionEnabled = null)
     {
         if (builder == null)
             throw new ArgumentNullException(nameof(builder));
@@ -78,6 +81,14 @@ public static class TelnetInterpreterBuilderExtensions
         if (onPrompt != null)
             sgaContext = sgaContext.OnPrompt(onPrompt);
 
+        // Add MCCP protocol if compression callback is provided
+        if (onCompressionEnabled != null)
+        {
+            var mccpContext = sgaContext.AddPlugin<MCCPProtocol>();
+            mccpContext = mccpContext.OnCompressionEnabled(onCompressionEnabled);
+            return mccpContext;
+        }
+
         return sgaContext;
     }
 
@@ -90,6 +101,6 @@ public static class TelnetInterpreterBuilderExtensions
     /// <returns>The builder for method chaining</returns>
     public static TelnetInterpreterBuilder AddDefaultMUDProtocols(this TelnetInterpreterBuilder builder)
     {
-        return AddDefaultMUDProtocols(builder, null, null, null, null, null, null, null);
+        return AddDefaultMUDProtocols(builder, null, null, null, null, null, null, null, null);
     }
 }
