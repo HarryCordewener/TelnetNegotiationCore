@@ -230,12 +230,17 @@ public enum Trigger : short
 	FLOWCONTROL = 33,
 	/// <summary>
 	/// Linemode option
-	/// Sub-negotiation LINEMODE MODE command
 	/// </summary>
 	/// <remarks>
 	/// RFC 1184: http://www.faqs.org/rfcs/rfc1184.html
 	/// </remarks>
 	LINEMODE = 34,
+	/// <summary>
+	/// Sub-negotiation LINEMODE MODE command
+	/// </summary>
+	/// <remarks>
+	/// RFC 1184: http://www.faqs.org/rfcs/rfc1184.html
+	/// </remarks>
 	LINEMODE_MODE = 1,
 	/// <summary>
 	/// X-Display Location (Unsupported)

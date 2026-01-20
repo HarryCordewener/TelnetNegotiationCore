@@ -36,6 +36,11 @@ public class LineModeProtocol : TelnetProtocolPluginBase
     private const byte MODE_SOFT_TAB = 0x08;
     private const byte MODE_LIT_ECHO = 0x10;
     
+    // Subnegotiation type constants
+    private const int SUBNEG_TYPE_MODE = 1;
+    private const int SUBNEG_TYPE_FORWARDMASK = 2;
+    private const int SUBNEG_TYPE_SLC = 3;
+    
     private byte _currentMode = 0;
     private bool _lineModeEnabled = false;
     
@@ -145,9 +150,9 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         // Configure parameterized trigger handlers to capture the mode data
         var interpreter = context.Interpreter;
         stateMachine.Configure(State.NegotiatingLINEMODE)
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_MODE), _ => CaptureSubnegotiationType(1))
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_FORWARDMASK), _ => CaptureSubnegotiationType(2))
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_SLC), _ => CaptureSubnegotiationType(3))
+            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_MODE), _ => CaptureSubnegotiationType(SUBNEG_TYPE_MODE))
+            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_FORWARDMASK), _ => CaptureSubnegotiationType(SUBNEG_TYPE_FORWARDMASK))
+            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_SLC), _ => CaptureSubnegotiationType(SUBNEG_TYPE_SLC))
             .Permit(Trigger.IAC, State.CompletingLINEMODE)
             .PermitDynamic(Trigger.ReadNextCharacter, () => State.EvaluatingLINEMODE);
 
@@ -183,9 +188,9 @@ public class LineModeProtocol : TelnetProtocolPluginBase
 
         var interpreter = context.Interpreter;
         stateMachine.Configure(State.NegotiatingLINEMODE)
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_MODE), _ => CaptureSubnegotiationType(1))
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_FORWARDMASK), _ => CaptureSubnegotiationType(2))
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_SLC), _ => CaptureSubnegotiationType(3))
+            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_MODE), _ => CaptureSubnegotiationType(SUBNEG_TYPE_MODE))
+            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_FORWARDMASK), _ => CaptureSubnegotiationType(SUBNEG_TYPE_FORWARDMASK))
+            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_SLC), _ => CaptureSubnegotiationType(SUBNEG_TYPE_SLC))
             .Permit(Trigger.IAC, State.CompletingLINEMODE)
             .PermitDynamic(Trigger.ReadNextCharacter, () => State.EvaluatingLINEMODE);
 
@@ -359,7 +364,7 @@ public class LineModeProtocol : TelnetProtocolPluginBase
 
     private async ValueTask CompleteLineModeAsync(IProtocolContext context)
     {
-        if (_subnegotiationType == 1) // MODE
+        if (_subnegotiationType == SUBNEG_TYPE_MODE)
         {
             if (_buffer.Count > 0)
             {
@@ -411,11 +416,11 @@ public class LineModeProtocol : TelnetProtocolPluginBase
                 }
             }
         }
-        else if (_subnegotiationType == 2) // FORWARDMASK
+        else if (_subnegotiationType == SUBNEG_TYPE_FORWARDMASK)
         {
             context.Logger.LogDebug("Received FORWARDMASK subnegotiation (not implemented)");
         }
-        else if (_subnegotiationType == 3) // SLC
+        else if (_subnegotiationType == SUBNEG_TYPE_SLC)
         {
             context.Logger.LogDebug("Received SLC subnegotiation (not implemented)");
         }
