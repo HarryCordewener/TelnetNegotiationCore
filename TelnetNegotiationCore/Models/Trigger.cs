@@ -142,7 +142,7 @@ public enum Trigger : short
 	FLOWCONTROL_RESTART_XON = 3,
 	LINEMODE_SLC = 3,
 	/// <summary>
-	/// Sub-negotiation TTABLE-IS command. (Unsupported)
+	/// Sub-negotiation TTABLE-IS command.
 	/// Sub-negotiation MSDP_TABLE_CLOSE
 	/// </summary>
 	/// <remarks>
@@ -152,7 +152,7 @@ public enum Trigger : short
 	TTABLE_IS = 4,
 	MSDP_TABLE_CLOSE = 4,
 	/// <summary>
-	/// Sub-negotiation TTABLE_REJECTED command. (Unsupported)
+	/// Sub-negotiation TTABLE_REJECTED command.
 	/// Sub-negotiation MSDP_ARRAY_OPEN
 	/// </summary>
 	/// <remarks>
@@ -161,7 +161,7 @@ public enum Trigger : short
 	TTABLE_REJECTED = 5,
 	MSDP_ARRAY_OPEN = 5,
 	/// <summary>
-	/// Sub-negotiation TTABLE_ACK command. (Unsupported)
+	/// Sub-negotiation TTABLE_ACK command.
 	/// Sub-negotiation MSDP_ARRAY_CLOSE   
 	/// </summary>
 	/// <remarks>
@@ -170,7 +170,7 @@ public enum Trigger : short
 	TTABLE_ACK = 6,
 	MSDP_ARRAY_CLOSE = 6,
 	/// <summary>
-	/// Sub-negotiation TTABLE_NAK command. (Unsupported)
+	/// Sub-negotiation TTABLE_NAK command.
 	/// </summary>
 	/// <remarks>
 	/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
