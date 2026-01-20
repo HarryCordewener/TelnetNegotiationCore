@@ -340,14 +340,12 @@ public class LineModeProtocol : TelnetProtocolPluginBase
             (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.LINEMODE
         });
         await SetLineModeStateAsync(true);
-        await OnProtocolEnabledAsync();
     }
 
     private async ValueTask OnDontLineModeAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server doesn't want line mode - do nothing");
         await SetLineModeStateAsync(false);
-        await OnProtocolDisabledAsync();
     }
 
     private async ValueTask SendDoLineModeAsync(IProtocolContext context)
