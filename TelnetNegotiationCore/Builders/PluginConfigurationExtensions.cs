@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Protocols;
 
@@ -289,6 +290,51 @@ public static class PluginConfigurationExtensions
         Func<byte, ValueTask>? callback)
     {
         context.Plugin.OnModeChanged(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the authentication request callback in a fluent manner (RFC 2941).
+    /// This callback is invoked when a client receives an authentication request from the server.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle authentication requests. Receives the list of auth type pairs,
+    /// should return the authentication response data (auth type, modifiers, and credentials), or null to reject with NULL.</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<AuthenticationProtocol> OnAuthenticationRequest(
+        this PluginConfigurationContext<AuthenticationProtocol> context,
+        Func<byte[], ValueTask<byte[]?>>? callback)
+    {
+        context.Plugin.OnAuthenticationRequest(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the authentication response callback in a fluent manner (RFC 2941).
+    /// This callback is invoked when a server receives an authentication response from the client.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle authentication responses from clients</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<AuthenticationProtocol> OnAuthenticationResponse(
+        this PluginConfigurationContext<AuthenticationProtocol> context,
+        Func<byte[], ValueTask>? callback)
+    {
+        context.Plugin.OnAuthenticationResponse(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the supported authentication types for the server in a fluent manner (RFC 2941).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="provider">Function that provides the list of supported authentication type pairs</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<AuthenticationProtocol> WithAuthenticationTypes(
+        this PluginConfigurationContext<AuthenticationProtocol> context,
+        Func<ValueTask<List<(byte AuthType, byte Modifiers)>>>? provider)
+    {
+        context.Plugin.WithAuthenticationTypes(provider);
         return context;
     }
 }

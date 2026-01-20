@@ -250,4 +250,163 @@ public class AuthenticationTests : BaseTest
         await Assert.That(clientIsNull[3]).IsEqualTo((byte)0); // IS
         await Assert.That(clientIsNull[4]).IsEqualTo((byte)0); // NULL type
     }
+
+    [Test]
+    public async Task ServerCanProvideCustomAuthenticationTypes()
+    {
+        // Arrange - Server with custom auth types
+        var authTypesCalled = false;
+        await _server_ti.DisposeAsync();
+        _server_ti = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(WriteBackToOutput)
+            .OnNegotiation(WriteBackToNegotiate)
+            .AddPlugin<AuthenticationProtocol>()
+                .WithAuthenticationTypes(async () =>
+                {
+                    authTypesCalled = true;
+                    return new System.Collections.Generic.List<(byte, byte)>
+                    {
+                        (5, 0), // SRP with no modifiers
+                        (6, 2)  // RSA with AUTH_HOW_MUTUAL
+                    };
+                })
+            .BuildAsync();
+
+        _negotiationOutput = null;
+
+        // Act - Client sends WILL
+        await _server_ti.InterpretByteArrayAsync(new byte[] 
+        { 
+            (byte)Trigger.IAC, 
+            (byte)Trigger.WILL, 
+            (byte)Trigger.AUTHENTICATION 
+        });
+        await _server_ti.WaitForProcessingAsync();
+
+        // Assert - Server should send SEND with auth types
+        await Assert.That(authTypesCalled).IsTrue();
+        await Assert.That(_negotiationOutput).IsNotNull();
+        await Assert.That(_negotiationOutput[0]).IsEqualTo((byte)Trigger.IAC);
+        await Assert.That(_negotiationOutput[1]).IsEqualTo((byte)Trigger.SB);
+        await Assert.That(_negotiationOutput[2]).IsEqualTo((byte)Trigger.AUTHENTICATION);
+        await Assert.That(_negotiationOutput[3]).IsEqualTo((byte)1); // SEND
+        await Assert.That(_negotiationOutput[4]).IsEqualTo((byte)5); // SRP
+        await Assert.That(_negotiationOutput[5]).IsEqualTo((byte)0); // No modifiers
+        await Assert.That(_negotiationOutput[6]).IsEqualTo((byte)6); // RSA
+        await Assert.That(_negotiationOutput[7]).IsEqualTo((byte)2); // AUTH_HOW_MUTUAL
+    }
+
+    [Test]
+    public async Task ClientCanProvideCustomAuthenticationResponse()
+    {
+        // Arrange - Client with custom auth response handler
+        byte[] receivedRequest = null;
+        await _client_ti.DisposeAsync();
+        _client_ti = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit(WriteBackToOutput)
+            .OnNegotiation(WriteBackToNegotiate)
+            .AddPlugin<AuthenticationProtocol>()
+                .OnAuthenticationRequest(async (authTypePairs) =>
+                {
+                    receivedRequest = authTypePairs;
+                    // Return a custom auth response (e.g., SRP with some data)
+                    return new byte[] { 5, 0, 0x01, 0x02, 0x03 }; // SRP, no modifiers, some data
+                })
+            .BuildAsync();
+
+        // Establish WILL/DO first
+        await _client_ti.InterpretByteArrayAsync(new byte[] 
+        { 
+            (byte)Trigger.IAC, 
+            (byte)Trigger.DO, 
+            (byte)Trigger.AUTHENTICATION 
+        });
+        await _client_ti.WaitForProcessingAsync();
+        
+        _negotiationOutput = null;
+
+        // Act - Client receives SEND with auth types
+        await _client_ti.InterpretByteArrayAsync(new byte[]
+        {
+            (byte)Trigger.IAC,
+            (byte)Trigger.SB,
+            (byte)Trigger.AUTHENTICATION,
+            1, // SEND
+            5, 0, // SRP, no modifiers
+            6, 2, // RSA, AUTH_HOW_MUTUAL
+            (byte)Trigger.IAC,
+            (byte)Trigger.SE
+        });
+        await _client_ti.WaitForProcessingAsync();
+
+        // Assert - Client should send custom IS response
+        await Assert.That(receivedRequest).IsNotNull();
+        await Assert.That(receivedRequest.Length).IsEqualTo(4); // Two auth type pairs
+        await Assert.That(_negotiationOutput).IsNotNull();
+        await Assert.That(_negotiationOutput[0]).IsEqualTo((byte)Trigger.IAC);
+        await Assert.That(_negotiationOutput[1]).IsEqualTo((byte)Trigger.SB);
+        await Assert.That(_negotiationOutput[2]).IsEqualTo((byte)Trigger.AUTHENTICATION);
+        await Assert.That(_negotiationOutput[3]).IsEqualTo((byte)0); // IS
+        await Assert.That(_negotiationOutput[4]).IsEqualTo((byte)5); // SRP
+        await Assert.That(_negotiationOutput[5]).IsEqualTo((byte)0); // No modifiers
+        await Assert.That(_negotiationOutput[6]).IsEqualTo((byte)0x01); // Custom data
+        await Assert.That(_negotiationOutput[7]).IsEqualTo((byte)0x02);
+        await Assert.That(_negotiationOutput[8]).IsEqualTo((byte)0x03);
+    }
+
+    [Test]
+    public async Task ServerCanReceiveAndProcessAuthenticationResponse()
+    {
+        // Arrange - Server with auth response handler
+        byte[] receivedAuthData = null;
+        await _server_ti.DisposeAsync();
+        _server_ti = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(WriteBackToOutput)
+            .OnNegotiation(WriteBackToNegotiate)
+            .AddPlugin<AuthenticationProtocol>()
+                .OnAuthenticationResponse(async (authData) =>
+                {
+                    receivedAuthData = authData;
+                    await ValueTask.CompletedTask;
+                })
+            .BuildAsync();
+
+        // Establish DO/WILL first
+        await _server_ti.InterpretByteArrayAsync(new byte[] 
+        { 
+            (byte)Trigger.IAC, 
+            (byte)Trigger.WILL, 
+            (byte)Trigger.AUTHENTICATION 
+        });
+        await _server_ti.WaitForProcessingAsync();
+
+        // Act - Server receives IS with auth data from client
+        await _server_ti.InterpretByteArrayAsync(new byte[]
+        {
+            (byte)Trigger.IAC,
+            (byte)Trigger.SB,
+            (byte)Trigger.AUTHENTICATION,
+            0, // IS
+            5, 0, // SRP, no modifiers
+            0x01, 0x02, 0x03, // Some auth data
+            (byte)Trigger.IAC,
+            (byte)Trigger.SE
+        });
+        await _server_ti.WaitForProcessingAsync();
+
+        // Assert - Server should have received the auth data
+        await Assert.That(receivedAuthData).IsNotNull();
+        await Assert.That(receivedAuthData.Length).IsEqualTo(5); // Auth type, modifiers, and 3 bytes of data
+        await Assert.That(receivedAuthData[0]).IsEqualTo((byte)5); // SRP
+        await Assert.That(receivedAuthData[1]).IsEqualTo((byte)0); // No modifiers
+        await Assert.That(receivedAuthData[2]).IsEqualTo((byte)0x01);
+        await Assert.That(receivedAuthData[3]).IsEqualTo((byte)0x02);
+        await Assert.That(receivedAuthData[4]).IsEqualTo((byte)0x03);
+    }
 }
