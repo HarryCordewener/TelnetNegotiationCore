@@ -102,12 +102,14 @@ public enum Trigger : short
 	/// Sub-negotiation NEW-ENVIRON INFO command
 	/// Sub-negotiation NEW-ENVIRON ESC command
 	/// Sub-negotiation FLOWCONTROL RESTART_ANY command
+	/// Sub-negotiation LINEMODE FORWARDMASK command
 	/// </summary>
 	/// <remarks>
 	/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
 	/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 	/// RFC 1572: http://www.faqs.org/rfcs/rfc1572.html
 	/// RFC 1372: http://www.faqs.org/rfcs/rfc1372.html
+	/// RFC 1184: http://www.faqs.org/rfcs/rfc1184.html
 	/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
 	/// </remarks>
 	MSSP_VAL = 2,
@@ -116,18 +118,21 @@ public enum Trigger : short
 	NEWENVIRON_INFO = 2,
 	NEWENVIRON_ESC = 2,
 	FLOWCONTROL_RESTART_ANY = 2,
+	LINEMODE_FORWARDMASK = 2,
 	/// <summary>
 	/// Sub-negotiation REJECTED command.	
 	/// Suppress Go Ahead
 	/// Sub-negotiation MSDP_TABLE_OPEN
 	/// Sub-negotiation NEW-ENVIRON USERVAR command
 	/// Sub-negotiation FLOWCONTROL RESTART_XON command
+	/// Sub-negotiation LINEMODE SLC command
 	/// </summary>
 	/// <remarks>
 	/// RFC 858: http://www.faqs.org/rfcs/rfc858.html
 	/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 	/// RFC 1572: http://www.faqs.org/rfcs/rfc1572.html
 	/// RFC 1372: http://www.faqs.org/rfcs/rfc1372.html
+	/// RFC 1184: http://www.faqs.org/rfcs/rfc1184.html
 	/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
 	/// </remarks>
 	SUPPRESSGOAHEAD = 3,
@@ -135,6 +140,7 @@ public enum Trigger : short
 	MSDP_TABLE_OPEN = 3,
 	NEWENVIRON_USERVAR = 3,
 	FLOWCONTROL_RESTART_XON = 3,
+	LINEMODE_SLC = 3,
 	/// <summary>
 	/// Sub-negotiation TTABLE-IS command. (Unsupported)
 	/// Sub-negotiation MSDP_TABLE_CLOSE
@@ -223,12 +229,19 @@ public enum Trigger : short
 	/// </remarks>
 	FLOWCONTROL = 33,
 	/// <summary>
-	/// Linemode option (Unsupported)
+	/// Linemode option
 	/// </summary>
 	/// <remarks>
 	/// RFC 1184: http://www.faqs.org/rfcs/rfc1184.html
 	/// </remarks>
 	LINEMODE = 34,
+	/// <summary>
+	/// Sub-negotiation LINEMODE MODE command
+	/// </summary>
+	/// <remarks>
+	/// RFC 1184: http://www.faqs.org/rfcs/rfc1184.html
+	/// </remarks>
+	LINEMODE_MODE = 1,
 	/// <summary>
 	/// X-Display Location (Unsupported)
 	/// </summary>

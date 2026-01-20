@@ -172,6 +172,17 @@ public enum State : short
 	WontFLOWCONTROL,
 	AlmostNegotiatingFLOWCONTROL,
 	NegotiatingFLOWCONTROL,
-	CompletingFLOWCONTROL
+	CompletingFLOWCONTROL,
 	#endregion Flow Control Negotiation
+	#region Line Mode Negotiation
+	DoLINEMODE,
+	DontLINEMODE,
+	WillLINEMODE,
+	WontLINEMODE,
+	AlmostNegotiatingLINEMODE,
+	NegotiatingLINEMODE,
+	EvaluatingLINEMODE,
+	EscapingLINEMODEValue,
+	CompletingLINEMODE
+	#endregion Line Mode Negotiation
 }
