@@ -20,7 +20,6 @@ namespace TelnetNegotiationCore.Protocols;
 /// Consumers can inject custom authentication behavior via callbacks to
 /// handle specific authentication mechanisms.
 /// </remarks>
-[RequiredMethod("OnAuthenticationRequest", Description = "Configure the callback to handle authentication requests (optional)")]
 public class AuthenticationProtocol : TelnetProtocolPluginBase
 {
     /// <summary>
