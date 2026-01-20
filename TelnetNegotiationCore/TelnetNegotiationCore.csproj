@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>net10.0</TargetFramework>
+		<TargetFrameworks>net8.0;net10.0</TargetFrameworks>
 		<LangVersion>latest</LangVersion>
 		<Version>2.0.0</Version>
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
@@ -45,14 +45,20 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<Content Include="$(TargetDir)\TelnetNegotiationCore.Functional.dll">
+		<!-- Include Functional DLL in package for both target frameworks -->
+		<None Include="$(OutputPath)TelnetNegotiationCore.Functional.dll" Condition="Exists('$(OutputPath)TelnetNegotiationCore.Functional.dll')">
 			<Pack>true</Pack>
 			<PackagePath>lib\$(TargetFramework)</PackagePath>
 			<Visible>false</Visible>
-		</Content>
+		</None>
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
 		<PackageReference Include="OneOf" Version="3.0.271" />
 		<PackageReference Include="stateless" Version="5.15.0" />
+	</ItemGroup>
+
+	<!-- Packages needed for older .NET versions -->
+	<ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+		<!-- PolySharp not needed for .NET 8.0 - has all required features -->
 	</ItemGroup>
 
 	<ItemGroup>

@@ -1,12 +1,17 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="MSDPLibrary.fs" />
+  </ItemGroup>
+
+  <!-- System.Text.Json for older .NET versions -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <!-- Not needed for .NET 8.0 - included in runtime -->
   </ItemGroup>
 
 </Project>
