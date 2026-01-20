@@ -185,6 +185,17 @@ public enum State : short
 	EscapingLINEMODEValue,
 	CompletingLINEMODE,
 	#endregion Line Mode Negotiation
+	#region X-Display Location Negotiation
+	DoXDISPLOC,
+	DontXDISPLOC,
+	WillXDISPLOC,
+	WontXDISPLOC,
+	AlmostNegotiatingXDISPLOC,
+	NegotiatingXDISPLOC,
+	EvaluatingXDISPLOC,
+	EscapingXDISPLOCValue,
+	CompletingXDISPLOC,
+	#endregion X-Display Location Negotiation
 	#region Authentication Negotiation
 	DoAuthentication,
 	DontAuthentication,

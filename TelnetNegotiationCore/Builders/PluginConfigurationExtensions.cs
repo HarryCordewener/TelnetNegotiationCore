@@ -337,4 +337,32 @@ public static class PluginConfigurationExtensions
         context.Plugin.WithAuthenticationTypes(provider);
         return context;
     }
+
+    /// <summary>
+    /// Sets the X Display Location callback in a fluent manner (RFC 1096).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle X display location information</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<XDisplayProtocol> OnDisplayLocation(
+        this PluginConfigurationContext<XDisplayProtocol> context,
+        Func<string, ValueTask>? callback)
+    {
+        context.Plugin.OnDisplayLocation(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the X display location to send when requested by server (RFC 1096, client mode).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="displayLocation">The X display location (e.g., "localhost:0.0", "host.example.com:0")</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<XDisplayProtocol> WithClientDisplayLocation(
+        this PluginConfigurationContext<XDisplayProtocol> context,
+        string displayLocation)
+    {
+        context.Plugin.WithClientDisplayLocation(displayLocation);
+        return context;
+    }
 }
