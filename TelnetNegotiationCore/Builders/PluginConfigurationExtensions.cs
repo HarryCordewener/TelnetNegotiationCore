@@ -179,4 +179,18 @@ public static class PluginConfigurationExtensions
         context.Plugin.OnCompressionEnabled(callback);
         return context;
     }
+
+    /// <summary>
+    /// Sets the Echo state change callback in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle echo state changes (receives true if echoing is enabled, false otherwise)</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EchoProtocol> OnEchoStateChanged(
+        this PluginConfigurationContext<EchoProtocol> context,
+        Func<bool, ValueTask>? callback)
+    {
+        context.Plugin.OnEchoStateChanged(callback);
+        return context;
+    }
 }
