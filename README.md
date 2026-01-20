@@ -30,7 +30,7 @@ This library is in a stable state. The legacy API remains fully supported for ba
 | [MCCP](https://tintin.mudhalla.net/protocols/mccp)  | Mud Client Compression Protocol    | Full       | MCCP2 and MCCP3    |
 | [RFC 1950](https://tintin.mudhalla.net/rfc/rfc1950) | ZLIB Compression                   | Full       |                    |
 | [RFC 857](http://www.faqs.org/rfcs/rfc857.html)     | Echo Negotiation                   | Full       |                    |
-| [RFC 1079](http://www.faqs.org/rfcs/rfc1079.html)   | Terminal Speed Negotiation         | No         | Rejects            |
+| [RFC 1079](http://www.faqs.org/rfcs/rfc1079.html)   | Terminal Speed Negotiation         | Full       |                    |
 | [RFC 1372](http://www.faqs.org/rfcs/rfc1372.html)   | Flow Control Negotiation           | No         | Rejects            |
 | [RFC 1184](http://www.faqs.org/rfcs/rfc1184.html)   | Line Mode Negotiation              | No         | Rejects            |
 | [RFC 1096](http://www.faqs.org/rfcs/rfc1096.html)   | X-Display Negotiation              | No         | Rejects            |
@@ -472,6 +472,59 @@ var telnet = await new TelnetInterpreterBuilder()
 - **MCCP3**: Reduces client-to-server bandwidth and provides security through obscurity
 - **Automatic**: Compression/decompression is transparent once negotiated
 - **Standards-compliant**: Uses zlib (RFC 1950) compression via System.IO.Compression
+
+### Using Terminal Speed Protocol
+The Terminal Speed protocol (RFC 1079) allows clients and servers to exchange terminal speed information (transmit and receive speeds in bits per second).
+
+#### Server Side
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<TerminalSpeedProtocol>()
+        .OnTerminalSpeed((transmitSpeed, receiveSpeed) => 
+        {
+            logger.LogInformation("Client terminal speed: {Transmit} bps transmit, {Receive} bps receive",
+                transmitSpeed, receiveSpeed);
+            return ValueTask.CompletedTask;
+        })
+    .BuildAsync();
+```
+
+The server automatically announces support and requests terminal speed from clients that support it.
+
+#### Client Side
+The client automatically responds to server requests for terminal speed. You can customize the speeds to send:
+
+```csharp
+// Option 1: Use defaults (38400 bps transmit and receive)
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<TerminalSpeedProtocol>()
+    .BuildAsync();
+
+// Option 2: Configure custom terminal speeds
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<TerminalSpeedProtocol>()
+        .WithClientTerminalSpeed(115200, 115200)  // transmit speed, receive speed in bps
+    .BuildAsync();
+```
+
+#### Use Cases
+- **Server optimization**: Adjust output based on connection speed
+- **Client diagnostics**: Report actual connection speed to server
+- **Compatibility**: Support legacy systems that rely on terminal speed information
+
+**Note:** Most modern applications don't need terminal speed information as network speeds far exceed terminal speeds. This protocol is primarily useful for compatibility with legacy systems or specialized use cases.
 
 Start interpreting.
 ```csharp

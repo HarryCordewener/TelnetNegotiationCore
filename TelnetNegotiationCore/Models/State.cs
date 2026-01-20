@@ -1,6 +1,6 @@
 ﻿namespace TelnetNegotiationCore.Models;
 
-public enum State : sbyte
+public enum State : short
 {
 	#region Standard Negotiation
 	Accepting,
@@ -148,6 +148,17 @@ public enum State : sbyte
 	NegotiatingMCCP3,
 	CompletingMCCP3,
 	#endregion MCCP Negotiation
+	#region Terminal Speed Negotiation
+	DoTSPEED,
+	DontTSPEED,
+	WillTSPEED,
+	WontTSPEED,
+	AlmostNegotiatingTSPEED,
+	NegotiatingTSPEED,
+	EvaluatingTSPEED,
+	EscapingTSPEEDValue,
+	CompletingTSPEED,
+	#endregion Terminal Speed Negotiation
 	#region ECHO Negotiation
 	DoECHO,
 	DontECHO,

@@ -1,0 +1,380 @@
+using Microsoft.Extensions.Logging;
+using TUnit.Core;
+using System;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using TelnetNegotiationCore.Builders;
+using TelnetNegotiationCore.Interpreters;
+using TelnetNegotiationCore.Models;
+using TelnetNegotiationCore.Protocols;
+
+namespace TelnetNegotiationCore.UnitTests;
+
+public class TerminalSpeedTests : BaseTest
+{
+    private TelnetInterpreter _server_ti;
+    private TelnetInterpreter _client_ti;
+    private byte[] _negotiationOutput;
+    private int _receivedTransmitSpeed;
+    private int _receivedReceiveSpeed;
+    private bool _speedReceived;
+
+    private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
+
+    private ValueTask WriteBackToNegotiate(byte[] arg1)
+    {
+        _negotiationOutput = arg1;
+        return ValueTask.CompletedTask;
+    }
+
+    private ValueTask HandleTerminalSpeed(int transmitSpeed, int receiveSpeed)
+    {
+        _receivedTransmitSpeed = transmitSpeed;
+        _receivedReceiveSpeed = receiveSpeed;
+        _speedReceived = true;
+        logger.LogInformation("Received terminal speed: {Transmit} bps transmit, {Receive} bps receive",
+            transmitSpeed, receiveSpeed);
+        return ValueTask.CompletedTask;
+    }
+
+    [Before(Test)]
+    public async Task Setup()
+    {
+        _negotiationOutput = null;
+        _speedReceived = false;
+        _receivedTransmitSpeed = 0;
+        _receivedReceiveSpeed = 0;
+
+        _server_ti = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(WriteBackToOutput)
+            .OnNegotiation(WriteBackToNegotiate)
+            .AddPlugin<TerminalSpeedProtocol>()
+                .OnTerminalSpeed(HandleTerminalSpeed)
+            .BuildAsync();
+
+        _client_ti = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit(WriteBackToOutput)
+            .OnNegotiation(WriteBackToNegotiate)
+            .AddPlugin<TerminalSpeedProtocol>()
+                .WithClientTerminalSpeed(38400, 38400)
+            .BuildAsync();
+    }
+
+    [After(Test)]
+    public async Task TearDown()
+    {
+        if (_server_ti != null)
+            await _server_ti.DisposeAsync();
+        if (_client_ti != null)
+            await _client_ti.DisposeAsync();
+    }
+
+    [Test]
+    public async Task ClientRespondsWithWillTSPEEDToServerDo()
+    {
+        // Arrange
+        _negotiationOutput = null;
+
+        // Act - Client receives DO TSPEED from server
+        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED });
+        await _client_ti.WaitForProcessingAsync();
+
+        // Assert
+        await Assert.That(_negotiationOutput).IsNotNull();
+        await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
+    }
+
+    [Test]
+    public async Task ServerSendsDoTSPEEDOnInitialNegotiation()
+    {
+        // The server should send DO TSPEED during initial negotiation
+        // This is tested implicitly through the Setup method
+        // We verify it doesn't crash and the protocol is enabled
+        await Assert.That(_server_ti).IsNotNull();
+        var plugin = _server_ti.PluginManager?.GetPlugin<TerminalSpeedProtocol>();
+        await Assert.That(plugin).IsNotNull();
+        await Assert.That(plugin.IsEnabled).IsTrue();
+    }
+
+    [Test]
+    public async Task ClientAcceptsDoTSPEED()
+    {
+        // Arrange
+        _negotiationOutput = null;
+
+        // Act - Client receives DO TSPEED from server and responds
+        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED });
+        await _client_ti.WaitForProcessingAsync();
+        await Task.Delay(50);
+
+        // Assert - Client should send WILL TSPEED
+        await Assert.That(_negotiationOutput).IsNotNull();
+        await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
+    }
+
+    [Test]
+    public async Task ServerHandlesDontTSPEED()
+    {
+        // Arrange
+        _negotiationOutput = null;
+
+        // Act - Server receives DONT TSPEED from client
+        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.TSPEED });
+        await _server_ti.WaitForProcessingAsync();
+
+        // Assert - Server should accept the rejection gracefully (no error thrown)
+        await Assert.That(_negotiationOutput).IsNull();
+    }
+
+    [Test]
+    public async Task ClientHandlesWontTSPEED()
+    {
+        // Arrange
+        _negotiationOutput = null;
+
+        // Act - Client receives WONT TSPEED from server
+        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.TSPEED });
+        await _client_ti.WaitForProcessingAsync();
+
+        // Assert - Client should accept the rejection gracefully (no error thrown)
+        await Assert.That(_negotiationOutput).IsNull();
+    }
+
+    [Test]
+    public async Task ServerRequestsTerminalSpeed()
+    {
+        // Arrange - Complete TSPEED negotiation (server receives WILL)
+        _negotiationOutput = null;
+        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
+        await _server_ti.WaitForProcessingAsync();
+
+        // Assert - Server should send IAC SB TSPEED SEND IAC SE
+        await Assert.That(_negotiationOutput).IsNotNull();
+        await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.SEND,
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        });
+    }
+
+    [Test]
+    public async Task ClientSendsTerminalSpeedWhenRequested()
+    {
+        // Arrange - Complete TSPEED negotiation
+        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED });
+        await _client_ti.WaitForProcessingAsync();
+        _negotiationOutput = null;
+
+        // Act - Client receives SEND request
+        await _client_ti.InterpretByteArrayAsync(new byte[] {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.SEND,
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        });
+        await _client_ti.WaitForProcessingAsync();
+
+        // Assert - Client should send IAC SB TSPEED IS "38400,38400" IAC SE
+        await Assert.That(_negotiationOutput).IsNotNull();
+        
+        var expectedSpeed = "38400,38400";
+        var expectedBytes = new byte[] {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.IS
+        }
+        .Concat(Encoding.ASCII.GetBytes(expectedSpeed))
+        .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
+        .ToArray();
+        
+        await Assert.That(_negotiationOutput).IsEquivalentTo(expectedBytes);
+    }
+
+    [Test]
+    public async Task ServerReceivesAndParsesTerminalSpeed()
+    {
+        // Arrange - Complete TSPEED negotiation
+        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
+        await _server_ti.WaitForProcessingAsync();
+        _speedReceived = false;
+
+        // Act - Server receives terminal speed
+        var speedString = "9600,9600";
+        var speedBytes = new byte[] {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.IS
+        }
+        .Concat(Encoding.ASCII.GetBytes(speedString))
+        .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
+        .ToArray();
+        
+        await _server_ti.InterpretByteArrayAsync(speedBytes);
+        await _server_ti.WaitForProcessingAsync();
+
+        // Assert
+        await Assert.That(_speedReceived).IsTrue();
+        await Assert.That(_receivedTransmitSpeed).IsEqualTo(9600);
+        await Assert.That(_receivedReceiveSpeed).IsEqualTo(9600);
+    }
+
+    [Test]
+    public async Task ServerHandlesDifferentTransmitAndReceiveSpeeds()
+    {
+        // Arrange - Complete TSPEED negotiation
+        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
+        await _server_ti.WaitForProcessingAsync();
+        _speedReceived = false;
+
+        // Act - Server receives terminal speed with different transmit/receive
+        var speedString = "115200,57600";
+        var speedBytes = new byte[] {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.IS
+        }
+        .Concat(Encoding.ASCII.GetBytes(speedString))
+        .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
+        .ToArray();
+        
+        await _server_ti.InterpretByteArrayAsync(speedBytes);
+        await _server_ti.WaitForProcessingAsync();
+
+        // Assert
+        await Assert.That(_speedReceived).IsTrue();
+        await Assert.That(_receivedTransmitSpeed).IsEqualTo(115200);
+        await Assert.That(_receivedReceiveSpeed).IsEqualTo(57600);
+    }
+
+    [Test]
+    public async Task ClientSendsCustomTerminalSpeed()
+    {
+        // Arrange - Create client with custom speeds
+        var customClient = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit(WriteBackToOutput)
+            .OnNegotiation(WriteBackToNegotiate)
+            .AddPlugin<TerminalSpeedProtocol>()
+                .WithClientTerminalSpeed(115200, 115200)
+            .BuildAsync();
+
+        await customClient.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED });
+        await customClient.WaitForProcessingAsync();
+        _negotiationOutput = null;
+
+        // Act - Client receives SEND request
+        await customClient.InterpretByteArrayAsync(new byte[] {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.SEND,
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        });
+        await customClient.WaitForProcessingAsync();
+
+        // Assert - Client should send the custom speed
+        await Assert.That(_negotiationOutput).IsNotNull();
+        
+        var expectedSpeed = "115200,115200";
+        var expectedBytes = new byte[] {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.IS
+        }
+        .Concat(Encoding.ASCII.GetBytes(expectedSpeed))
+        .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
+        .ToArray();
+        
+        await Assert.That(_negotiationOutput).IsEquivalentTo(expectedBytes);
+
+        await customClient.DisposeAsync();
+    }
+
+    [Test]
+    public async Task CompleteNegotiationSequence()
+    {
+        // This test verifies the complete negotiation sequence from start to finish
+        var testServer = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(WriteBackToOutput)
+            .OnNegotiation(WriteBackToNegotiate)
+            .AddPlugin<TerminalSpeedProtocol>()
+                .OnTerminalSpeed(HandleTerminalSpeed)
+            .BuildAsync();
+
+        // Step 1: Server receives WILL TSPEED from client
+        _negotiationOutput = null;
+        await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
+        await testServer.WaitForProcessingAsync();
+        
+        // Server should request speed
+        await Assert.That(_negotiationOutput).IsNotNull();
+        await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.SEND,
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        });
+
+        // Step 2: Server receives terminal speed
+        _speedReceived = false;
+        var speedString = "19200,19200";
+        var speedBytes = new byte[] {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.IS
+        }
+        .Concat(Encoding.ASCII.GetBytes(speedString))
+        .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
+        .ToArray();
+        
+        await testServer.InterpretByteArrayAsync(speedBytes);
+        await testServer.WaitForProcessingAsync();
+        
+        await Assert.That(_speedReceived).IsTrue();
+        await Assert.That(_receivedTransmitSpeed).IsEqualTo(19200);
+        await Assert.That(_receivedReceiveSpeed).IsEqualTo(19200);
+
+        await testServer.DisposeAsync();
+    }
+
+    [Test]
+    public async Task PluginExposesTerminalSpeedProperties()
+    {
+        // Arrange - Complete negotiation and send speed
+        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
+        await _server_ti.WaitForProcessingAsync();
+
+        var speedString = "2400,1200";
+        var speedBytes = new byte[] {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.IS
+        }
+        .Concat(Encoding.ASCII.GetBytes(speedString))
+        .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
+        .ToArray();
+        
+        await _server_ti.InterpretByteArrayAsync(speedBytes);
+        await _server_ti.WaitForProcessingAsync();
+
+        // Act - Get the plugin and check properties
+        var plugin = _server_ti.PluginManager?.GetPlugin<TerminalSpeedProtocol>();
+
+        // Assert
+        await Assert.That(plugin).IsNotNull();
+        await Assert.That(plugin.TransmitSpeed).IsEqualTo(2400);
+        await Assert.That(plugin.ReceiveSpeed).IsEqualTo(1200);
+    }
+
+    [Test]
+    public async Task InvalidSpeedFormatDoesNotCrash()
+    {
+        // Arrange - Complete TSPEED negotiation
+        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
+        await _server_ti.WaitForProcessingAsync();
+        _speedReceived = false;
+
+        // Act - Server receives invalid speed format
+        var invalidSpeed = "invalid";
+        var speedBytes = new byte[] {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.IS
+        }
+        .Concat(Encoding.ASCII.GetBytes(invalidSpeed))
+        .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
+        .ToArray();
+        
+        await _server_ti.InterpretByteArrayAsync(speedBytes);
+        await _server_ti.WaitForProcessingAsync();
+
+        // Assert - Should not crash, and callback should not be called
+        await Assert.That(_speedReceived).IsFalse();
+    }
+}
