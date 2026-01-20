@@ -14,12 +14,19 @@ namespace TelnetNegotiationCore.Protocols;
 /// <summary>
 /// MCCP (Mud Client Compression Protocol) protocol plugin - MCCP2 and MCCP3
 /// Implements https://tintin.mudhalla.net/protocols/mccp
-/// Uses zlib compression (RFC 1950)
+/// Uses zlib compression (RFC 1950) via System.IO.Compression.ZLibStream
 /// </summary>
 /// <remarks>
 /// MCCP2 provides server-to-client compression, reducing bandwidth by 75-90%.
 /// MCCP3 provides client-to-server compression for security and bandwidth reduction.
 /// This protocol optionally accepts configuration via callbacks.
+/// 
+/// RFC 1950 Compliance:
+/// - Uses DEFLATE compression algorithm (compression method 8)
+/// - Includes standard zlib header with checksum validation
+/// - Includes ADLER-32 checksum for data integrity
+/// - Full compliance verified via System.IO.Compression.ZLibStream
+/// - See https://tintin.mudhalla.net/rfc/rfc1950 for specification
 /// </remarks>
 [RequiredMethod("OnCompressionEnabled", Description = "Configure the callback to handle compression state changes (optional)")]
 public class MCCPProtocol : TelnetProtocolPluginBase
@@ -192,6 +199,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
 
     /// <summary>
     /// Compresses data using the active compression stream (MCCP2 for server, MCCP3 for client)
+    /// Uses RFC 1950 compliant zlib compression via System.IO.Compression.ZLibStream
     /// </summary>
     /// <param name="data">The data to compress</param>
     /// <returns>The compressed data, or original data if compression is not active</returns>
@@ -215,7 +223,8 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// Decompresses data using the active decompression stream
+    /// Decompresses data using RFC 1950 compliant zlib decompression
+    /// Creates a new ZLibStream for each decompression operation to handle stream-based data correctly
     /// </summary>
     /// <param name="data">The compressed data</param>
     /// <returns>The decompressed data</returns>
