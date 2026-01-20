@@ -28,6 +28,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     private readonly List<byte> _currentVar = [];
     private readonly List<byte> _currentValue = [];
     private readonly Dictionary<string, string> _environmentVariables = new();
+    private Dictionary<string, string>? _clientEnvironmentVariables = null;
     private bool _collectingVar = false;
     private bool _collectingValue = false;
     private byte _commandType = 0; // IS or SEND
@@ -42,6 +43,18 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     public EnvironProtocol OnEnvironmentVariables(Func<Dictionary<string, string>, ValueTask>? callback)
     {
         _onEnvironmentVariables = callback;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the environment variables to send to the server when requested (client mode only).
+    /// If not set, the client will send default environment variables (USER, LANG).
+    /// </summary>
+    /// <param name="environmentVariables">The environment variables to send</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public EnvironProtocol WithClientEnvironmentVariables(Dictionary<string, string> environmentVariables)
+    {
+        _clientEnvironmentVariables = environmentVariables;
         return this;
     }
 
@@ -351,13 +364,27 @@ public class EnvironProtocol : TelnetProtocolPluginBase
             (byte)Trigger.IS
         };
 
-        // For now, send common environment variables if available
-        // In a real implementation, this would be configurable
-        var envVars = new Dictionary<string, string>
+        // Use configured environment variables, or fall back to defaults
+        Dictionary<string, string> envVars;
+        if (_clientEnvironmentVariables != null && _clientEnvironmentVariables.Count > 0)
         {
-            { "USER", Environment.GetEnvironmentVariable("USER") ?? Environment.UserName },
-            { "LANG", "en_US.UTF-8" }
-        };
+            envVars = _clientEnvironmentVariables;
+        }
+        else
+        {
+            // Default environment variables - get locale from system
+            var locale = System.Globalization.CultureInfo.CurrentCulture.Name.Replace('-', '_');
+            if (!locale.Contains('.'))
+            {
+                locale += ".UTF-8";
+            }
+
+            envVars = new Dictionary<string, string>
+            {
+                { "USER", Environment.GetEnvironmentVariable("USER") ?? Environment.UserName },
+                { "LANG", locale }
+            };
+        }
 
         foreach (var (name, value) in envVars)
         {
