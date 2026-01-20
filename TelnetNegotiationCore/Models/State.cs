@@ -146,6 +146,12 @@ public enum State : sbyte
 	WillMCCP3,
 	WontMCCP3,
 	NegotiatingMCCP3,
-	CompletingMCCP3
+	CompletingMCCP3,
 	#endregion MCCP Negotiation
+	#region ECHO Negotiation
+	DoECHO,
+	DontECHO,
+	WillECHO,
+	WontECHO
+	#endregion ECHO Negotiation
 }

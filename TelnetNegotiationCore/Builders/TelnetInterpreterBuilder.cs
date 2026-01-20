@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Interpreters;
@@ -137,11 +138,25 @@ public class TelnetInterpreterBuilder
             _pluginManager.RegisterPlugin(plugin);
         }
 
+        // Check if Echo protocol is configured with a handler
+        Func<byte, System.Text.Encoding, ValueTask>? byteCallback = null;
+        var echoPlugin = _plugins.OfType<Protocols.EchoProtocol>().FirstOrDefault();
+        if (echoPlugin != null)
+        {
+            var echoHandler = echoPlugin.GetEchoHandler();
+            if (echoHandler != null)
+            {
+                byteCallback = echoHandler;
+                _logger.LogInformation("Echo protocol configured with default echo handler");
+            }
+        }
+
         // Create the interpreter instance
         var interpreter = new TelnetInterpreter(_mode, _logger)
         {
             CallbackOnSubmitAsync = _onSubmit,
             CallbackNegotiationAsync = _onNegotiation,
+            CallbackOnByteAsync = byteCallback,
             PluginManager = _pluginManager
         };
 
