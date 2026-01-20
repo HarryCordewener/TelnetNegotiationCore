@@ -125,6 +125,20 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets the ENVIRON callback in a fluent manner (RFC 1408).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle environment variables</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EnvironProtocol> OnEnvironmentVariables(
+        this PluginConfigurationContext<EnvironProtocol> context,
+        Func<System.Collections.Generic.Dictionary<string, string>, ValueTask>? callback)
+    {
+        context.Plugin.OnEnvironmentVariables(callback);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the NEW-ENVIRON callback in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
