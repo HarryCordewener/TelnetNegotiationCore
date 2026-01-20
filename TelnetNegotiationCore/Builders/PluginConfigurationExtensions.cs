@@ -125,6 +125,34 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets the ENVIRON callback in a fluent manner (RFC 1408).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle environment variables</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EnvironProtocol> OnEnvironmentVariables(
+        this PluginConfigurationContext<EnvironProtocol> context,
+        Func<System.Collections.Generic.Dictionary<string, string>, ValueTask>? callback)
+    {
+        context.Plugin.OnEnvironmentVariables(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the environment variables to send when requested by server (RFC 1408, client mode).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="environmentVariables">The environment variables to send</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EnvironProtocol> WithClientEnvironmentVariables(
+        this PluginConfigurationContext<EnvironProtocol> context,
+        System.Collections.Generic.Dictionary<string, string> environmentVariables)
+    {
+        context.Plugin.WithClientEnvironmentVariables(environmentVariables);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the NEW-ENVIRON callback in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>

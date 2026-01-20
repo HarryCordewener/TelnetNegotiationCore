@@ -34,7 +34,7 @@ This library is in a stable state. The legacy API remains fully supported for ba
 | [RFC 1372](http://www.faqs.org/rfcs/rfc1372.html)   | Flow Control Negotiation           | No         | Rejects            |
 | [RFC 1184](http://www.faqs.org/rfcs/rfc1184.html)   | Line Mode Negotiation              | No         | Rejects            |
 | [RFC 1096](http://www.faqs.org/rfcs/rfc1096.html)   | X-Display Negotiation              | No         | Rejects            |
-| [RFC 1408](http://www.faqs.org/rfcs/rfc1408.html)   | Environment Negotiation            | No         | Rejects            | 
+| [RFC 1408](http://www.faqs.org/rfcs/rfc1408.html)   | Environment Negotiation            | Full       |                    | 
 | [RFC 2941](http://www.faqs.org/rfcs/rfc2941.html)   | Authentication Negotiation         | No         | Rejects            |
 | [RFC 2946](http://www.faqs.org/rfcs/rfc2946.html)   | Encryption Negotiation             | No         | Rejects            |
 
@@ -325,6 +325,61 @@ await telnet.SendGMCPCommand("Room.Info", "{\"num\":12345,\"name\":\"A dark room
 ```
 
 To receive GMCP messages, use the `OnGMCPMessage` callback as shown in the initialization example above.
+
+### Using ENVIRON Protocol
+The ENVIRON protocol (RFC 1408) is the original environment variable negotiation protocol. It's simpler than NEW-ENVIRON and supports only basic environment variables (no user variables). This protocol can be activated in isolation.
+
+#### Server Side
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<EnvironProtocol>()
+        .OnEnvironmentVariables((envVars) => 
+        {
+            // envVars contains standard environment variables (USER, LANG, etc.)
+            logger.LogInformation("Received {EnvCount} environment variables", envVars.Count);
+            foreach (var (key, value) in envVars)
+            {
+                logger.LogInformation("  {Key} = {Value}", key, value);
+            }
+            return ValueTask.CompletedTask;
+        })
+    .BuildAsync();
+```
+
+#### Client Side
+The client automatically responds to server requests for environment variables. You can customize which variables to send:
+
+```csharp
+// Option 1: Use defaults (USER and LANG from system)
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<EnvironProtocol>()
+    .BuildAsync();
+
+// Option 2: Configure custom environment variables
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<EnvironProtocol>()
+        .WithClientEnvironmentVariables(new Dictionary<string, string>
+        {
+            { "USER", "myusername" },
+            { "LANG", "en_US.UTF-8" },
+            { "TERM", "xterm-256color" }
+        })
+    .BuildAsync();
+```
+
+**Note:** If you need user-defined variables or more advanced features, use `NewEnvironProtocol` (RFC 1572) instead. Both protocols can coexist if needed.
 
 ### Using NEW-ENVIRON Protocol
 The NEW-ENVIRON protocol (RFC 1572) allows exchange of environment variables between client and server. MNES (Mud New Environment Standard) extends this with the MTTS flag 512.

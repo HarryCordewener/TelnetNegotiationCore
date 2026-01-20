@@ -121,6 +121,19 @@ public enum State : sbyte
 	EscapingNEWENVIRONValue,
 	CompletingNEWENVIRON,
 	#endregion NEW-ENVIRON Negotiation
+	#region ENVIRON Negotiation
+	DoENVIRON,
+	DontENVIRON,
+	WillENVIRON,
+	WontENVIRON,
+	AlmostNegotiatingENVIRON,
+	NegotiatingENVIRON,
+	EvaluatingENVIRONVar,
+	EvaluatingENVIRONValue,
+	EscapingENVIRONVar,
+	EscapingENVIRONValue,
+	CompletingENVIRON,
+	#endregion ENVIRON Negotiation
 	#region MCCP Negotiation
 	DoMCCP2,
 	DontMCCP2,
