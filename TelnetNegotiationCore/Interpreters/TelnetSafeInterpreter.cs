@@ -49,10 +49,10 @@ public partial class TelnetInterpreter
 	{
 		// Count how many 255s we have to determine final size
 #if NET5_0_OR_GREATER
-		// Use MemoryExtensions.Count for optimized SIMD counting on modern runtimes
+		// Use MemoryExtensions.Count for optimized SIMD counting (.NET 5+)
 		int count255 = input.Count((byte)255);
 #else
-		// Fallback to manual counting for .NET Standard 2.0
+		// Fallback to manual counting for .NET Core 3.1 and earlier
 		int count255 = 0;
 		foreach (var bt in input)
 		{
