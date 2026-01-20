@@ -249,4 +249,32 @@ public static class PluginConfigurationExtensions
         context.Plugin.WithClientTerminalSpeed(transmitSpeed, receiveSpeed);
         return context;
     }
+
+    /// <summary>
+    /// Sets the Flow Control state change callback in a fluent manner (RFC 1372).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle flow control state changes (receives true if enabled, false otherwise)</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<FlowControlProtocol> OnFlowControlStateChanged(
+        this PluginConfigurationContext<FlowControlProtocol> context,
+        Func<bool, ValueTask>? callback)
+    {
+        context.Plugin.OnFlowControlStateChanged(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the Flow Control restart mode change callback in a fluent manner (RFC 1372).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle restart mode changes</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<FlowControlProtocol> OnRestartModeChanged(
+        this PluginConfigurationContext<FlowControlProtocol> context,
+        Func<FlowControlProtocol.FlowControlRestartMode, ValueTask>? callback)
+    {
+        context.Plugin.OnRestartModeChanged(callback);
+        return context;
+    }
 }
