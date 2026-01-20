@@ -194,13 +194,13 @@ public class EchoProtocol : TelnetProtocolPluginBase
     /// Default echo handler that sends received bytes back to the client.
     /// Only echoes when echo is enabled.
     /// </summary>
-    private async ValueTask DefaultEchoHandlerAsync(byte b, System.Text.Encoding encoding)
+    private ValueTask DefaultEchoHandlerAsync(byte b, System.Text.Encoding encoding)
     {
         if (!IsEnabled || !IsEchoing)
-            return;
+            return ValueTask.CompletedTask;
 
         Context.Logger.LogTrace("Echoing byte: {Byte}", b);
-        await Context.SendNegotiationAsync(new byte[] { b });
+        return Context.SendNegotiationAsync(new byte[] { b });
     }
 
     /// <summary>
@@ -213,7 +213,7 @@ public class EchoProtocol : TelnetProtocolPluginBase
     {
         if (_echoHandler != null && IsEnabled && IsEchoing)
         {
-            await _echoHandler(b, encoding);
+            await _echoHandler(b, encoding).ConfigureAwait(false);
         }
     }
 
