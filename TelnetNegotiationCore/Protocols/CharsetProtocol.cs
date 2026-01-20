@@ -40,6 +40,11 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     private Dictionary<int, int>? _currentTranslationTable;
     private Func<byte[], ValueTask<bool>>? _onTTableReceived;
     private Func<ValueTask<byte[]?>>? _onTTableRequested;
+    
+    // TTABLE constants
+    private const int TTABLE_BUFFER_SIZE = 8192;
+    private const byte TTABLE_VERSION_1 = 1;
+    private const int TTABLE_MIN_LENGTH = 2;
 
     /// <summary>
     /// Sets the CharacterSet Order for negotiation priority
@@ -423,13 +428,17 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     // TTABLE state machine handlers
     private void GetTTable(StateMachine<State, Trigger>.Transition _)
     {
-        _ttableByteState = new byte[8192]; // Increased buffer for translation tables
+        _ttableByteState = new byte[TTABLE_BUFFER_SIZE];
         _ttableByteIndex = 0;
     }
 
     private void CaptureTTable(OneOf<byte, Trigger> b)
     {
-        if (_ttableByteIndex >= _ttableByteState.Length) return;
+        if (_ttableByteIndex >= _ttableByteState.Length)
+        {
+            Context.Logger.LogWarning("TTABLE buffer overflow - data truncated at {MaxSize} bytes", TTABLE_BUFFER_SIZE);
+            return;
+        }
         _ttableByteState[_ttableByteIndex] = b.AsT0;
         _ttableByteIndex++;
     }
@@ -443,7 +452,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             // Parse TTABLE-IS message according to RFC 2066
             // Format: <version> <sep> <charset1> <sep> <size1> <count1> <charset2> <sep> <size2> <count2> <map1> <map2>
             
-            if (_ttableByteIndex < 1)
+            if (_ttableByteIndex < TTABLE_MIN_LENGTH)
             {
                 context.Logger.LogWarning("TTABLE-IS message too short");
                 await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
@@ -451,7 +460,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             }
 
             var version = _ttableByteState[0];
-            if (version != 1)
+            if (version != TTABLE_VERSION_1)
             {
                 context.Logger.LogWarning("Unsupported TTABLE version: {Version}", version);
                 await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
@@ -500,12 +509,11 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     {
         try
         {
-            // This is a simplified parser for TTABLE version 1
-            // In a full implementation, this would parse the complete table structure
+            // Parse TTABLE version 1 data structure
             // Format: <version> <sep> <charset1> <sep> <size1> <count1> <charset2> <sep> <size2> <count2> <map1> <map2>
             
             var version = ttableData[0];
-            if (version != 1 || ttableData.Length < 2)
+            if (version != TTABLE_VERSION_1 || ttableData.Length < TTABLE_MIN_LENGTH)
             {
                 context.Logger.LogWarning("Invalid TTABLE format");
                 return;
@@ -513,15 +521,59 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
             var sep = (char)ttableData[1];
             var ascii = Encoding.ASCII;
-            var data = ascii.GetString(ttableData, 2, ttableData.Length - 2);
+            int pos = 2;
             
-            context.Logger.LogDebug("TTABLE separator: '{Sep}', data length: {Length}", sep, data.Length);
+            // Parse charset1 name
+            int charset1Start = pos;
+            while (pos < ttableData.Length && ttableData[pos] != sep) pos++;
+            var charset1 = ascii.GetString(ttableData, charset1Start, pos - charset1Start);
+            pos++; // Skip separator
             
-            // For now, we store the raw table data
-            // A full implementation would parse charset names, sizes, counts, and maps
+            if (pos + 4 > ttableData.Length)
+            {
+                context.Logger.LogWarning("TTABLE too short for size1 and count1");
+                return;
+            }
+            
+            var size1 = ttableData[pos++];
+            var count1 = (ttableData[pos] << 16) | (ttableData[pos + 1] << 8) | ttableData[pos + 2];
+            pos += 3;
+            
+            // Parse charset2 name
+            int charset2Start = pos;
+            while (pos < ttableData.Length && ttableData[pos] != sep) pos++;
+            var charset2 = ascii.GetString(ttableData, charset2Start, pos - charset2Start);
+            pos++; // Skip separator
+            
+            if (pos + 4 > ttableData.Length)
+            {
+                context.Logger.LogWarning("TTABLE too short for size2 and count2");
+                return;
+            }
+            
+            var size2 = ttableData[pos++];
+            var count2 = (ttableData[pos] << 16) | (ttableData[pos + 1] << 8) | ttableData[pos + 2];
+            pos += 3;
+            
+            context.Logger.LogDebug("TTABLE: {Charset1} ({Size1}bit, {Count1} chars) <-> {Charset2} ({Size2}bit, {Count2} chars)",
+                charset1, size1, count1, charset2, size2, count2);
+            
+            // Parse translation maps
+            if (pos + count1 + count2 > ttableData.Length)
+            {
+                context.Logger.LogWarning("TTABLE data incomplete for specified counts");
+                return;
+            }
+            
+            // Build translation table from map1 (charset1 -> charset2)
             _currentTranslationTable = new Dictionary<int, int>();
+            for (int i = 0; i < count1 && pos + i < ttableData.Length; i++)
+            {
+                _currentTranslationTable[i] = ttableData[pos + i];
+            }
             
-            context.Logger.LogInformation("TTABLE parsed successfully (simplified parser)");
+            context.Logger.LogInformation("TTABLE parsed successfully: {Charset1} -> {Charset2} with {Entries} mappings",
+                charset1, charset2, _currentTranslationTable.Count);
         }
         catch (Exception ex)
         {

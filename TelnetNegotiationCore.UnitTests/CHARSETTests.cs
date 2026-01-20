@@ -567,7 +567,7 @@ namespace TelnetNegotiationCore.UnitTests
 		[Test]
 		public async Task TTableReceivedCallback_ShouldBeInvoked()
 		{
-			byte[] receivedTTableData = null;
+			byte[] receivedTTableData = Array.Empty<byte>();
 			var wasCallbackInvoked = false;
 
 			var server_ti = await new TelnetInterpreterBuilder()
