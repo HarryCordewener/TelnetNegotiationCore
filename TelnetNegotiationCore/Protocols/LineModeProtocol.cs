@@ -328,13 +328,14 @@ public class LineModeProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
-    private async ValueTask SetLineModeStateAsync(bool enabled)
+    private ValueTask SetLineModeStateAsync(bool enabled)
     {
         if (_lineModeEnabled == enabled)
-            return;
+            return ValueTask.CompletedTask;
 
         _lineModeEnabled = enabled;
         Context.Logger.LogInformation("Line mode {State}", enabled ? "enabled" : "disabled");
+        return ValueTask.CompletedTask;
     }
 
     private async ValueTask WillLineModeAsync(IProtocolContext context)
