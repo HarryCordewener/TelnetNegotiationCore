@@ -32,7 +32,8 @@ public class PluginCircularDependencyAnalyzer : DiagnosticAnalyzer
         Category,
         DiagnosticSeverity.Error,
         isEnabledByDefault: true,
-        description: Description);
+        description: Description,
+        customTags: WellKnownDiagnosticTags.CompilationEnd);
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(Rule);
 
@@ -55,7 +56,9 @@ public class PluginCircularDependencyAnalyzer : DiagnosticAnalyzer
 
         foreach (var syntaxTree in context.Compilation.SyntaxTrees)
         {
+#pragma warning disable RS1030 // Do not invoke Compilation.GetSemanticModel() method within a diagnostic analyzer
             var semanticModel = context.Compilation.GetSemanticModel(syntaxTree);
+#pragma warning restore RS1030 // Do not invoke Compilation.GetSemanticModel() method within a diagnostic analyzer
             var root = syntaxTree.GetRoot(context.CancellationToken);
 
             var classDeclarations = root.DescendantNodes().OfType<ClassDeclarationSyntax>();

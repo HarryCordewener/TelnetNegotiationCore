@@ -193,6 +193,18 @@ public enum State : short
 	AlmostNegotiatingAuthentication,
 	NegotiatingAuthenticationSend,
 	CompletingAuthenticationNegotiation,
-	SendingAuthenticationResponse
+	SendingAuthenticationResponse,
 	#endregion Authentication Negotiation
+	#region Encryption Negotiation
+	DoEncryption,
+	DontEncryption,
+	WillEncryption,
+	WontEncryption,
+	AlmostNegotiatingEncryption,
+	NegotiatingEncryptionIs,
+	NegotiatingEncryptionSupport,
+	CompletingEncryptionNegotiation,
+	ProcessingEncryptionIs,
+	ProcessingEncryptionSupport
+	#endregion Encryption Negotiation
 }
