@@ -116,7 +116,24 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
             .Permit(Trigger.AUTHENTICATION, State.AlmostNegotiatingAuthentication);
 
         stateMachine.Configure(State.AlmostNegotiatingAuthentication)
-            .OnEntryAsync(async (transition) => await HandleAuthenticationSubnegotiationAsync(transition, context));
+            .Permit(Trigger.SEND, State.NegotiatingAuthenticationSend)
+            .OnEntry(() => context.Logger.LogDebug("Starting authentication subnegotiation"));
+
+        // Handle the SEND command - we'll consume all bytes until IAC
+        stateMachine.Configure(State.NegotiatingAuthenticationSend)
+            .Permit(Trigger.IAC, State.CompletingAuthenticationNegotiation);
+        
+        // Allow all other triggers to be ignored (these are auth type pairs we don't support)
+        TriggerHelper.ForAllTriggersButIAC(t => 
+            stateMachine.Configure(State.NegotiatingAuthenticationSend).PermitReentry(t));
+
+        stateMachine.Configure(State.CompletingAuthenticationNegotiation)
+            .Permit(Trigger.SE, State.SendingAuthenticationResponse)
+            .OnEntry(() => context.Logger.LogDebug("Received end of SEND subnegotiation"));
+
+        stateMachine.Configure(State.SendingAuthenticationResponse)
+            .SubstateOf(State.Accepting)
+            .OnEntryAsync(async () => await SendAuthenticationNullResponseAsync(context));
     }
 
     /// <inheritdoc />
@@ -187,16 +204,9 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
         });
     }
 
-    private async ValueTask HandleAuthenticationSubnegotiationAsync(
-        StateMachine<State, Trigger>.Transition transition, 
-        IProtocolContext context)
+    private async ValueTask SendAuthenticationNullResponseAsync(IProtocolContext context)
     {
-        context.Logger.LogDebug("Handling authentication subnegotiation");
-        
-        // We need to read the next byte to determine the command
-        // For now, we'll just respond with IS NULL to reject authentication
-        // This is a simplified implementation - a full implementation would
-        // parse the SEND command and the list of authentication types
+        context.Logger.LogDebug("Sending IS NULL response - rejecting all authentication types");
         
         // Respond with IS NULL to indicate we don't support any authentication type
         await context.SendNegotiationAsync(new byte[]
@@ -210,9 +220,6 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
             (byte)Trigger.IAC,
             (byte)Trigger.SE
         });
-        
-        // Transition back to accepting state
-        context.Logger.LogDebug("Sent IS NULL response - authentication rejected");
     }
 
     #endregion

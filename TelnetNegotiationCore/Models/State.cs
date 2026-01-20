@@ -190,6 +190,9 @@ public enum State : short
 	DontAuthentication,
 	WillAuthentication,
 	WontAuthentication,
-	AlmostNegotiatingAuthentication
+	AlmostNegotiatingAuthentication,
+	NegotiatingAuthenticationSend,
+	CompletingAuthenticationNegotiation,
+	SendingAuthenticationResponse
 	#endregion Authentication Negotiation
 }
