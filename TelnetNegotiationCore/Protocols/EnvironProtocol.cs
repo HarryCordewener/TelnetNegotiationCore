@@ -372,16 +372,19 @@ public class EnvironProtocol : TelnetProtocolPluginBase
         }
         else
         {
-            // Default environment variables - get locale from system
+            // Default environment variables
+            // Use system locale with UTF-8 encoding (common for modern systems)
+            // Users can override via WithClientEnvironmentVariables() if needed
             var locale = System.Globalization.CultureInfo.CurrentCulture.Name.Replace('-', '_');
             if (!locale.Contains('.'))
             {
+                // Default to UTF-8 for modern systems; users should configure if different encoding needed
                 locale += ".UTF-8";
             }
 
             envVars = new Dictionary<string, string>
             {
-                { "USER", Environment.GetEnvironmentVariable("USER") ?? Environment.UserName },
+                { "USER", Environment.GetEnvironmentVariable("USER") ?? Environment.UserName ?? "unknown" },
                 { "LANG", locale }
             };
         }
