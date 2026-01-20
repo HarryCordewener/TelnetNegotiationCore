@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System;
+using System.Buffers;
 using System.Collections.Immutable;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Generated;
@@ -16,6 +17,10 @@ namespace TelnetNegotiationCore.Interpreters;
 public partial class TelnetInterpreter
 {
 	/// <summary>
+	/// Cached array of all trigger values to avoid repeated allocations.
+	/// </summary>
+	private static readonly Trigger[] s_allTriggers = TriggerExtensions.AllValues.ToArray();
+	/// <summary>
 	/// Create a byte[] that is safe to send over telnet by repeating 255s. 
 	/// </summary>
 	/// <param name="str">The string intent to be sent across the wire.</param>
@@ -23,15 +28,7 @@ public partial class TelnetInterpreter
 	public byte[] TelnetSafeString(string str)
 	{
 		var byteSpan = CurrentEncoding.GetBytes(str).AsSpan();
-
-		using var memStream = new MemoryStream();
-		foreach (var bt in byteSpan)
-		{
-			memStream.Write(bt == 255 
-				? [255, 255] 
-				: (byte[])[bt]);
-		}
-		return memStream.ToArray();
+		return TelnetSafeBytesInternal(byteSpan);
 	}
 
 	/// <summary>
@@ -42,16 +39,46 @@ public partial class TelnetInterpreter
 	/// <returns>The new byte[] with 255s duplicated.</returns>
 	public byte[] TelnetSafeBytes(byte[] str)
 	{
-		var x = str;
+		return TelnetSafeBytesInternal(str.AsSpan());
+	}
 
-		using var memStream = new MemoryStream();
-		foreach (var bt in x.AsSpan())
+	/// <summary>
+	/// Internal helper to escape IAC bytes (255) without MemoryStream allocation.
+	/// </summary>
+	private byte[] TelnetSafeBytesInternal(ReadOnlySpan<byte> input)
+	{
+		// Count how many 255s we have to determine final size
+		int count255 = 0;
+		foreach (var bt in input)
 		{
-			memStream.Write(bt == 255 
-				? [255, 255] 
-				: [bt]);
+			if (bt == 255) count255++;
 		}
-		return memStream.ToArray();
+
+		// If no 255s, return a copy of the input
+		if (count255 == 0)
+		{
+			return input.ToArray();
+		}
+
+		// Allocate the exact size needed
+		var result = new byte[input.Length + count255];
+		int writePos = 0;
+
+		// Copy bytes, duplicating 255s
+		foreach (var bt in input)
+		{
+			if (bt == 255)
+			{
+				result[writePos++] = 255;
+				result[writePos++] = 255;
+			}
+			else
+			{
+				result[writePos++] = bt;
+			}
+		}
+
+		return result;
 	}
 
 	/// <summary>
@@ -70,14 +97,17 @@ public partial class TelnetInterpreter
 	private StateMachine<State, Trigger> SetupSafeNegotiation(StateMachine<State, Trigger> tsm)
 	{
 		var info = tsm.GetInfo();
-		// Use generated AllValues instead of reflection
-		var triggers = TriggerExtensions.AllValues.ToArray();
+		// Use cached static array instead of generating new one each time
+		var triggers = s_allTriggers;
 		var refuseThese = new List<State> { State.Willing, State.Refusing, State.Do, State.Dont };
 
 		foreach (var stateInfo in info.States.Join(refuseThese, x => x.UnderlyingState, y => y, (x, y) => x))
 		{
 			var state = (State)stateInfo.UnderlyingState;
-			var outboundUnhandledTriggers = triggers.Except(stateInfo.Transitions.Select(x => (Trigger)x.Trigger.UnderlyingTrigger));
+			// Use HashSet for O(1) lookups instead of O(n) with Except
+			var handledTriggers = new HashSet<Trigger>(
+				stateInfo.Transitions.Select(x => (Trigger)x.Trigger.UnderlyingTrigger));
+			var outboundUnhandledTriggers = triggers.Where(t => !handledTriggers.Contains(t));
 
 			foreach (var trigger in outboundUnhandledTriggers)
 			{
@@ -108,10 +138,11 @@ public partial class TelnetInterpreter
 			}
 		}
 
-		var underlyingTriggers = info.States.First(x => (State)x.UnderlyingState == State.SubNegotiation).Transitions
-				.Select(x => (Trigger)x.Trigger.UnderlyingTrigger);
+		var underlyingTriggers = new HashSet<Trigger>(
+			info.States.First(x => (State)x.UnderlyingState == State.SubNegotiation).Transitions
+				.Select(x => (Trigger)x.Trigger.UnderlyingTrigger));
 
-		foreach(var trigger in triggers.Except(underlyingTriggers))
+		foreach(var trigger in triggers.Where(t => !underlyingTriggers.Contains(t)))
 		{
 			tsm.Configure(State.SubNegotiation).Permit(trigger, State.BadSubNegotiation);
 		}
