@@ -35,7 +35,7 @@ This library is in a stable state. The legacy API remains fully supported for ba
 | [RFC 1184](http://www.faqs.org/rfcs/rfc1184.html)   | Line Mode Negotiation              | Full       | MODE support       |
 | [RFC 1096](http://www.faqs.org/rfcs/rfc1096.html)   | X-Display Negotiation              | No         | Rejects            |
 | [RFC 1408](http://www.faqs.org/rfcs/rfc1408.html)   | Environment Negotiation            | Full       |                    | 
-| [RFC 2941](http://www.faqs.org/rfcs/rfc2941.html)   | Authentication Negotiation         | No         | Rejects            |
+| [RFC 2941](http://www.faqs.org/rfcs/rfc2941.html)   | Authentication Negotiation         | Partial    | Rejects all auth types |
 | [RFC 2946](http://www.faqs.org/rfcs/rfc2946.html)   | Encryption Negotiation             | No         | Rejects            |
 
 ## ANSI Support, ETC?
@@ -661,6 +661,160 @@ var isTrapSig = lineMode.IsTrapSigModeEnabled;
 - **LIT_ECHO (0x10)**: Advises client to echo non-printable characters literally
 
 **Note:** SLC (Set Local Characters) and FORWARDMASK subnegotiations are not currently implemented. The protocol focuses on MODE negotiations, which are the most commonly used feature.
+
+### Using Authentication Protocol
+The Authentication protocol (RFC 2941) provides a framework for negotiating authentication between client and server. This implementation supports extensible authentication through callbacks, allowing consumers to implement any authentication mechanism.
+
+#### Default Behavior (No Authentication)
+By default, the protocol rejects all authentication types with NULL response, allowing sessions to proceed without authentication:
+
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<AuthenticationProtocol>()
+    .BuildAsync();
+
+// Protocol auto-negotiates and rejects authentication with NULL
+// Session continues without authentication
+```
+
+#### Server Side with Custom Authentication
+Servers can provide custom authentication by specifying supported authentication types and handling client responses:
+
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<AuthenticationProtocol>()
+        // Declare which authentication types to offer
+        .WithAuthenticationTypes(async () => new List<(byte AuthType, byte Modifiers)>
+        {
+            (5, 0),  // SRP with no modifiers
+            (6, 2)   // RSA with AUTH_HOW_MUTUAL (0x02)
+        })
+        // Handle client authentication responses
+        .OnAuthenticationResponse(async (authData) =>
+        {
+            var authType = authData[0];
+            var modifiers = authData[1];
+            var credentials = authData.Skip(2).ToArray();
+            
+            logger.LogInformation("Received authentication type {Type} with {Bytes} bytes of credentials", 
+                authType, credentials.Length);
+            
+            // Validate credentials and send REPLY if needed
+            var isValid = await ValidateCredentials(authType, credentials);
+            
+            if (!isValid)
+            {
+                // Get the plugin to send rejection or challenge
+                var authPlugin = telnet.PluginManager!.GetPlugin<AuthenticationProtocol>();
+                await authPlugin!.SendAuthenticationReplyAsync(new byte[] { authType, modifiers, 0xFF }); // Reject
+            }
+        })
+    .BuildAsync();
+```
+
+#### Client Side with Custom Authentication
+Clients can handle authentication requests from servers:
+
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(logger)
+    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
+    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .AddPlugin<AuthenticationProtocol>()
+        // Handle server authentication requests
+        .OnAuthenticationRequest(async (authTypePairs) =>
+        {
+            // authTypePairs contains pairs of (authType, modifiers) offered by server
+            logger.LogInformation("Server offers {Count} authentication types", authTypePairs.Length / 2);
+            
+            // Choose first supported type and provide credentials
+            if (authTypePairs.Length >= 2)
+            {
+                var authType = authTypePairs[0];
+                var modifiers = authTypePairs[1];
+                var credentials = await GetCredentials(authType);
+                
+                // Return auth response: [authType, modifiers, ...credentials]
+                var response = new List<byte> { authType, modifiers };
+                response.AddRange(credentials);
+                return response.ToArray();
+            }
+            
+            // Return null to reject with NULL type
+            return null;
+        })
+    .BuildAsync();
+```
+
+#### Programmatic API
+The protocol also provides methods to send authentication messages programmatically:
+
+```csharp
+// Get the authentication plugin
+var authPlugin = telnet.PluginManager!.GetPlugin<AuthenticationProtocol>();
+
+// Server: Send authentication request with specific types
+await authPlugin!.SendAuthenticationRequestAsync(new List<(byte, byte)>
+{
+    (5, 0),  // SRP
+    (6, 2)   // RSA with mutual auth
+});
+
+// Client: Send authentication response
+await authPlugin!.SendAuthenticationResponseAsync(new byte[] 
+{ 
+    5, 0,           // SRP, no modifiers
+    0x01, 0x02, 0x03 // Credential data
+});
+
+// Server: Send authentication reply (accept/reject/challenge)
+await authPlugin!.SendAuthenticationReplyAsync(new byte[]
+{
+    5, 0,           // SRP, no modifiers  
+    0x00            // Accept status
+});
+```
+
+#### Authentication Types and Modifiers
+Common authentication types defined in RFC 2941:
+- **0**: NULL (no authentication)
+- **1**: KERBEROS_V4
+- **2**: KERBEROS_V5
+- **5**: SRP (Secure Remote Password)
+- **6**: RSA
+- **7**: SSL
+
+Common modifiers (combine with bitwise OR):
+- **AUTH_WHO_MASK (0x01)**: Direction
+  - 0x00: CLIENT_TO_SERVER
+  - 0x01: SERVER_TO_CLIENT
+- **AUTH_HOW_MASK (0x02)**: Method
+  - 0x00: ONE_WAY
+  - 0x02: MUTUAL
+- **ENCRYPT_MASK (0x14)**: Encryption
+  - 0x00: ENCRYPT_OFF
+  - 0x04: ENCRYPT_USING_TELOPT
+  - 0x10: ENCRYPT_AFTER_EXCHANGE
+- **INI_CRED_FWD_MASK (0x08)**: Credential forwarding
+  - 0x00: OFF
+  - 0x08: ON
+
+#### Use Cases
+- **Custom authentication**: Implement Kerberos, SRP, RSA, or any RFC 2941-compliant mechanism
+- **Pass/fail control**: Full control over credential validation and authentication status
+- **Multi-round authentication**: Support challenge-response protocols using REPLY messages
+- **Backward compatibility**: Defaults to NULL rejection when callbacks not configured
+
+**Note:** This protocol provides the negotiation framework. Actual cryptographic authentication mechanisms must be implemented in the callbacks using appropriate security libraries.
 
 Start interpreting.
 ```csharp

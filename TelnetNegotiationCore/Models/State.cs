@@ -183,6 +183,16 @@ public enum State : short
 	NegotiatingLINEMODE,
 	EvaluatingLINEMODE,
 	EscapingLINEMODEValue,
-	CompletingLINEMODE
+	CompletingLINEMODE,
 	#endregion Line Mode Negotiation
+	#region Authentication Negotiation
+	DoAuthentication,
+	DontAuthentication,
+	WillAuthentication,
+	WontAuthentication,
+	AlmostNegotiatingAuthentication,
+	NegotiatingAuthenticationSend,
+	CompletingAuthenticationNegotiation,
+	SendingAuthenticationResponse
+	#endregion Authentication Negotiation
 }
