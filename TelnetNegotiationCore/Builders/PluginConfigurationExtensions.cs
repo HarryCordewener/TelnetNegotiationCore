@@ -112,6 +112,48 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Enables TTABLE (Translation Table) support for the CharsetProtocol in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="enabled">Whether to enable TTABLE support</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<CharsetProtocol> WithTTableSupport(
+        this PluginConfigurationContext<CharsetProtocol> context,
+        bool enabled = true)
+    {
+        context.Plugin.EnableTTableSupport = enabled;
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the TTABLE received callback in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle received TTABLE data. Return true to ACK, false to NAK.</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<CharsetProtocol> OnTTableReceived(
+        this PluginConfigurationContext<CharsetProtocol> context,
+        Func<byte[], ValueTask<bool>>? callback)
+    {
+        context.Plugin.OnTTableReceived(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the TTABLE requested callback in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to provide TTABLE data when requested. Return null to reject.</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<CharsetProtocol> OnTTableRequested(
+        this PluginConfigurationContext<CharsetProtocol> context,
+        Func<ValueTask<byte[]?>>? callback)
+    {
+        context.Plugin.OnTTableRequested(callback);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the MSSP configuration in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
