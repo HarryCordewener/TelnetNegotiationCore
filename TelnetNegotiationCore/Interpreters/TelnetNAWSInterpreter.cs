@@ -51,7 +51,7 @@ public partial class TelnetInterpreter
 
 	public async ValueTask SendNAWS(short width, short height)
 	{
-		if(!_WillingToDoNAWS) await ValueTask.CompletedTask;
+		if(!_WillingToDoNAWS) await default(ValueTask);
 		
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS, 
 			.. BitConverter.GetBytes(width), .. BitConverter.GetBytes(height), 

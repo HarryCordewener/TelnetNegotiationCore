@@ -182,14 +182,14 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("Terminal Speed Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("Terminal Speed Protocol enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -198,7 +198,7 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
         Context.Logger.LogInformation("Terminal Speed Protocol disabled");
         _speedBuffer.Clear();
         _isCapturingSpeed = false;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -207,7 +207,7 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
         _speedBuffer.Clear();
         _isCapturingSpeed = false;
         _onTerminalSpeed = null;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     #region State Machine Handlers
@@ -234,7 +234,11 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
             return;
         }
 
+#if NET5_0_OR_GREATER
         var speedString = Encoding.ASCII.GetString(CollectionsMarshal.AsSpan(_speedBuffer));
+#else
+        var speedString = Encoding.ASCII.GetString(_speedBuffer.ToArray());
+#endif
         context.Logger.LogDebug("Connection: {ConnectionState}: {SpeedString}",
             "Received Terminal Speed", speedString);
 

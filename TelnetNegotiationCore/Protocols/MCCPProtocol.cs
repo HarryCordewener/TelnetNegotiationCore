@@ -179,14 +179,14 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("MCCP Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("MCCP Protocol enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -194,14 +194,14 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     {
         Context.Logger.LogInformation("MCCP Protocol disabled");
         DisableCompression();
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
         DisableCompression();
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -328,7 +328,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogDebug("Client doesn't support MCCP2");
         _mccp2Enabled = false;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     private async ValueTask OnDoMCCP3Async(IProtocolContext context)
@@ -346,7 +346,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogDebug("Client doesn't support MCCP3");
         _mccp3Enabled = false;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     private async ValueTask OnWillMCCP2Async(IProtocolContext context)

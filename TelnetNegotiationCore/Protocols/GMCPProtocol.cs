@@ -138,14 +138,14 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("GMCP Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("GMCP Protocol enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -156,7 +156,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         {
             FullMode = BoundedChannelFullMode.DropWrite
         });
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -181,7 +181,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         {
             FullMode = BoundedChannelFullMode.DropWrite
         });
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     #region State Machine Handlers
@@ -221,11 +221,17 @@ public class GMCPProtocol : TelnetProtocolPluginBase
             return;
         }
 
+#if NET5_0_OR_GREATER
         // Use CollectionsMarshal.AsSpan with slicing for zero-copy access
         var gmcpSpan = CollectionsMarshal.AsSpan(gmcpBytes);
         var packageBytes = gmcpSpan[..firstSpace].ToArray();
         var rest = gmcpSpan[(firstSpace + 1)..].ToArray();
         var package = context.CurrentEncoding.GetString(gmcpSpan[..firstSpace]);
+#else
+        var packageBytes = gmcpBytes.Take(firstSpace).ToArray();
+        var rest = gmcpBytes.Skip(firstSpace + 1).ToArray();
+        var package = context.CurrentEncoding.GetString(packageBytes);
+#endif
 
         if(package == "MSDP")
         {
@@ -383,14 +389,14 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("MSDP Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("MSDP Protocol enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -398,7 +404,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     {
         Context.Logger.LogInformation("MSDP Protocol disabled");
         _msdpBytes.Clear();
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -420,7 +426,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnDisposeAsync()
     {
         _msdpBytes.Clear();
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     #region State Machine Handlers

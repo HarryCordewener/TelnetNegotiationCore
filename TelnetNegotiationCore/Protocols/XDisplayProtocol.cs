@@ -176,14 +176,14 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("X-Display Location Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("X-Display Location Protocol enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -192,7 +192,7 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
         Context.Logger.LogInformation("X-Display Location Protocol disabled");
         _displayBuffer.Clear();
         _isCapturingDisplay = false;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -201,7 +201,7 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
         _displayBuffer.Clear();
         _isCapturingDisplay = false;
         _onDisplayLocation = null;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     #region State Machine Handlers
@@ -228,7 +228,11 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
             return;
         }
 
+#if NET5_0_OR_GREATER
         var displayString = Encoding.ASCII.GetString(CollectionsMarshal.AsSpan(_displayBuffer));
+#else
+        var displayString = Encoding.ASCII.GetString(_displayBuffer.ToArray());
+#endif
         context.Logger.LogDebug("Connection: {ConnectionState}: {DisplayLocation}",
             "Received X Display Location", displayString);
 

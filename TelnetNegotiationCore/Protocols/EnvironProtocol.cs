@@ -218,14 +218,14 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("ENVIRON Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("ENVIRON Protocol enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -233,14 +233,14 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     {
         Context.Logger.LogInformation("ENVIRON Protocol disabled");
         ClearState();
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
         ClearState();
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     private void ClearState()
@@ -302,11 +302,18 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     {
         if (_currentVar.Count > 0)
         {
+#if NET5_0_OR_GREATER
             var varNameSpan = CollectionsMarshal.AsSpan(_currentVar);
             var varName = Encoding.ASCII.GetString(varNameSpan);
             var varValue = _currentValue.Count > 0 
                 ? Encoding.ASCII.GetString(CollectionsMarshal.AsSpan(_currentValue)) 
                 : string.Empty;
+#else
+            var varName = Encoding.ASCII.GetString(_currentVar.ToArray());
+            var varValue = _currentValue.Count > 0 
+                ? Encoding.ASCII.GetString(_currentValue.ToArray()) 
+                : string.Empty;
+#endif
 
             _environmentVariables[varName] = varValue;
 

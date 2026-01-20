@@ -205,7 +205,7 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("Flow Control Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -213,7 +213,7 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
     {
         Context.Logger.LogInformation("Flow Control Protocol enabled");
         // Flow control state will be set by WillFlowControlAsync when negotiation completes
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -231,7 +231,7 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
         _restartMode = FlowControlRestartMode.SystemDefault;
         _onFlowControlStateChanged = null;
         _onRestartModeChanged = null;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     #region Public API Methods

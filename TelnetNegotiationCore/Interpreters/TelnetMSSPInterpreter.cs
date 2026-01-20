@@ -115,6 +115,7 @@ public partial class TelnetInterpreter
 		RegisterMSSPVal();
 		RegisterMSSPVar();
 
+#if NET5_0_OR_GREATER
 		var grouping = _currentMSSPVariableList
 			.Zip(_currentMSSPValueList)
 			.GroupBy(x => CurrentEncoding.GetString([.. x.First]));
@@ -123,6 +124,16 @@ public partial class TelnetInterpreter
 		{
 			StoreClientMSSPDetails(group.Key, group.Select(x => CurrentEncoding.GetString([.. x.Second])));
 		}
+#else
+		var grouping = _currentMSSPVariableList
+			.Zip(_currentMSSPValueList, (first, second) => (First: first, Second: second))
+			.GroupBy(x => CurrentEncoding.GetString(x.First.ToArray()));
+
+		foreach (var group in grouping)
+		{
+			StoreClientMSSPDetails(group.Key, group.Select(x => CurrentEncoding.GetString(x.Second.ToArray())));
+		}
+#endif
 
 		// Call MSSP plugin if available
 		var msspPlugin = PluginManager?.GetPlugin<Protocols.MSSPProtocol>();

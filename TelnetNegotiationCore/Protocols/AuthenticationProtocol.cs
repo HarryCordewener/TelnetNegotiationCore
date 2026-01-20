@@ -489,27 +489,27 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("Authentication Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("Authentication Protocol enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolDisabledAsync()
     {
         Context.Logger.LogInformation("Authentication Protocol disabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     #region State Machine Handlers

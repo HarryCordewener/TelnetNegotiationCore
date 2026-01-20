@@ -264,7 +264,7 @@ public partial class TelnetInterpreter
         _logger.LogTrace("Debug: Writing into buffer: {Byte}", b.AsT0);
         _buffer[_bufferPosition] = b.AsT0;
         _bufferPosition++;
-        await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? ValueTask.CompletedTask);
+        await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? default(ValueTask));
     }
 
     /// <summary>
@@ -425,7 +425,11 @@ public partial class TelnetInterpreter
     {
         _byteChannel.Writer.Complete();  // Signal no more data
         
+#if NET6_0_OR_GREATER
         await _processingCts.CancelAsync();  // Cancel processing
+#else
+        _processingCts.Cancel();
+#endif
         
         if (_processingTask != null)
         {
