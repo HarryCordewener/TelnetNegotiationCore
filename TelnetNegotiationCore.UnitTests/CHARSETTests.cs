@@ -580,11 +580,11 @@ namespace TelnetNegotiationCore.UnitTests
 
 			var charsetPlugin = server_ti.PluginManager!.GetPlugin<CharsetProtocol>();
 			charsetPlugin!.EnableTTableSupport = true;
-			charsetPlugin.OnTTableReceived(async (data) =>
+			charsetPlugin.OnTTableReceived((data) =>
 			{
 				receivedTTableData = data;
 				wasCallbackInvoked = true;
-				return true; // ACK the table
+				return ValueTask.FromResult(true); // ACK the table
 			});
 
 			// Client sends WILL CHARSET
@@ -685,9 +685,9 @@ namespace TelnetNegotiationCore.UnitTests
 
 			var charsetPlugin = server_ti.PluginManager!.GetPlugin<CharsetProtocol>();
 			charsetPlugin!.EnableTTableSupport = true;
-			charsetPlugin.OnTTableReceived(async (data) =>
+			charsetPlugin.OnTTableReceived((data) =>
 			{
-				return false; // NAK the table
+				return ValueTask.FromResult(false); // NAK the table
 			});
 
 			// Client sends WILL CHARSET
@@ -774,7 +774,7 @@ namespace TelnetNegotiationCore.UnitTests
 
 			var charsetPlugin = server_ti.PluginManager!.GetPlugin<CharsetProtocol>();
 			charsetPlugin!.EnableTTableSupport = true;
-			charsetPlugin.OnTTableReceived(async (data) => true);
+			charsetPlugin.OnTTableReceived((data) => ValueTask.FromResult(true));
 
 			// Client sends WILL CHARSET
 			await server_ti.InterpretByteArrayAsync(new byte[] { 
