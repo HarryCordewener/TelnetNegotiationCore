@@ -219,4 +219,34 @@ public static class PluginConfigurationExtensions
         context.Plugin.WithEchoHandler(handler);
         return context;
     }
+
+    /// <summary>
+    /// Sets the Terminal Speed callback in a fluent manner (RFC 1079).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle terminal speed information (transmitSpeed, receiveSpeed in bps)</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<TerminalSpeedProtocol> OnTerminalSpeed(
+        this PluginConfigurationContext<TerminalSpeedProtocol> context,
+        Func<int, int, ValueTask>? callback)
+    {
+        context.Plugin.OnTerminalSpeed(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the terminal speeds to send when requested by server (RFC 1079, client mode).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="transmitSpeed">The transmit speed in bits per second</param>
+    /// <param name="receiveSpeed">The receive speed in bits per second</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<TerminalSpeedProtocol> WithClientTerminalSpeed(
+        this PluginConfigurationContext<TerminalSpeedProtocol> context,
+        int transmitSpeed,
+        int receiveSpeed)
+    {
+        context.Plugin.WithClientTerminalSpeed(transmitSpeed, receiveSpeed);
+        return context;
+    }
 }
