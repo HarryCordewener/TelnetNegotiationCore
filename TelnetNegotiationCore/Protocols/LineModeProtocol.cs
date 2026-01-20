@@ -195,7 +195,7 @@ public class LineModeProtocol : TelnetProtocolPluginBase
             .PermitReentry(Trigger.ReadNextCharacter);
 
         stateMachine.Configure(State.CompletingLINEMODE)
-            .SubstateOf(State.Accepting)
+            .SubstateOf(State.EndSubNegotiation)
             .OnEntryAsync(async () => await CompleteLineModeAsync(context));
 
         context.RegisterInitialNegotiation(async () => await SendDoLineModeAsync(context));
@@ -375,11 +375,25 @@ public class LineModeProtocol : TelnetProtocolPluginBase
                 {
                     // This is an acknowledgment of a mode we sent
                     context.Logger.LogDebug("Received MODE acknowledgment");
+                    // Don't send another acknowledgment back - that would create a loop
                 }
                 else if (Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
                 {
-                    // Client is proposing a mode - we should acknowledge it
+                    // Client is proposing a mode (without ACK bit) - we should acknowledge it
                     context.Logger.LogDebug("Client proposing mode, sending acknowledgment");
+                    var ackMode = (byte)(mode | MODE_ACK);
+                    await context.SendNegotiationAsync(new byte[]
+                    {
+                        (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.LINEMODE,
+                        (byte)Trigger.LINEMODE_MODE, ackMode,
+                        (byte)Trigger.IAC, (byte)Trigger.SE
+                    });
+                }
+                // Client mode: If we receive a mode without ACK bit, it means the server
+                // is commanding us to use this mode. We should acknowledge it.
+                else if (Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client && !isAck)
+                {
+                    context.Logger.LogDebug("Server commanding mode, sending acknowledgment");
                     var ackMode = (byte)(mode | MODE_ACK);
                     await context.SendNegotiationAsync(new byte[]
                     {
