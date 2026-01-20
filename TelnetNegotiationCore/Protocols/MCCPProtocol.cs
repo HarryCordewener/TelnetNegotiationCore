@@ -8,6 +8,9 @@ using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
+#if NETSTANDARD2_1
+using TelnetNegotiationCore.Helpers;
+#endif
 
 namespace TelnetNegotiationCore.Protocols;
 
@@ -33,7 +36,11 @@ public class MCCPProtocol : TelnetProtocolPluginBase
 {
     private bool _mccp2Enabled = false;
     private bool _mccp3Enabled = false;
+#if NETSTANDARD2_1
+    private Stream? _compressionStream;
+#else
     private ZLibStream? _compressionStream;
+#endif
     private MemoryStream? _compressionBuffer;
 
     private Func<int, bool, ValueTask>? _onCompressionEnabled;
@@ -235,6 +242,11 @@ public class MCCPProtocol : TelnetProtocolPluginBase
 
         try
         {
+#if NETSTANDARD2_1
+            // Use DeflateStream wrapper for .NET Standard 2.1
+            return ZLibHelper.Decompress(data);
+#else
+            // Use native ZLibStream for .NET 6+
             // Create a new memory stream for the compressed input data
             using var compressedStream = new MemoryStream(data);
             using var zlibStream = new ZLibStream(compressedStream, CompressionMode.Decompress);
@@ -242,6 +254,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
             
             zlibStream.CopyTo(outputStream);
             return outputStream.ToArray();
+#endif
         }
         catch (Exception ex)
         {
@@ -354,7 +367,11 @@ public class MCCPProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP3, (byte)Trigger.IAC, (byte)Trigger.SE });
         // Start compression
         _compressionBuffer = new MemoryStream();
+#if NETSTANDARD2_1
+        _compressionStream = ZLibHelper.CreateCompressStream(_compressionBuffer);
+#else
         _compressionStream = new ZLibStream(_compressionBuffer, CompressionMode.Compress);
+#endif
         _mccp3Enabled = true;
 
         if (_onCompressionEnabled != null)
@@ -375,7 +392,11 @@ public class MCCPProtocol : TelnetProtocolPluginBase
         
         // Initialize compression stream for server-to-client compression
         _compressionBuffer = new MemoryStream();
+#if NETSTANDARD2_1
+        _compressionStream = ZLibHelper.CreateCompressStream(_compressionBuffer);
+#else
         _compressionStream = new ZLibStream(_compressionBuffer, CompressionMode.Compress);
+#endif
         _mccp2Enabled = true;
 
         if (_onCompressionEnabled != null)
