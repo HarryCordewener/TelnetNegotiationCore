@@ -263,14 +263,14 @@ public class AuthenticationTests : BaseTest
             .OnSubmit(WriteBackToOutput)
             .OnNegotiation(WriteBackToNegotiate)
             .AddPlugin<AuthenticationProtocol>()
-                .WithAuthenticationTypes(async () =>
+                .WithAuthenticationTypes(() =>
                 {
                     authTypesCalled = true;
-                    return new System.Collections.Generic.List<(byte, byte)>
+                    return ValueTask.FromResult(new System.Collections.Generic.List<(byte, byte)>
                     {
                         (5, 0), // SRP with no modifiers
                         (6, 2)  // RSA with AUTH_HOW_MUTUAL
-                    };
+                    });
                 })
             .BuildAsync();
 
@@ -310,11 +310,11 @@ public class AuthenticationTests : BaseTest
             .OnSubmit(WriteBackToOutput)
             .OnNegotiation(WriteBackToNegotiate)
             .AddPlugin<AuthenticationProtocol>()
-                .OnAuthenticationRequest(async (authTypePairs) =>
+                .OnAuthenticationRequest((authTypePairs) =>
                 {
                     receivedRequest = authTypePairs;
                     // Return a custom auth response (e.g., SRP with some data)
-                    return new byte[] { 5, 0, 0x01, 0x02, 0x03 }; // SRP, no modifiers, some data
+                    return ValueTask.FromResult((byte[])new byte[] { 5, 0, 0x01, 0x02, 0x03 }); // SRP, no modifiers, some data
                 })
             .BuildAsync();
 
