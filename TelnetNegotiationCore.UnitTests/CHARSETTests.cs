@@ -562,5 +562,245 @@ namespace TelnetNegotiationCore.UnitTests
 				await ti.WaitForProcessingAsync();
 			}
 		}
+
+		// TTABLE Support Tests
+		[Test]
+		public async Task TTableReceivedCallback_ShouldBeInvoked()
+		{
+			byte[] receivedTTableData = Array.Empty<byte>();
+			var wasCallbackInvoked = false;
+
+			var server_ti = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(ServerWriteBackToNegotiate)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			var charsetPlugin = server_ti.PluginManager!.GetPlugin<CharsetProtocol>();
+			charsetPlugin!.EnableTTableSupport = true;
+			charsetPlugin.OnTTableReceived((data) =>
+			{
+				receivedTTableData = data;
+				wasCallbackInvoked = true;
+				return ValueTask.FromResult(true); // ACK the table
+			});
+
+			// Client sends WILL CHARSET
+			await server_ti.InterpretByteArrayAsync(new byte[] { 
+				(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET 
+			});
+			await server_ti.WaitForProcessingAsync();
+
+			// Client sends TTABLE-IS message
+			// Format: version(1) sep(;) charset1 sep size1(3bytes) count1(3bytes) charset2 sep size2 count2 map1 map2
+			var ttableMessage = new List<byte> {
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_IS,
+				1, // version
+				(byte)';', // separator
+				(byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8', (byte)';', // charset1
+				8, // size1 (8 bits)
+				0, 0, 10, // count1 (10 characters)
+				(byte)'u', (byte)'s', (byte)'-', (byte)'a', (byte)'s', (byte)'c', (byte)'i', (byte)'i', (byte)';', // charset2
+				8, // size2
+				0, 0, 10, // count2
+				// map1: 10 bytes of mapping data
+				0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+				// map2: 10 bytes of mapping data
+				0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+				(byte)Trigger.IAC, (byte)Trigger.SE
+			};
+
+			await server_ti.InterpretByteArrayAsync(ttableMessage.ToArray());
+			await server_ti.WaitForProcessingAsync();
+
+			// Verify callback was invoked
+			await Assert.That(wasCallbackInvoked).IsTrue();
+			await Assert.That(receivedTTableData).IsNotNull();
+			
+			// Verify TTABLE-ACK was sent
+			await Assert.That(_negotiationOutput).IsNotNull();
+			var expected = new byte[] { 
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_ACK, 
+				(byte)Trigger.IAC, (byte)Trigger.SE 
+			};
+			await Assert.That(_negotiationOutput).IsEquivalentTo(expected);
+
+			await server_ti.DisposeAsync();
+		}
+
+		[Test]
+		public async Task TTableRejected_WhenNoCallbackRegistered()
+		{
+			var server_ti = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(ServerWriteBackToNegotiate)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			var charsetPlugin = server_ti.PluginManager!.GetPlugin<CharsetProtocol>();
+			charsetPlugin!.EnableTTableSupport = true;
+			// No callback registered
+
+			// Client sends WILL CHARSET
+			await server_ti.InterpretByteArrayAsync(new byte[] { 
+				(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET 
+			});
+			await server_ti.WaitForProcessingAsync();
+
+			// Client sends TTABLE-IS message (minimal)
+			var ttableMessage = new List<byte> {
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_IS,
+				1, // version
+				(byte)Trigger.IAC, (byte)Trigger.SE
+			};
+
+			await server_ti.InterpretByteArrayAsync(ttableMessage.ToArray());
+			await server_ti.WaitForProcessingAsync();
+
+			// Verify TTABLE-REJECTED was sent
+			await Assert.That(_negotiationOutput).IsNotNull();
+			var expected = new byte[] { 
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, 
+				(byte)Trigger.IAC, (byte)Trigger.SE 
+			};
+			await Assert.That(_negotiationOutput).IsEquivalentTo(expected);
+
+			await server_ti.DisposeAsync();
+		}
+
+		[Test]
+		public async Task TTableNak_WhenCallbackReturnsFalse()
+		{
+			var server_ti = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(ServerWriteBackToNegotiate)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			var charsetPlugin = server_ti.PluginManager!.GetPlugin<CharsetProtocol>();
+			charsetPlugin!.EnableTTableSupport = true;
+			charsetPlugin.OnTTableReceived((data) =>
+			{
+				return ValueTask.FromResult(false); // NAK the table
+			});
+
+			// Client sends WILL CHARSET
+			await server_ti.InterpretByteArrayAsync(new byte[] { 
+				(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET 
+			});
+			await server_ti.WaitForProcessingAsync();
+
+			// Client sends TTABLE-IS message
+			var ttableMessage = new List<byte> {
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_IS,
+				1, // version
+				(byte)';', // separator
+				(byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8', (byte)';',
+				8, 0, 0, 10,
+				(byte)'a', (byte)'s', (byte)'c', (byte)'i', (byte)'i', (byte)';',
+				8, 0, 0, 10,
+				0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+				0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+				(byte)Trigger.IAC, (byte)Trigger.SE
+			};
+
+			await server_ti.InterpretByteArrayAsync(ttableMessage.ToArray());
+			await server_ti.WaitForProcessingAsync();
+
+			// Verify TTABLE-NAK was sent
+			await Assert.That(_negotiationOutput).IsNotNull();
+			var expected = new byte[] { 
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_NAK, 
+				(byte)Trigger.IAC, (byte)Trigger.SE 
+			};
+			await Assert.That(_negotiationOutput).IsEquivalentTo(expected);
+
+			await server_ti.DisposeAsync();
+		}
+
+		[Test]
+		public async Task SendTTableAsync_ShouldSendCorrectMessage()
+		{
+			var server_ti = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(ServerWriteBackToNegotiate)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			var charsetPlugin = server_ti.PluginManager!.GetPlugin<CharsetProtocol>();
+			charsetPlugin!.EnableTTableSupport = true;
+
+			// Client sends WILL CHARSET
+			await server_ti.InterpretByteArrayAsync(new byte[] { 
+				(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET 
+			});
+			await server_ti.WaitForProcessingAsync();
+
+			// Server sends TTABLE-IS
+			var ttableData = new byte[] { 1, (byte)';', (byte)'t', (byte)'e', (byte)'s', (byte)'t' };
+			await charsetPlugin.SendTTableAsync(ttableData);
+
+			// Verify TTABLE-IS was sent with correct format
+			await Assert.That(_negotiationOutput).IsNotNull();
+			var expectedPrefix = new byte[] { 
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_IS
+			};
+			var expectedSuffix = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };
+			
+			await Assert.That(_negotiationOutput.Take(4)).IsEquivalentTo(expectedPrefix);
+			await Assert.That(_negotiationOutput.Skip(_negotiationOutput.Length - 2)).IsEquivalentTo(expectedSuffix);
+
+			await server_ti.DisposeAsync();
+		}
+
+		[Test]
+		public async Task TTableUnsupportedVersion_ShouldBeRejected()
+		{
+			var server_ti = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(ServerWriteBackToNegotiate)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			var charsetPlugin = server_ti.PluginManager!.GetPlugin<CharsetProtocol>();
+			charsetPlugin!.EnableTTableSupport = true;
+			charsetPlugin.OnTTableReceived((data) => ValueTask.FromResult(true));
+
+			// Client sends WILL CHARSET
+			await server_ti.InterpretByteArrayAsync(new byte[] { 
+				(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET 
+			});
+			await server_ti.WaitForProcessingAsync();
+
+			// Client sends TTABLE-IS with unsupported version
+			var ttableMessage = new List<byte> {
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_IS,
+				99, // unsupported version
+				(byte)Trigger.IAC, (byte)Trigger.SE
+			};
+
+			await server_ti.InterpretByteArrayAsync(ttableMessage.ToArray());
+			await server_ti.WaitForProcessingAsync();
+
+			// Verify TTABLE-REJECTED was sent
+			await Assert.That(_negotiationOutput).IsNotNull();
+			var expected = new byte[] { 
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, 
+				(byte)Trigger.IAC, (byte)Trigger.SE 
+			};
+			await Assert.That(_negotiationOutput).IsEquivalentTo(expected);
+
+			await server_ti.DisposeAsync();
+		}
 	}
 }

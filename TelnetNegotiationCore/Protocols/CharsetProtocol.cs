@@ -32,6 +32,19 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     private Func<Encoding, ValueTask>? _signalCharsetChangeAsync;
     private Lazy<byte[]>? _supportedCharacterSets;
     private static System.Reflection.PropertyInfo? _cachedEncodingProperty;
+    
+    // TTABLE support fields
+    private byte[] _ttableByteState = [];
+    private int _ttableByteIndex = 0;
+    private bool _ttableSupportEnabled = false;
+    private Dictionary<int, int>? _currentTranslationTable;
+    private Func<byte[], ValueTask<bool>>? _onTTableReceived;
+    private Func<ValueTask<byte[]?>>? _onTTableRequested;
+    
+    // TTABLE constants
+    private const int TTABLE_BUFFER_SIZE = 8192;
+    private const byte TTABLE_VERSION_1 = 1;
+    private const int TTABLE_MIN_LENGTH = 2;
 
     /// <summary>
     /// Sets the CharacterSet Order for negotiation priority
@@ -70,6 +83,41 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         _signalCharsetChangeAsync = callback;
         return this;
     }
+
+    /// <summary>
+    /// Enables TTABLE (Translation Table) support for character set negotiation.
+    /// When enabled, the protocol can send and receive custom character set translation tables.
+    /// </summary>
+    public bool EnableTTableSupport
+    {
+        get => _ttableSupportEnabled;
+        set => _ttableSupportEnabled = value;
+    }
+
+    /// <summary>
+    /// Sets the callback that is invoked when a TTABLE is received from the remote party.
+    /// The callback receives the raw TTABLE data and should return true to ACK or false to NAK.
+    /// </summary>
+    public CharsetProtocol OnTTableReceived(Func<byte[], ValueTask<bool>>? callback)
+    {
+        _onTTableReceived = callback;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the callback that is invoked when the remote party requests a TTABLE.
+    /// The callback should return the TTABLE data to send, or null to reject.
+    /// </summary>
+    public CharsetProtocol OnTTableRequested(Func<ValueTask<byte[]?>>? callback)
+    {
+        _onTTableRequested = callback;
+        return this;
+    }
+
+    /// <summary>
+    /// Gets the current translation table if one has been negotiated.
+    /// </summary>
+    public IReadOnlyDictionary<int, int>? CurrentTranslationTable => _currentTranslationTable;
 
     /// <inheritdoc />
     public override Type ProtocolType => typeof(CharsetProtocol);
@@ -126,10 +174,38 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         stateMachine.Configure(State.AlmostNegotiatingCharset)
             .Permit(Trigger.REQUEST, State.NegotiatingCharset)
             .Permit(Trigger.REJECTED, State.EndingCharsetSubnegotiation)
-            .Permit(Trigger.ACCEPTED, State.NegotiatingAcceptedCharset);
+            .Permit(Trigger.ACCEPTED, State.NegotiatingAcceptedCharset)
+            .Permit(Trigger.TTABLE_IS, State.NegotiatingTTABLE)
+            .Permit(Trigger.TTABLE_REJECTED, State.EndingTTABLESubnegotiation)
+            .Permit(Trigger.TTABLE_ACK, State.EndingTTABLESubnegotiation)
+            .Permit(Trigger.TTABLE_NAK, State.EndingTTABLESubnegotiation);
 
         stateMachine.Configure(State.EndingCharsetSubnegotiation)
             .Permit(Trigger.IAC, State.EndSubNegotiation);
+
+        stateMachine.Configure(State.EndingTTABLESubnegotiation)
+            .Permit(Trigger.IAC, State.EndSubNegotiation);
+
+        // TTABLE state machine configuration
+        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.NegotiatingTTABLE).Permit(t, State.EvaluatingTTABLE));
+
+        stateMachine.Configure(State.EscapingTTABLEValue)
+            .Permit(Trigger.IAC, State.EvaluatingTTABLE)
+            .Permit(Trigger.SE, State.CompletingTTABLE);
+
+        stateMachine.Configure(State.NegotiatingTTABLE)
+            .Permit(Trigger.IAC, State.EscapingTTABLEValue)
+            .OnEntry(GetTTable);
+
+        stateMachine.Configure(State.EvaluatingTTABLE)
+            .Permit(Trigger.IAC, State.EscapingTTABLEValue);
+
+        TriggerHelper.ForAllTriggers(t => stateMachine.Configure(State.EvaluatingTTABLE).OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), CaptureTTable));
+        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.EvaluatingTTABLE).PermitReentry(t));
+
+        stateMachine.Configure(State.CompletingTTABLE)
+            .OnEntryAsync(async x => await CompleteTTableAsync(x, context))
+            .SubstateOf(State.Accepting);
 
         TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.NegotiatingCharset).Permit(t, State.EvaluatingCharset));
         TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.NegotiatingAcceptedCharset).Permit(t, State.EvaluatingAcceptedCharsetValue));
@@ -196,6 +272,9 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         _acceptedCharsetByteState = [];
         _acceptedCharsetByteIndex = 0;
         _charsetOffered = false;
+        _ttableByteState = [];
+        _ttableByteIndex = 0;
+        _currentTranslationTable = null;
         return ValueTask.CompletedTask;
     }
 
@@ -204,6 +283,8 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     {
         _charsetByteState = [];
         _acceptedCharsetByteState = [];
+        _ttableByteState = [];
+        _currentTranslationTable = null;
         return ValueTask.CompletedTask;
     }
 
@@ -342,6 +423,199 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         
         if (_cachedEncodingProperty != null && _cachedEncodingProperty.CanWrite)
             _cachedEncodingProperty.SetValue(interpreter, CurrentEncoding);
+    }
+
+    // TTABLE state machine handlers
+    private void GetTTable(StateMachine<State, Trigger>.Transition _)
+    {
+        _ttableByteState = new byte[TTABLE_BUFFER_SIZE];
+        _ttableByteIndex = 0;
+    }
+
+    private void CaptureTTable(OneOf<byte, Trigger> b)
+    {
+        if (_ttableByteIndex >= _ttableByteState.Length)
+        {
+            Context.Logger.LogWarning("TTABLE buffer overflow - data truncated at {MaxSize} bytes", TTABLE_BUFFER_SIZE);
+            return;
+        }
+        _ttableByteState[_ttableByteIndex] = b.AsT0;
+        _ttableByteIndex++;
+    }
+
+    private async ValueTask CompleteTTableAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    {
+        context.Logger.LogDebug("Processing TTABLE-IS message with {Bytes} bytes", _ttableByteIndex);
+        
+        try
+        {
+            // Parse TTABLE-IS message according to RFC 2066
+            // Format: <version> <sep> <charset1> <sep> <size1> <count1> <charset2> <sep> <size2> <count2> <map1> <map2>
+            
+            if (_ttableByteIndex < TTABLE_MIN_LENGTH)
+            {
+                context.Logger.LogWarning("TTABLE-IS message too short");
+                await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+                return;
+            }
+
+            var version = _ttableByteState[0];
+            if (version != TTABLE_VERSION_1)
+            {
+                context.Logger.LogWarning("Unsupported TTABLE version: {Version}", version);
+                await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+                return;
+            }
+
+            // Invoke callback if registered
+            if (_onTTableReceived != null)
+            {
+                var ttableData = new byte[_ttableByteIndex];
+                Array.Copy(_ttableByteState, 0, ttableData, 0, _ttableByteIndex);
+                
+                var shouldAccept = await _onTTableReceived.Invoke(ttableData);
+                
+                if (shouldAccept)
+                {
+                    // Parse and store the translation table
+                    ParseTTableVersion1(ttableData, context);
+                    
+                    // Send TTABLE-ACK
+                    context.Logger.LogInformation("TTABLE accepted and acknowledged");
+                    await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_ACK, (byte)Trigger.IAC, (byte)Trigger.SE });
+                }
+                else
+                {
+                    // Send TTABLE-NAK to request retransmission
+                    context.Logger.LogInformation("TTABLE rejected by callback, sending NAK");
+                    await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_NAK, (byte)Trigger.IAC, (byte)Trigger.SE });
+                }
+            }
+            else
+            {
+                // No callback registered, reject TTABLE
+                context.Logger.LogDebug("No TTABLE callback registered, rejecting");
+                await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(ex, "Error processing TTABLE-IS message");
+            await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+        }
+    }
+
+    private void ParseTTableVersion1(byte[] ttableData, IProtocolContext context)
+    {
+        try
+        {
+            // Parse TTABLE version 1 data structure
+            // Format: <version> <sep> <charset1> <sep> <size1> <count1> <charset2> <sep> <size2> <count2> <map1> <map2>
+            
+            var version = ttableData[0];
+            if (version != TTABLE_VERSION_1 || ttableData.Length < TTABLE_MIN_LENGTH)
+            {
+                context.Logger.LogWarning("Invalid TTABLE format");
+                return;
+            }
+
+            var sep = (char)ttableData[1];
+            var ascii = Encoding.ASCII;
+            int pos = 2;
+            
+            // Parse charset1 name
+            int charset1Start = pos;
+            while (pos < ttableData.Length && ttableData[pos] != sep) pos++;
+            var charset1 = ascii.GetString(ttableData, charset1Start, pos - charset1Start);
+            pos++; // Skip separator
+            
+            if (pos + 4 > ttableData.Length)
+            {
+                context.Logger.LogWarning("TTABLE too short for size1 and count1");
+                return;
+            }
+            
+            var size1 = ttableData[pos++];
+            var count1 = (ttableData[pos] << 16) | (ttableData[pos + 1] << 8) | ttableData[pos + 2];
+            pos += 3;
+            
+            // Parse charset2 name
+            int charset2Start = pos;
+            while (pos < ttableData.Length && ttableData[pos] != sep) pos++;
+            var charset2 = ascii.GetString(ttableData, charset2Start, pos - charset2Start);
+            pos++; // Skip separator
+            
+            if (pos + 4 > ttableData.Length)
+            {
+                context.Logger.LogWarning("TTABLE too short for size2 and count2");
+                return;
+            }
+            
+            var size2 = ttableData[pos++];
+            var count2 = (ttableData[pos] << 16) | (ttableData[pos + 1] << 8) | ttableData[pos + 2];
+            pos += 3;
+            
+            context.Logger.LogDebug("TTABLE: {Charset1} ({Size1}bit, {Count1} chars) <-> {Charset2} ({Size2}bit, {Count2} chars)",
+                charset1, size1, count1, charset2, size2, count2);
+            
+            // Parse translation maps
+            if (pos + count1 + count2 > ttableData.Length)
+            {
+                context.Logger.LogWarning("TTABLE data incomplete for specified counts");
+                return;
+            }
+            
+            // Build translation table from map1 (charset1 -> charset2)
+            _currentTranslationTable = new Dictionary<int, int>();
+            for (int i = 0; i < count1 && pos + i < ttableData.Length; i++)
+            {
+                _currentTranslationTable[i] = ttableData[pos + i];
+            }
+            
+            context.Logger.LogInformation("TTABLE parsed successfully: {Charset1} -> {Charset2} with {Entries} mappings",
+                charset1, charset2, _currentTranslationTable.Count);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(ex, "Error parsing TTABLE version 1 data");
+        }
+    }
+
+    /// <summary>
+    /// Sends a TTABLE-IS message to the remote party with the specified translation table data.
+    /// </summary>
+    /// <param name="ttableData">The translation table data in RFC 2066 version 1 format</param>
+    public async ValueTask SendTTableAsync(byte[] ttableData)
+    {
+        if (Context == null)
+        {
+            throw new InvalidOperationException("Protocol not initialized");
+        }
+
+        var preamble = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_IS };
+        var postamble = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };
+        
+        var message = new byte[preamble.Length + ttableData.Length + postamble.Length];
+        Array.Copy(preamble, 0, message, 0, preamble.Length);
+        Array.Copy(ttableData, 0, message, preamble.Length, ttableData.Length);
+        Array.Copy(postamble, 0, message, preamble.Length + ttableData.Length, postamble.Length);
+        
+        await Context.SendNegotiationAsync(message);
+        Context.Logger.LogInformation("Sent TTABLE-IS message with {Bytes} bytes", ttableData.Length);
+    }
+
+    /// <summary>
+    /// Sends a TTABLE-REJECTED message to the remote party.
+    /// </summary>
+    public async ValueTask SendTTableRejectedAsync()
+    {
+        if (Context == null)
+        {
+            throw new InvalidOperationException("Protocol not initialized");
+        }
+
+        await Context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+        Context.Logger.LogInformation("Sent TTABLE-REJECTED message");
     }
 
     #endregion

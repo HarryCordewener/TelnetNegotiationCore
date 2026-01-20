@@ -53,6 +53,12 @@ public enum State : short
 	EvaluatingAcceptedCharsetValue,
 	EscapingAcceptedCharsetValue,
 	CompletingAcceptedCharset,
+	NegotiatingTTABLE,
+	EvaluatingTTABLE,
+	EscapingTTABLEValue,
+	CompletingTTABLE,
+	TTableWaitingForACK,
+	EndingTTABLESubnegotiation,
 	#endregion Charset Negotation
 	#region Terminal Type Negotiation
 	WillDoTType,
