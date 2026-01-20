@@ -61,25 +61,30 @@ public enum Trigger : short
 	/// <summary>
 	/// Sub-negotiation IS command.	
 	/// Sub-negotiation NEW-ENVIRON VAR command
+	/// Sub-negotiation FLOWCONTROL OFF command
 	/// </summary>
 	/// <remarks>
 	/// RFC 855: http://www.faqs.org/rfcs/rfc855.html
 	/// RFC 1572: http://www.faqs.org/rfcs/rfc1572.html
+	/// RFC 1372: http://www.faqs.org/rfcs/rfc1372.html
 	/// </remarks>
 	IS = 0,
 	NEWENVIRON_VAR = 0,
+	FLOWCONTROL_OFF = 0,
 	/// <summary>
 	/// Sub-negotiation SEND command
-	/// ECHO negotiation (Unsupported)
+	/// ECHO negotiation
 	/// Sub-negotiation MSSP_VAR
 	/// Sub-negotiation MSDP_VAR
 	/// Sub-negotiation NEW-ENVIRON VALUE command
+	/// Sub-negotiation FLOWCONTROL ON command
 	/// </summary>
 	/// <remarks>
 	/// RFC 855: http://www.faqs.org/rfcs/rfc855.html
 	/// RFC 857: http://www.faqs.org/rfcs/rfc857.html
 	/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 	/// RFC 1572: http://www.faqs.org/rfcs/rfc1572.html
+	/// RFC 1372: http://www.faqs.org/rfcs/rfc1372.html
 	/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
 	/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
 	/// </remarks>
@@ -89,17 +94,20 @@ public enum Trigger : short
 	SEND = 1,
 	REQUEST = 1,
 	NEWENVIRON_VALUE = 1,
+	FLOWCONTROL_ON = 1,
 	/// <summary>
 	/// Sub-negotiation ACCEPTED command.	
 	/// Sub-negotiation MSSP_VAL
 	/// Sub-negotiation MSDP_VAL
 	/// Sub-negotiation NEW-ENVIRON INFO command
 	/// Sub-negotiation NEW-ENVIRON ESC command
+	/// Sub-negotiation FLOWCONTROL RESTART_ANY command
 	/// </summary>
 	/// <remarks>
 	/// MSSP: https://tintin.mudhalla.net/protocols/mssp/
 	/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 	/// RFC 1572: http://www.faqs.org/rfcs/rfc1572.html
+	/// RFC 1372: http://www.faqs.org/rfcs/rfc1372.html
 	/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
 	/// </remarks>
 	MSSP_VAL = 2,
@@ -107,22 +115,26 @@ public enum Trigger : short
 	ACCEPTED = 2,
 	NEWENVIRON_INFO = 2,
 	NEWENVIRON_ESC = 2,
+	FLOWCONTROL_RESTART_ANY = 2,
 	/// <summary>
 	/// Sub-negotiation REJECTED command.	
 	/// Suppress Go Ahead
 	/// Sub-negotiation MSDP_TABLE_OPEN
 	/// Sub-negotiation NEW-ENVIRON USERVAR command
+	/// Sub-negotiation FLOWCONTROL RESTART_XON command
 	/// </summary>
 	/// <remarks>
 	/// RFC 858: http://www.faqs.org/rfcs/rfc858.html
 	/// RFC 2066: http://www.faqs.org/rfcs/rfc2066.html
 	/// RFC 1572: http://www.faqs.org/rfcs/rfc1572.html
+	/// RFC 1372: http://www.faqs.org/rfcs/rfc1372.html
 	/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
 	/// </remarks>
 	SUPPRESSGOAHEAD = 3,
 	REJECTED = 3,
 	MSDP_TABLE_OPEN = 3,
 	NEWENVIRON_USERVAR = 3,
+	FLOWCONTROL_RESTART_XON = 3,
 	/// <summary>
 	/// Sub-negotiation TTABLE-IS command. (Unsupported)
 	/// Sub-negotiation MSDP_TABLE_CLOSE
@@ -204,7 +216,7 @@ public enum Trigger : short
 	/// </remarks>
 	TSPEED = 32,
 	/// <summary>
-	/// Toggle Flow Control (Unsupported)
+	/// Toggle Flow Control
 	/// </summary>
 	/// <remarks>
 	/// RFC 1372: http://www.faqs.org/rfcs/rfc1372.html

@@ -163,6 +163,15 @@ public enum State : short
 	DoECHO,
 	DontECHO,
 	WillECHO,
-	WontECHO
+	WontECHO,
 	#endregion ECHO Negotiation
+	#region Flow Control Negotiation
+	DoFLOWCONTROL,
+	DontFLOWCONTROL,
+	WillFLOWCONTROL,
+	WontFLOWCONTROL,
+	AlmostNegotiatingFLOWCONTROL,
+	NegotiatingFLOWCONTROL,
+	CompletingFLOWCONTROL
+	#endregion Flow Control Negotiation
 }
