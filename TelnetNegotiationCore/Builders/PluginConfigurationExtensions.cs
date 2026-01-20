@@ -277,4 +277,18 @@ public static class PluginConfigurationExtensions
         context.Plugin.OnRestartModeChanged(callback);
         return context;
     }
+
+    /// <summary>
+    /// Sets the Line Mode change callback in a fluent manner (RFC 1184).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle line mode changes (receives the mode byte)</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<LineModeProtocol> OnModeChanged(
+        this PluginConfigurationContext<LineModeProtocol> context,
+        Func<byte, ValueTask>? callback)
+    {
+        context.Plugin.OnModeChanged(callback);
+        return context;
+    }
 }
