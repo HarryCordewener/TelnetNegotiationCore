@@ -45,6 +45,11 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     /// </summary>
     private const byte AUTH_NAME = 3;
 
+    /// <summary>
+    /// No authentication modifiers - used when rejecting with NULL type
+    /// </summary>
+    private const byte AUTH_NO_MODIFIERS = 0;
+
     /// <inheritdoc />
     public override Type ProtocolType => typeof(AuthenticationProtocol);
 
@@ -216,7 +221,7 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
             (byte)Trigger.AUTHENTICATION,
             AUTH_IS,
             AUTH_NULL,  // NULL authentication type
-            0,          // No modifiers
+            AUTH_NO_MODIFIERS,  // No modifiers
             (byte)Trigger.IAC,
             (byte)Trigger.SE
         });
