@@ -42,51 +42,54 @@ public class PluginCircularDependencyAnalyzer : DiagnosticAnalyzer
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
 
-        context.RegisterCompilationAction(AnalyzeCompilation);
+        context.RegisterCompilationStartAction(compilationStartContext =>
+        {
+            var pluginInterface = compilationStartContext.Compilation.GetTypeByMetadataName("TelnetNegotiationCore.Plugins.ITelnetProtocolPlugin");
+            if (pluginInterface == null)
+                return;
+
+            // Use a thread-safe collection to store plugin information
+            var plugins = new System.Collections.Concurrent.ConcurrentBag<(INamedTypeSymbol Symbol, Location Location)>();
+
+            // Register symbol action to collect all plugin types
+            compilationStartContext.RegisterSymbolAction(symbolContext =>
+            {
+                if (symbolContext.Symbol is INamedTypeSymbol namedType &&
+                    namedType.TypeKind == TypeKind.Class &&
+                    !namedType.IsAbstract &&
+                    ImplementsInterface(namedType, pluginInterface))
+                {
+                    var location = namedType.Locations.FirstOrDefault();
+                    if (location != null)
+                    {
+                        plugins.Add((namedType, location));
+                    }
+                }
+            }, SymbolKind.NamedType);
+
+            // Register compilation end action to analyze all collected plugins
+            compilationStartContext.RegisterCompilationEndAction(compilationEndContext =>
+            {
+                AnalyzePluginDependencies(compilationEndContext, plugins.ToList());
+            });
+        });
     }
 
-    private static void AnalyzeCompilation(CompilationAnalysisContext context)
+    private static void AnalyzePluginDependencies(
+        CompilationAnalysisContext context,
+        List<(INamedTypeSymbol Symbol, Location Location)> plugins)
     {
-        // Find all classes that implement ITelnetProtocolPlugin
-        var pluginInterface = context.Compilation.GetTypeByMetadataName("TelnetNegotiationCore.Plugins.ITelnetProtocolPlugin");
-        if (pluginInterface == null)
-            return;
-
-        var plugins = new List<(INamedTypeSymbol Symbol, SyntaxNode Node, SemanticModel Model)>();
-
-        foreach (var syntaxTree in context.Compilation.SyntaxTrees)
-        {
-#pragma warning disable RS1030 // Do not invoke Compilation.GetSemanticModel() method within a diagnostic analyzer
-            var semanticModel = context.Compilation.GetSemanticModel(syntaxTree);
-#pragma warning restore RS1030 // Do not invoke Compilation.GetSemanticModel() method within a diagnostic analyzer
-            var root = syntaxTree.GetRoot(context.CancellationToken);
-
-            var classDeclarations = root.DescendantNodes().OfType<ClassDeclarationSyntax>();
-
-            foreach (var classDecl in classDeclarations)
-            {
-                var classSymbol = semanticModel.GetDeclaredSymbol(classDecl, context.CancellationToken) as INamedTypeSymbol;
-                if (classSymbol == null)
-                    continue;
-
-                if (ImplementsInterface(classSymbol, pluginInterface))
-                {
-                    plugins.Add((classSymbol, classDecl, semanticModel));
-                }
-            }
-        }
-
         // Build dependency graph
         var dependencyMap = new Dictionary<INamedTypeSymbol, List<INamedTypeSymbol>>(SymbolEqualityComparer.Default);
 
-        foreach (var (symbol, node, model) in plugins)
+        foreach (var (symbol, _) in plugins)
         {
-            var dependencies = GetDependencies(symbol, node, model);
+            var dependencies = GetDependencies(symbol);
             dependencyMap[symbol] = dependencies;
         }
 
         // Detect circular dependencies
-        foreach (var (symbol, node, _) in plugins)
+        foreach (var (symbol, location) in plugins)
         {
             var visited = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
             var path = new List<string>();
@@ -96,7 +99,7 @@ public class PluginCircularDependencyAnalyzer : DiagnosticAnalyzer
                 var cycle = string.Join(" → ", path) + " → " + symbol.Name;
                 var diagnostic = Diagnostic.Create(
                     Rule,
-                    node.GetLocation(),
+                    location,
                     symbol.Name,
                     cycle);
 
@@ -137,33 +140,67 @@ public class PluginCircularDependencyAnalyzer : DiagnosticAnalyzer
         return false;
     }
 
-    private static List<INamedTypeSymbol> GetDependencies(INamedTypeSymbol pluginSymbol, SyntaxNode node, SemanticModel semanticModel)
+    private static List<INamedTypeSymbol> GetDependencies(INamedTypeSymbol pluginSymbol)
     {
         var dependencies = new List<INamedTypeSymbol>();
 
-        if (node is not ClassDeclarationSyntax classDecl)
+        // Get the Dependencies property from the plugin symbol
+        var dependenciesProperty = pluginSymbol.GetMembers("Dependencies")
+            .OfType<IPropertySymbol>()
+            .FirstOrDefault();
+
+        if (dependenciesProperty == null)
             return dependencies;
 
-        var propertyDecl = classDecl.Members
-            .OfType<PropertyDeclarationSyntax>()
-            .FirstOrDefault(p => p.Identifier.Text == "Dependencies");
-
-        if (propertyDecl == null)
-            return dependencies;
-
-        // Extract typeof() expressions from the property
-        var typeofExpressions = propertyDecl.DescendantNodes().OfType<TypeOfExpressionSyntax>();
-
-        foreach (var typeofExpr in typeofExpressions)
+        // Get the syntax for the property getter to extract typeof() expressions
+        foreach (var syntaxRef in dependenciesProperty.DeclaringSyntaxReferences)
         {
-            var typeInfo = semanticModel.GetTypeInfo(typeofExpr.Type);
-            if (typeInfo.Type is INamedTypeSymbol namedType)
+            var propertySyntax = syntaxRef.GetSyntax() as PropertyDeclarationSyntax;
+            if (propertySyntax == null)
+                continue;
+
+            // Extract typeof() expressions from the property
+            var typeofExpressions = propertySyntax.DescendantNodes().OfType<TypeOfExpressionSyntax>();
+
+            foreach (var typeofExpr in typeofExpressions)
             {
-                dependencies.Add(namedType);
+                // Get type name from the typeof expression syntax
+                var typeName = typeofExpr.Type.ToString();
+                
+                // Find the type in the same assembly as the plugin
+                var candidateTypes = GetAllTypesInAssembly(pluginSymbol.ContainingAssembly);
+                var matchedType = candidateTypes
+                    .FirstOrDefault(t => t.Name == typeName || t.ToDisplayString() == typeName);
+                
+                if (matchedType != null)
+                {
+                    dependencies.Add(matchedType);
+                }
             }
         }
 
         return dependencies;
+    }
+
+    private static IEnumerable<INamedTypeSymbol> GetAllTypesInAssembly(IAssemblySymbol assembly)
+    {
+        var stack = new Stack<INamespaceSymbol>();
+        stack.Push(assembly.GlobalNamespace);
+
+        while (stack.Count > 0)
+        {
+            var currentNamespace = stack.Pop();
+
+            foreach (var type in currentNamespace.GetTypeMembers())
+            {
+                yield return type;
+            }
+
+            foreach (var childNamespace in currentNamespace.GetNamespaceMembers())
+            {
+                stack.Push(childNamespace);
+            }
+        }
     }
 
     private static bool ImplementsInterface(INamedTypeSymbol classSymbol, INamedTypeSymbol interfaceSymbol)
