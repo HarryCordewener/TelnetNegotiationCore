@@ -146,14 +146,14 @@ public class NAWSProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("NAWS Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("NAWS Protocol enabled - requesting window size");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -162,7 +162,7 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         Context.Logger.LogInformation("NAWS Protocol disabled");
         _nawsByteState = [];
         _nawsIndex = 0;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -215,7 +215,7 @@ public class NAWSProtocol : TelnetProtocolPluginBase
     {
         _nawsByteState = [];
         _nawsIndex = 0;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>

@@ -78,14 +78,14 @@ public partial class TelnetInterpreter
 	{
 		_logger.LogDebug("Connection: {ConnectionState}", "Client won't do EOR - do nothing");
 		_doEOR = false;
-		return ValueTask.CompletedTask;
+		return default(ValueTask);
 	}
 
 	private ValueTask WontEORAsync()
 	{
 		_logger.LogDebug("Connection: {ConnectionState}", "Server  won't do EOR - do nothing");
 		_doEOR = false;
-		return ValueTask.CompletedTask;
+		return default(ValueTask);
 	}
 
 	/// <summary>
@@ -104,7 +104,7 @@ public partial class TelnetInterpreter
 	{
 		_logger.LogDebug("Connection: {ConnectionState}", "Client supports End of Record.");
 		_doEOR = true;
-		return ValueTask.CompletedTask;
+		return default(ValueTask);
 	}
 
 	/// <summary>

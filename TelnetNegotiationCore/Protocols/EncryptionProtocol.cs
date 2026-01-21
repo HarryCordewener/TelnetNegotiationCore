@@ -570,14 +570,14 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("Encryption Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("Encryption Protocol enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -585,14 +585,14 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     {
         Context.Logger.LogInformation("Encryption Protocol disabled");
         _isEncrypting = false;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
         _isEncrypting = false;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     #region State Machine Handlers

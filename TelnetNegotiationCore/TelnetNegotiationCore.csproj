@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>net9.0</TargetFramework>
+		<TargetFrameworks>netstandard2.1;net8.0;net10.0</TargetFrameworks>
 		<LangVersion>latest</LangVersion>
 		<Version>2.0.0</Version>
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
@@ -19,6 +19,8 @@
 		<PackageReleaseNotes>https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/CHANGELOG.md</PackageReleaseNotes>
 		<Copyright>Copyright © TelnetNegotiationCore Contributors 2024-$([System.DateTime]::Now.ToString(yyyy))</Copyright>
 		<Nullable>enable</Nullable>
+		<!-- Suppress NU1510 for System.Memory - it's only needed for netstandard2.1 -->
+		<NoWarn>$(NoWarn);NU1510</NoWarn>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -45,16 +47,28 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<Content Include="$(TargetDir)\TelnetNegotiationCore.Functional.dll">
+		<!-- Include Functional DLL in package for both target frameworks -->
+		<None Include="$(OutputPath)TelnetNegotiationCore.Functional.dll" Condition="Exists('$(OutputPath)TelnetNegotiationCore.Functional.dll')">
 			<Pack>true</Pack>
 			<PackagePath>lib\$(TargetFramework)</PackagePath>
 			<Visible>false</Visible>
-		</Content>
+		</None>
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
 		<PackageReference Include="OneOf" Version="3.0.271" />
 		<PackageReference Include="stateless" Version="5.15.0" />
+	</ItemGroup>
+
+	<!-- Packages needed for netstandard2.1 -->
+	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
+		<PackageReference Include="System.Memory" Version="4.5.5" />
 		<PackageReference Include="System.Collections.Immutable" Version="9.0.0" />
-		<PackageReference Include="System.Runtime" Version="4.3.1" />
+		<PackageReference Include="System.Threading.Channels" Version="9.0.0" />
+		<PackageReference Include="SharpZipLib" Version="1.4.2" />
+		<PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+		<PackageReference Include="PolySharp" Version="1.14.1">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+		</PackageReference>
 	</ItemGroup>
 
 	<ItemGroup>

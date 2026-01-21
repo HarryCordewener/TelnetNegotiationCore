@@ -112,5 +112,5 @@ public class MSDPServerModel
     public async ValueTask NotifyChangeAsync(string reportableVariable, string newValue) =>
         await (Reported_Variables.TryGetValue(reportableVariable, out var function)
             ? function(newValue)
-            : ValueTask.CompletedTask);
+            : default(ValueTask));
 }

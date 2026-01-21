@@ -132,14 +132,14 @@ public class EchoProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("Echo Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("Echo Protocol enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -147,7 +147,7 @@ public class EchoProtocol : TelnetProtocolPluginBase
     {
         Context.Logger.LogInformation("Echo Protocol disabled");
         _willEcho = false;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -187,7 +187,7 @@ public class EchoProtocol : TelnetProtocolPluginBase
     {
         _willEcho = null;
         _echoHandler = null;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -197,7 +197,7 @@ public class EchoProtocol : TelnetProtocolPluginBase
     private ValueTask DefaultEchoHandlerAsync(byte b, System.Text.Encoding encoding)
     {
         if (!IsEnabled || !IsEchoing)
-            return ValueTask.CompletedTask;
+            return default(ValueTask);
 
         Context.Logger.LogTrace("Echoing byte: {Byte}", b);
         return Context.SendNegotiationAsync(new byte[] { b });

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -222,14 +223,14 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("NEW-ENVIRON Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("NEW-ENVIRON Protocol enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -237,14 +238,14 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     {
         Context.Logger.LogInformation("NEW-ENVIRON Protocol disabled");
         ClearState();
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
         ClearState();
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     private void ClearState()
@@ -327,8 +328,18 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     {
         if (_currentVar.Count > 0)
         {
+#if NET5_0_OR_GREATER
+            var varNameSpan = CollectionsMarshal.AsSpan(_currentVar);
+            var varName = Encoding.ASCII.GetString(varNameSpan);
+            var varValue = _currentValue.Count > 0 
+                ? Encoding.ASCII.GetString(CollectionsMarshal.AsSpan(_currentValue)) 
+                : string.Empty;
+#else
             var varName = Encoding.ASCII.GetString(_currentVar.ToArray());
-            var varValue = _currentValue.Count > 0 ? Encoding.ASCII.GetString(_currentValue.ToArray()) : string.Empty;
+            var varValue = _currentValue.Count > 0 
+                ? Encoding.ASCII.GetString(_currentValue.ToArray()) 
+                : string.Empty;
+#endif
 
             if (_isUserVar)
             {

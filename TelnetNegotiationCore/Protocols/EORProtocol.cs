@@ -109,7 +109,7 @@ public class EORProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("EOR Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -117,7 +117,7 @@ public class EORProtocol : TelnetProtocolPluginBase
     {
         Context.Logger.LogInformation("EOR Protocol enabled");
         _doEOR = true;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -125,7 +125,7 @@ public class EORProtocol : TelnetProtocolPluginBase
     {
         Context.Logger.LogInformation("EOR Protocol disabled");
         _doEOR = false;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -151,11 +151,11 @@ public class EORProtocol : TelnetProtocolPluginBase
     public ValueTask EnableEORAsync()
     {
         if (!IsEnabled)
-            return ValueTask.CompletedTask;
+            return default(ValueTask);
 
         _doEOR = true;
         Context.Logger.LogInformation("EOR enabled for connection");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -164,18 +164,18 @@ public class EORProtocol : TelnetProtocolPluginBase
     public ValueTask DisableEORAsync()
     {
         if (!IsEnabled)
-            return ValueTask.CompletedTask;
+            return default(ValueTask);
 
         _doEOR = false;
         Context.Logger.LogInformation("EOR disabled for connection");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
         _doEOR = null;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -205,14 +205,14 @@ public class EORProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogDebug("Client won't do EOR - do nothing");
         _doEOR = false;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     private ValueTask WontEORAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server won't do EOR - do nothing");
         _doEOR = false;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     private async ValueTask WillingEORAsync(IProtocolContext context)
@@ -225,7 +225,7 @@ public class EORProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogDebug("Client supports End of Record.");
         _doEOR = true;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     private async ValueTask OnWillEORAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)

@@ -64,7 +64,7 @@ internal class ProtocolContext : IProtocolContext
         // This would integrate with the interpreter's internal buffer
         // For now, we'll log it as this requires deeper integration
         Logger.LogDebug("WriteToBufferAsync called with {ByteCount} bytes", data.Length);
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
