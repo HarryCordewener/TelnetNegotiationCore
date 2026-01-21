@@ -253,14 +253,14 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("Charset Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("Charset Protocol enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -275,7 +275,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         _ttableByteState = [];
         _ttableByteIndex = 0;
         _currentTranslationTable = null;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -285,7 +285,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         _acceptedCharsetByteState = [];
         _ttableByteState = [];
         _currentTranslationTable = null;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     #region State Machine Handlers
@@ -357,7 +357,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         byte[] postAmble = [ (byte)Trigger.IAC, (byte)Trigger.SE ];
 
         CurrentEncoding = chosenEncoding;
-        await (_signalCharsetChangeAsync?.Invoke(CurrentEncoding) ?? ValueTask.CompletedTask);
+        await (_signalCharsetChangeAsync?.Invoke(CurrentEncoding) ?? default(ValueTask));
         
         // Update interpreter properties for backward compatibility
         UpdateInterpreterEncoding(context);

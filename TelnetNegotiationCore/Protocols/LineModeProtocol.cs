@@ -221,21 +221,21 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         {
             _buffer.Add(data.AsT0);
         }
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("Line Mode Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("Line Mode Protocol enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -253,7 +253,7 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         _currentMode = 0;
         _onModeChanged = null;
         _buffer.Clear();
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     #region Public API Methods
@@ -331,11 +331,11 @@ public class LineModeProtocol : TelnetProtocolPluginBase
     private ValueTask SetLineModeStateAsync(bool enabled)
     {
         if (_lineModeEnabled == enabled)
-            return ValueTask.CompletedTask;
+            return default(ValueTask);
 
         _lineModeEnabled = enabled;
         Context.Logger.LogInformation("Line mode {State}", enabled ? "enabled" : "disabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     private async ValueTask WillLineModeAsync(IProtocolContext context)

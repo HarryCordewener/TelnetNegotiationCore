@@ -47,7 +47,7 @@ public class MSDPServerHandler(MSDPServerModel model)
                 HandleSendRequestAsync(telnet, json.SEND),
             { UNREPORT: not null} =>
                 HandleUnReportRequestAsync(json.UNREPORT),
-            _ => ValueTask.CompletedTask
+            _ => default(ValueTask)
         };
     }
 
@@ -69,7 +69,7 @@ public class MSDPServerHandler(MSDPServerModel model)
                 ? telnet.CallbackNegotiationAsync(
                     MSDPLibrary.Report(JsonSerializer.Serialize(value()),
                         telnet.CurrentEncoding))
-                : ValueTask.CompletedTask));
+                : default(ValueTask)));
 
     private async ValueTask HandleReportRequestAsync(TelnetInterpreter telnet, string item) =>
         await ExecuteOnAsync(item, async (val) =>
@@ -88,7 +88,7 @@ public class MSDPServerHandler(MSDPServerModel model)
         await ExecuteOnAsync(item, (var) =>
         {
             var found = Data.Reportable_Variables().TryGetValue(var, out var list);
-            return ValueTask.CompletedTask;
+            return default(ValueTask);
         });
 
     /// <summary>
@@ -115,7 +115,7 @@ public class MSDPServerHandler(MSDPServerModel model)
         await ExecuteOnAsync(item, (var) =>
         {
             Data.UnReport(var);
-            return ValueTask.CompletedTask;
+            return default(ValueTask);
         });
 
     private async ValueTask ExecuteOnAsync(string item, Func<string, ValueTask> function)

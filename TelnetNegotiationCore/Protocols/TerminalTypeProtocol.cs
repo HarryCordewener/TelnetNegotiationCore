@@ -163,14 +163,14 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("Terminal Type Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("Terminal Type Protocol enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -181,7 +181,7 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
         _currentTerminalType = -1;
         _ttypeByteState = [];
         _ttypeIndex = 0;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -222,7 +222,7 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
         _terminalTypes = [];
         _ttypeByteState = [];
         _ttypeIndex = 0;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
     
     #region State Machine Handlers

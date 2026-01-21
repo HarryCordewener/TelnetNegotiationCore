@@ -44,8 +44,13 @@ namespace LocalMoreLinq
 		/// </remarks>
 		public static TSource AggregateRight<TSource>(this IEnumerable<TSource> source, Func<TSource, TSource, TSource> func)
 		{
+#if NET6_0_OR_GREATER
 			ArgumentNullException.ThrowIfNull(source);
 			ArgumentNullException.ThrowIfNull(func);
+#else
+			if (source == null) throw new ArgumentNullException(nameof(source));
+			if (func == null) throw new ArgumentNullException(nameof(func));
+#endif
 
 			return source.ToListLike() switch
 			{
@@ -79,8 +84,13 @@ namespace LocalMoreLinq
 
 		public static TAccumulate AggregateRight<TSource, TAccumulate>(this IEnumerable<TSource> source, TAccumulate seed, Func<TSource, TAccumulate, TAccumulate> func)
 		{
+#if NET6_0_OR_GREATER
 			ArgumentNullException.ThrowIfNull(source);
 			ArgumentNullException.ThrowIfNull(func);
+#else
+			if (source == null) throw new ArgumentNullException(nameof(source));
+			if (func == null) throw new ArgumentNullException(nameof(func));
+#endif
 
 			var list = source.ToListLike();
 
@@ -115,9 +125,15 @@ namespace LocalMoreLinq
 
 		public static TResult AggregateRight<TSource, TAccumulate, TResult>(this IEnumerable<TSource> source, TAccumulate seed, Func<TSource, TAccumulate, TAccumulate> func, Func<TAccumulate, TResult> resultSelector)
 		{
+#if NET6_0_OR_GREATER
 			ArgumentNullException.ThrowIfNull(source);
 			ArgumentNullException.ThrowIfNull(func);
 			ArgumentNullException.ThrowIfNull(resultSelector);
+#else
+			if (source == null) throw new ArgumentNullException(nameof(source));
+			if (func == null) throw new ArgumentNullException(nameof(func));
+			if (resultSelector == null) throw new ArgumentNullException(nameof(resultSelector));
+#endif
 
 			return resultSelector(source.AggregateRight(seed, func));
 		}

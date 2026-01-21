@@ -102,7 +102,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnInitializeAsync()
     {
         Context.Logger.LogInformation("Suppress Go-Ahead Protocol initialized");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -110,7 +110,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     {
         Context.Logger.LogInformation("Suppress Go-Ahead Protocol enabled");
         _doGA = false; // GA suppressed
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <inheritdoc />
@@ -118,7 +118,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     {
         Context.Logger.LogInformation("Suppress Go-Ahead Protocol disabled");
         _doGA = true; // GA active
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -127,11 +127,11 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     public ValueTask SuppressGoAheadAsync()
     {
         if (!IsEnabled)
-            return ValueTask.CompletedTask;
+            return default(ValueTask);
 
         _doGA = false;
         Context.Logger.LogInformation("Go-Ahead suppression enabled");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -140,11 +140,11 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     public ValueTask EnableGoAheadAsync()
     {
         if (!IsEnabled)
-            return ValueTask.CompletedTask;
+            return default(ValueTask);
 
         _doGA = true;
         Context.Logger.LogInformation("Go-Ahead suppression disabled (GA active)");
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -164,7 +164,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnDisposeAsync()
     {
         _doGA = null;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -188,14 +188,14 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogDebug("Client won't do SUPPRESSGOAHEAD - do nothing");
         _doGA = true;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     private ValueTask WontSuppressGAAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server won't do SUPPRESSGOAHEAD - do nothing");
         _doGA = true;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     private async ValueTask WillingSuppressGAAsync(IProtocolContext context)
@@ -208,7 +208,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogDebug("Client supports Suppress Go-Ahead.");
         _doGA = false;
-        return ValueTask.CompletedTask;
+        return default(ValueTask);
     }
 
     private async ValueTask OnWillSuppressGAAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)

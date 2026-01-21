@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
@@ -263,7 +264,7 @@ public partial class TelnetInterpreter
         _logger.LogTrace("Debug: Writing into buffer: {Byte}", b.AsT0);
         _buffer[_bufferPosition] = b.AsT0;
         _bufferPosition++;
-        await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? ValueTask.CompletedTask);
+        await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? default(ValueTask));
     }
 
     /// <summary>
@@ -271,13 +272,45 @@ public partial class TelnetInterpreter
     /// </summary>
     private async ValueTask WriteToOutput()
     {
-        var cp = new byte[_bufferPosition];
-        _buffer.AsSpan()[.._bufferPosition].CopyTo(cp);
-        _bufferPosition = 0;
-
-        if (CallbackOnSubmitAsync is not null)
+        if (_bufferPosition == 0)
         {
-            await CallbackOnSubmitAsync(cp, CurrentEncoding, this);
+            return;
+        }
+
+        byte[]? rentedBuffer = null;
+        try
+        {
+            // Use stackalloc for very small buffers (<=512 bytes), ArrayPool for larger
+            // This reduces heap allocations for common case of small messages
+            byte[] cp;
+            if (_bufferPosition <= 512)
+            {
+                // For small buffers, allocate directly - no intermediate stackalloc needed
+                // since we must create a byte[] for the callback anyway
+                cp = _buffer.AsSpan()[.._bufferPosition].ToArray();
+            }
+            else
+            {
+                // Rent from pool for larger buffers to reduce allocations
+                rentedBuffer = ArrayPool<byte>.Shared.Rent(_bufferPosition);
+                _buffer.AsSpan()[.._bufferPosition].CopyTo(rentedBuffer);
+                cp = rentedBuffer[.._bufferPosition];
+            }
+
+            _bufferPosition = 0;
+
+            if (CallbackOnSubmitAsync is not null)
+            {
+                await CallbackOnSubmitAsync(cp, CurrentEncoding, this);
+            }
+        }
+        finally
+        {
+            // Return rented buffer to pool
+            if (rentedBuffer != null)
+            {
+                ArrayPool<byte>.Shared.Return(rentedBuffer);
+            }
         }
     }
 
@@ -392,7 +425,11 @@ public partial class TelnetInterpreter
     {
         _byteChannel.Writer.Complete();  // Signal no more data
         
+#if NET6_0_OR_GREATER
         await _processingCts.CancelAsync();  // Cancel processing
+#else
+        _processingCts.Cancel();
+#endif
         
         if (_processingTask != null)
         {

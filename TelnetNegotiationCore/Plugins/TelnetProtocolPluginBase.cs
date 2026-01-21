@@ -66,20 +66,20 @@ public abstract class TelnetProtocolPluginBase : ITelnetProtocolPlugin, IAsyncDi
     /// <summary>
     /// Called when the plugin is initialized. Override to provide custom initialization logic.
     /// </summary>
-    protected virtual ValueTask OnInitializeAsync() => ValueTask.CompletedTask;
+    protected virtual ValueTask OnInitializeAsync() => default(ValueTask);
 
     /// <summary>
     /// Called when the protocol is enabled. Override to provide custom enable logic.
     /// </summary>
-    protected virtual ValueTask OnProtocolEnabledAsync() => ValueTask.CompletedTask;
+    protected virtual ValueTask OnProtocolEnabledAsync() => default(ValueTask);
 
     /// <summary>
     /// Called when the protocol is disabled. Override to provide custom disable logic.
     /// </summary>
-    protected virtual ValueTask OnProtocolDisabledAsync() => ValueTask.CompletedTask;
+    protected virtual ValueTask OnProtocolDisabledAsync() => default(ValueTask);
 
     /// <summary>
     /// Called when the plugin is disposed. Override to provide custom cleanup logic.
     /// </summary>
-    protected virtual ValueTask OnDisposeAsync() => ValueTask.CompletedTask;
+    protected virtual ValueTask OnDisposeAsync() => default(ValueTask);
 }
