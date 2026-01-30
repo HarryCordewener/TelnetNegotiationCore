@@ -19,8 +19,6 @@ public class MCCPTests : BaseTest
 	private int _compressionVersion;
 	private bool _compressionEnabled;
 
-	private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 	private ValueTask WriteBackToNegotiate(byte[] arg1)
 	{
 		_negotiationOutput = arg1;
@@ -42,23 +40,21 @@ public class MCCPTests : BaseTest
 		_compressionVersion = 0;
 		_compressionEnabled = false;
 
-		_server_ti = await new TelnetInterpreterBuilder()
+		_server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Server)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(WriteBackToNegotiate)
 			.AddPlugin<MCCPProtocol>()
-				.OnCompressionEnabled(OnCompressionStateChanged)
-			.BuildAsync();
+				.OnCompressionEnabled(OnCompressionStateChanged));
 
-		_client_ti = await new TelnetInterpreterBuilder()
+		_client_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(WriteBackToNegotiate)
 			.AddPlugin<MCCPProtocol>()
-				.OnCompressionEnabled(OnCompressionStateChanged)
-			.BuildAsync();
+				.OnCompressionEnabled(OnCompressionStateChanged));
 	}
 
 	[After(Test)]
@@ -87,8 +83,7 @@ public class MCCPTests : BaseTest
 		_negotiationOutput = null;
 
 		// Act - Client receives WILL MCCP2 from server
-		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 });
-		await _client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 });
 
 		// Assert - Client should send DO MCCP2
 		await Assert.That(_negotiationOutput).IsNotNull();
@@ -103,8 +98,7 @@ public class MCCPTests : BaseTest
 		_compressionEnabled = false;
 
 		// Act - Server receives DO MCCP2 from client
-		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
-		await _server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
 
 		// Assert - Server should send IAC SB MCCP2 IAC SE
 		await Assert.That(_negotiationOutput).IsNotNull();
@@ -120,8 +114,7 @@ public class MCCPTests : BaseTest
 		_compressionEnabled = false;
 		_compressionVersion = 0;
 
-		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
-		await _server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
 
 		// Process the sub-negotiation on the server side (this happens automatically after sending)
 		// The server should have enabled compression
@@ -143,8 +136,7 @@ public class MCCPTests : BaseTest
 		_negotiationOutput = null;
 
 		// Act - Server sends DONT MCCP2 (rejecting compression)
-		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP2 });
-		await _client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP2 });
 
 		// Assert - Client should accept gracefully (no error)
 		var mccpPlugin = _client_ti.PluginManager?.GetPlugin<MCCPProtocol>();
@@ -159,8 +151,7 @@ public class MCCPTests : BaseTest
 		_negotiationOutput = null;
 
 		// Act - Client sends DONT MCCP2
-		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP2 });
-		await _server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP2 });
 
 		// Assert - Server should disable compression
 		var mccpPlugin = _server_ti.PluginManager?.GetPlugin<MCCPProtocol>();
@@ -186,8 +177,7 @@ public class MCCPTests : BaseTest
 		_negotiationOutput = null;
 
 		// Act - Client receives WILL MCCP3 from server
-		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP3 });
-		await _client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP3 });
 
 		// Assert - Client should send DO MCCP3 and IAC SB MCCP3 IAC SE
 		await Assert.That(_negotiationOutput).IsNotNull();
@@ -203,8 +193,7 @@ public class MCCPTests : BaseTest
 		_compressionVersion = 0;
 
 		// Act - Client receives WILL MCCP3 from server
-		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP3 });
-		await _client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP3 });
 		await Task.Delay(100); // Allow async processing
 
 		// Assert - Client should enable MCCP3 compression
@@ -222,8 +211,7 @@ public class MCCPTests : BaseTest
 		_compressionEnabled = false;
 
 		// Act - Server receives DO MCCP3 from client
-		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP3 });
-		await _server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP3 });
 
 		// Server should prepare to receive compressed data
 		// (Decompression stream should be initialized)
@@ -236,8 +224,7 @@ public class MCCPTests : BaseTest
 		_negotiationOutput = null;
 
 		// Act - Client sends DONT MCCP3
-		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP3 });
-		await _server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP3 });
 
 		// Assert - Server should accept gracefully
 		var mccpPlugin = _server_ti.PluginManager?.GetPlugin<MCCPProtocol>();
@@ -257,8 +244,7 @@ public class MCCPTests : BaseTest
 		// Step 1: Server sends WILL MCCP2
 		_negotiationOutput = null;
 		var willMccp2 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 };
-		await _client_ti.InterpretByteArrayAsync(willMccp2);
-		await _client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_client_ti, willMccp2);
 		
 		await Assert.That(_negotiationOutput).IsNotNull();
 		await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
@@ -266,8 +252,7 @@ public class MCCPTests : BaseTest
 		// Step 2: Server receives DO MCCP2 and responds with sub-negotiation
 		_negotiationOutput = null;
 		var doMccp2 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 };
-		await _server_ti.InterpretByteArrayAsync(doMccp2);
-		await _server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_server_ti, doMccp2);
 		
 		await Assert.That(_negotiationOutput).IsNotNull();
 		await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { 
@@ -276,8 +261,7 @@ public class MCCPTests : BaseTest
 
 		// Step 3: Client receives sub-negotiation - compression should start
 		var sbMccp2 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP2, (byte)Trigger.IAC, (byte)Trigger.SE };
-		await _client_ti.InterpretByteArrayAsync(sbMccp2);
-		await _client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_client_ti, sbMccp2);
 		await Task.Delay(100);
 
 		// Verify both sides recognize compression is active
@@ -296,15 +280,13 @@ public class MCCPTests : BaseTest
 		// Step 1: Server sends WILL MCCP3
 		_negotiationOutput = null;
 		var willMccp3 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP3 };
-		await _client_ti.InterpretByteArrayAsync(willMccp3);
-		await _client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_client_ti, willMccp3);
 		
 		await Assert.That(_negotiationOutput).IsNotNull();
 
 		// Step 2: Server receives DO MCCP3
 		var doMccp3 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP3 };
-		await _server_ti.InterpretByteArrayAsync(doMccp3);
-		await _server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_server_ti, doMccp3);
 
 		// Server should be ready to decompress client data
 		var serverPlugin = _server_ti.PluginManager?.GetPlugin<MCCPProtocol>();
@@ -317,18 +299,14 @@ public class MCCPTests : BaseTest
 		// Test that both MCCP2 and MCCP3 can be active simultaneously
 		
 		// Negotiate MCCP2
-		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 });
-		await _client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 });
 		
-		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
-		await _server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
 
 		// Negotiate MCCP3
-		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP3 });
-		await _client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP3 });
 		
-		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP3 });
-		await _server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP3 });
 
 		await Task.Delay(100);
 
@@ -352,8 +330,7 @@ public class MCCPTests : BaseTest
 		_compressionVersion = 0;
 
 		// Act - Complete MCCP2 negotiation
-		await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
-		await _server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
 		await Task.Delay(100);
 
 		// The callback should have been invoked when compression was enabled
@@ -368,8 +345,7 @@ public class MCCPTests : BaseTest
 		_compressionVersion = 0;
 
 		// Act - Complete MCCP3 negotiation
-		await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP3 });
-		await _client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP3 });
 		await Task.Delay(100);
 
 		// The callback should have been invoked
