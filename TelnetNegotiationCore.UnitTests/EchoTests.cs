@@ -352,7 +352,7 @@ public class EchoTests : BaseTest
         await testServer.WaitForProcessingAsync();
 
         // Verify that the bytes were echoed back
-        await Assert.That(echoedBytes).HasCount().EqualTo(5);
+        await Assert.That(echoedBytes.Count).IsEqualTo(5);
         await Assert.That(echoedBytes[0]).IsEqualTo((byte)'H');
         await Assert.That(echoedBytes[1]).IsEqualTo((byte)'e');
         await Assert.That(echoedBytes[2]).IsEqualTo((byte)'l');
@@ -391,7 +391,7 @@ public class EchoTests : BaseTest
         await testServer.WaitForProcessingAsync();
 
         // Verify that no bytes were echoed
-        await Assert.That(echoedBytes).HasCount().EqualTo(0);
+        await Assert.That(echoedBytes.Count).IsEqualTo(0);
 
         await testServer.DisposeAsync();
     }

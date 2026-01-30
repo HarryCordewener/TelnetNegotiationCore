@@ -150,9 +150,9 @@ public class NewEnvironTests : BaseTest
         // Assert - Callback should have been called with the variables
         await Assert.That(_receivedEnvVars).IsNotNull();
         await Assert.That(_receivedUserVars).IsNotNull();
-        await Assert.That(_receivedEnvVars).ContainsKey("USER");
+        await Assert.That(_receivedEnvVars.Keys).Contains("USER");
         await Assert.That(_receivedEnvVars["USER"]).IsEqualTo("testuser");
-        await Assert.That(_receivedUserVars).ContainsKey("CUSTOM");
+        await Assert.That(_receivedUserVars.Keys).Contains("CUSTOM");
         await Assert.That(_receivedUserVars["CUSTOM"]).IsEqualTo("customvalue");
     }
 
@@ -217,7 +217,7 @@ public class NewEnvironTests : BaseTest
 
         // Assert - Variable should exist with empty value
         await Assert.That(_receivedEnvVars).IsNotNull();
-        await Assert.That(_receivedEnvVars).ContainsKey("EMPTYVAR");
+        await Assert.That(_receivedEnvVars.Keys).Contains("EMPTYVAR");
         await Assert.That(_receivedEnvVars["EMPTYVAR"]).IsEqualTo(string.Empty);
     }
 

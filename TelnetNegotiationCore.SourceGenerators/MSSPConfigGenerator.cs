@@ -12,44 +12,49 @@ namespace TelnetNegotiationCore.SourceGenerators;
 /// to replace runtime reflection with generated code.
 /// </summary>
 [Generator]
-public class MSSPConfigGenerator : IIncrementalGenerator
+public class MSSPConfigGenerator : ISourceGenerator
 {
-    public void Initialize(IncrementalGeneratorInitializationContext context)
+    public void Initialize(GeneratorInitializationContext context)
     {
-        // Create a provider for MSSPConfig class
-        var msspConfigProvider = context.SyntaxProvider
-            .CreateSyntaxProvider(
-                predicate: static (s, _) => s is ClassDeclarationSyntax c && c.Identifier.Text == "MSSPConfig",
-                transform: static (ctx, _) => GetMSSPConfigSymbol(ctx))
-            .Where(static m => m is not null);
-
-        // Generate source for MSSPConfig
-        context.RegisterSourceOutput(msspConfigProvider, (spc, msspConfigClass) =>
-        {
-            if (msspConfigClass == null) return;
-
-            var properties = ExtractMSSPProperties(msspConfigClass);
-            if (properties.Count == 0) return;
-
-            var source = GenerateMSSPAccessor(properties);
-            spc.AddSource("MSSPConfigAccessor.g.cs", SourceText.From(source, Encoding.UTF8));
-        });
+        // Register a syntax receiver to find MSSPConfig class
+        context.RegisterForSyntaxNotifications(() => new MSSPSyntaxReceiver());
     }
 
-    private static INamedTypeSymbol? GetMSSPConfigSymbol(GeneratorSyntaxContext context)
+    public void Execute(GeneratorExecutionContext context)
     {
-        var classDecl = (ClassDeclarationSyntax)context.Node;
-        var symbol = context.SemanticModel.GetDeclaredSymbol(classDecl) as INamedTypeSymbol;
-        
-        if (symbol?.Name == "MSSPConfig")
+        if (context.SyntaxReceiver is not MSSPSyntaxReceiver receiver)
+            return;
+
+        // Find MSSPConfig class in the compilation
+        INamedTypeSymbol? msspConfigClass = null;
+        foreach (var classDecl in receiver.CandidateClasses)
         {
-            return symbol;
+            var semanticModel = context.Compilation.GetSemanticModel(classDecl.SyntaxTree);
+            var symbol = semanticModel.GetDeclaredSymbol(classDecl) as INamedTypeSymbol;
+            if (symbol?.Name == "MSSPConfig")
+            {
+                msspConfigClass = symbol;
+                break;
+            }
         }
-        
-        return null;
+
+        if (msspConfigClass == null)
+            return; // MSSPConfig not found in this compilation
+
+        // Extract properties with [Name] attribute
+        var properties = ExtractMSSPProperties(msspConfigClass);
+
+        if (properties.Count == 0)
+            return;
+
+        // Generate the accessor class
+        var sourceText = GenerateMSSPAccessor(properties);
+
+        // Add the generated source to the compilation
+        context.AddSource("MSSPConfigAccessor.g.cs", SourceText.From(sourceText, Encoding.UTF8));
     }
 
-    private static List<MSSPPropertyInfo> ExtractMSSPProperties(INamedTypeSymbol msspConfigClass)
+    private List<MSSPPropertyInfo> ExtractMSSPProperties(INamedTypeSymbol msspConfigClass)
     {
         var properties = new List<MSSPPropertyInfo>();
 
@@ -80,7 +85,7 @@ public class MSSPConfigGenerator : IIncrementalGenerator
         return properties;
     }
 
-    private static string GenerateMSSPAccessor(List<MSSPPropertyInfo> properties)
+    private string GenerateMSSPAccessor(List<MSSPPropertyInfo> properties)
     {
         var sb = new StringBuilder();
 
@@ -153,7 +158,7 @@ public class MSSPConfigGenerator : IIncrementalGenerator
         return sb.ToString();
     }
 
-    private static void GenerateSetterMethod(StringBuilder sb, MSSPPropertyInfo prop)
+    private void GenerateSetterMethod(StringBuilder sb, MSSPPropertyInfo prop)
     {
         sb.AppendLine($"    private static bool TrySet_{prop.PropertyName}(MSSPConfig config, object? value)");
         sb.AppendLine("    {");
@@ -200,6 +205,24 @@ public class MSSPConfigGenerator : IIncrementalGenerator
             MSSPName = msspName;
             PropertyType = propertyType;
             IsOfficial = isOfficial;
+        }
+    }
+}
+
+/// <summary>
+/// Syntax receiver that collects candidate class declarations
+/// </summary>
+internal class MSSPSyntaxReceiver : ISyntaxReceiver
+{
+    public List<ClassDeclarationSyntax> CandidateClasses { get; } = new();
+
+    public void OnVisitSyntaxNode(SyntaxNode syntaxNode)
+    {
+        // Look for classes named MSSPConfig
+        if (syntaxNode is ClassDeclarationSyntax classDecl 
+            && classDecl.Identifier.Text == "MSSPConfig")
+        {
+            CandidateClasses.Add(classDecl);
         }
     }
 }
