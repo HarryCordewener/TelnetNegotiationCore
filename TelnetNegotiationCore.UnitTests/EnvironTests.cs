@@ -145,9 +145,9 @@ public class EnvironTests : BaseTest
 
         // Assert - Callback should have been called with the variables
         await Assert.That(_receivedEnvVars).IsNotNull();
-        await Assert.That(_receivedEnvVars.Keys).Contains("USER");
+        await Assert.That(_receivedEnvVars).ContainsKey("USER");
         await Assert.That(_receivedEnvVars["USER"]).IsEqualTo("testuser");
-        await Assert.That(_receivedEnvVars.Keys).Contains("LANG");
+        await Assert.That(_receivedEnvVars).ContainsKey("LANG");
         await Assert.That(_receivedEnvVars["LANG"]).IsEqualTo("en_US.UTF-8");
     }
 
@@ -212,7 +212,7 @@ public class EnvironTests : BaseTest
 
         // Assert - Variable should exist with empty value
         await Assert.That(_receivedEnvVars).IsNotNull();
-        await Assert.That(_receivedEnvVars.Keys).Contains("EMPTYVAR");
+        await Assert.That(_receivedEnvVars).ContainsKey("EMPTYVAR");
         await Assert.That(_receivedEnvVars["EMPTYVAR"]).IsEqualTo(string.Empty);
     }
 
