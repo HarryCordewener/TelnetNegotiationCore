@@ -28,22 +28,18 @@ public class EORTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		// Build client TelnetInterpreter
-		var client_ti = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Client)
-			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
-			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<EORProtocol>()
-			.BuildAsync();
-
-		await Task.Delay(100);
+		var client_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<EORProtocol>()
+		);
 
 		// Act - Client receives WILL EOR from server
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
 
 		// Assert
 		await Assert.That(negotiationOutput).IsNotNull();
@@ -66,23 +62,19 @@ public class EORTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		// Build server TelnetInterpreter
-		var server_ti = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Server)
-			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
-			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<EORProtocol>()
-			.BuildAsync();
-
-		await Task.Delay(100);
+		var server_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<EORProtocol>()
+		);
 		negotiationOutput = null;
 
 		// Act - Server receives DO EOR from client
-		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
 
 		// Assert - Server should accept without error (no response sent)
 		// The server just records that EOR is active
@@ -105,22 +97,18 @@ public class EORTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		// Build client TelnetInterpreter
-		var client_ti = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Client)
-			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
-			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<EORProtocol>()
-			.BuildAsync();
-
-		await Task.Delay(100);
+		var client_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<EORProtocol>()
+		);
 
 		// Act - Client receives WILL EOR from server and responds
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
 		await Task.Delay(50);
 
 		// Assert - Client should send DO EOR
@@ -144,23 +132,19 @@ public class EORTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		// Build server TelnetInterpreter
-		var server_ti = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Server)
-			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
-			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<EORProtocol>()
-			.BuildAsync();
-
-		await Task.Delay(100);
+		var server_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<EORProtocol>()
+		);
 		negotiationOutput = null;
 
 		// Act - Server receives DONT EOR from client
-		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.TELOPT_EOR });
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.TELOPT_EOR });
 
 		// Assert - Server should accept the rejection gracefully (no error thrown)
 		await Assert.That(negotiationOutput).IsNull();
@@ -182,22 +166,18 @@ public class EORTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		// Build client TelnetInterpreter
-		var client_ti = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Client)
-			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
-			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<EORProtocol>()
-			.BuildAsync();
-
-		await Task.Delay(100);
+		var client_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<EORProtocol>()
+		);
 
 		// Act - Client receives WONT EOR from server
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.TELOPT_EOR });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.TELOPT_EOR });
 
 		// Assert - Client should accept the rejection gracefully (no error thrown)
 		await Assert.That(negotiationOutput).IsNull();
@@ -227,28 +207,23 @@ public class EORTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		// Build client TelnetInterpreter
-		var client_ti = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Client)
-			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
-			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<EORProtocol>()
+		var client_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<EORProtocol>()
 				.OnPrompt(CapturePrompt)
-			.BuildAsync();
-
-		await Task.Delay(100);
+		);
 
 		// Arrange - Complete EOR negotiation
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
 		promptReceived = false;
 
 		// Act - Client receives IAC EOR sequence
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
 
 		// Assert
 		await Assert.That(promptReceived).IsTrue();
@@ -270,22 +245,18 @@ public class EORTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		// Build server TelnetInterpreter
-		var server_ti = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Server)
-			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
-			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<EORProtocol>()
-			.BuildAsync();
-
-		await Task.Delay(100);
+		var server_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<EORProtocol>()
+		);
 
 		// Arrange - Complete EOR negotiation
-		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
 		negotiationOutput = null;
 
 		var encoding = Encoding.UTF8;
@@ -319,22 +290,18 @@ public class EORTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		// Build server TelnetInterpreter
-		var server_ti = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Server)
-			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
-			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<EORProtocol>()
-			.BuildAsync();
-
-		await Task.Delay(100);
+		var server_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<EORProtocol>()
+		);
 
 		// Arrange - Complete EOR negotiation
-		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
 		negotiationOutput = null;
 
 		var encoding = Encoding.UTF8;
@@ -372,32 +339,27 @@ public class EORTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		// This test verifies the complete negotiation sequence
-		var testClient = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Client)
-			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
-			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<EORProtocol>()
+		var testClient = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<EORProtocol>()
 				.OnPrompt(CapturePrompt)
-			.BuildAsync();
-
-		await Task.Delay(100);
+		);
 
 		// Step 1: Server sends WILL EOR
 		negotiationOutput = null;
-		await testClient.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
-		await testClient.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(testClient, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
 		
 		await Assert.That(negotiationOutput).IsNotNull();
 		await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
 
 		// Step 2: Client receives EOR prompt
 		promptReceived = false;
-		await testClient.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
-		await testClient.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(testClient, new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
 		
 		await Assert.That(promptReceived).IsTrue();
 
@@ -426,38 +388,31 @@ public class EORTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		// Build client TelnetInterpreter
-		var client_ti = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Client)
-			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
-			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<EORProtocol>()
+		var client_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<EORProtocol>()
 				.OnPrompt(CapturePrompt)
-			.BuildAsync();
-
-		await Task.Delay(100);
+		);
 
 		// Arrange - Complete EOR negotiation
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
 		
 		// Act - Receive multiple EOR prompts
 		promptReceived = false;
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
 		await Assert.That(promptReceived).IsTrue();
 
 		promptReceived = false;
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
 		await Assert.That(promptReceived).IsTrue();
 
 		promptReceived = false;
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.EOR });
 		await Assert.That(promptReceived).IsTrue();
 
 		// Dispose
