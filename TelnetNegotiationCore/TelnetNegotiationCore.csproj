@@ -47,12 +47,6 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<!-- Include Functional DLL in package for both target frameworks -->
-		<None Include="$(OutputPath)TelnetNegotiationCore.Functional.dll" Condition="Exists('$(OutputPath)TelnetNegotiationCore.Functional.dll')">
-			<Pack>true</Pack>
-			<PackagePath>lib\$(TargetFramework)</PackagePath>
-			<Visible>false</Visible>
-		</None>
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
 		<PackageReference Include="OneOf" Version="3.0.271" />
 		<PackageReference Include="stateless" Version="5.15.0" />
@@ -85,5 +79,14 @@
 		                  OutputItemType="Analyzer"
 		                  ReferenceOutputAssembly="false" />
 	</ItemGroup>
+
+	<!-- Include Functional DLL in NuGet package -->
+	<Target Name="IncludeFunctionalDLL" AfterTargets="Build" BeforeTargets="_GetPackageFiles">
+		<ItemGroup>
+			<TfmSpecificPackageFile Include="..\TelnetNegotiationCore.Functional\bin\$(Configuration)\$(TargetFramework)\TelnetNegotiationCore.Functional.dll">
+				<PackagePath>lib\$(TargetFramework)</PackagePath>
+			</TfmSpecificPackageFile>
+		</ItemGroup>
+	</Target>
 
 </Project>
