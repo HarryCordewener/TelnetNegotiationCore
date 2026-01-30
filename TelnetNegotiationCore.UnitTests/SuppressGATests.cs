@@ -26,21 +26,15 @@ public class SuppressGATests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
-		var client_ti = await new TelnetInterpreterBuilder()
+		var client_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<SuppressGoAheadProtocol>()
-			.BuildAsync();
-
-		await Task.Delay(100);
+			.AddPlugin<SuppressGoAheadProtocol>());
 
 		// Act - Client receives WILL SUPPRESSGOAHEAD from server
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
 
 		// Assert
 		await Assert.That(negotiationOutput).IsNotNull();
@@ -62,22 +56,17 @@ public class SuppressGATests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
-		var server_ti = await new TelnetInterpreterBuilder()
+		var server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Server)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<SuppressGoAheadProtocol>()
-			.BuildAsync();
+			.AddPlugin<SuppressGoAheadProtocol>());
 
-		await Task.Delay(100);
 		negotiationOutput = null;
 
 		// Act - Server receives DO SUPPRESSGOAHEAD from client
-		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
 
 		// Assert - Server should accept without error (no response sent)
 		// The server just records that GA suppression is active
@@ -99,21 +88,15 @@ public class SuppressGATests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
-		var client_ti = await new TelnetInterpreterBuilder()
+		var client_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<SuppressGoAheadProtocol>()
-			.BuildAsync();
-
-		await Task.Delay(100);
+			.AddPlugin<SuppressGoAheadProtocol>());
 
 		// Act - Client receives WILL SUPPRESSGOAHEAD from server
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
 
 		// Assert - Client should send DO SUPPRESSGOAHEAD
 		await Assert.That(negotiationOutput).IsNotNull();
@@ -135,22 +118,17 @@ public class SuppressGATests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
-		var server_ti = await new TelnetInterpreterBuilder()
+		var server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Server)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<SuppressGoAheadProtocol>()
-			.BuildAsync();
+			.AddPlugin<SuppressGoAheadProtocol>());
 
-		await Task.Delay(100);
 		negotiationOutput = null;
 
 		// Act - Server receives DONT SUPPRESSGOAHEAD from client
-		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD });
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD });
 
 		// Assert - Server should accept the rejection gracefully (no error thrown)
 		await Assert.That(negotiationOutput).IsNull();
@@ -171,21 +149,15 @@ public class SuppressGATests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
-		var client_ti = await new TelnetInterpreterBuilder()
+		var client_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<SuppressGoAheadProtocol>()
-			.BuildAsync();
-
-		await Task.Delay(100);
+			.AddPlugin<SuppressGoAheadProtocol>());
 
 		// Act - Client receives WONT SUPPRESSGOAHEAD from server
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.SUPPRESSGOAHEAD });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.SUPPRESSGOAHEAD });
 
 		// Assert - Client should accept the rejection gracefully (no error thrown)
 		await Assert.That(negotiationOutput).IsNull();
@@ -206,22 +178,16 @@ public class SuppressGATests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		// This test verifies the complete negotiation sequence
-		var testClient = await new TelnetInterpreterBuilder()
+		var testClient = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<SuppressGoAheadProtocol>()
-			.BuildAsync();
-
-		await Task.Delay(100);
+			.AddPlugin<SuppressGoAheadProtocol>());
 
 		// Step 1: Server sends WILL SUPPRESSGOAHEAD
-		await testClient.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
-		await testClient.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(testClient, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
 		
 		await Assert.That(negotiationOutput).IsNotNull();
 		await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
@@ -242,23 +208,18 @@ public class SuppressGATests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		// This test verifies server-side negotiation
-		var testServer = await new TelnetInterpreterBuilder()
+		var testServer = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Server)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<SuppressGoAheadProtocol>()
-			.BuildAsync();
+			.AddPlugin<SuppressGoAheadProtocol>());
 
-		await Task.Delay(100);
 		negotiationOutput = null;
 
 		// Client sends DO SUPPRESSGOAHEAD
-		await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
-		await testServer.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(testServer, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
 		
 		// Server should accept (no error, negotiation completes, no response sent)
 		await Assert.That(negotiationOutput).IsNull();
@@ -279,22 +240,16 @@ public class SuppressGATests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
-		var client_ti = await new TelnetInterpreterBuilder()
+		var client_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<SuppressGoAheadProtocol>()
-			.BuildAsync();
-
-		await Task.Delay(100);
+			.AddPlugin<SuppressGoAheadProtocol>());
 
 		// Test client initiating SUPPRESSGOAHEAD
 		// Act - Client receives WILL SUPPRESSGOAHEAD
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
 
 		// Assert - Client should respond with DO
 		await Assert.That(negotiationOutput).IsNotNull();
@@ -317,22 +272,17 @@ public class SuppressGATests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
-		var server_ti = await new TelnetInterpreterBuilder()
+		var server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Server)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<SuppressGoAheadProtocol>()
-			.BuildAsync();
+			.AddPlugin<SuppressGoAheadProtocol>());
 
-		await Task.Delay(100);
 		negotiationOutput = null;
 
 		// Test server handling client's DONT
-		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD });
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD });
 		
 		// Server should handle DONT gracefully and record that GA is not suppressed (no error thrown)
 		await Assert.That(negotiationOutput).IsNull();
@@ -353,21 +303,15 @@ public class SuppressGATests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
-		var client_ti = await new TelnetInterpreterBuilder()
+		var client_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
-			.AddPlugin<SuppressGoAheadProtocol>()
-			.BuildAsync();
-
-		await Task.Delay(100);
+			.AddPlugin<SuppressGoAheadProtocol>());
 
 		// Test client handling server's WONT
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.SUPPRESSGOAHEAD });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.SUPPRESSGOAHEAD });
 		
 		// Client should handle WONT gracefully and record that GA is not suppressed (no error thrown)
 		await Assert.That(negotiationOutput).IsNull();
