@@ -331,22 +331,13 @@ public class XDisplayTests : BaseTest
     public async Task PluginPropertyReturnsCorrectDisplayLocation()
     {
         // Arrange - Create local variables
-        string receivedDisplayLocation = null;
-        
-        ValueTask OnDisplayLocationReceived(string displayLocation)
-        {
-            receivedDisplayLocation = displayLocation;
-            logger.LogInformation("Received X display location: {DisplayLocation}", displayLocation);
-            return ValueTask.CompletedTask;
-        }
-        
         var server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(_ => ValueTask.CompletedTask)
             .AddPlugin<XDisplayProtocol>()
-                .OnDisplayLocation(OnDisplayLocationReceived));
+                .OnDisplayLocation(loc => { logger.LogInformation("Received X display location: {DisplayLocation}", loc); return ValueTask.CompletedTask; }));
 
         // Arrange
         await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
