@@ -467,8 +467,10 @@ namespace TelnetNegotiationCore.UnitTests
 			ValueTask CaptureOutput(byte[] data, Encoding enc, TelnetInterpreter ti)
 			{
 				receivedData.Add((data, enc));
-				logger.LogInformation("Received {Length} bytes with encoding {Encoding}: {Data}", 
-					data.Length, enc.WebName, enc.GetString(data));
+				logger.LogInformation("=== CaptureOutput called ===");
+				logger.LogInformation("Received {Length} bytes with encoding {Encoding}",data.Length, enc.WebName);
+				logger.LogInformation("Bytes: {Bytes}", string.Join(" ", data.Select(b => $"{b:X2}")));
+				logger.LogInformation("Decoded: {Data}", enc.GetString(data));
 				return ValueTask.CompletedTask;
 			}
 
@@ -503,13 +505,18 @@ namespace TelnetNegotiationCore.UnitTests
 
 			// Convert test string to bytes in the target encoding
 			var originalBytes = encoding.GetBytes(testString);
+			logger.LogInformation("=== Sending data ===");
+			logger.LogInformation("Original string: {String}", testString);
+			logger.LogInformation("Original bytes ({Length}): {Bytes}", originalBytes.Length, string.Join(" ", originalBytes.Select(b => $"{b:X2}")));
 			
 			// Escape IAC bytes (255) by doubling them
 			var escapedBytes = ti.TelnetSafeBytes(originalBytes);
+			logger.LogInformation("Escaped bytes ({Length}): {Bytes}", escapedBytes.Length, string.Join(" ", escapedBytes.Select(b => $"{b:X2}")));
 			
 			// Verify IAC escaping: count 255s in original and escaped
 			var originalIACCount = originalBytes.Count(b => b == 255);
 			var escapedIACCount = escapedBytes.Count(b => b == 255);
+			logger.LogInformation("IAC count: original={Original}, escaped={Escaped}", originalIACCount, escapedIACCount);
 			
 			if (originalIACCount > 0)
 			{
@@ -519,13 +526,19 @@ namespace TelnetNegotiationCore.UnitTests
 
 			// Send the escaped bytes with newline to trigger OnSubmit
 			var withNewline = escapedBytes.Concat(new byte[] { (byte)'\n' }).ToArray();
+			logger.LogInformation("Sending {Length} bytes (with newline): {Bytes}", withNewline.Length, string.Join(" ", withNewline.Select(b => $"{b:X2}")));
 			await ti.InterpretByteArrayAsync(withNewline);
 			await ti.WaitForProcessingAsync();
 
 			// Verify the data was received correctly (IAC unescaped)
+			logger.LogInformation("=== Verification ===");
+			logger.LogInformation("Received {Count} callbacks", receivedData.Count);
 			await Assert.That(receivedData.Count).IsGreaterThan(0);
 			var received = receivedData.Last();
 			var receivedString = received.encoding.GetString(received.data);
+			logger.LogInformation("Expected string: {Expected}", testString);
+			logger.LogInformation("Received string: {Received}", receivedString);
+			logger.LogInformation("Match: {Match}", receivedString == testString);
 			
 			// The received string should match the original
 			await Assert.That(receivedString).IsEqualTo(testString);
