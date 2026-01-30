@@ -12,179 +12,255 @@ namespace TelnetNegotiationCore.UnitTests;
 
 public class EchoTests : BaseTest
 {
-    private TelnetInterpreter _server_ti;
-    private TelnetInterpreter _client_ti;
-    private byte[] _negotiationOutput;
-    private bool? _echoStateChanged;
-
-    private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
-    private ValueTask WriteBackToNegotiate(byte[] arg1)
-    {
-        _negotiationOutput = arg1;
-        return ValueTask.CompletedTask;
-    }
-
-    private ValueTask EchoStateChanged(bool enabled)
-    {
-        _echoStateChanged = enabled;
-        return ValueTask.CompletedTask;
-    }
-
-    [Before(Test)]
-    public async Task Setup()
-    {
-        _negotiationOutput = null;
-        _echoStateChanged = null;
-
-        _server_ti = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Server)
-            .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(WriteBackToNegotiate)
-            .AddPlugin<EchoProtocol>()
-                .OnEchoStateChanged(EchoStateChanged)
-            .BuildAsync();
-
-        _client_ti = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Client)
-            .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(WriteBackToNegotiate)
-            .AddPlugin<EchoProtocol>()
-                .OnEchoStateChanged(EchoStateChanged)
-            .BuildAsync();
-    }
-
-    [After(Test)]
-    public async Task TearDown()
-    {
-        if (_server_ti != null)
-            await _server_ti.DisposeAsync();
-        if (_client_ti != null)
-            await _client_ti.DisposeAsync();
-    }
-
     [Test]
     public async Task ClientRespondsWithDoEchoToServerWill()
     {
-        // Arrange
-        _negotiationOutput = null;
-        _echoStateChanged = null;
+        // Arrange - Create local variables
+        byte[] negotiationOutput = null;
+        bool? echoStateChanged = null;
+
+        ValueTask CaptureNegotiation(byte[] data)
+        {
+            negotiationOutput = data;
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask CaptureEchoStateChange(bool enabled)
+        {
+            echoStateChanged = enabled;
+            return ValueTask.CompletedTask;
+        }
+
+        var client = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation(CaptureNegotiation)
+            .AddPlugin<EchoProtocol>()
+                .OnEchoStateChanged(CaptureEchoStateChange)
+            .BuildAsync();
 
         // Act - Client receives WILL ECHO from server
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO });
-        await _client_ti.WaitForProcessingAsync();
+        await client.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO });
+        await client.WaitForProcessingAsync();
 
         // Assert - Client should respond with DO ECHO
-        await Assert.That(_negotiationOutput).IsNotNull();
-        await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
+        await Assert.That(negotiationOutput).IsNotNull();
+        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
         
         // Echo state should be enabled on client
-        await Assert.That(_echoStateChanged).IsNotNull();
-        await Assert.That(_echoStateChanged.Value).IsTrue();
+        await Assert.That(echoStateChanged).IsNotNull();
+        await Assert.That(echoStateChanged.Value).IsTrue();
+        
+        await client.DisposeAsync();
     }
 
     [Test]
     public async Task ServerAcceptsDoEcho()
     {
-        // Arrange
-        _negotiationOutput = null;
-        _echoStateChanged = null;
+        // Arrange - Create local variables
+        byte[] negotiationOutput = null;
+        bool? echoStateChanged = null;
+
+        ValueTask CaptureNegotiation(byte[] data)
+        {
+            negotiationOutput = data;
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask CaptureEchoStateChange(bool enabled)
+        {
+            echoStateChanged = enabled;
+            return ValueTask.CompletedTask;
+        }
+
+        var server = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation(CaptureNegotiation)
+            .AddPlugin<EchoProtocol>()
+                .OnEchoStateChanged(CaptureEchoStateChange)
+            .BuildAsync();
 
         // Act - Server receives DO ECHO from client
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
-        await _server_ti.WaitForProcessingAsync();
+        await server.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
+        await server.WaitForProcessingAsync();
 
         // Assert - Server should accept without additional response
-        await Assert.That(_negotiationOutput).IsNull();
+        await Assert.That(negotiationOutput).IsNull();
         
         // Echo state should be enabled on server
-        await Assert.That(_echoStateChanged).IsNotNull();
-        await Assert.That(_echoStateChanged.Value).IsTrue();
+        await Assert.That(echoStateChanged).IsNotNull();
+        await Assert.That(echoStateChanged.Value).IsTrue();
+        
+        await server.DisposeAsync();
     }
 
     [Test]
     public async Task ClientAcceptsWillEcho()
     {
-        // Arrange
-        _negotiationOutput = null;
-        _echoStateChanged = null;
+        // Arrange - Create local variables
+        byte[] negotiationOutput = null;
+        bool? echoStateChanged = null;
+
+        ValueTask CaptureNegotiation(byte[] data)
+        {
+            negotiationOutput = data;
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask CaptureEchoStateChange(bool enabled)
+        {
+            echoStateChanged = enabled;
+            return ValueTask.CompletedTask;
+        }
+
+        var client = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation(CaptureNegotiation)
+            .AddPlugin<EchoProtocol>()
+                .OnEchoStateChanged(CaptureEchoStateChange)
+            .BuildAsync();
 
         // Act - Client receives WILL ECHO from server
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO });
-        await _client_ti.WaitForProcessingAsync();
+        await client.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO });
+        await client.WaitForProcessingAsync();
 
         // Assert - Client should send DO ECHO
-        await Assert.That(_negotiationOutput).IsNotNull();
-        await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
+        await Assert.That(negotiationOutput).IsNotNull();
+        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
         
         // Echo state callback should be invoked
-        await Assert.That(_echoStateChanged).IsNotNull();
-        await Assert.That(_echoStateChanged.Value).IsTrue();
+        await Assert.That(echoStateChanged).IsNotNull();
+        await Assert.That(echoStateChanged.Value).IsTrue();
+        
+        await client.DisposeAsync();
     }
 
     [Test]
     public async Task ServerHandlesDontEcho()
     {
-        // Arrange
-        _negotiationOutput = null;
-        _echoStateChanged = null;
+        // Arrange - Create local variables
+        byte[] negotiationOutput = null;
+        bool? echoStateChanged = null;
+
+        ValueTask CaptureNegotiation(byte[] data)
+        {
+            negotiationOutput = data;
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask CaptureEchoStateChange(bool enabled)
+        {
+            echoStateChanged = enabled;
+            return ValueTask.CompletedTask;
+        }
+
+        var server = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation(CaptureNegotiation)
+            .AddPlugin<EchoProtocol>()
+                .OnEchoStateChanged(CaptureEchoStateChange)
+            .BuildAsync();
 
         // Act - Server receives DONT ECHO from client
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.ECHO });
-        await _server_ti.WaitForProcessingAsync();
+        await server.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.ECHO });
+        await server.WaitForProcessingAsync();
 
         // Assert - Server should accept the rejection gracefully (no error thrown)
-        await Assert.That(_negotiationOutput).IsNull();
+        await Assert.That(negotiationOutput).IsNull();
         
         // Echo state should be disabled
-        await Assert.That(_echoStateChanged).IsNotNull();
-        await Assert.That(_echoStateChanged.Value).IsFalse();
+        await Assert.That(echoStateChanged).IsNotNull();
+        await Assert.That(echoStateChanged.Value).IsFalse();
+        
+        await server.DisposeAsync();
     }
 
     [Test]
     public async Task ClientHandlesWontEcho()
     {
-        // Arrange
-        _negotiationOutput = null;
-        _echoStateChanged = null;
+        // Arrange - Create local variables
+        byte[] negotiationOutput = null;
+        bool? echoStateChanged = null;
+
+        ValueTask CaptureNegotiation(byte[] data)
+        {
+            negotiationOutput = data;
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask CaptureEchoStateChange(bool enabled)
+        {
+            echoStateChanged = enabled;
+            return ValueTask.CompletedTask;
+        }
+
+        var client = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation(CaptureNegotiation)
+            .AddPlugin<EchoProtocol>()
+                .OnEchoStateChanged(CaptureEchoStateChange)
+            .BuildAsync();
 
         // Act - Client receives WONT ECHO from server
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.ECHO });
-        await _client_ti.WaitForProcessingAsync();
+        await client.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.ECHO });
+        await client.WaitForProcessingAsync();
 
         // Assert - Client should accept the rejection gracefully (no error thrown)
-        await Assert.That(_negotiationOutput).IsNull();
+        await Assert.That(negotiationOutput).IsNull();
         
         // Echo state should be disabled
-        await Assert.That(_echoStateChanged).IsNotNull();
-        await Assert.That(_echoStateChanged.Value).IsFalse();
+        await Assert.That(echoStateChanged).IsNotNull();
+        await Assert.That(echoStateChanged.Value).IsFalse();
+        
+        await client.DisposeAsync();
     }
 
     [Test]
     public async Task EchoNegotiationSequenceComplete()
     {
-        // This test verifies the complete negotiation sequence
+        // Arrange - Create local variables
+        byte[] negotiationOutput = null;
+        bool? echoStateChanged = null;
+
+        ValueTask CaptureNegotiation(byte[] data)
+        {
+            negotiationOutput = data;
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask CaptureEchoStateChange(bool enabled)
+        {
+            echoStateChanged = enabled;
+            return ValueTask.CompletedTask;
+        }
+
         var testClient = await new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(WriteBackToNegotiate)
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation(CaptureNegotiation)
             .AddPlugin<EchoProtocol>()
-                .OnEchoStateChanged(EchoStateChanged)
+                .OnEchoStateChanged(CaptureEchoStateChange)
             .BuildAsync();
 
-        // Step 1: Server sends WILL ECHO
-        _negotiationOutput = null;
-        _echoStateChanged = null;
+        // Act - Server sends WILL ECHO
         await testClient.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO });
         await testClient.WaitForProcessingAsync();
         
-        await Assert.That(_negotiationOutput).IsNotNull();
-        await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
-        await Assert.That(_echoStateChanged).IsNotNull();
-        await Assert.That(_echoStateChanged.Value).IsTrue();
+        // Assert
+        await Assert.That(negotiationOutput).IsNotNull();
+        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
+        await Assert.That(echoStateChanged).IsNotNull();
+        await Assert.That(echoStateChanged.Value).IsTrue();
 
         await testClient.DisposeAsync();
     }
@@ -192,26 +268,39 @@ public class EchoTests : BaseTest
     [Test]
     public async Task ServerEchoNegotiationWithClient()
     {
-        // This test verifies server-side negotiation
+        // Arrange - Create local variables
+        byte[] negotiationOutput = null;
+        bool? echoStateChanged = null;
+
+        ValueTask CaptureNegotiation(byte[] data)
+        {
+            negotiationOutput = data;
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask CaptureEchoStateChange(bool enabled)
+        {
+            echoStateChanged = enabled;
+            return ValueTask.CompletedTask;
+        }
+
         var testServer = await new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(WriteBackToNegotiate)
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation(CaptureNegotiation)
             .AddPlugin<EchoProtocol>()
-                .OnEchoStateChanged(EchoStateChanged)
+                .OnEchoStateChanged(CaptureEchoStateChange)
             .BuildAsync();
 
-        // Client sends DO ECHO
-        _negotiationOutput = null;
-        _echoStateChanged = null;
+        // Act - Client sends DO ECHO
         await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
         await testServer.WaitForProcessingAsync();
         
-        // Server should accept (no error, negotiation completes, no response sent)
-        await Assert.That(_negotiationOutput).IsNull();
-        await Assert.That(_echoStateChanged).IsNotNull();
-        await Assert.That(_echoStateChanged.Value).IsTrue();
+        // Assert - Server should accept (no error, negotiation completes, no response sent)
+        await Assert.That(negotiationOutput).IsNull();
+        await Assert.That(echoStateChanged).IsNotNull();
+        await Assert.That(echoStateChanged.Value).IsTrue();
 
         await testServer.DisposeAsync();
     }
@@ -219,139 +308,255 @@ public class EchoTests : BaseTest
     [Test]
     public async Task ClientWillEchoToServer()
     {
-        // Test client receiving WILL ECHO
-        _negotiationOutput = null;
-        _echoStateChanged = null;
+        // Arrange - Create local variables
+        byte[] negotiationOutput = null;
+        bool? echoStateChanged = null;
+
+        ValueTask CaptureNegotiation(byte[] data)
+        {
+            negotiationOutput = data;
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask CaptureEchoStateChange(bool enabled)
+        {
+            echoStateChanged = enabled;
+            return ValueTask.CompletedTask;
+        }
+
+        var client = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation(CaptureNegotiation)
+            .AddPlugin<EchoProtocol>()
+                .OnEchoStateChanged(CaptureEchoStateChange)
+            .BuildAsync();
 
         // Act - Client receives WILL ECHO
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO });
-        await _client_ti.WaitForProcessingAsync();
+        await client.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO });
+        await client.WaitForProcessingAsync();
 
         // Assert - Client should respond with DO
-        await Assert.That(_negotiationOutput).IsNotNull();
+        await Assert.That(negotiationOutput).IsNotNull();
         var expectedResponse = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO };
-        await Assert.That(_negotiationOutput).IsEquivalentTo(expectedResponse);
-        await Assert.That(_echoStateChanged).IsNotNull();
-        await Assert.That(_echoStateChanged.Value).IsTrue();
+        await Assert.That(negotiationOutput).IsEquivalentTo(expectedResponse);
+        await Assert.That(echoStateChanged).IsNotNull();
+        await Assert.That(echoStateChanged.Value).IsTrue();
+        
+        await client.DisposeAsync();
     }
 
     [Test]
     public async Task EchoWithDontResponse()
     {
-        // Test server handling client's DONT
-        _negotiationOutput = null;
-        _echoStateChanged = null;
+        // Arrange - Create local variables
+        byte[] negotiationOutput = null;
+        bool? echoStateChanged = null;
 
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.ECHO });
-        await _server_ti.WaitForProcessingAsync();
+        ValueTask CaptureNegotiation(byte[] data)
+        {
+            negotiationOutput = data;
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask CaptureEchoStateChange(bool enabled)
+        {
+            echoStateChanged = enabled;
+            return ValueTask.CompletedTask;
+        }
+
+        var server = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation(CaptureNegotiation)
+            .AddPlugin<EchoProtocol>()
+                .OnEchoStateChanged(CaptureEchoStateChange)
+            .BuildAsync();
+
+        // Act - Server receives DONT ECHO from client
+        await server.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.ECHO });
+        await server.WaitForProcessingAsync();
         
-        // Server should handle DONT gracefully and record that echo is not enabled (no error thrown)
-        await Assert.That(_negotiationOutput).IsNull();
-        await Assert.That(_echoStateChanged).IsNotNull();
-        await Assert.That(_echoStateChanged.Value).IsFalse();
+        // Assert - Server should handle DONT gracefully and record that echo is not enabled (no error thrown)
+        await Assert.That(negotiationOutput).IsNull();
+        await Assert.That(echoStateChanged).IsNotNull();
+        await Assert.That(echoStateChanged.Value).IsFalse();
+        
+        await server.DisposeAsync();
     }
 
     [Test]
     public async Task EchoWithWontResponse()
     {
-        // Test client handling server's WONT
-        _negotiationOutput = null;
-        _echoStateChanged = null;
+        // Arrange - Create local variables
+        byte[] negotiationOutput = null;
+        bool? echoStateChanged = null;
 
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.ECHO });
-        await _client_ti.WaitForProcessingAsync();
+        ValueTask CaptureNegotiation(byte[] data)
+        {
+            negotiationOutput = data;
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask CaptureEchoStateChange(bool enabled)
+        {
+            echoStateChanged = enabled;
+            return ValueTask.CompletedTask;
+        }
+
+        var client = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation(CaptureNegotiation)
+            .AddPlugin<EchoProtocol>()
+                .OnEchoStateChanged(CaptureEchoStateChange)
+            .BuildAsync();
+
+        // Act - Client receives WONT ECHO from server
+        await client.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.ECHO });
+        await client.WaitForProcessingAsync();
         
-        // Client should handle WONT gracefully and record that echo is not enabled (no error thrown)
-        await Assert.That(_negotiationOutput).IsNull();
-        await Assert.That(_echoStateChanged).IsNotNull();
-        await Assert.That(_echoStateChanged.Value).IsFalse();
+        // Assert - Client should handle WONT gracefully and record that echo is not enabled (no error thrown)
+        await Assert.That(negotiationOutput).IsNull();
+        await Assert.That(echoStateChanged).IsNotNull();
+        await Assert.That(echoStateChanged.Value).IsFalse();
+        
+        await client.DisposeAsync();
     }
 
     [Test]
     public async Task EchoProtocolPluginIsEnabled()
     {
-        // Verify that the Echo protocol plugin is properly registered and enabled
-        var echoPlugin = _server_ti.PluginManager!.GetPlugin<EchoProtocol>();
+        // Arrange - Create server instance
+        var server = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation((data) => ValueTask.CompletedTask)
+            .AddPlugin<EchoProtocol>()
+            .BuildAsync();
         
+        // Act - Get the Echo protocol plugin
+        var echoPlugin = server.PluginManager!.GetPlugin<EchoProtocol>();
+        
+        // Assert - Verify that the Echo protocol plugin is properly registered and enabled
         await Assert.That(echoPlugin).IsNotNull();
         await Assert.That(echoPlugin!.IsEnabled).IsTrue();
         await Assert.That(echoPlugin.ProtocolName).IsEqualTo("Echo");
+        
+        await server.DisposeAsync();
     }
 
     [Test]
     public async Task EchoStateToggles()
     {
-        // Test toggling echo state multiple times
-        _echoStateChanged = null;
+        // Arrange - Create local variables
+        bool? echoStateChanged = null;
 
-        // Enable echo
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO });
-        await _client_ti.WaitForProcessingAsync();
-        await Assert.That(_echoStateChanged).IsNotNull();
-        await Assert.That(_echoStateChanged.Value).IsTrue();
+        ValueTask CaptureEchoStateChange(bool enabled)
+        {
+            echoStateChanged = enabled;
+            return ValueTask.CompletedTask;
+        }
 
-        // Disable echo
-        _echoStateChanged = null;
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.ECHO });
-        await _client_ti.WaitForProcessingAsync();
-        await Assert.That(_echoStateChanged).IsNotNull();
-        await Assert.That(_echoStateChanged.Value).IsFalse();
+        var client = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation((data) => ValueTask.CompletedTask)
+            .AddPlugin<EchoProtocol>()
+                .OnEchoStateChanged(CaptureEchoStateChange)
+            .BuildAsync();
+
+        // Act & Assert - Enable echo
+        await client.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO });
+        await client.WaitForProcessingAsync();
+        await Assert.That(echoStateChanged).IsNotNull();
+        await Assert.That(echoStateChanged.Value).IsTrue();
+
+        // Act & Assert - Disable echo
+        echoStateChanged = null;
+        await client.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.ECHO });
+        await client.WaitForProcessingAsync();
+        await Assert.That(echoStateChanged).IsNotNull();
+        await Assert.That(echoStateChanged.Value).IsFalse();
+        
+        await client.DisposeAsync();
     }
 
     [Test]
     public async Task EchoPluginIsEchoingProperty()
     {
-        // Verify the IsEchoing property reflects state correctly
-        var echoPlugin = _server_ti.PluginManager!.GetPlugin<EchoProtocol>();
+        // Arrange - Create server instance
+        var server = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation((data) => ValueTask.CompletedTask)
+            .AddPlugin<EchoProtocol>()
+            .BuildAsync();
+        
+        var echoPlugin = server.PluginManager!.GetPlugin<EchoProtocol>();
         await Assert.That(echoPlugin).IsNotNull();
         
-        // Initially not echoing
+        // Assert - Initially not echoing
         await Assert.That(echoPlugin!.IsEchoing).IsFalse();
 
-        // After DO ECHO, should be echoing
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
-        await _server_ti.WaitForProcessingAsync();
+        // Act - Enable echo with DO ECHO
+        await server.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
+        await server.WaitForProcessingAsync();
+        
+        // Assert - Should be echoing
         await Assert.That(echoPlugin.IsEchoing).IsTrue();
 
-        // After DONT ECHO, should not be echoing
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.ECHO });
-        await _server_ti.WaitForProcessingAsync();
+        // Act - Disable echo with DONT ECHO
+        await server.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.ECHO });
+        await server.WaitForProcessingAsync();
+        
+        // Assert - Should not be echoing
         await Assert.That(echoPlugin.IsEchoing).IsFalse();
+        
+        await server.DisposeAsync();
     }
 
     [Test]
     public async Task DefaultEchoHandlerEchoesReceivedBytes()
     {
-        // Create a server with default echo handler
+        // Arrange - Create local variables
         var echoedBytes = new System.Collections.Generic.List<byte>();
         
+        ValueTask CaptureNegotiation(byte[] bytes)
+        {
+            // Capture echoed bytes (but not negotiation sequences)
+            if (bytes.Length == 1)
+            {
+                echoedBytes.Add(bytes[0]);
+            }
+            return ValueTask.CompletedTask;
+        }
+
         var testServer = await new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(async (bytes) =>
-            {
-                // Capture echoed bytes (but not negotiation sequences)
-                if (bytes.Length == 1)
-                {
-                    echoedBytes.Add(bytes[0]);
-                }
-                await ValueTask.CompletedTask;
-            })
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation(CaptureNegotiation)
             .AddPlugin<EchoProtocol>()
                 .UseDefaultEchoHandler()
             .BuildAsync();
 
-        // Enable echo
+        // Act - Enable echo
         await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
         await testServer.WaitForProcessingAsync();
 
-        // Send some test bytes
+        // Act - Send some test bytes
         byte[] testBytes = new byte[] { (byte)'H', (byte)'e', (byte)'l', (byte)'l', (byte)'o' };
         await testServer.InterpretByteArrayAsync(testBytes);
         await testServer.WaitForProcessingAsync();
 
-        // Verify that the bytes were echoed back
+        // Assert - Verify that the bytes were echoed back
         await Assert.That(echoedBytes.Count).IsEqualTo(5);
         await Assert.That(echoedBytes[0]).IsEqualTo((byte)'H');
         await Assert.That(echoedBytes[1]).IsEqualTo((byte)'e');
@@ -365,32 +570,34 @@ public class EchoTests : BaseTest
     [Test]
     public async Task DefaultEchoHandlerDoesNotEchoWhenDisabled()
     {
-        // Create a server with default echo handler
+        // Arrange - Create local variables
         var echoedBytes = new System.Collections.Generic.List<byte>();
         
+        ValueTask CaptureNegotiation(byte[] bytes)
+        {
+            // Capture echoed bytes
+            if (bytes.Length == 1)
+            {
+                echoedBytes.Add(bytes[0]);
+            }
+            return ValueTask.CompletedTask;
+        }
+
         var testServer = await new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(async (bytes) =>
-            {
-                // Capture echoed bytes
-                if (bytes.Length == 1)
-                {
-                    echoedBytes.Add(bytes[0]);
-                }
-                await ValueTask.CompletedTask;
-            })
+            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnNegotiation(CaptureNegotiation)
             .AddPlugin<EchoProtocol>()
                 .UseDefaultEchoHandler()
             .BuildAsync();
 
-        // Do NOT enable echo - send bytes directly
+        // Act - Do NOT enable echo - send bytes directly
         byte[] testBytes = new byte[] { (byte)'H', (byte)'i' };
         await testServer.InterpretByteArrayAsync(testBytes);
         await testServer.WaitForProcessingAsync();
 
-        // Verify that no bytes were echoed
+        // Assert - Verify that no bytes were echoed
         await Assert.That(echoedBytes.Count).IsEqualTo(0);
 
         await testServer.DisposeAsync();
