@@ -56,9 +56,14 @@ namespace TelnetNegotiationCore.UnitTests
 
 		/// <summary>
 		/// Manually compares two byte arrays for equality.
-		/// This is preferred over TUnit's IsEquivalentTo() for array comparisons.
+		/// This is preferred over TUnit's IsEquivalentTo() for array comparisons because:
+		/// - Provides clearer error messages showing the exact byte and index that differs
+		/// - More reliable for byte-by-byte validation in protocol testing
+		/// - Consistent behavior across different TUnit versions
 		/// </summary>
-		protected static async Task AssertByteArraysEqual(byte[] actual, byte[] expected, string message = null)
+		/// <param name="actual">The actual byte array to test (from test execution)</param>
+		/// <param name="expected">The expected byte array (the correct value)</param>
+		protected static async Task AssertByteArraysEqual(byte[] actual, byte[] expected)
 		{
 			await Assert.That(actual).IsNotNull();
 			await Assert.That(actual.Length).IsEqualTo(expected.Length);
