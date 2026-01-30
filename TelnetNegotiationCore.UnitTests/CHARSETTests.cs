@@ -15,32 +15,25 @@ namespace TelnetNegotiationCore.UnitTests
 	
 	public class CharsetTests() : BaseTest
 	{
-		private byte[] _negotiationOutput;
-
-		private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => throw new NotImplementedException();
-
-		private ValueTask WriteBackToGMCP((string module, string writeback) arg1) => throw new NotImplementedException();
-
-		private ValueTask ClientWriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return ValueTask.CompletedTask; }
-
-		private ValueTask ServerWriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return ValueTask.CompletedTask; }
-
-	[Before(Test)]
-		public void Setup()
-		{
-			_negotiationOutput = null;
-
-		}
+		private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
 		[Test]
 		[MethodDataSource(nameof(ServerCHARSETSequences))]
 		public async Task ServerEvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<Encoding> currentEncoding)
 		{
+			byte[] negotiationOutput = null;
+			
+			ValueTask CaptureNegotiation(byte[] data)
+			{
+				negotiationOutput = data;
+				return ValueTask.CompletedTask;
+			}
+			
 			var server_ti = await new TelnetInterpreterBuilder()
 				.UseMode(TelnetInterpreter.TelnetMode.Server)
 				.UseLogger(logger)
-				.OnSubmit(WriteBackToOutput)
-				.OnNegotiation(ServerWriteBackToNegotiate)
+				.OnSubmit((data, enc, ti) => throw new NotImplementedException())
+				.OnNegotiation(CaptureNegotiation)
 				.AddPlugin<CharsetProtocol>()
 				.BuildAsync();
 
@@ -49,7 +42,7 @@ namespace TelnetNegotiationCore.UnitTests
 
 			foreach ((var clientSend, var serverShouldRespond, var shouldHaveCurrentEncoding) in clientSends.Zip(serverShouldRespondWith, currentEncoding))
 			{
-				_negotiationOutput = null;
+				negotiationOutput = null;
 				foreach (var x in clientSend ?? Enumerable.Empty<byte>())
 				{
 					await server_ti.InterpretAsync(x);
@@ -57,19 +50,29 @@ namespace TelnetNegotiationCore.UnitTests
 				await server_ti.WaitForProcessingAsync();
 
 				await Assert.That(server_ti.CurrentEncoding).IsEqualTo(shouldHaveCurrentEncoding);
-				await Assert.That(_negotiationOutput).IsEquivalentTo(serverShouldRespond);
+				await Assert.That(negotiationOutput).IsEquivalentTo(serverShouldRespond);
 			}
+			
+			await server_ti.DisposeAsync();
 		}
 
 		[Test]
 		[MethodDataSource(nameof(ClientCHARSETSequences))]
 		public async Task ClientEvaluationCheck(IEnumerable<byte[]> serverSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<Encoding> currentEncoding)
 		{
+			byte[] negotiationOutput = null;
+			
+			ValueTask CaptureNegotiation(byte[] data)
+			{
+				negotiationOutput = data;
+				return ValueTask.CompletedTask;
+			}
+			
 			var client_ti = await new TelnetInterpreterBuilder()
 				.UseMode(TelnetInterpreter.TelnetMode.Client)
 				.UseLogger(logger)
-				.OnSubmit(WriteBackToOutput)
-				.OnNegotiation(ClientWriteBackToNegotiate)
+				.OnSubmit((data, enc, ti) => throw new NotImplementedException())
+				.OnNegotiation(CaptureNegotiation)
 				.AddPlugin<CharsetProtocol>()
 				.BuildAsync();
 
@@ -81,14 +84,14 @@ namespace TelnetNegotiationCore.UnitTests
 
 			foreach ((var serverSend, var clientShouldRespond, var shouldHaveCurrentEncoding) in serverSends.Zip(serverShouldRespondWith, currentEncoding))
 			{
-				_negotiationOutput = null;
+				negotiationOutput = null;
 				foreach (var x in serverSend ?? Enumerable.Empty<byte>())
 				{
 					await client_ti.InterpretAsync(x);
 				}
 				await client_ti.WaitForProcessingAsync();
 				await Assert.That(client_ti.CurrentEncoding).IsEqualTo(shouldHaveCurrentEncoding);
-				await Assert.That(_negotiationOutput).IsEquivalentTo(clientShouldRespond);
+				await Assert.That(negotiationOutput).IsEquivalentTo(clientShouldRespond);
 			}
 			await client_ti.DisposeAsync();
 		}
@@ -276,9 +279,11 @@ namespace TelnetNegotiationCore.UnitTests
 				return ValueTask.CompletedTask;
 			}
 
+			byte[] negotiationOutput = null;
+			
 			ValueTask CaptureNegotiation(byte[] data)
 			{
-				_negotiationOutput = data;
+				negotiationOutput = data;
 				return ValueTask.CompletedTask;
 			}
 
@@ -323,6 +328,7 @@ namespace TelnetNegotiationCore.UnitTests
 		public async Task ServerCanSwitchBetweenEncodings()
 		{
 			var receivedData = new List<(byte[] data, Encoding encoding)>();
+			byte[] negotiationOutput = null;
 			
 			ValueTask CaptureOutput(byte[] data, Encoding enc, TelnetInterpreter ti)
 			{
@@ -330,11 +336,17 @@ namespace TelnetNegotiationCore.UnitTests
 				return ValueTask.CompletedTask;
 			}
 
+			ValueTask CaptureNegotiation(byte[] data)
+			{
+				negotiationOutput = data;
+				return ValueTask.CompletedTask;
+			}
+
 			var server = await new TelnetInterpreterBuilder()
 				.UseMode(TelnetInterpreter.TelnetMode.Server)
 				.UseLogger(logger)
 				.OnSubmit(CaptureOutput)
-				.OnNegotiation(ServerWriteBackToNegotiate)
+				.OnNegotiation(CaptureNegotiation)
 				.AddPlugin<CharsetProtocol>()
 				.BuildAsync();
 
@@ -379,6 +391,7 @@ namespace TelnetNegotiationCore.UnitTests
 		public async Task ClientCanSwitchBetweenEncodings()
 		{
 			var receivedData = new List<(byte[] data, Encoding encoding)>();
+			byte[] negotiationOutput = null;
 			
 			ValueTask CaptureOutput(byte[] data, Encoding enc, TelnetInterpreter ti)
 			{
@@ -386,11 +399,17 @@ namespace TelnetNegotiationCore.UnitTests
 				return ValueTask.CompletedTask;
 			}
 
+			ValueTask CaptureNegotiation(byte[] data)
+			{
+				negotiationOutput = data;
+				return ValueTask.CompletedTask;
+			}
+
 			var client = await new TelnetInterpreterBuilder()
 				.UseMode(TelnetInterpreter.TelnetMode.Client)
 				.UseLogger(logger)
 				.OnSubmit(CaptureOutput)
-				.OnNegotiation(ClientWriteBackToNegotiate)
+				.OnNegotiation(CaptureNegotiation)
 				.AddPlugin<CharsetProtocol>()
 				.BuildAsync();
 
@@ -443,6 +462,7 @@ namespace TelnetNegotiationCore.UnitTests
 		private async Task TestEncodingWithIACEscaping(Encoding encoding, string webName, string testString, TelnetInterpreter.TelnetMode mode)
 		{
 			var receivedData = new List<(byte[] data, Encoding encoding)>();
+			byte[] negotiationOutput = null;
 			
 			ValueTask CaptureOutput(byte[] data, Encoding enc, TelnetInterpreter ti)
 			{
@@ -454,7 +474,7 @@ namespace TelnetNegotiationCore.UnitTests
 
 			ValueTask CaptureNegotiation(byte[] data)
 			{
-				_negotiationOutput = data;
+				negotiationOutput = data;
 				return ValueTask.CompletedTask;
 			}
 
@@ -569,12 +589,19 @@ namespace TelnetNegotiationCore.UnitTests
 		{
 			byte[] receivedTTableData = Array.Empty<byte>();
 			var wasCallbackInvoked = false;
+			byte[] negotiationOutput = null;
+
+			ValueTask CaptureNegotiation(byte[] data)
+			{
+				negotiationOutput = data;
+				return ValueTask.CompletedTask;
+			}
 
 			var server_ti = await new TelnetInterpreterBuilder()
 				.UseMode(TelnetInterpreter.TelnetMode.Server)
 				.UseLogger(logger)
 				.OnSubmit(WriteBackToOutput)
-				.OnNegotiation(ServerWriteBackToNegotiate)
+				.OnNegotiation(CaptureNegotiation)
 				.AddPlugin<CharsetProtocol>()
 				.BuildAsync();
 
@@ -620,12 +647,12 @@ namespace TelnetNegotiationCore.UnitTests
 			await Assert.That(receivedTTableData).IsNotNull();
 			
 			// Verify TTABLE-ACK was sent
-			await Assert.That(_negotiationOutput).IsNotNull();
+			await Assert.That(negotiationOutput).IsNotNull();
 			var expected = new byte[] { 
 				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_ACK, 
 				(byte)Trigger.IAC, (byte)Trigger.SE 
 			};
-			await Assert.That(_negotiationOutput).IsEquivalentTo(expected);
+			await Assert.That(negotiationOutput).IsEquivalentTo(expected);
 
 			await server_ti.DisposeAsync();
 		}
@@ -633,11 +660,19 @@ namespace TelnetNegotiationCore.UnitTests
 		[Test]
 		public async Task TTableRejected_WhenNoCallbackRegistered()
 		{
+			byte[] negotiationOutput = null;
+
+			ValueTask CaptureNegotiation(byte[] data)
+			{
+				negotiationOutput = data;
+				return ValueTask.CompletedTask;
+			}
+
 			var server_ti = await new TelnetInterpreterBuilder()
 				.UseMode(TelnetInterpreter.TelnetMode.Server)
 				.UseLogger(logger)
 				.OnSubmit(WriteBackToOutput)
-				.OnNegotiation(ServerWriteBackToNegotiate)
+				.OnNegotiation(CaptureNegotiation)
 				.AddPlugin<CharsetProtocol>()
 				.BuildAsync();
 
@@ -662,12 +697,12 @@ namespace TelnetNegotiationCore.UnitTests
 			await server_ti.WaitForProcessingAsync();
 
 			// Verify TTABLE-REJECTED was sent
-			await Assert.That(_negotiationOutput).IsNotNull();
+			await Assert.That(negotiationOutput).IsNotNull();
 			var expected = new byte[] { 
 				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, 
 				(byte)Trigger.IAC, (byte)Trigger.SE 
 			};
-			await Assert.That(_negotiationOutput).IsEquivalentTo(expected);
+			await Assert.That(negotiationOutput).IsEquivalentTo(expected);
 
 			await server_ti.DisposeAsync();
 		}
@@ -675,11 +710,19 @@ namespace TelnetNegotiationCore.UnitTests
 		[Test]
 		public async Task TTableNak_WhenCallbackReturnsFalse()
 		{
+			byte[] negotiationOutput = null;
+
+			ValueTask CaptureNegotiation(byte[] data)
+			{
+				negotiationOutput = data;
+				return ValueTask.CompletedTask;
+			}
+
 			var server_ti = await new TelnetInterpreterBuilder()
 				.UseMode(TelnetInterpreter.TelnetMode.Server)
 				.UseLogger(logger)
 				.OnSubmit(WriteBackToOutput)
-				.OnNegotiation(ServerWriteBackToNegotiate)
+				.OnNegotiation(CaptureNegotiation)
 				.AddPlugin<CharsetProtocol>()
 				.BuildAsync();
 
@@ -714,12 +757,12 @@ namespace TelnetNegotiationCore.UnitTests
 			await server_ti.WaitForProcessingAsync();
 
 			// Verify TTABLE-NAK was sent
-			await Assert.That(_negotiationOutput).IsNotNull();
+			await Assert.That(negotiationOutput).IsNotNull();
 			var expected = new byte[] { 
 				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_NAK, 
 				(byte)Trigger.IAC, (byte)Trigger.SE 
 			};
-			await Assert.That(_negotiationOutput).IsEquivalentTo(expected);
+			await Assert.That(negotiationOutput).IsEquivalentTo(expected);
 
 			await server_ti.DisposeAsync();
 		}
@@ -727,11 +770,19 @@ namespace TelnetNegotiationCore.UnitTests
 		[Test]
 		public async Task SendTTableAsync_ShouldSendCorrectMessage()
 		{
+			byte[] negotiationOutput = null;
+
+			ValueTask CaptureNegotiation(byte[] data)
+			{
+				negotiationOutput = data;
+				return ValueTask.CompletedTask;
+			}
+
 			var server_ti = await new TelnetInterpreterBuilder()
 				.UseMode(TelnetInterpreter.TelnetMode.Server)
 				.UseLogger(logger)
 				.OnSubmit(WriteBackToOutput)
-				.OnNegotiation(ServerWriteBackToNegotiate)
+				.OnNegotiation(CaptureNegotiation)
 				.AddPlugin<CharsetProtocol>()
 				.BuildAsync();
 
@@ -749,14 +800,14 @@ namespace TelnetNegotiationCore.UnitTests
 			await charsetPlugin.SendTTableAsync(ttableData);
 
 			// Verify TTABLE-IS was sent with correct format
-			await Assert.That(_negotiationOutput).IsNotNull();
+			await Assert.That(negotiationOutput).IsNotNull();
 			var expectedPrefix = new byte[] { 
 				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_IS
 			};
 			var expectedSuffix = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };
 			
-			await Assert.That(_negotiationOutput.Take(4)).IsEquivalentTo(expectedPrefix);
-			await Assert.That(_negotiationOutput.Skip(_negotiationOutput.Length - 2)).IsEquivalentTo(expectedSuffix);
+			await Assert.That(negotiationOutput.Take(4)).IsEquivalentTo(expectedPrefix);
+			await Assert.That(negotiationOutput.Skip(negotiationOutput.Length - 2)).IsEquivalentTo(expectedSuffix);
 
 			await server_ti.DisposeAsync();
 		}
@@ -764,11 +815,19 @@ namespace TelnetNegotiationCore.UnitTests
 		[Test]
 		public async Task TTableUnsupportedVersion_ShouldBeRejected()
 		{
+			byte[] negotiationOutput = null;
+
+			ValueTask CaptureNegotiation(byte[] data)
+			{
+				negotiationOutput = data;
+				return ValueTask.CompletedTask;
+			}
+
 			var server_ti = await new TelnetInterpreterBuilder()
 				.UseMode(TelnetInterpreter.TelnetMode.Server)
 				.UseLogger(logger)
 				.OnSubmit(WriteBackToOutput)
-				.OnNegotiation(ServerWriteBackToNegotiate)
+				.OnNegotiation(CaptureNegotiation)
 				.AddPlugin<CharsetProtocol>()
 				.BuildAsync();
 
@@ -793,12 +852,12 @@ namespace TelnetNegotiationCore.UnitTests
 			await server_ti.WaitForProcessingAsync();
 
 			// Verify TTABLE-REJECTED was sent
-			await Assert.That(_negotiationOutput).IsNotNull();
+			await Assert.That(negotiationOutput).IsNotNull();
 			var expected = new byte[] { 
 				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, 
 				(byte)Trigger.IAC, (byte)Trigger.SE 
 			};
-			await Assert.That(_negotiationOutput).IsEquivalentTo(expected);
+			await Assert.That(negotiationOutput).IsEquivalentTo(expected);
 
 			await server_ti.DisposeAsync();
 		}
