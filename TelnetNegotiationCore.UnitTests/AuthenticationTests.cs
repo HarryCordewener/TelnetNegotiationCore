@@ -16,7 +16,7 @@ public class AuthenticationTests : BaseTest
     public async Task ServerSendsDoAuthentication()
     {
         // Arrange - Create local variable for capturing output
-        byte[]? negotiationOutput = null;
+        byte[] negotiationOutput = null;
         
         ValueTask CaptureNegotiation(byte[] data)
         {
@@ -51,7 +51,7 @@ public class AuthenticationTests : BaseTest
     public async Task ClientRespondsWithWillToServerDo()
     {
         // Arrange - Create local variable for capturing output
-        byte[]? negotiationOutput = null;
+        byte[] negotiationOutput = null;
         
         ValueTask CaptureNegotiation(byte[] data)
         {
@@ -92,7 +92,7 @@ public class AuthenticationTests : BaseTest
     public async Task ServerSendsSendSubnegotiationAfterClientWill()
     {
         // Arrange - Create local variables
-        byte[]? negotiationOutput = null;
+        byte[] negotiationOutput = null;
         
         ValueTask CaptureNegotiation(byte[] data)
         {
@@ -136,7 +136,7 @@ public class AuthenticationTests : BaseTest
     public async Task ClientRespondsWithIsNullToServerSend()
     {
         // Arrange - Create local variables
-        byte[]? negotiationOutput = null;
+        byte[] negotiationOutput = null;
         
         ValueTask CaptureNegotiation(byte[] data)
         {
@@ -191,7 +191,7 @@ public class AuthenticationTests : BaseTest
     public async Task ServerRejectsClientWontAuthentication()
     {
         // Arrange - Create local variables
-        byte[]? negotiationOutput = null;
+        byte[] negotiationOutput = null;
         
         ValueTask CaptureNegotiation(byte[] data)
         {
@@ -227,7 +227,7 @@ public class AuthenticationTests : BaseTest
     public async Task ClientRejectsServerDontAuthentication()
     {
         // Arrange - Create local variables
-        byte[]? negotiationOutput = null;
+        byte[] negotiationOutput = null;
         
         ValueTask CaptureNegotiation(byte[] data)
         {
@@ -263,8 +263,8 @@ public class AuthenticationTests : BaseTest
     public async Task FullNegotiationSequence()
     {
         // Create local variables for capturing
-        byte[]? serverNegOutput = null;
-        byte[]? clientNegOutput = null;
+        byte[] serverNegOutput = null;
+        byte[] clientNegOutput = null;
         
         ValueTask CaptureServerNegotiation(byte[] data)
         {
@@ -339,7 +339,7 @@ public class AuthenticationTests : BaseTest
     {
         // Arrange - Server with custom auth types
         var authTypesCalled = false;
-        byte[]? negotiationOutput = null;
+        byte[] negotiationOutput = null;
         
         ValueTask CaptureNegotiation(byte[] data)
         {
@@ -392,8 +392,8 @@ public class AuthenticationTests : BaseTest
     public async Task ClientCanProvideCustomAuthenticationResponse()
     {
         // Arrange - Client with custom auth response handler
-        byte[]? receivedRequest = null;
-        byte[]? negotiationOutput = null;
+        byte[] receivedRequest = null;
+        byte[] negotiationOutput = null;
         
         ValueTask CaptureNegotiation(byte[] data)
         {
@@ -460,8 +460,8 @@ public class AuthenticationTests : BaseTest
     public async Task ServerCanReceiveAndProcessAuthenticationResponse()
     {
         // Arrange - Server with auth response handler
-        byte[]? receivedAuthData = null;
-        byte[]? negotiationOutput = null;
+        byte[] receivedAuthData = null;
+        byte[] negotiationOutput = null;
         
         ValueTask CaptureNegotiation(byte[] data)
         {
