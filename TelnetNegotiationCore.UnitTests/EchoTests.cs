@@ -83,6 +83,10 @@ public class EchoTests : BaseTest
                 .OnEchoStateChanged(CaptureEchoStateChange)
             .BuildAsync();
 
+        // Server sends WILL ECHO on initialization - clear it
+        await server.WaitForProcessingAsync();
+        negotiationOutput = null;
+
         // Act - Server receives DO ECHO from client
         await server.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
         await server.WaitForProcessingAsync();
@@ -167,6 +171,10 @@ public class EchoTests : BaseTest
             .AddPlugin<EchoProtocol>()
                 .OnEchoStateChanged(CaptureEchoStateChange)
             .BuildAsync();
+
+        // Server sends WILL ECHO on initialization - clear it
+        await server.WaitForProcessingAsync();
+        negotiationOutput = null;
 
         // Act - Server receives DONT ECHO from client
         await server.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.ECHO });
@@ -293,6 +301,10 @@ public class EchoTests : BaseTest
                 .OnEchoStateChanged(CaptureEchoStateChange)
             .BuildAsync();
 
+        // Server sends WILL ECHO on initialization - clear it
+        await testServer.WaitForProcessingAsync();
+        negotiationOutput = null;
+
         // Act - Client sends DO ECHO
         await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
         await testServer.WaitForProcessingAsync();
@@ -374,6 +386,10 @@ public class EchoTests : BaseTest
             .AddPlugin<EchoProtocol>()
                 .OnEchoStateChanged(CaptureEchoStateChange)
             .BuildAsync();
+
+        // Server sends WILL ECHO on initialization - clear it
+        await server.WaitForProcessingAsync();
+        negotiationOutput = null;
 
         // Act - Server receives DONT ECHO from client
         await server.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.ECHO });

@@ -207,6 +207,10 @@ public class AuthenticationTests : BaseTest
             .AddPlugin<AuthenticationProtocol>()
             .BuildAsync();
 
+        // Server sends DO AUTHENTICATION on initialization - clear it
+        await server.WaitForProcessingAsync();
+        negotiationOutput = null;
+
         // Act - Server receives WONT AUTHENTICATION from client
         await server.InterpretByteArrayAsync(new byte[] 
         { 
@@ -242,6 +246,9 @@ public class AuthenticationTests : BaseTest
             .OnNegotiation(CaptureNegotiation)
             .AddPlugin<AuthenticationProtocol>()
             .BuildAsync();
+
+        // Clear any initial negotiation output
+        negotiationOutput = null;
 
         // Act - Client receives DONT AUTHENTICATION from server
         await client.InterpretByteArrayAsync(new byte[] 
@@ -364,6 +371,10 @@ public class AuthenticationTests : BaseTest
                 })
             .BuildAsync();
 
+        // Server sends DO AUTHENTICATION on initialization - clear it
+        await server.WaitForProcessingAsync();
+        negotiationOutput = null;
+
         // Act - Client sends WILL
         await server.InterpretByteArrayAsync(new byte[] 
         { 
@@ -441,7 +452,7 @@ public class AuthenticationTests : BaseTest
 
         // Assert - Client should send custom IS response
         await Assert.That(receivedRequest).IsNotNull();
-        await Assert.That(receivedRequest.Length).IsEqualTo(4);
+        await Assert.That(receivedRequest.Length).IsEqualTo(5);
         await Assert.That(negotiationOutput).IsNotNull();
         await Assert.That(negotiationOutput[0]).IsEqualTo((byte)Trigger.IAC);
         await Assert.That(negotiationOutput[1]).IsEqualTo((byte)Trigger.SB);
@@ -507,7 +518,7 @@ public class AuthenticationTests : BaseTest
 
         // Assert - Server should have received the auth data
         await Assert.That(receivedAuthData).IsNotNull();
-        await Assert.That(receivedAuthData.Length).IsEqualTo(5);
+        await Assert.That(receivedAuthData.Length).IsEqualTo(6);
         await Assert.That(receivedAuthData[0]).IsEqualTo((byte)5); // SRP
         await Assert.That(receivedAuthData[1]).IsEqualTo((byte)0); // No modifiers
         await Assert.That(receivedAuthData[2]).IsEqualTo((byte)0x01);
