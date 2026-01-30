@@ -23,5 +23,7 @@ jobs:
       run: dotnet restore
     - name: Build
       run: dotnet build --no-restore
-    - name: Test
-      run: dotnet test --no-build --verbosity normal
+    - name: Test .NET 8.0
+      run: dotnet exec TelnetNegotiationCore.UnitTests/bin/Debug/net8.0/TelnetNegotiationCore.UnitTests.dll
+    - name: Test .NET 10.0
+      run: dotnet exec TelnetNegotiationCore.UnitTests/bin/Debug/net10.0/TelnetNegotiationCore.UnitTests.dll
