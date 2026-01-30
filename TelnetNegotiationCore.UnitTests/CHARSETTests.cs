@@ -313,8 +313,17 @@ namespace TelnetNegotiationCore.UnitTests
 
 			// Verify the data was received correctly (IAC unescaped)
 			await Assert.That(receivedData.Count).IsGreaterThan(0);
+			
+			// Debug: Log all received data
+			logger.LogInformation("Received {Count} data chunks", receivedData.Count);
+			for (int i = 0; i < receivedData.Count; i++)
+			{
+				logger.LogInformation("Chunk {Index}: {Length} bytes - [{Data}]", 
+					i, receivedData[i].data.Length, string.Join(", ", receivedData[i].data));
+			}
+			
 			var received = receivedData.Last();
-			await Assert.That(received.data).IsEquivalentTo(binaryData);
+			await AssertByteArraysEqual(received.data, binaryData, "Binary data with IAC escaping");
 
 			await server.DisposeAsync();
 		}
