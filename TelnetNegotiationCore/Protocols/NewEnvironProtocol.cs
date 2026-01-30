@@ -103,18 +103,10 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         stateMachine.Configure(State.DoNEWENVIRON)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async x => await OnDoNewEnvironAsync(x, context));
-        
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.DoNEWENVIRON).Permit(t, State.ReadingCharacters));
-        stateMachine.Configure(State.DoNEWENVIRON).Permit(Trigger.IAC, State.StartNegotiation);
 
         stateMachine.Configure(State.DontNEWENVIRON)
             .SubstateOf(State.Accepting)
             .OnEntry(() => context.Logger.LogDebug("Client won't do NEW-ENVIRON - do nothing"));
-        
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.DontNEWENVIRON).Permit(t, State.ReadingCharacters));
-        stateMachine.Configure(State.DontNEWENVIRON).Permit(Trigger.IAC, State.StartNegotiation);
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.NEWENVIRON, State.AlmostNegotiatingNEWENVIRON);
@@ -184,18 +176,10 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         stateMachine.Configure(State.WillNEWENVIRON)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async x => await OnWillNewEnvironAsync(x, context));
-        
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.WillNEWENVIRON).Permit(t, State.ReadingCharacters));
-        stateMachine.Configure(State.WillNEWENVIRON).Permit(Trigger.IAC, State.StartNegotiation);
 
         stateMachine.Configure(State.WontNEWENVIRON)
             .SubstateOf(State.Accepting)
             .OnEntry(() => context.Logger.LogDebug("Server won't do NEW-ENVIRON - do nothing"));
-        
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.WontNEWENVIRON).Permit(t, State.ReadingCharacters));
-        stateMachine.Configure(State.WontNEWENVIRON).Permit(Trigger.IAC, State.StartNegotiation);
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.NEWENVIRON, State.AlmostNegotiatingNEWENVIRON);

@@ -133,18 +133,10 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         stateMachine.Configure(State.DoLINEMODE)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async () => await WillLineModeAsync(context));
-        
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.DoLINEMODE).Permit(t, State.ReadingCharacters));
-        stateMachine.Configure(State.DoLINEMODE).Permit(Trigger.IAC, State.StartNegotiation);
 
         stateMachine.Configure(State.DontLINEMODE)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async () => await OnDontLineModeAsync(context));
-        
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.DontLINEMODE).Permit(t, State.ReadingCharacters));
-        stateMachine.Configure(State.DontLINEMODE).Permit(Trigger.IAC, State.StartNegotiation);
 
         // Handle subnegotiations: IAC SB LINEMODE MODE <mode> IAC SE
         stateMachine.Configure(State.SubNegotiation)
@@ -180,18 +172,10 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         stateMachine.Configure(State.WillLINEMODE)
             .SubstateOf(State.Accepting)
             .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client is willing to use line mode"));
-        
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.WillLINEMODE).Permit(t, State.ReadingCharacters));
-        stateMachine.Configure(State.WillLINEMODE).Permit(Trigger.IAC, State.StartNegotiation);
 
         stateMachine.Configure(State.WontLINEMODE)
             .SubstateOf(State.Accepting)
             .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't use line mode"));
-        
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.WontLINEMODE).Permit(t, State.ReadingCharacters));
-        stateMachine.Configure(State.WontLINEMODE).Permit(Trigger.IAC, State.StartNegotiation);
 
         // Server can receive MODE subnegotiations from client
         stateMachine.Configure(State.SubNegotiation)
