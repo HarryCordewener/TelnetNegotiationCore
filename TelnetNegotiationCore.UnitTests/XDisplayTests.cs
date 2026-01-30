@@ -17,8 +17,6 @@ public class XDisplayTests : BaseTest
     private byte[] _negotiationOutput;
     private string _receivedDisplayLocation;
 
-    private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
     private ValueTask ServerWriteBackToNegotiate(byte[] arg1)
     {
         _negotiationOutput = arg1;
@@ -44,22 +42,20 @@ public class XDisplayTests : BaseTest
         _negotiationOutput = null;
         _receivedDisplayLocation = null;
 
-        _server_ti = await new TelnetInterpreterBuilder()
+        _server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(ServerWriteBackToNegotiate)
             .AddPlugin<XDisplayProtocol>()
-                .OnDisplayLocation(OnDisplayLocationReceived)
-            .BuildAsync();
+                .OnDisplayLocation(OnDisplayLocationReceived));
 
-        _client_ti = await new TelnetInterpreterBuilder()
+        _client_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(ClientWriteBackToNegotiate)
-            .AddPlugin<XDisplayProtocol>()
-            .BuildAsync();
+            .AddPlugin<XDisplayProtocol>());
     }
 
     [After(Test)]
@@ -75,8 +71,7 @@ public class XDisplayTests : BaseTest
     public async Task ServerRequestsXDisplay()
     {
         // Arrange - Client announces willingness to send XDISPLOC
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
 
         // Assert - Server should send XDISPLOC SEND request
         await Assert.That(_negotiationOutput).IsNotNull();
@@ -94,8 +89,7 @@ public class XDisplayTests : BaseTest
     public async Task ClientSendsDisplayLocation()
     {
         // Arrange - Complete XDISPLOC negotiation
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
-        await _client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
         _negotiationOutput = null;
 
         // Configure client with display location
@@ -103,11 +97,10 @@ public class XDisplayTests : BaseTest
         xdisplayPlugin!.WithClientDisplayLocation("localhost:0.0");
 
         // Act - Server sends SEND request
-        await _client_ti.InterpretByteArrayAsync(new byte[]
+        await InterpretAndWaitAsync(_client_ti, new byte[]
         {
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.XDISPLOC, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE
         });
-        await _client_ti.WaitForProcessingAsync();
 
         // Assert - Client should send the display location
         await Assert.That(_negotiationOutput).IsNotNull();
@@ -126,8 +119,7 @@ public class XDisplayTests : BaseTest
     public async Task ServerReceivesDisplayLocation()
     {
         // Arrange - Complete initial negotiation
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
 
         // Act - Client sends display location
         var displayLocation = "myhost.example.com:0";
@@ -138,8 +130,7 @@ public class XDisplayTests : BaseTest
         };
         message = [.. message, .. displayBytes, (byte)Trigger.IAC, (byte)Trigger.SE];
 
-        await _server_ti.InterpretByteArrayAsync(message);
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, message);
 
         // Assert - Server should have received the display location
         await Assert.That(_receivedDisplayLocation).IsNotNull();
@@ -150,27 +141,24 @@ public class XDisplayTests : BaseTest
     public async Task ClientWithConfiguredDisplayLocationSendsItAutomatically()
     {
         // Arrange - Configure client with display location before negotiation
-        var clientWithDisplay = await new TelnetInterpreterBuilder()
+        var clientWithDisplay = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(ClientWriteBackToNegotiate)
             .AddPlugin<XDisplayProtocol>()
-                .WithClientDisplayLocation("configured.host:10.0")
-            .BuildAsync();
+                .WithClientDisplayLocation("configured.host:10.0"));
 
         try
         {
             // Act - Negotiate XDISPLOC
-            await clientWithDisplay.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
-            await clientWithDisplay.WaitForProcessingAsync();
+            await InterpretAndWaitAsync(clientWithDisplay, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
             _negotiationOutput = null;
 
-            await clientWithDisplay.InterpretByteArrayAsync(new byte[]
+            await InterpretAndWaitAsync(clientWithDisplay, new byte[]
             {
                 (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.XDISPLOC, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE
             });
-            await clientWithDisplay.WaitForProcessingAsync();
 
             // Assert - Check the configured display location was sent
             await Assert.That(_negotiationOutput).IsNotNull();
@@ -190,8 +178,7 @@ public class XDisplayTests : BaseTest
     public async Task ServerRejectsXDisplayWhenClientWont()
     {
         // Act - Client sends WONT XDISPLOC
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.XDISPLOC });
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.XDISPLOC });
 
         // Assert - Server should accept the rejection (no further negotiation)
         // The plugin should log that client won't send X Display Location
@@ -204,8 +191,7 @@ public class XDisplayTests : BaseTest
     public async Task ClientRejectsXDisplayWhenServerDont()
     {
         // Act - Server sends DONT XDISPLOC
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.XDISPLOC });
-        await _client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.XDISPLOC });
 
         // Assert - Client should accept the rejection
         var xdisplayPlugin = _client_ti.PluginManager!.GetPlugin<XDisplayProtocol>();
@@ -216,8 +202,7 @@ public class XDisplayTests : BaseTest
     public async Task DisplayLocationWithColonAndDotIsHandledCorrectly()
     {
         // Arrange
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
 
         // Act - Client sends display location with standard format
         var displayLocation = "192.168.1.100:0.0";
@@ -228,8 +213,7 @@ public class XDisplayTests : BaseTest
         };
         message = [.. message, .. displayBytes, (byte)Trigger.IAC, (byte)Trigger.SE];
 
-        await _server_ti.InterpretByteArrayAsync(message);
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, message);
 
         // Assert
         await Assert.That(_receivedDisplayLocation).IsEqualTo(displayLocation);
@@ -242,15 +226,13 @@ public class XDisplayTests : BaseTest
         var xdisplayPlugin = _client_ti.PluginManager!.GetPlugin<XDisplayProtocol>();
         
         // Act - Client receives DO XDISPLOC
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
-        await _client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
         _negotiationOutput = null;
 
-        await _client_ti.InterpretByteArrayAsync(new byte[]
+        await InterpretAndWaitAsync(_client_ti, new byte[]
         {
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.XDISPLOC, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE
         });
-        await _client_ti.WaitForProcessingAsync();
 
         // Assert - Client should send empty display location (just the protocol bytes)
         await Assert.That(_negotiationOutput).IsNotNull();
@@ -271,8 +253,7 @@ public class XDisplayTests : BaseTest
     public async Task PluginPropertyReturnsCorrectDisplayLocation()
     {
         // Arrange
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
 
         var displayLocation = "test.server:5.0";
         var displayBytes = Encoding.ASCII.GetBytes(displayLocation);
@@ -283,8 +264,7 @@ public class XDisplayTests : BaseTest
         message = [.. message, .. displayBytes, (byte)Trigger.IAC, (byte)Trigger.SE];
 
         // Act
-        await _server_ti.InterpretByteArrayAsync(message);
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, message);
 
         // Assert - Check the plugin property
         var xdisplayPlugin = _server_ti.PluginManager!.GetPlugin<XDisplayProtocol>();
