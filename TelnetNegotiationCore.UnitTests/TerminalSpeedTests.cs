@@ -20,8 +20,6 @@ public class TerminalSpeedTests : BaseTest
     private int _receivedReceiveSpeed;
     private bool _speedReceived;
 
-    private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
     private ValueTask WriteBackToNegotiate(byte[] arg1)
     {
         _negotiationOutput = arg1;
@@ -46,23 +44,21 @@ public class TerminalSpeedTests : BaseTest
         _receivedTransmitSpeed = 0;
         _receivedReceiveSpeed = 0;
 
-        _server_ti = await new TelnetInterpreterBuilder()
+        _server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(WriteBackToNegotiate)
             .AddPlugin<TerminalSpeedProtocol>()
-                .OnTerminalSpeed(HandleTerminalSpeed)
-            .BuildAsync();
+                .OnTerminalSpeed(HandleTerminalSpeed));
 
-        _client_ti = await new TelnetInterpreterBuilder()
+        _client_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(WriteBackToNegotiate)
             .AddPlugin<TerminalSpeedProtocol>()
-                .WithClientTerminalSpeed(38400, 38400)
-            .BuildAsync();
+                .WithClientTerminalSpeed(38400, 38400));
     }
 
     [After(Test)]
@@ -81,8 +77,7 @@ public class TerminalSpeedTests : BaseTest
         _negotiationOutput = null;
 
         // Act - Client receives DO TSPEED from server
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED });
-        await _client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED });
 
         // Assert
         await Assert.That(_negotiationOutput).IsNotNull();
@@ -108,8 +103,7 @@ public class TerminalSpeedTests : BaseTest
         _negotiationOutput = null;
 
         // Act - Client receives DO TSPEED from server and responds
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED });
-        await _client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED });
         await Task.Delay(50);
 
         // Assert - Client should send WILL TSPEED
@@ -124,8 +118,7 @@ public class TerminalSpeedTests : BaseTest
         _negotiationOutput = null;
 
         // Act - Server receives DONT TSPEED from client
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.TSPEED });
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.TSPEED });
 
         // Assert - Server should accept the rejection gracefully (no error thrown)
         await Assert.That(_negotiationOutput).IsNull();
@@ -138,8 +131,7 @@ public class TerminalSpeedTests : BaseTest
         _negotiationOutput = null;
 
         // Act - Client receives WONT TSPEED from server
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.TSPEED });
-        await _client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.TSPEED });
 
         // Assert - Client should accept the rejection gracefully (no error thrown)
         await Assert.That(_negotiationOutput).IsNull();
@@ -150,8 +142,7 @@ public class TerminalSpeedTests : BaseTest
     {
         // Arrange - Complete TSPEED negotiation (server receives WILL)
         _negotiationOutput = null;
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
 
         // Assert - Server should send IAC SB TSPEED SEND IAC SE
         await Assert.That(_negotiationOutput).IsNotNull();
@@ -165,16 +156,14 @@ public class TerminalSpeedTests : BaseTest
     public async Task ClientSendsTerminalSpeedWhenRequested()
     {
         // Arrange - Complete TSPEED negotiation
-        await _client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED });
-        await _client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED });
         _negotiationOutput = null;
 
         // Act - Client receives SEND request
-        await _client_ti.InterpretByteArrayAsync(new byte[] {
+        await InterpretAndWaitAsync(_client_ti, new byte[] {
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.SEND,
             (byte)Trigger.IAC, (byte)Trigger.SE
         });
-        await _client_ti.WaitForProcessingAsync();
 
         // Assert - Client should send IAC SB TSPEED IS "38400,38400" IAC SE
         await Assert.That(_negotiationOutput).IsNotNull();
@@ -194,8 +183,7 @@ public class TerminalSpeedTests : BaseTest
     public async Task ServerReceivesAndParsesTerminalSpeed()
     {
         // Arrange - Complete TSPEED negotiation
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
         _speedReceived = false;
 
         // Act - Server receives terminal speed
@@ -207,8 +195,7 @@ public class TerminalSpeedTests : BaseTest
         .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
         .ToArray();
         
-        await _server_ti.InterpretByteArrayAsync(speedBytes);
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, speedBytes);
 
         // Assert
         await Assert.That(_speedReceived).IsTrue();
@@ -220,8 +207,7 @@ public class TerminalSpeedTests : BaseTest
     public async Task ServerHandlesDifferentTransmitAndReceiveSpeeds()
     {
         // Arrange - Complete TSPEED negotiation
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
         _speedReceived = false;
 
         // Act - Server receives terminal speed with different transmit/receive
@@ -233,8 +219,7 @@ public class TerminalSpeedTests : BaseTest
         .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
         .ToArray();
         
-        await _server_ti.InterpretByteArrayAsync(speedBytes);
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, speedBytes);
 
         // Assert
         await Assert.That(_speedReceived).IsTrue();
@@ -246,25 +231,22 @@ public class TerminalSpeedTests : BaseTest
     public async Task ClientSendsCustomTerminalSpeed()
     {
         // Arrange - Create client with custom speeds
-        var customClient = await new TelnetInterpreterBuilder()
+        var customClient = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(WriteBackToNegotiate)
             .AddPlugin<TerminalSpeedProtocol>()
-                .WithClientTerminalSpeed(115200, 115200)
-            .BuildAsync();
+                .WithClientTerminalSpeed(115200, 115200));
 
-        await customClient.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED });
-        await customClient.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(customClient, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED });
         _negotiationOutput = null;
 
         // Act - Client receives SEND request
-        await customClient.InterpretByteArrayAsync(new byte[] {
+        await InterpretAndWaitAsync(customClient, new byte[] {
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.SEND,
             (byte)Trigger.IAC, (byte)Trigger.SE
         });
-        await customClient.WaitForProcessingAsync();
 
         // Assert - Client should send the custom speed
         await Assert.That(_negotiationOutput).IsNotNull();
@@ -286,19 +268,17 @@ public class TerminalSpeedTests : BaseTest
     public async Task CompleteNegotiationSequence()
     {
         // This test verifies the complete negotiation sequence from start to finish
-        var testServer = await new TelnetInterpreterBuilder()
+        var testServer = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(WriteBackToNegotiate)
             .AddPlugin<TerminalSpeedProtocol>()
-                .OnTerminalSpeed(HandleTerminalSpeed)
-            .BuildAsync();
+                .OnTerminalSpeed(HandleTerminalSpeed));
 
         // Step 1: Server receives WILL TSPEED from client
         _negotiationOutput = null;
-        await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
-        await testServer.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(testServer, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
         
         // Server should request speed
         await Assert.That(_negotiationOutput).IsNotNull();
@@ -317,8 +297,7 @@ public class TerminalSpeedTests : BaseTest
         .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
         .ToArray();
         
-        await testServer.InterpretByteArrayAsync(speedBytes);
-        await testServer.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(testServer, speedBytes);
         
         await Assert.That(_speedReceived).IsTrue();
         await Assert.That(_receivedTransmitSpeed).IsEqualTo(19200);
@@ -331,8 +310,7 @@ public class TerminalSpeedTests : BaseTest
     public async Task PluginExposesTerminalSpeedProperties()
     {
         // Arrange - Complete negotiation and send speed
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
 
         var speedString = "2400,1200";
         var speedBytes = new byte[] {
@@ -342,8 +320,7 @@ public class TerminalSpeedTests : BaseTest
         .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
         .ToArray();
         
-        await _server_ti.InterpretByteArrayAsync(speedBytes);
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, speedBytes);
 
         // Act - Get the plugin and check properties
         var plugin = _server_ti.PluginManager?.GetPlugin<TerminalSpeedProtocol>();
@@ -358,8 +335,7 @@ public class TerminalSpeedTests : BaseTest
     public async Task InvalidSpeedFormatDoesNotCrash()
     {
         // Arrange - Complete TSPEED negotiation
-        await _server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
         _speedReceived = false;
 
         // Act - Server receives invalid speed format
@@ -371,8 +347,7 @@ public class TerminalSpeedTests : BaseTest
         .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
         .ToArray();
         
-        await _server_ti.InterpretByteArrayAsync(speedBytes);
-        await _server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(_server_ti, speedBytes);
 
         // Assert - Should not crash, and callback should not be called
         await Assert.That(_speedReceived).IsFalse();
