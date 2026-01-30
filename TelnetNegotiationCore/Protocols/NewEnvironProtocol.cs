@@ -131,8 +131,8 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
             .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_INFO), CaptureCommandType);
 
         stateMachine.Configure(State.EvaluatingNEWENVIRONVar)
-            .Permit(Trigger.NEWENVIRON_VAR, State.EvaluatingNEWENVIRONVar)
-            .Permit(Trigger.NEWENVIRON_USERVAR, State.EvaluatingNEWENVIRONVar)
+            .PermitReentry(Trigger.NEWENVIRON_VAR)
+            .PermitReentry(Trigger.NEWENVIRON_USERVAR)
             .Permit(Trigger.NEWENVIRON_VALUE, State.EvaluatingNEWENVIRONValue)
             .Permit(Trigger.IAC, State.EscapingNEWENVIRONVar)
             .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_VAR), StartNewVar)
@@ -202,8 +202,8 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
             .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.SEND), CaptureCommandType);
 
         stateMachine.Configure(State.EvaluatingNEWENVIRONVar)
-            .Permit(Trigger.NEWENVIRON_VAR, State.EvaluatingNEWENVIRONVar)
-            .Permit(Trigger.NEWENVIRON_USERVAR, State.EvaluatingNEWENVIRONVar)
+            .PermitReentry(Trigger.NEWENVIRON_VAR)
+            .PermitReentry(Trigger.NEWENVIRON_USERVAR)
             .Permit(Trigger.IAC, State.CompletingNEWENVIRON)
             .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_VAR), StartRequestedVar)
             .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_USERVAR), StartRequestedUserVar);

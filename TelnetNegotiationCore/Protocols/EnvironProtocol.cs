@@ -133,7 +133,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
             .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.IS), CaptureCommandType);
 
         stateMachine.Configure(State.EvaluatingENVIRONVar)
-            .Permit(Trigger.NEWENVIRON_VAR, State.EvaluatingENVIRONVar)
+            .PermitReentry(Trigger.NEWENVIRON_VAR)
             .Permit(Trigger.NEWENVIRON_VALUE, State.EvaluatingENVIRONValue)
             .Permit(Trigger.IAC, State.EscapingENVIRONVar)
             .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_VAR), StartNewVar);
@@ -199,7 +199,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
             .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.SEND), CaptureCommandType);
 
         stateMachine.Configure(State.EvaluatingENVIRONVar)
-            .Permit(Trigger.NEWENVIRON_VAR, State.EvaluatingENVIRONVar)
+            .PermitReentry(Trigger.NEWENVIRON_VAR)
             .Permit(Trigger.IAC, State.CompletingENVIRON)
             .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_VAR), StartRequestedVar);
 
