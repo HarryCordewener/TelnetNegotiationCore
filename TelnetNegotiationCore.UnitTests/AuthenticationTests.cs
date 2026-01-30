@@ -519,11 +519,12 @@ public class AuthenticationTests : BaseTest
         // Assert - Server should have received the auth data
         await Assert.That(receivedAuthData).IsNotNull();
         await Assert.That(receivedAuthData.Length).IsEqualTo(6);
-        await Assert.That(receivedAuthData[0]).IsEqualTo((byte)5); // SRP
-        await Assert.That(receivedAuthData[1]).IsEqualTo((byte)0); // No modifiers
-        await Assert.That(receivedAuthData[2]).IsEqualTo((byte)0x01);
-        await Assert.That(receivedAuthData[3]).IsEqualTo((byte)0x02);
-        await Assert.That(receivedAuthData[4]).IsEqualTo((byte)0x03);
+        await Assert.That(receivedAuthData[0]).IsEqualTo((byte)0); // IS command
+        await Assert.That(receivedAuthData[1]).IsEqualTo((byte)5); // SRP
+        await Assert.That(receivedAuthData[2]).IsEqualTo((byte)0); // No modifiers
+        await Assert.That(receivedAuthData[3]).IsEqualTo((byte)0x01);
+        await Assert.That(receivedAuthData[4]).IsEqualTo((byte)0x02);
+        await Assert.That(receivedAuthData[5]).IsEqualTo((byte)0x03);
         
         await server.DisposeAsync();
     }
