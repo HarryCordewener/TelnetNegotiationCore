@@ -547,6 +547,7 @@ public class EchoTests : BaseTest
         ValueTask CaptureNegotiation(byte[] bytes)
         {
             // Capture echoed bytes (but not negotiation sequences)
+            logger.LogInformation("CAPTURE: Received {Length} bytes: {Bytes}", bytes.Length, string.Join(", ", bytes));
             if (bytes.Length == 1)
             {
                 echoedBytes.Add(bytes[0]);
@@ -564,13 +565,15 @@ public class EchoTests : BaseTest
             .BuildAsync();
 
         // Act - Enable echo
-        await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
+        await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO });
         await testServer.WaitForProcessingAsync();
 
         // Act - Send some test bytes
         byte[] testBytes = new byte[] { (byte)'H', (byte)'e', (byte)'l', (byte)'l', (byte)'o' };
         await testServer.InterpretByteArrayAsync(testBytes);
         await testServer.WaitForProcessingAsync();
+        
+        logger.LogInformation("CAPTURE: Total echoed bytes: {Count}", echoedBytes.Count);
 
         // Assert - Verify that the bytes were echoed back
         await Assert.That(echoedBytes.Count).IsEqualTo(5);
