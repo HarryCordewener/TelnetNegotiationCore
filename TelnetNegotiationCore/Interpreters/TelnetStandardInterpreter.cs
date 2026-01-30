@@ -393,8 +393,10 @@ public partial class TelnetInterpreter
     {
         try
         {
+            int byteCount = 0;
             await foreach (var bt in _byteChannel.Reader.ReadAllAsync(cancellationToken))
             {
+                byteCount++;
                 if (!_isDefinedDictionary.TryGetValue(bt, out var triggerOrByte))
                 {
                     // Use generated IsDefined method instead of reflection
@@ -404,8 +406,13 @@ public partial class TelnetInterpreter
                     _isDefinedDictionary.Add(bt, triggerOrByte);
                 }
 
+                _logger.LogTrace("Processing byte #{ByteNum}: {Byte:X2} (trigger: {Trigger}), current state: {State}", 
+                    byteCount, bt, triggerOrByte, TelnetStateMachine.State);
                 await TelnetStateMachine.FireAsync(ParameterizedTrigger(triggerOrByte), bt);
+                _logger.LogTrace("After byte #{ByteNum}, new state: {State}, buffer position: {BufferPos}", 
+                    byteCount, TelnetStateMachine.State, _bufferPosition);
             }
+            _logger.LogDebug("Byte processing completed. Total bytes processed: {ByteCount}", byteCount);
         }
         catch (OperationCanceledException)
         {
@@ -414,7 +421,7 @@ public partial class TelnetInterpreter
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error in byte processing pipeline");
+            _logger.LogError(ex, "Error in byte processing pipeline at byte position");
         }
     }
 
