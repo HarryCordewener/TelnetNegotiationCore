@@ -103,10 +103,18 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
         stateMachine.Configure(State.DoXDISPLOC)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async () => await WillXDisplayAsync(context));
+        
+        TriggerHelper.ForAllTriggersButIAC(t => 
+            stateMachine.Configure(State.DoXDISPLOC).Permit(t, State.ReadingCharacters));
+        stateMachine.Configure(State.DoXDISPLOC).Permit(Trigger.IAC, State.StartNegotiation);
 
         stateMachine.Configure(State.DontXDISPLOC)
             .SubstateOf(State.Accepting)
             .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to send X Display Location"));
+        
+        TriggerHelper.ForAllTriggersButIAC(t => 
+            stateMachine.Configure(State.DontXDISPLOC).Permit(t, State.ReadingCharacters));
+        stateMachine.Configure(State.DontXDISPLOC).Permit(Trigger.IAC, State.StartNegotiation);
 
         // Handle subnegotiation: IAC SB XDISPLOC SEND IAC SE
         stateMachine.Configure(State.SubNegotiation)
@@ -129,10 +137,18 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
         stateMachine.Configure(State.WillXDISPLOC)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async () => await RequestXDisplayLocationAsync(context));
+        
+        TriggerHelper.ForAllTriggersButIAC(t => 
+            stateMachine.Configure(State.WillXDISPLOC).Permit(t, State.ReadingCharacters));
+        stateMachine.Configure(State.WillXDISPLOC).Permit(Trigger.IAC, State.StartNegotiation);
 
         stateMachine.Configure(State.WontXDISPLOC)
             .SubstateOf(State.Accepting)
             .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't send X Display Location"));
+        
+        TriggerHelper.ForAllTriggersButIAC(t => 
+            stateMachine.Configure(State.WontXDISPLOC).Permit(t, State.ReadingCharacters));
+        stateMachine.Configure(State.WontXDISPLOC).Permit(Trigger.IAC, State.StartNegotiation);
 
         // Handle subnegotiation: IAC SB XDISPLOC IS <display> IAC SE
         stateMachine.Configure(State.SubNegotiation)
