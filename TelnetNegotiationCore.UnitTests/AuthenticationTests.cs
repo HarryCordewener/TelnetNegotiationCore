@@ -24,16 +24,12 @@ public class AuthenticationTests : BaseTest
             return ValueTask.CompletedTask;
         }
         
-        var server = await new TelnetInterpreterBuilder()
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
-            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<AuthenticationProtocol>()
-            .BuildAsync();
-
-        // Act - Server initialization should send DO AUTHENTICATION
-        await Task.Delay(100); // Allow initialization to complete
+            .AddPlugin<AuthenticationProtocol>());
 
         // Assert - Server should send DO AUTHENTICATION
         await Assert.That(negotiationOutput).IsNotNull();
@@ -59,22 +55,20 @@ public class AuthenticationTests : BaseTest
             return ValueTask.CompletedTask;
         }
         
-        var client = await new TelnetInterpreterBuilder()
+        var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
-            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<AuthenticationProtocol>()
-            .BuildAsync();
+            .AddPlugin<AuthenticationProtocol>());
 
         // Act - Client receives DO AUTHENTICATION from server
-        await client.InterpretByteArrayAsync(new byte[] 
+        await InterpretAndWaitAsync(client, new byte[] 
         { 
             (byte)Trigger.IAC, 
             (byte)Trigger.DO, 
             (byte)Trigger.AUTHENTICATION 
         });
-        await client.WaitForProcessingAsync();
 
         // Assert - Client should respond with WILL AUTHENTICATION
         await Assert.That(negotiationOutput).IsNotNull();
@@ -100,22 +94,20 @@ public class AuthenticationTests : BaseTest
             return ValueTask.CompletedTask;
         }
         
-        var server = await new TelnetInterpreterBuilder()
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
-            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<AuthenticationProtocol>()
-            .BuildAsync();
+            .AddPlugin<AuthenticationProtocol>());
 
         // Act - Server receives WILL AUTHENTICATION from client
-        await server.InterpretByteArrayAsync(new byte[] 
+        await InterpretAndWaitAsync(server, new byte[] 
         { 
             (byte)Trigger.IAC, 
             (byte)Trigger.WILL, 
             (byte)Trigger.AUTHENTICATION 
         });
-        await server.WaitForProcessingAsync();
 
         // Assert - Server should send SEND subnegotiation (empty list)
         await Assert.That(negotiationOutput).IsNotNull();
@@ -144,27 +136,25 @@ public class AuthenticationTests : BaseTest
             return ValueTask.CompletedTask;
         }
         
-        var client = await new TelnetInterpreterBuilder()
+        var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
-            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<AuthenticationProtocol>()
-            .BuildAsync();
+            .AddPlugin<AuthenticationProtocol>());
 
         // First establish WILL/DO
-        await client.InterpretByteArrayAsync(new byte[] 
+        await InterpretAndWaitAsync(client, new byte[] 
         { 
             (byte)Trigger.IAC, 
             (byte)Trigger.DO, 
             (byte)Trigger.AUTHENTICATION 
         });
-        await client.WaitForProcessingAsync();
         
         negotiationOutput = null;
 
         // Act - Client receives SEND subnegotiation
-        await client.InterpretByteArrayAsync(new byte[]
+        await InterpretAndWaitAsync(client, new byte[]
         {
             (byte)Trigger.IAC,
             (byte)Trigger.SB,
@@ -173,7 +163,6 @@ public class AuthenticationTests : BaseTest
             (byte)Trigger.IAC,
             (byte)Trigger.SE
         });
-        await client.WaitForProcessingAsync();
 
         // Assert - Client should respond with IS NULL
         await Assert.That(negotiationOutput).IsNotNull();
@@ -199,26 +188,23 @@ public class AuthenticationTests : BaseTest
             return ValueTask.CompletedTask;
         }
         
-        var server = await new TelnetInterpreterBuilder()
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
-            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<AuthenticationProtocol>()
-            .BuildAsync();
+            .AddPlugin<AuthenticationProtocol>());
 
         // Server sends DO AUTHENTICATION on initialization - clear it
-        await server.WaitForProcessingAsync();
         negotiationOutput = null;
 
         // Act - Server receives WONT AUTHENTICATION from client
-        await server.InterpretByteArrayAsync(new byte[] 
+        await InterpretAndWaitAsync(server, new byte[] 
         { 
             (byte)Trigger.IAC, 
             (byte)Trigger.WONT, 
             (byte)Trigger.AUTHENTICATION 
         });
-        await server.WaitForProcessingAsync();
 
         // Assert - Server should accept WONT without additional response
         var isNullOrEmpty = negotiationOutput == null || negotiationOutput.Length == 0;
@@ -239,25 +225,23 @@ public class AuthenticationTests : BaseTest
             return ValueTask.CompletedTask;
         }
         
-        var client = await new TelnetInterpreterBuilder()
+        var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
-            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<AuthenticationProtocol>()
-            .BuildAsync();
+            .AddPlugin<AuthenticationProtocol>());
 
         // Clear any initial negotiation output
         negotiationOutput = null;
 
         // Act - Client receives DONT AUTHENTICATION from server
-        await client.InterpretByteArrayAsync(new byte[] 
+        await InterpretAndWaitAsync(client, new byte[] 
         { 
             (byte)Trigger.IAC, 
             (byte)Trigger.DONT, 
             (byte)Trigger.AUTHENTICATION 
         });
-        await client.WaitForProcessingAsync();
 
         // Assert - Client should accept DONT without additional response
         var isNullOrEmpty = negotiationOutput == null || negotiationOutput.Length == 0;
@@ -285,48 +269,42 @@ public class AuthenticationTests : BaseTest
             return ValueTask.CompletedTask;
         }
         
-        var server = await new TelnetInterpreterBuilder()
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
-            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(CaptureServerNegotiation)
-            .AddPlugin<AuthenticationProtocol>()
-            .BuildAsync();
+            .AddPlugin<AuthenticationProtocol>());
             
-        var client = await new TelnetInterpreterBuilder()
+        var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
-            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(CaptureClientNegotiation)
-            .AddPlugin<AuthenticationProtocol>()
-            .BuildAsync();
+            .AddPlugin<AuthenticationProtocol>());
 
         // Step 1: Server sends DO AUTHENTICATION
-        await server.WaitForProcessingAsync();
         var serverMessage = serverNegOutput;
         await Assert.That(serverMessage).IsNotNull();
         
         serverNegOutput = null;
 
         // Step 2: Client receives DO and responds with WILL
-        await client.InterpretByteArrayAsync(serverMessage);
-        await client.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(client, serverMessage);
         var clientWill = clientNegOutput;
         await Assert.That(clientWill).IsNotNull();
         
         clientNegOutput = null;
 
         // Step 3: Server receives WILL and sends SEND
-        await server.InterpretByteArrayAsync(clientWill);
-        await server.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(server, clientWill);
         var serverSend = serverNegOutput;
         await Assert.That(serverSend).IsNotNull();
         
         serverNegOutput = null;
 
         // Step 4: Client receives SEND and responds with IS NULL
-        await client.InterpretByteArrayAsync(serverSend);
-        await client.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(client, serverSend);
         var clientIsNull = clientNegOutput;
         await Assert.That(clientIsNull).IsNotNull();
 
@@ -354,10 +332,10 @@ public class AuthenticationTests : BaseTest
             return ValueTask.CompletedTask;
         }
         
-        var server = await new TelnetInterpreterBuilder()
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
-            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(CaptureNegotiation)
             .AddPlugin<AuthenticationProtocol>()
                 .WithAuthenticationTypes(() =>
@@ -368,21 +346,18 @@ public class AuthenticationTests : BaseTest
                         (5, 0), // SRP with no modifiers
                         (6, 2)  // RSA with AUTH_HOW_MUTUAL
                     });
-                })
-            .BuildAsync();
+                }));
 
         // Server sends DO AUTHENTICATION on initialization - clear it
-        await server.WaitForProcessingAsync();
         negotiationOutput = null;
 
         // Act - Client sends WILL
-        await server.InterpretByteArrayAsync(new byte[] 
+        await InterpretAndWaitAsync(server, new byte[] 
         { 
             (byte)Trigger.IAC, 
             (byte)Trigger.WILL, 
             (byte)Trigger.AUTHENTICATION 
         });
-        await server.WaitForProcessingAsync();
 
         // Assert - Server should send SEND with auth types
         await Assert.That(authTypesCalled).IsTrue();
@@ -412,32 +387,30 @@ public class AuthenticationTests : BaseTest
             return ValueTask.CompletedTask;
         }
         
-        var client = await new TelnetInterpreterBuilder()
+        var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
-            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(CaptureNegotiation)
             .AddPlugin<AuthenticationProtocol>()
                 .OnAuthenticationRequest((authTypePairs) =>
                 {
                     receivedRequest = authTypePairs;
                     return ValueTask.FromResult((byte[])new byte[] { 5, 0, 0x01, 0x02, 0x03 });
-                })
-            .BuildAsync();
+                }));
 
         // Establish WILL/DO first
-        await client.InterpretByteArrayAsync(new byte[] 
+        await InterpretAndWaitAsync(client, new byte[] 
         { 
             (byte)Trigger.IAC, 
             (byte)Trigger.DO, 
             (byte)Trigger.AUTHENTICATION 
         });
-        await client.WaitForProcessingAsync();
         
         negotiationOutput = null;
 
         // Act - Client receives SEND with auth types
-        await client.InterpretByteArrayAsync(new byte[]
+        await InterpretAndWaitAsync(client, new byte[]
         {
             (byte)Trigger.IAC,
             (byte)Trigger.SB,
@@ -448,7 +421,6 @@ public class AuthenticationTests : BaseTest
             (byte)Trigger.IAC,
             (byte)Trigger.SE
         });
-        await client.WaitForProcessingAsync();
 
         // Assert - Client should send custom IS response
         await Assert.That(receivedRequest).IsNotNull();
@@ -480,30 +452,28 @@ public class AuthenticationTests : BaseTest
             return ValueTask.CompletedTask;
         }
         
-        var server = await new TelnetInterpreterBuilder()
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
-            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
+            .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(CaptureNegotiation)
             .AddPlugin<AuthenticationProtocol>()
                 .OnAuthenticationResponse(async (authData) =>
                 {
                     receivedAuthData = authData;
                     await ValueTask.CompletedTask;
-                })
-            .BuildAsync();
+                }));
 
         // Establish DO/WILL first
-        await server.InterpretByteArrayAsync(new byte[] 
+        await InterpretAndWaitAsync(server, new byte[] 
         { 
             (byte)Trigger.IAC, 
             (byte)Trigger.WILL, 
             (byte)Trigger.AUTHENTICATION 
         });
-        await server.WaitForProcessingAsync();
 
         // Act - Server receives IS with auth data from client
-        await server.InterpretByteArrayAsync(new byte[]
+        await InterpretAndWaitAsync(server, new byte[]
         {
             (byte)Trigger.IAC,
             (byte)Trigger.SB,
@@ -514,7 +484,6 @@ public class AuthenticationTests : BaseTest
             (byte)Trigger.IAC,
             (byte)Trigger.SE
         });
-        await server.WaitForProcessingAsync();
 
         // Assert - Server should have received the auth data
         await Assert.That(receivedAuthData).IsNotNull();
