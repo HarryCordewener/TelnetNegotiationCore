@@ -28,9 +28,9 @@ jobs:
     - name: Build
       run: dotnet build --configuration Release /p:Version=${VERSION} --no-restore
     - name: Test .NET 8.0
-      run: dotnet exec TelnetNegotiationCore.UnitTests/bin/Release/net8.0/TelnetNegotiationCore.UnitTests.dll
+      run: dotnet run --project TelnetNegotiationCore.UnitTests --configuration Release --no-build --framework net8.0
     - name: Test .NET 10.0
-      run: dotnet exec TelnetNegotiationCore.UnitTests/bin/Release/net10.0/TelnetNegotiationCore.UnitTests.dll
+      run: dotnet run --project TelnetNegotiationCore.UnitTests --configuration Release --no-build --framework net10.0
     - name: Push to Github
       run: dotnet nuget push "**/*.nupkg" --skip-duplicate --source https://nuget.pkg.github.com/HarryCordewener/index.json --api-key ${GITHUB_TOKEN}
       env:

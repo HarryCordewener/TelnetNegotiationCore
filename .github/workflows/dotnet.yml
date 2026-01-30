@@ -24,6 +24,6 @@ jobs:
     - name: Build
       run: dotnet build --no-restore
     - name: Test .NET 8.0
-      run: dotnet exec TelnetNegotiationCore.UnitTests/bin/Debug/net8.0/TelnetNegotiationCore.UnitTests.dll
+      run: dotnet run --project TelnetNegotiationCore.UnitTests --configuration Debug --no-build --framework net8.0
     - name: Test .NET 10.0
-      run: dotnet exec TelnetNegotiationCore.UnitTests/bin/Debug/net10.0/TelnetNegotiationCore.UnitTests.dll
+      run: dotnet run --project TelnetNegotiationCore.UnitTests --configuration Debug --no-build --framework net10.0
