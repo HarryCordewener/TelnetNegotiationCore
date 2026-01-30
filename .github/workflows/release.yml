@@ -27,8 +27,8 @@ jobs:
       run: echo "VERSION=${GITHUB_REF/refs\/tags\/v/}" >> $GITHUB_ENV
     - name: Build
       run: dotnet build --configuration Release /p:Version=${VERSION} --no-restore
-    - name: Test
-      run: dotnet test --configuration Release /p:Version=${VERSION} --no-build
+    - name: Test with TUnit
+      run: dotnet run --project TelnetNegotiationCore.UnitTests --configuration Release --no-build
     - name: Push to Github
       run: dotnet nuget push "**/*.nupkg" --skip-duplicate --source https://nuget.pkg.github.com/HarryCordewener/index.json --api-key ${GITHUB_TOKEN}
       env:
