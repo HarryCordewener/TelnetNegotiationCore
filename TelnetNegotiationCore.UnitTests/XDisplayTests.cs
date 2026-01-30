@@ -17,18 +17,10 @@ public class XDisplayTests : BaseTest
     {
         // Arrange - Create local variables
         byte[] negotiationOutput = null;
-        string receivedDisplayLocation = null;
         
         ValueTask CaptureNegotiation(byte[] data)
         {
             negotiationOutput = data;
-            return ValueTask.CompletedTask;
-        }
-        
-        ValueTask OnDisplayLocationReceived(string displayLocation)
-        {
-            receivedDisplayLocation = displayLocation;
-            logger.LogInformation("Received X display location: {DisplayLocation}", displayLocation);
             return ValueTask.CompletedTask;
         }
         
@@ -37,21 +29,13 @@ public class XDisplayTests : BaseTest
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
             .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<XDisplayProtocol>()
-                .OnDisplayLocation(OnDisplayLocationReceived));
+            .AddPlugin<XDisplayProtocol>());
 
         // Arrange - Client announces willingness to send XDISPLOC
         await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
 
         // Assert - Server should send XDISPLOC SEND request
         await Assert.That(negotiationOutput).IsNotNull();
-        
-        // The negotiation output should contain IAC SB XDISPLOC SEND IAC SE
-        var expectedSend = new byte[]
-        {
-            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.XDISPLOC, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE
-        };
-        
         await Assert.That(negotiationOutput).Contains((byte)Trigger.XDISPLOC);
         
         await server_ti.DisposeAsync();
@@ -204,29 +188,12 @@ public class XDisplayTests : BaseTest
     public async Task ServerRejectsXDisplayWhenClientWont()
     {
         // Arrange - Create local variables
-        byte[] negotiationOutput = null;
-        string receivedDisplayLocation = null;
-        
-        ValueTask CaptureNegotiation(byte[] data)
-        {
-            negotiationOutput = data;
-            return ValueTask.CompletedTask;
-        }
-        
-        ValueTask OnDisplayLocationReceived(string displayLocation)
-        {
-            receivedDisplayLocation = displayLocation;
-            logger.LogInformation("Received X display location: {DisplayLocation}", displayLocation);
-            return ValueTask.CompletedTask;
-        }
-        
         var server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
-            .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<XDisplayProtocol>()
-                .OnDisplayLocation(OnDisplayLocationReceived));
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<XDisplayProtocol>());
 
         // Act - Client sends WONT XDISPLOC
         await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.XDISPLOC });
@@ -244,19 +211,11 @@ public class XDisplayTests : BaseTest
     public async Task ClientRejectsXDisplayWhenServerDont()
     {
         // Arrange - Create local variables
-        byte[] negotiationOutput = null;
-        
-        ValueTask CaptureNegotiation(byte[] data)
-        {
-            negotiationOutput = data;
-            return ValueTask.CompletedTask;
-        }
-        
         var client_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
-            .OnNegotiation(CaptureNegotiation)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
             .AddPlugin<XDisplayProtocol>());
 
         // Act - Server sends DONT XDISPLOC
@@ -273,14 +232,7 @@ public class XDisplayTests : BaseTest
     public async Task DisplayLocationWithColonAndDotIsHandledCorrectly()
     {
         // Arrange - Create local variables
-        byte[] negotiationOutput = null;
         string receivedDisplayLocation = null;
-        
-        ValueTask CaptureNegotiation(byte[] data)
-        {
-            negotiationOutput = data;
-            return ValueTask.CompletedTask;
-        }
         
         ValueTask OnDisplayLocationReceived(string displayLocation)
         {
@@ -293,7 +245,7 @@ public class XDisplayTests : BaseTest
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
-            .OnNegotiation(CaptureNegotiation)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
             .AddPlugin<XDisplayProtocol>()
                 .OnDisplayLocation(OnDisplayLocationReceived));
 
@@ -359,29 +311,12 @@ public class XDisplayTests : BaseTest
     public async Task ServerInitiatesNegotiationAutomatically()
     {
         // Arrange - Create local variables
-        byte[] negotiationOutput = null;
-        string receivedDisplayLocation = null;
-        
-        ValueTask CaptureNegotiation(byte[] data)
-        {
-            negotiationOutput = data;
-            return ValueTask.CompletedTask;
-        }
-        
-        ValueTask OnDisplayLocationReceived(string displayLocation)
-        {
-            receivedDisplayLocation = displayLocation;
-            logger.LogInformation("Received X display location: {DisplayLocation}", displayLocation);
-            return ValueTask.CompletedTask;
-        }
-        
         var server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
-            .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<XDisplayProtocol>()
-                .OnDisplayLocation(OnDisplayLocationReceived));
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<XDisplayProtocol>());
 
         // The server should automatically initiate XDISPLOC negotiation on connection
         // This is tested by checking if the plugin registers initial negotiation
@@ -396,14 +331,7 @@ public class XDisplayTests : BaseTest
     public async Task PluginPropertyReturnsCorrectDisplayLocation()
     {
         // Arrange - Create local variables
-        byte[] negotiationOutput = null;
         string receivedDisplayLocation = null;
-        
-        ValueTask CaptureNegotiation(byte[] data)
-        {
-            negotiationOutput = data;
-            return ValueTask.CompletedTask;
-        }
         
         ValueTask OnDisplayLocationReceived(string displayLocation)
         {
@@ -416,7 +344,7 @@ public class XDisplayTests : BaseTest
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
-            .OnNegotiation(CaptureNegotiation)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
             .AddPlugin<XDisplayProtocol>()
                 .OnDisplayLocation(OnDisplayLocationReceived));
 
