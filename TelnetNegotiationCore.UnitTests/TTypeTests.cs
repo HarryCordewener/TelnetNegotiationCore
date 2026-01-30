@@ -52,7 +52,7 @@ public class TTypeTests : BaseTest
 			}
 			else
 			{
-				await Assert.That(negotiationOutput).IsEquivalentTo(serverShouldRespond);
+				await AssertByteArraysEqual(negotiationOutput, serverShouldRespond);
 			}
 		}
 		
@@ -91,7 +91,7 @@ public class TTypeTests : BaseTest
 			}
 			await client_ti.WaitForProcessingAsync();
 			await Task.Delay(50);
-			await Assert.That(negotiationOutput).IsEquivalentTo(clientShouldRespond);
+			await AssertByteArraysEqual(negotiationOutput, clientShouldRespond);
 		}
 		
 		await client_ti.DisposeAsync();

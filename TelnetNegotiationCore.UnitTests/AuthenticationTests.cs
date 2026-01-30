@@ -33,7 +33,7 @@ public class AuthenticationTests : BaseTest
 
         // Assert - Server should send DO AUTHENTICATION
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] 
+        await AssertByteArraysEqual(negotiationOutput, new byte[] 
         { 
             (byte)Trigger.IAC, 
             (byte)Trigger.DO, 
@@ -72,7 +72,7 @@ public class AuthenticationTests : BaseTest
 
         // Assert - Client should respond with WILL AUTHENTICATION
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] 
+        await AssertByteArraysEqual(negotiationOutput, new byte[] 
         { 
             (byte)Trigger.IAC, 
             (byte)Trigger.WILL, 
@@ -111,7 +111,7 @@ public class AuthenticationTests : BaseTest
 
         // Assert - Server should send SEND subnegotiation (empty list)
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[]
+        await AssertByteArraysEqual(negotiationOutput, new byte[]
         {
             (byte)Trigger.IAC,
             (byte)Trigger.SB,

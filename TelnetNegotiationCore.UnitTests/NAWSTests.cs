@@ -503,7 +503,7 @@ public class NAWSTests : BaseTest
 
 		// Assert - Server should send WONT NAWS
 		await Assert.That(negotiationOutput).IsNotNull();
-		await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
+		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
 
 		await server.DisposeAsync();
 	}

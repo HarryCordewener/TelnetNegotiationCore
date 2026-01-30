@@ -50,7 +50,7 @@ namespace TelnetNegotiationCore.UnitTests
 				await server_ti.WaitForProcessingAsync();
 
 				await Assert.That(server_ti.CurrentEncoding).IsEqualTo(shouldHaveCurrentEncoding);
-				await Assert.That(negotiationOutput).IsEquivalentTo(serverShouldRespond);
+				await AssertByteArraysEqual(negotiationOutput, serverShouldRespond);
 			}
 			
 			await server_ti.DisposeAsync();
@@ -91,7 +91,7 @@ namespace TelnetNegotiationCore.UnitTests
 				}
 				await client_ti.WaitForProcessingAsync();
 				await Assert.That(client_ti.CurrentEncoding).IsEqualTo(shouldHaveCurrentEncoding);
-				await Assert.That(negotiationOutput).IsEquivalentTo(clientShouldRespond);
+				await AssertByteArraysEqual(negotiationOutput, clientShouldRespond);
 			}
 			await client_ti.DisposeAsync();
 		}
@@ -319,7 +319,7 @@ namespace TelnetNegotiationCore.UnitTests
 			// Verify the data was received correctly (IAC unescaped)
 			await Assert.That(receivedData.Count).IsGreaterThan(0);
 			var received = receivedData.Last();
-			await Assert.That(received.data).IsEquivalentTo(binaryData);
+			await AssertByteArraysEqual(received.data, binaryData);
 
 			await server.DisposeAsync();
 		}
@@ -652,7 +652,7 @@ namespace TelnetNegotiationCore.UnitTests
 				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_ACK, 
 				(byte)Trigger.IAC, (byte)Trigger.SE 
 			};
-			await Assert.That(negotiationOutput).IsEquivalentTo(expected);
+			await AssertByteArraysEqual(negotiationOutput, expected);
 
 			await server_ti.DisposeAsync();
 		}
@@ -702,7 +702,7 @@ namespace TelnetNegotiationCore.UnitTests
 				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, 
 				(byte)Trigger.IAC, (byte)Trigger.SE 
 			};
-			await Assert.That(negotiationOutput).IsEquivalentTo(expected);
+			await AssertByteArraysEqual(negotiationOutput, expected);
 
 			await server_ti.DisposeAsync();
 		}
@@ -762,7 +762,7 @@ namespace TelnetNegotiationCore.UnitTests
 				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_NAK, 
 				(byte)Trigger.IAC, (byte)Trigger.SE 
 			};
-			await Assert.That(negotiationOutput).IsEquivalentTo(expected);
+			await AssertByteArraysEqual(negotiationOutput, expected);
 
 			await server_ti.DisposeAsync();
 		}
@@ -806,8 +806,8 @@ namespace TelnetNegotiationCore.UnitTests
 			};
 			var expectedSuffix = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };
 			
-			await Assert.That(negotiationOutput.Take(4)).IsEquivalentTo(expectedPrefix);
-			await Assert.That(negotiationOutput.Skip(negotiationOutput.Length - 2)).IsEquivalentTo(expectedSuffix);
+			await AssertByteArraysEqual(negotiationOutput.Take(4).ToArray(), expectedPrefix);
+			await AssertByteArraysEqual(negotiationOutput.Skip(negotiationOutput.Length - 2).ToArray(), expectedSuffix);
 
 			await server_ti.DisposeAsync();
 		}
@@ -857,7 +857,7 @@ namespace TelnetNegotiationCore.UnitTests
 				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, 
 				(byte)Trigger.IAC, (byte)Trigger.SE 
 			};
-			await Assert.That(negotiationOutput).IsEquivalentTo(expected);
+			await AssertByteArraysEqual(negotiationOutput, expected);
 
 			await server_ti.DisposeAsync();
 		}

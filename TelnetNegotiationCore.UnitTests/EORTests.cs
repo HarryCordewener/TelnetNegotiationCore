@@ -43,7 +43,7 @@ public class EORTests : BaseTest
 
 		// Assert
 		await Assert.That(negotiationOutput).IsNotNull();
-		await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
+		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
 
 		// Dispose
 		await client_ti.DisposeAsync();
@@ -113,7 +113,7 @@ public class EORTests : BaseTest
 
 		// Assert - Client should send DO EOR
 		await Assert.That(negotiationOutput).IsNotNull();
-		await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
+		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
 
 		// Dispose
 		await client_ti.DisposeAsync();
@@ -355,7 +355,7 @@ public class EORTests : BaseTest
 		await InterpretAndWaitAsync(testClient, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR });
 		
 		await Assert.That(negotiationOutput).IsNotNull();
-		await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
+		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR });
 
 		// Step 2: Client receives EOR prompt
 		promptReceived = false;

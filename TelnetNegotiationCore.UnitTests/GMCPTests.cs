@@ -82,7 +82,7 @@ public class GMCPTests : BaseTest
 		expectedBytes.Add((byte)Trigger.IAC);
 		expectedBytes.Add((byte)Trigger.SE);
 
-		await Assert.That(negotiationOutput).IsEquivalentTo(expectedBytes);
+		await AssertByteArraysEqual(negotiationOutput, expectedBytes.ToArray());
 
 		await server_ti.DisposeAsync();
 	}
@@ -155,7 +155,7 @@ public class GMCPTests : BaseTest
 		expectedBytes.Add((byte)Trigger.IAC);
 		expectedBytes.Add((byte)Trigger.SE);
 
-		await Assert.That(negotiationOutput).IsEquivalentTo(expectedBytes);
+		await AssertByteArraysEqual(negotiationOutput, expectedBytes.ToArray());
 
 		await client_ti.DisposeAsync();
 	}
@@ -445,7 +445,7 @@ public class GMCPTests : BaseTest
 
 		// Assert
 		await Assert.That(negotiationOutput).IsNotNull();
-		await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP });
+		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP });
 
 		await client_ti.DisposeAsync();
 	}

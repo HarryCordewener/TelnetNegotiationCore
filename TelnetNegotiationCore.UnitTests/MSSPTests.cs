@@ -58,7 +58,7 @@ public class MSSPTests : BaseTest
 
 		// Assert
 		await Assert.That(negotiationOutput).IsNotNull();
-		await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
+		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
 
 		await client_ti.DisposeAsync();
 	}

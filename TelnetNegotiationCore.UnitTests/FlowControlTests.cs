@@ -49,7 +49,7 @@ public class FlowControlTests : BaseTest
 
         // Assert - Client should respond with WILL FLOWCONTROL
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.FLOWCONTROL });
+        await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.FLOWCONTROL });
         
         // Flow control should be enabled per RFC 1372
         await Assert.That(flowControlStateChanged).IsNotNull();
@@ -458,7 +458,7 @@ public class FlowControlTests : BaseTest
 
         // Assert - Server should send ON command
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] {
+        await AssertByteArraysEqual(negotiationOutput, new byte[] {
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.FLOWCONTROL,
             (byte)Trigger.FLOWCONTROL_ON,
             (byte)Trigger.IAC, (byte)Trigger.SE
@@ -507,7 +507,7 @@ public class FlowControlTests : BaseTest
 
         // Assert - Server should send OFF command
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] {
+        await AssertByteArraysEqual(negotiationOutput, new byte[] {
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.FLOWCONTROL,
             (byte)Trigger.FLOWCONTROL_OFF,
             (byte)Trigger.IAC, (byte)Trigger.SE
@@ -556,7 +556,7 @@ public class FlowControlTests : BaseTest
 
         // Assert - Server should send RESTART-ANY command
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] {
+        await AssertByteArraysEqual(negotiationOutput, new byte[] {
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.FLOWCONTROL,
             (byte)Trigger.FLOWCONTROL_RESTART_ANY,
             (byte)Trigger.IAC, (byte)Trigger.SE
@@ -605,7 +605,7 @@ public class FlowControlTests : BaseTest
 
         // Assert - Server should send RESTART-XON command
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] {
+        await AssertByteArraysEqual(negotiationOutput, new byte[] {
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.FLOWCONTROL,
             (byte)Trigger.FLOWCONTROL_RESTART_XON,
             (byte)Trigger.IAC, (byte)Trigger.SE
@@ -676,7 +676,7 @@ public class FlowControlTests : BaseTest
         await testClient.WaitForProcessingAsync();
         
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.FLOWCONTROL });
+        await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.FLOWCONTROL });
         await Assert.That(flowControlStateChanged).IsNotNull();
         await Assert.That(flowControlStateChanged.Value).IsTrue();
 

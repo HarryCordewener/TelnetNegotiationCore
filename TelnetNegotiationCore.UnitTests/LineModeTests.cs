@@ -40,7 +40,7 @@ public class LineModeTests : BaseTest
 
         // Assert - Client should respond with WILL LINEMODE
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.LINEMODE });
+        await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.LINEMODE });
         
         // Line mode should be enabled
         var plugin = client_ti.PluginManager.GetPlugin<LineModeProtocol>();
@@ -205,7 +205,7 @@ public class LineModeTests : BaseTest
 
         // Assert - Client should acknowledge the mode
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] 
+        await AssertByteArraysEqual(negotiationOutput, new byte[] 
         { 
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.LINEMODE,
             (byte)Trigger.LINEMODE_MODE, 0x05, // EDIT | MODE_ACK
@@ -275,7 +275,7 @@ public class LineModeTests : BaseTest
 
         // Assert - Client should acknowledge the mode
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] 
+        await AssertByteArraysEqual(negotiationOutput, new byte[] 
         { 
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.LINEMODE,
             (byte)Trigger.LINEMODE_MODE, 0x07, // EDIT | TRAPSIG | MODE_ACK
@@ -378,7 +378,7 @@ public class LineModeTests : BaseTest
 
         // Assert - Server should send MODE command
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] 
+        await AssertByteArraysEqual(negotiationOutput, new byte[] 
         { 
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.LINEMODE,
             (byte)Trigger.LINEMODE_MODE, 0x01, // EDIT
@@ -425,7 +425,7 @@ public class LineModeTests : BaseTest
 
         // Assert - Server should send MODE command with all flags
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] 
+        await AssertByteArraysEqual(negotiationOutput, new byte[] 
         { 
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.LINEMODE,
             (byte)Trigger.LINEMODE_MODE, 0x1B,

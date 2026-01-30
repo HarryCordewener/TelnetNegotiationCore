@@ -81,7 +81,7 @@ public class TerminalSpeedTests : BaseTest
 
         // Assert
         await Assert.That(_negotiationOutput).IsNotNull();
-        await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
+        await AssertByteArraysEqual(_negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
     }
 
     [Test]
@@ -108,7 +108,7 @@ public class TerminalSpeedTests : BaseTest
 
         // Assert - Client should send WILL TSPEED
         await Assert.That(_negotiationOutput).IsNotNull();
-        await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
+        await AssertByteArraysEqual(_negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
     }
 
     [Test]
@@ -146,7 +146,7 @@ public class TerminalSpeedTests : BaseTest
 
         // Assert - Server should send IAC SB TSPEED SEND IAC SE
         await Assert.That(_negotiationOutput).IsNotNull();
-        await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] {
+        await AssertByteArraysEqual(_negotiationOutput, new byte[] {
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.SEND,
             (byte)Trigger.IAC, (byte)Trigger.SE
         });
@@ -176,7 +176,7 @@ public class TerminalSpeedTests : BaseTest
         .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
         .ToArray();
         
-        await Assert.That(_negotiationOutput).IsEquivalentTo(expectedBytes);
+        await AssertByteArraysEqual(_negotiationOutput, expectedBytes);
     }
 
     [Test]
@@ -259,7 +259,7 @@ public class TerminalSpeedTests : BaseTest
         .Concat(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE })
         .ToArray();
         
-        await Assert.That(_negotiationOutput).IsEquivalentTo(expectedBytes);
+        await AssertByteArraysEqual(_negotiationOutput, expectedBytes);
 
         await customClient.DisposeAsync();
     }
@@ -282,7 +282,7 @@ public class TerminalSpeedTests : BaseTest
         
         // Server should request speed
         await Assert.That(_negotiationOutput).IsNotNull();
-        await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] {
+        await AssertByteArraysEqual(_negotiationOutput, new byte[] {
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.SEND,
             (byte)Trigger.IAC, (byte)Trigger.SE
         });

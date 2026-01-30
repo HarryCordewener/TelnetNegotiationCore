@@ -45,7 +45,7 @@ public class EchoTests : BaseTest
 
         // Assert - Client should respond with DO ECHO
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
+        await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
         
         // Echo state should be enabled on client
         await Assert.That(echoStateChanged).IsNotNull();
@@ -132,7 +132,7 @@ public class EchoTests : BaseTest
 
         // Assert - Client should send DO ECHO
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
+        await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
         
         // Echo state callback should be invoked
         await Assert.That(echoStateChanged).IsNotNull();
@@ -260,7 +260,7 @@ public class EchoTests : BaseTest
         
         // Assert
         await Assert.That(negotiationOutput).IsNotNull();
-        await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
+        await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
         await Assert.That(echoStateChanged).IsNotNull();
         await Assert.That(echoStateChanged.Value).IsTrue();
 
@@ -344,7 +344,7 @@ public class EchoTests : BaseTest
         // Assert - Client should respond with DO
         await Assert.That(negotiationOutput).IsNotNull();
         var expectedResponse = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO };
-        await Assert.That(negotiationOutput).IsEquivalentTo(expectedResponse);
+        await AssertByteArraysEqual(negotiationOutput, expectedResponse);
         await Assert.That(echoStateChanged).IsNotNull();
         await Assert.That(echoStateChanged.Value).IsTrue();
         

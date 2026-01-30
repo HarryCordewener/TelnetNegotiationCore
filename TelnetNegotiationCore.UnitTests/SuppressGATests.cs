@@ -38,7 +38,7 @@ public class SuppressGATests : BaseTest
 
 		// Assert
 		await Assert.That(negotiationOutput).IsNotNull();
-		await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
+		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
 
 		// Cleanup
 		await client_ti.DisposeAsync();
@@ -100,7 +100,7 @@ public class SuppressGATests : BaseTest
 
 		// Assert - Client should send DO SUPPRESSGOAHEAD
 		await Assert.That(negotiationOutput).IsNotNull();
-		await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
+		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
 
 		// Cleanup
 		await client_ti.DisposeAsync();
@@ -190,7 +190,7 @@ public class SuppressGATests : BaseTest
 		await InterpretAndWaitAsync(testClient, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
 		
 		await Assert.That(negotiationOutput).IsNotNull();
-		await Assert.That(negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
+		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
 
 		// Cleanup
 		await testClient.DisposeAsync();
@@ -254,7 +254,7 @@ public class SuppressGATests : BaseTest
 		// Assert - Client should respond with DO
 		await Assert.That(negotiationOutput).IsNotNull();
 		var expectedResponse = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD };
-		await Assert.That(negotiationOutput).IsEquivalentTo(expectedResponse);
+		await AssertByteArraysEqual(negotiationOutput, expectedResponse);
 
 		// Cleanup
 		await client_ti.DisposeAsync();

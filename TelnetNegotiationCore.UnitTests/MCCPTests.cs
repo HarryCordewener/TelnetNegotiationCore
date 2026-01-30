@@ -87,7 +87,7 @@ public class MCCPTests : BaseTest
 
 		// Assert - Client should send DO MCCP2
 		await Assert.That(_negotiationOutput).IsNotNull();
-		await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
+		await AssertByteArraysEqual(_negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
 	}
 
 	[Test]
@@ -102,7 +102,7 @@ public class MCCPTests : BaseTest
 
 		// Assert - Server should send IAC SB MCCP2 IAC SE
 		await Assert.That(_negotiationOutput).IsNotNull();
-		await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { 
+		await AssertByteArraysEqual(_negotiationOutput, new byte[] { 
 			(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP2, (byte)Trigger.IAC, (byte)Trigger.SE 
 		});
 	}
@@ -182,7 +182,7 @@ public class MCCPTests : BaseTest
 		// Assert - Client should send DO MCCP3 and IAC SB MCCP3 IAC SE
 		await Assert.That(_negotiationOutput).IsNotNull();
 		// First response should be DO MCCP3
-		await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP3 });
+		await AssertByteArraysEqual(_negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP3 });
 	}
 
 	[Test]
@@ -247,7 +247,7 @@ public class MCCPTests : BaseTest
 		await InterpretAndWaitAsync(_client_ti, willMccp2);
 		
 		await Assert.That(_negotiationOutput).IsNotNull();
-		await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
+		await AssertByteArraysEqual(_negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
 
 		// Step 2: Server receives DO MCCP2 and responds with sub-negotiation
 		_negotiationOutput = null;
@@ -255,7 +255,7 @@ public class MCCPTests : BaseTest
 		await InterpretAndWaitAsync(_server_ti, doMccp2);
 		
 		await Assert.That(_negotiationOutput).IsNotNull();
-		await Assert.That(_negotiationOutput).IsEquivalentTo(new byte[] { 
+		await AssertByteArraysEqual(_negotiationOutput, new byte[] { 
 			(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP2, (byte)Trigger.IAC, (byte)Trigger.SE 
 		});
 
