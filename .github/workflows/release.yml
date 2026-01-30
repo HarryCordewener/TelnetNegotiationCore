@@ -5,9 +5,30 @@ on:
     tags:
     - "v[0-9]+.[0-9]+.[0-9]+"
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        dotnet-version: ['8.0.x', '10.0.x']
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ matrix.dotnet-version }}
+    - name: Restore dependencies
+      run: dotnet restore
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+    - name: Test with TUnit (.NET ${{ matrix.dotnet-version }})
+      run: dotnet run --project TelnetNegotiationCore.UnitTests --configuration Release --no-build --framework net${{ matrix.dotnet-version == '8.0.x' && '8.0' || '10.0' }}
+  
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: test
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -27,8 +48,6 @@ jobs:
       run: echo "VERSION=${GITHUB_REF/refs\/tags\/v/}" >> $GITHUB_ENV
     - name: Build
       run: dotnet build --configuration Release /p:Version=${VERSION} --no-restore
-    - name: Test with TUnit
-      run: dotnet run --project TelnetNegotiationCore.UnitTests --configuration Release --no-build
     - name: Push to Github
       run: dotnet nuget push "**/*.nupkg" --skip-duplicate --source https://nuget.pkg.github.com/HarryCordewener/index.json --api-key ${GITHUB_TOKEN}
       env:
