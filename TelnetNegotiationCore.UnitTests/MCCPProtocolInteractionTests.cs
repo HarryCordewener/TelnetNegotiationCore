@@ -25,8 +25,6 @@ public class MCCPProtocolInteractionTests : BaseTest
 		int nawsWidth = 0;
 		bool mccpEnabled = false;
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		ValueTask CaptureNegotiation(byte[] data)
 		{
 			negotiationOutput = data;
@@ -48,42 +46,36 @@ public class MCCPProtocolInteractionTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		var server_ti = await new TelnetInterpreterBuilder()
+		var server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Server)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
 			.AddPlugin<NAWSProtocol>()
 				.OnNAWS(CaptureNAWS)
 			.AddPlugin<CharsetProtocol>()
 				.WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
 			.AddPlugin<MCCPProtocol>()
-				.OnCompressionEnabled(CaptureMCCPStateChanged)
-			.BuildAsync();
-		await Task.Delay(100);
+				.OnCompressionEnabled(CaptureMCCPStateChanged));
 
-		var client_ti = await new TelnetInterpreterBuilder()
+		var client_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
 			.AddPlugin<NAWSProtocol>()
 				.OnNAWS(CaptureNAWS)
 			.AddPlugin<CharsetProtocol>()
 				.WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
 			.AddPlugin<MCCPProtocol>()
-				.OnCompressionEnabled(CaptureMCCPStateChanged)
-			.BuildAsync();
-		await Task.Delay(100);
+				.OnCompressionEnabled(CaptureMCCPStateChanged));
 
 		// Arrange - MCCP is configured
 		// Server sends WILL MCCP2
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 });
 
 		// Client accepts MCCP2
-		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
 		await Task.Delay(50);
 
 		// Act - Now negotiate NAWS
@@ -91,8 +83,7 @@ public class MCCPProtocolInteractionTests : BaseTest
 		nawsWidth = 0;
 
 		// Server requests NAWS
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
 
 		// Client sends NAWS sub-negotiation with width=100, height=40
 		byte[] nawsData = new byte[] 
@@ -102,8 +93,7 @@ public class MCCPProtocolInteractionTests : BaseTest
 			0x00, 0x28, // height 40
 			(byte)Trigger.IAC, (byte)Trigger.SE
 		};
-		await server_ti.InterpretByteArrayAsync(nawsData);
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(server_ti, nawsData);
 		await Task.Delay(50);
 
 		// Assert - NAWS should work correctly even with MCCP enabled
@@ -124,8 +114,6 @@ public class MCCPProtocolInteractionTests : BaseTest
 		int nawsWidth = 0;
 		bool mccpEnabled = false;
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		ValueTask CaptureNegotiation(byte[] data)
 		{
 			negotiationOutput = data;
@@ -147,48 +135,41 @@ public class MCCPProtocolInteractionTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		var server_ti = await new TelnetInterpreterBuilder()
+		var server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Server)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
 			.AddPlugin<NAWSProtocol>()
 				.OnNAWS(CaptureNAWS)
 			.AddPlugin<CharsetProtocol>()
 				.WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
 			.AddPlugin<MCCPProtocol>()
-				.OnCompressionEnabled(CaptureMCCPStateChanged)
-			.BuildAsync();
-		await Task.Delay(100);
+				.OnCompressionEnabled(CaptureMCCPStateChanged));
 
-		var client_ti = await new TelnetInterpreterBuilder()
+		var client_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
 			.AddPlugin<NAWSProtocol>()
 				.OnNAWS(CaptureNAWS)
 			.AddPlugin<CharsetProtocol>()
 				.WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
 			.AddPlugin<MCCPProtocol>()
-				.OnCompressionEnabled(CaptureMCCPStateChanged)
-			.BuildAsync();
-		await Task.Delay(100);
+				.OnCompressionEnabled(CaptureMCCPStateChanged));
 
 		// Arrange - MCCP is configured
 		// Server sends WILL MCCP2
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 });
 
 		// Client accepts MCCP2
-		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
 		await Task.Delay(50);
 
 		// Act - Now negotiate Charset
 		// Server sends WILL CHARSET
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
 		await Task.Delay(50);
 
 		// Assert - Charset negotiation should proceed normally
@@ -209,8 +190,6 @@ public class MCCPProtocolInteractionTests : BaseTest
 		int nawsWidth = 0;
 		bool mccpEnabled = false;
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		ValueTask CaptureNegotiation(byte[] data)
 		{
 			negotiationOutput = data;
@@ -232,40 +211,35 @@ public class MCCPProtocolInteractionTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		var server_ti = await new TelnetInterpreterBuilder()
+		var server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Server)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
 			.AddPlugin<NAWSProtocol>()
 				.OnNAWS(CaptureNAWS)
 			.AddPlugin<CharsetProtocol>()
 				.WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
 			.AddPlugin<MCCPProtocol>()
-				.OnCompressionEnabled(CaptureMCCPStateChanged)
-			.BuildAsync();
-		await Task.Delay(100);
+				.OnCompressionEnabled(CaptureMCCPStateChanged));
 
-		var client_ti = await new TelnetInterpreterBuilder()
+		var client_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
 			.AddPlugin<NAWSProtocol>()
 				.OnNAWS(CaptureNAWS)
 			.AddPlugin<CharsetProtocol>()
 				.WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
 			.AddPlugin<MCCPProtocol>()
-				.OnCompressionEnabled(CaptureMCCPStateChanged)
-			.BuildAsync();
-		await Task.Delay(100);
+				.OnCompressionEnabled(CaptureMCCPStateChanged));
 
 		// This test verifies that MCCP, NAWS, and Charset can all be negotiated
 		// in the same session without conflicts
 
 		// Step 1: Negotiate NAWS
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
 
 		byte[] nawsData = new byte[] 
 		{
@@ -274,20 +248,16 @@ public class MCCPProtocolInteractionTests : BaseTest
 			0x00, 0x18, // height 24
 			(byte)Trigger.IAC, (byte)Trigger.SE
 		};
-		await server_ti.InterpretByteArrayAsync(nawsData);
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(server_ti, nawsData);
 		await Task.Delay(50);
 
 		// Step 2: Negotiate MCCP2
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 });
-		await client_ti.WaitForProcessingAsync();
-		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 });
+		await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
 		await Task.Delay(50);
 
 		// Step 3: Negotiate Charset
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
 		await Task.Delay(50);
 
 		// Assert - All protocols should be active
@@ -317,8 +287,6 @@ public class MCCPProtocolInteractionTests : BaseTest
 		int nawsWidth = 0;
 		bool mccpEnabled = false;
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		ValueTask CaptureNegotiation(byte[] data)
 		{
 			negotiationOutput = data;
@@ -340,19 +308,17 @@ public class MCCPProtocolInteractionTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		var server_ti = await new TelnetInterpreterBuilder()
+		var server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Server)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
 			.AddPlugin<NAWSProtocol>()
 				.OnNAWS(CaptureNAWS)
 			.AddPlugin<CharsetProtocol>()
 				.WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
 			.AddPlugin<MCCPProtocol>()
-				.OnCompressionEnabled(CaptureMCCPStateChanged)
-			.BuildAsync();
-		await Task.Delay(100);
+				.OnCompressionEnabled(CaptureMCCPStateChanged));
 
 		// Verify MCCP has no dependencies on Charset or NAWS
 		var mccpPlugin = server_ti.PluginManager?.GetPlugin<MCCPProtocol>();
@@ -374,8 +340,6 @@ public class MCCPProtocolInteractionTests : BaseTest
 		int nawsWidth = 0;
 		bool mccpEnabled = false;
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		ValueTask CaptureNegotiation(byte[] data)
 		{
 			negotiationOutput = data;
@@ -397,19 +361,17 @@ public class MCCPProtocolInteractionTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		var server_ti = await new TelnetInterpreterBuilder()
+		var server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Server)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
 			.AddPlugin<NAWSProtocol>()
 				.OnNAWS(CaptureNAWS)
 			.AddPlugin<CharsetProtocol>()
 				.WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
 			.AddPlugin<MCCPProtocol>()
-				.OnCompressionEnabled(CaptureMCCPStateChanged)
-			.BuildAsync();
-		await Task.Delay(100);
+				.OnCompressionEnabled(CaptureMCCPStateChanged));
 
 		// Verify Charset and NAWS have no dependencies on MCCP
 		var nawsPlugin = server_ti.PluginManager?.GetPlugin<NAWSProtocol>();
@@ -436,8 +398,6 @@ public class MCCPProtocolInteractionTests : BaseTest
 		int nawsWidth = 0;
 		bool mccpEnabled = false;
 
-		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
 		ValueTask CaptureNegotiation(byte[] data)
 		{
 			negotiationOutput = data;
@@ -459,52 +419,44 @@ public class MCCPProtocolInteractionTests : BaseTest
 			return ValueTask.CompletedTask;
 		}
 
-		var server_ti = await new TelnetInterpreterBuilder()
+		var server_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Server)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
 			.AddPlugin<NAWSProtocol>()
 				.OnNAWS(CaptureNAWS)
 			.AddPlugin<CharsetProtocol>()
 				.WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
 			.AddPlugin<MCCPProtocol>()
-				.OnCompressionEnabled(CaptureMCCPStateChanged)
-			.BuildAsync();
-		await Task.Delay(100);
+				.OnCompressionEnabled(CaptureMCCPStateChanged));
 
-		var client_ti = await new TelnetInterpreterBuilder()
+		var client_ti = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
+			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(CaptureNegotiation)
 			.AddPlugin<NAWSProtocol>()
 				.OnNAWS(CaptureNAWS)
 			.AddPlugin<CharsetProtocol>()
 				.WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
 			.AddPlugin<MCCPProtocol>()
-				.OnCompressionEnabled(CaptureMCCPStateChanged)
-			.BuildAsync();
-		await Task.Delay(100);
+				.OnCompressionEnabled(CaptureMCCPStateChanged));
 
 		// Test that protocols can be negotiated in different orders
 		// Order: Charset -> MCCP -> NAWS
 
 		// Step 1: Charset
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
 		await Task.Delay(50);
 
 		// Step 2: MCCP
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 });
-		await client_ti.WaitForProcessingAsync();
-		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 });
+		await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
 		await Task.Delay(50);
 
 		// Step 3: NAWS
-		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
-		await client_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
 
 		byte[] nawsData = new byte[] 
 		{
@@ -513,8 +465,7 @@ public class MCCPProtocolInteractionTests : BaseTest
 			0x00, 0x32, // height 50
 			(byte)Trigger.IAC, (byte)Trigger.SE
 		};
-		await server_ti.InterpretByteArrayAsync(nawsData);
-		await server_ti.WaitForProcessingAsync();
+		await InterpretAndWaitAsync(server_ti, nawsData);
 		await Task.Delay(50);
 
 		// Assert - All should work regardless of order
