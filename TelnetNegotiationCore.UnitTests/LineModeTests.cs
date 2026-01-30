@@ -19,8 +19,6 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
         ValueTask CaptureNegotiation(byte[] data)
         {
             negotiationOutput = data;
@@ -28,19 +26,17 @@ public class LineModeTests : BaseTest
         }
 
         // Arrange - Build TelnetInterpreter instances
-        var client_ti = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Client)
-            .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<LineModeProtocol>()
-            .BuildAsync();
-
-        await Task.Delay(100);
+        var client_ti = await BuildAndWaitAsync(
+            new TelnetInterpreterBuilder()
+                .UseMode(TelnetInterpreter.TelnetMode.Client)
+                .UseLogger(logger)
+                .OnSubmit(NoOpSubmitCallback)
+                .OnNegotiation(CaptureNegotiation)
+                .AddPlugin<LineModeProtocol>()
+        );
 
         // Act - Client receives DO LINEMODE from server
-        await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.LINEMODE });
-        await client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.LINEMODE });
 
         // Assert - Client should respond with WILL LINEMODE
         await Assert.That(negotiationOutput).IsNotNull();
@@ -61,8 +57,6 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
         ValueTask CaptureNegotiation(byte[] data)
         {
             negotiationOutput = data;
@@ -70,20 +64,18 @@ public class LineModeTests : BaseTest
         }
 
         // Arrange - Build TelnetInterpreter instances
-        var server_ti = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Server)
-            .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<LineModeProtocol>()
-            .BuildAsync();
-
-        await Task.Delay(100);
+        var server_ti = await BuildAndWaitAsync(
+            new TelnetInterpreterBuilder()
+                .UseMode(TelnetInterpreter.TelnetMode.Server)
+                .UseLogger(logger)
+                .OnSubmit(NoOpSubmitCallback)
+                .OnNegotiation(CaptureNegotiation)
+                .AddPlugin<LineModeProtocol>()
+        );
         negotiationOutput = null;
 
         // Act - Server receives WILL LINEMODE from client
-        await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.LINEMODE });
-        await server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.LINEMODE });
 
         // Assert - Server should accept without additional response
         await Assert.That(negotiationOutput).IsNull();
@@ -99,8 +91,6 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
         ValueTask CaptureNegotiation(byte[] data)
         {
             negotiationOutput = data;
@@ -108,19 +98,17 @@ public class LineModeTests : BaseTest
         }
 
         // Arrange - Build TelnetInterpreter instances
-        var client_ti = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Client)
-            .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<LineModeProtocol>()
-            .BuildAsync();
-
-        await Task.Delay(100);
+        var client_ti = await BuildAndWaitAsync(
+            new TelnetInterpreterBuilder()
+                .UseMode(TelnetInterpreter.TelnetMode.Client)
+                .UseLogger(logger)
+                .OnSubmit(NoOpSubmitCallback)
+                .OnNegotiation(CaptureNegotiation)
+                .AddPlugin<LineModeProtocol>()
+        );
 
         // Act - Client receives DONT LINEMODE from server
-        await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.LINEMODE });
-        await client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.LINEMODE });
 
         // Assert - Client should accept the rejection gracefully
         await Assert.That(negotiationOutput).IsNull();
@@ -140,8 +128,6 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
         ValueTask CaptureNegotiation(byte[] data)
         {
             negotiationOutput = data;
@@ -149,20 +135,18 @@ public class LineModeTests : BaseTest
         }
 
         // Arrange - Build TelnetInterpreter instances
-        var server_ti = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Server)
-            .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<LineModeProtocol>()
-            .BuildAsync();
-
-        await Task.Delay(100);
+        var server_ti = await BuildAndWaitAsync(
+            new TelnetInterpreterBuilder()
+                .UseMode(TelnetInterpreter.TelnetMode.Server)
+                .UseLogger(logger)
+                .OnSubmit(NoOpSubmitCallback)
+                .OnNegotiation(CaptureNegotiation)
+                .AddPlugin<LineModeProtocol>()
+        );
         negotiationOutput = null;
 
         // Act - Server receives WONT LINEMODE from client
-        await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.LINEMODE });
-        await server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.LINEMODE });
 
         // Assert - Server should accept the rejection gracefully
         await Assert.That(negotiationOutput).IsNull();
@@ -179,8 +163,6 @@ public class LineModeTests : BaseTest
         byte? modeChanged = null;
 
         // Arrange - Local callbacks
-        ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
         ValueTask CaptureNegotiation(byte[] data)
         {
             negotiationOutput = data;
@@ -195,20 +177,18 @@ public class LineModeTests : BaseTest
         }
 
         // Arrange - Build TelnetInterpreter instances
-        var client_ti = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Client)
-            .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<LineModeProtocol>()
-                .OnModeChanged(CaptureModeChanged)
-            .BuildAsync();
-
-        await Task.Delay(100);
+        var client_ti = await BuildAndWaitAsync(
+            new TelnetInterpreterBuilder()
+                .UseMode(TelnetInterpreter.TelnetMode.Client)
+                .UseLogger(logger)
+                .OnSubmit(NoOpSubmitCallback)
+                .OnNegotiation(CaptureNegotiation)
+                .AddPlugin<LineModeProtocol>()
+                    .OnModeChanged(CaptureModeChanged)
+        );
 
         // Arrange - Complete LINEMODE negotiation
-        await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.LINEMODE });
-        await client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.LINEMODE });
         await Task.Delay(100);
         negotiationOutput = null;
         modeChanged = null;
@@ -220,8 +200,7 @@ public class LineModeTests : BaseTest
             (byte)Trigger.LINEMODE_MODE, 0x01, // EDIT mode
             (byte)Trigger.IAC, (byte)Trigger.SE
         };
-        await client_ti.InterpretByteArrayAsync(modeCommand);
-        await client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(client_ti, modeCommand);
         await Task.Delay(50);
 
         // Assert - Client should acknowledge the mode
@@ -254,8 +233,6 @@ public class LineModeTests : BaseTest
         byte? modeChanged = null;
 
         // Arrange - Local callbacks
-        ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
         ValueTask CaptureNegotiation(byte[] data)
         {
             negotiationOutput = data;
@@ -270,20 +247,18 @@ public class LineModeTests : BaseTest
         }
 
         // Arrange - Build TelnetInterpreter instances
-        var client_ti = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Client)
-            .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<LineModeProtocol>()
-                .OnModeChanged(CaptureModeChanged)
-            .BuildAsync();
-
-        await Task.Delay(100);
+        var client_ti = await BuildAndWaitAsync(
+            new TelnetInterpreterBuilder()
+                .UseMode(TelnetInterpreter.TelnetMode.Client)
+                .UseLogger(logger)
+                .OnSubmit(NoOpSubmitCallback)
+                .OnNegotiation(CaptureNegotiation)
+                .AddPlugin<LineModeProtocol>()
+                    .OnModeChanged(CaptureModeChanged)
+        );
 
         // Arrange - Complete LINEMODE negotiation
-        await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.LINEMODE });
-        await client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.LINEMODE });
         await Task.Delay(100);
         negotiationOutput = null;
         modeChanged = null;
@@ -295,8 +270,7 @@ public class LineModeTests : BaseTest
             (byte)Trigger.LINEMODE_MODE, 0x03, // EDIT | TRAPSIG
             (byte)Trigger.IAC, (byte)Trigger.SE
         };
-        await client_ti.InterpretByteArrayAsync(modeCommand);
-        await client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(client_ti, modeCommand);
         await Task.Delay(50);
 
         // Assert - Client should acknowledge the mode
@@ -328,8 +302,6 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
         ValueTask CaptureNegotiation(byte[] data)
         {
             negotiationOutput = data;
@@ -337,19 +309,17 @@ public class LineModeTests : BaseTest
         }
 
         // Arrange - Build TelnetInterpreter instances
-        var server_ti = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Server)
-            .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<LineModeProtocol>()
-            .BuildAsync();
-
-        await Task.Delay(100);
+        var server_ti = await BuildAndWaitAsync(
+            new TelnetInterpreterBuilder()
+                .UseMode(TelnetInterpreter.TelnetMode.Server)
+                .UseLogger(logger)
+                .OnSubmit(NoOpSubmitCallback)
+                .OnNegotiation(CaptureNegotiation)
+                .AddPlugin<LineModeProtocol>()
+        );
 
         // Arrange - Complete LINEMODE negotiation
-        await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.LINEMODE });
-        await server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.LINEMODE });
         await Task.Delay(100);
         negotiationOutput = null;
 
@@ -360,8 +330,7 @@ public class LineModeTests : BaseTest
             (byte)Trigger.LINEMODE_MODE, 0x05, // EDIT | MODE_ACK
             (byte)Trigger.IAC, (byte)Trigger.SE
         };
-        await server_ti.InterpretByteArrayAsync(ackCommand);
-        await server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(server_ti, ackCommand);
         await Task.Delay(50);
 
         // Assert - Server should update its mode state
@@ -380,8 +349,6 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
         ValueTask CaptureNegotiation(byte[] data)
         {
             negotiationOutput = data;
@@ -389,22 +356,20 @@ public class LineModeTests : BaseTest
         }
 
         // Arrange - Build TelnetInterpreter instances
-        var server_ti = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Server)
-            .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<LineModeProtocol>()
-            .BuildAsync();
-
-        await Task.Delay(100);
+        var server_ti = await BuildAndWaitAsync(
+            new TelnetInterpreterBuilder()
+                .UseMode(TelnetInterpreter.TelnetMode.Server)
+                .UseLogger(logger)
+                .OnSubmit(NoOpSubmitCallback)
+                .OnNegotiation(CaptureNegotiation)
+                .AddPlugin<LineModeProtocol>()
+        );
 
         // Arrange - Get server plugin
         var plugin = server_ti.PluginManager.GetPlugin<LineModeProtocol>();
 
         // Complete negotiation first
-        await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.LINEMODE });
-        await server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.LINEMODE });
         negotiationOutput = null;
 
         // Act - Server sets EDIT mode
@@ -431,8 +396,6 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
         ValueTask CaptureNegotiation(byte[] data)
         {
             negotiationOutput = data;
@@ -440,22 +403,20 @@ public class LineModeTests : BaseTest
         }
 
         // Arrange - Build TelnetInterpreter instances
-        var server_ti = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Server)
-            .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<LineModeProtocol>()
-            .BuildAsync();
-
-        await Task.Delay(100);
+        var server_ti = await BuildAndWaitAsync(
+            new TelnetInterpreterBuilder()
+                .UseMode(TelnetInterpreter.TelnetMode.Server)
+                .UseLogger(logger)
+                .OnSubmit(NoOpSubmitCallback)
+                .OnNegotiation(CaptureNegotiation)
+                .AddPlugin<LineModeProtocol>()
+        );
 
         // Arrange - Get server plugin
         var plugin = server_ti.PluginManager.GetPlugin<LineModeProtocol>();
 
         // Complete negotiation first
-        await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.LINEMODE });
-        await server_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(server_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.LINEMODE });
         negotiationOutput = null;
 
         // Act - Server sets custom mode with multiple flags
@@ -482,8 +443,6 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
         ValueTask CaptureNegotiation(byte[] data)
         {
             negotiationOutput = data;
@@ -491,19 +450,17 @@ public class LineModeTests : BaseTest
         }
 
         // Arrange - Build TelnetInterpreter instances
-        var client_ti = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Client)
-            .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<LineModeProtocol>()
-            .BuildAsync();
-
-        await Task.Delay(100);
+        var client_ti = await BuildAndWaitAsync(
+            new TelnetInterpreterBuilder()
+                .UseMode(TelnetInterpreter.TelnetMode.Client)
+                .UseLogger(logger)
+                .OnSubmit(NoOpSubmitCallback)
+                .OnNegotiation(CaptureNegotiation)
+                .AddPlugin<LineModeProtocol>()
+        );
 
         // Arrange - Complete LINEMODE negotiation
-        await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.LINEMODE });
-        await client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.LINEMODE });
         negotiationOutput = null;
 
         // Act - Client receives FORWARDMASK subnegotiation (not implemented, should be gracefully handled)
@@ -513,8 +470,7 @@ public class LineModeTests : BaseTest
             (byte)Trigger.LINEMODE_FORWARDMASK, 0xFF, 0xFF,
             (byte)Trigger.IAC, (byte)Trigger.SE
         };
-        await client_ti.InterpretByteArrayAsync(forwardmaskCommand);
-        await client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(client_ti, forwardmaskCommand);
 
         // Assert - Should complete without error (graceful handling)
         // No assertion on output since FORWARDMASK is not implemented
@@ -531,8 +487,6 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-
         ValueTask CaptureNegotiation(byte[] data)
         {
             negotiationOutput = data;
@@ -540,19 +494,17 @@ public class LineModeTests : BaseTest
         }
 
         // Arrange - Build TelnetInterpreter instances
-        var client_ti = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Client)
-            .UseLogger(logger)
-            .OnSubmit(WriteBackToOutput)
-            .OnNegotiation(CaptureNegotiation)
-            .AddPlugin<LineModeProtocol>()
-            .BuildAsync();
-
-        await Task.Delay(100);
+        var client_ti = await BuildAndWaitAsync(
+            new TelnetInterpreterBuilder()
+                .UseMode(TelnetInterpreter.TelnetMode.Client)
+                .UseLogger(logger)
+                .OnSubmit(NoOpSubmitCallback)
+                .OnNegotiation(CaptureNegotiation)
+                .AddPlugin<LineModeProtocol>()
+        );
 
         // Arrange - Complete LINEMODE negotiation
-        await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.LINEMODE });
-        await client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.LINEMODE });
         negotiationOutput = null;
 
         // Act - Client receives SLC subnegotiation (not implemented, should be gracefully handled)
@@ -562,8 +514,7 @@ public class LineModeTests : BaseTest
             (byte)Trigger.LINEMODE_SLC, 0x01, 0x02, 0x03,
             (byte)Trigger.IAC, (byte)Trigger.SE
         };
-        await client_ti.InterpretByteArrayAsync(slcCommand);
-        await client_ti.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(client_ti, slcCommand);
 
         // Assert - Should complete without error (graceful handling)
         // No assertion on output since SLC is not implemented
