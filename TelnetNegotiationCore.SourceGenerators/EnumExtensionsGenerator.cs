@@ -2,6 +2,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
 
@@ -12,49 +13,45 @@ namespace TelnetNegotiationCore.SourceGenerators;
 /// Generates AllValues collections and IsDefined methods to replace Enum.GetValues() and Enum.IsDefined().
 /// </summary>
 [Generator]
-public class EnumExtensionsGenerator : ISourceGenerator
+public class EnumExtensionsGenerator : IIncrementalGenerator
 {
-    public void Initialize(GeneratorInitializationContext context)
+    public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        // Register a syntax receiver to find enum declarations
-        context.RegisterForSyntaxNotifications(() => new EnumSyntaxReceiver());
+        // Create a provider for enum declarations
+        var enumProvider = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (s, _) => s is EnumDeclarationSyntax e && 
+                    (e.Identifier.Text == "Trigger" || e.Identifier.Text == "State"),
+                transform: static (ctx, _) => GetEnumSymbol(ctx))
+            .Where(static m => m is not null);
+
+        // Generate source for each enum
+        context.RegisterSourceOutput(enumProvider, (spc, enumSymbol) =>
+        {
+            if (enumSymbol == null) return;
+
+            var enumName = enumSymbol.Name;
+            var generateBadStateMethod = enumName == "State";
+            var source = GenerateEnumExtensions(enumSymbol, enumName, generateBadStateMethod);
+            spc.AddSource($"{enumName}Extensions.g.cs", SourceText.From(source, Encoding.UTF8));
+        });
     }
 
-    public void Execute(GeneratorExecutionContext context)
+    private static INamedTypeSymbol? GetEnumSymbol(GeneratorSyntaxContext context)
     {
-        if (context.SyntaxReceiver is not EnumSyntaxReceiver receiver)
-            return;
-
-        // Find Trigger and State enums in the compilation
-        var triggerEnum = FindEnum(context, receiver, "Trigger");
-        var stateEnum = FindEnum(context, receiver, "State");
-
-        if (triggerEnum != null)
+        var enumDecl = (EnumDeclarationSyntax)context.Node;
+        var symbol = context.SemanticModel.GetDeclaredSymbol(enumDecl) as INamedTypeSymbol;
+        
+        if (symbol?.TypeKind == TypeKind.Enum && 
+            (symbol.Name == "Trigger" || symbol.Name == "State"))
         {
-            GenerateEnumExtensions(context, triggerEnum, "Trigger");
+            return symbol;
         }
-
-        if (stateEnum != null)
-        {
-            GenerateEnumExtensions(context, stateEnum, "State", generateBadStateMethod: true);
-        }
-    }
-
-    private INamedTypeSymbol? FindEnum(GeneratorExecutionContext context, EnumSyntaxReceiver receiver, string enumName)
-    {
-        foreach (var enumDecl in receiver.CandidateEnums)
-        {
-            var semanticModel = context.Compilation.GetSemanticModel(enumDecl.SyntaxTree);
-            var symbol = semanticModel.GetDeclaredSymbol(enumDecl) as INamedTypeSymbol;
-            if (symbol?.Name == enumName && symbol.TypeKind == TypeKind.Enum)
-            {
-                return symbol;
-            }
-        }
+        
         return null;
     }
 
-    private void GenerateEnumExtensions(GeneratorExecutionContext context, INamedTypeSymbol enumSymbol, string enumName, bool generateBadStateMethod = false)
+    private static string GenerateEnumExtensions(INamedTypeSymbol enumSymbol, string enumName, bool generateBadStateMethod = false)
     {
         var namespaceName = enumSymbol.ContainingNamespace.ToDisplayString();
         var values = enumSymbol.GetMembers()
@@ -156,28 +153,6 @@ public class EnumExtensionsGenerator : ISourceGenerator
 
         sb.AppendLine("}");
 
-        var sourceText = SourceText.From(sb.ToString(), Encoding.UTF8);
-        context.AddSource($"{enumName}Extensions.g.cs", sourceText);
-    }
-}
-
-/// <summary>
-/// Syntax receiver that collects enum declarations
-/// </summary>
-internal class EnumSyntaxReceiver : ISyntaxReceiver
-{
-    public List<EnumDeclarationSyntax> CandidateEnums { get; } = new();
-
-    public void OnVisitSyntaxNode(SyntaxNode syntaxNode)
-    {
-        // Look for enum declarations
-        if (syntaxNode is EnumDeclarationSyntax enumDecl)
-        {
-            // Look for Trigger or State enums
-            if (enumDecl.Identifier.Text == "Trigger" || enumDecl.Identifier.Text == "State")
-            {
-                CandidateEnums.Add(enumDecl);
-            }
-        }
+        return sb.ToString();
     }
 }
