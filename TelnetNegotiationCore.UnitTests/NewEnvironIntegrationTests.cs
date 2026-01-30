@@ -106,7 +106,7 @@ public class NewEnvironIntegrationTests : BaseTest
 
             // Assert - Both protocols should have received their data independently
             await Assert.That(_receivedEnvVars).IsNotNull();
-            await Assert.That(_receivedEnvVars.ContainsKey("USER")).IsTrue();
+            await Assert.That(_receivedEnvVars.Keys).Contains("USER");
             await Assert.That(_receivedEnvVars["USER"]).IsEqualTo("testuser");
             await Assert.That(_receivedWidth).IsEqualTo(80);
             await Assert.That(_receivedHeight).IsEqualTo(24);
@@ -167,7 +167,7 @@ public class NewEnvironIntegrationTests : BaseTest
 
             // Assert - Both protocols should work
             await Assert.That(_receivedEnvVars).IsNotNull();
-            await Assert.That(_receivedEnvVars.ContainsKey("TERM")).IsTrue();
+            await Assert.That(_receivedEnvVars.Keys).Contains("TERM");
             
             var ttypePlugin = server.PluginManager!.GetPlugin<TerminalTypeProtocol>();
             await Assert.That(ttypePlugin).IsNotNull();
@@ -228,7 +228,7 @@ public class NewEnvironIntegrationTests : BaseTest
 
             // Assert - NEW-ENVIRON should work alongside all other protocols
             await Assert.That(_receivedEnvVars).IsNotNull();
-            await Assert.That(_receivedEnvVars.ContainsKey("USER")).IsTrue();
+            await Assert.That(_receivedEnvVars.Keys).Contains("USER");
             await Assert.That(_receivedEnvVars["USER"]).IsEqualTo("mudder");
 
             // Verify all plugins are enabled
@@ -319,7 +319,7 @@ public class NewEnvironIntegrationTests : BaseTest
 
             // Assert - Should work independently
             await Assert.That(_receivedEnvVars).IsNotNull();
-            await Assert.That(_receivedEnvVars.ContainsKey("TEST")).IsTrue();
+            await Assert.That(_receivedEnvVars.Keys).Contains("TEST");
             await Assert.That(_receivedEnvVars["TEST"]).IsEqualTo("standalone");
         }
         finally
