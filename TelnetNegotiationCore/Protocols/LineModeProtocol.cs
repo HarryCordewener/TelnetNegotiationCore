@@ -158,20 +158,22 @@ public class LineModeProtocol : TelnetProtocolPluginBase
 
         // Configure parameterized trigger handlers to capture the mode data
         var interpreter = context.Interpreter;
+        
+        // Use ForAllTriggersButIAC pattern (like CHARSET) to permit ALL data bytes
+        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.NegotiatingLINEMODE).Permit(t, State.EvaluatingLINEMODE));
+        
         stateMachine.Configure(State.NegotiatingLINEMODE)
             .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_MODE), _ => CaptureSubnegotiationType(SUBNEG_TYPE_MODE))
             .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_FORWARDMASK), _ => CaptureSubnegotiationType(SUBNEG_TYPE_FORWARDMASK))
             .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_SLC), _ => CaptureSubnegotiationType(SUBNEG_TYPE_SLC))
-            .Permit(Trigger.IAC, State.CompletingLINEMODE)
-            .PermitDynamic(Trigger.ReadNextCharacter, () => State.EvaluatingLINEMODE)
-            .Ignore(Trigger.LINEMODE_MODE) // Data byte might match this trigger value
-            .Ignore(Trigger.LINEMODE_FORWARDMASK)
-            .Ignore(Trigger.LINEMODE_SLC);
+            .Permit(Trigger.IAC, State.CompletingLINEMODE);
 
+        // Capture all data bytes using parameterized triggers (like CHARSET does)
+        TriggerHelper.ForAllTriggers(t => stateMachine.Configure(State.EvaluatingLINEMODE).OnEntryFromAsync(interpreter.ParameterizedTrigger(t), async (b) => await CaptureLineModeDataAsync(b)));
+        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.EvaluatingLINEMODE).PermitReentry(t));
+        
         stateMachine.Configure(State.EvaluatingLINEMODE)
-            .OnEntryFromAsync(interpreter.ParameterizedTrigger(Trigger.ReadNextCharacter), async (b) => await CaptureLineModeDataAsync(b))
-            .Permit(Trigger.IAC, State.CompletingLINEMODE)
-            .PermitReentry(Trigger.ReadNextCharacter);
+            .Permit(Trigger.IAC, State.CompletingLINEMODE);
 
         stateMachine.Configure(State.CompletingLINEMODE)
             .SubstateOf(State.EndSubNegotiation)
@@ -208,20 +210,22 @@ public class LineModeProtocol : TelnetProtocolPluginBase
             .Permit(Trigger.LINEMODE_SLC, State.NegotiatingLINEMODE);
 
         var interpreter = context.Interpreter;
+        
+        // Use ForAllTriggersButIAC pattern (like CHARSET) to permit ALL data bytes
+        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.NegotiatingLINEMODE).Permit(t, State.EvaluatingLINEMODE));
+        
         stateMachine.Configure(State.NegotiatingLINEMODE)
             .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_MODE), _ => CaptureSubnegotiationType(SUBNEG_TYPE_MODE))
             .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_FORWARDMASK), _ => CaptureSubnegotiationType(SUBNEG_TYPE_FORWARDMASK))
             .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_SLC), _ => CaptureSubnegotiationType(SUBNEG_TYPE_SLC))
-            .Permit(Trigger.IAC, State.CompletingLINEMODE)
-            .PermitDynamic(Trigger.ReadNextCharacter, () => State.EvaluatingLINEMODE)
-            .Ignore(Trigger.LINEMODE_MODE) // Data byte might match this trigger value
-            .Ignore(Trigger.LINEMODE_FORWARDMASK)
-            .Ignore(Trigger.LINEMODE_SLC);
+            .Permit(Trigger.IAC, State.CompletingLINEMODE);
 
+        // Capture all data bytes using parameterized triggers (like CHARSET does)
+        TriggerHelper.ForAllTriggers(t => stateMachine.Configure(State.EvaluatingLINEMODE).OnEntryFromAsync(interpreter.ParameterizedTrigger(t), async (b) => await CaptureLineModeDataAsync(b)));
+        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.EvaluatingLINEMODE).PermitReentry(t));
+        
         stateMachine.Configure(State.EvaluatingLINEMODE)
-            .OnEntryFromAsync(interpreter.ParameterizedTrigger(Trigger.ReadNextCharacter), async (b) => await CaptureLineModeDataAsync(b))
-            .Permit(Trigger.IAC, State.CompletingLINEMODE)
-            .PermitReentry(Trigger.ReadNextCharacter);
+            .Permit(Trigger.IAC, State.CompletingLINEMODE);
 
         stateMachine.Configure(State.CompletingLINEMODE)
             .SubstateOf(State.EndSubNegotiation)
