@@ -15,6 +15,20 @@ namespace TelnetNegotiationCore.UnitTests;
 
 public class MSSPTests : BaseTest
 {
+	/// <summary>
+	/// Polls for a condition with timeout, useful for async callback assertions
+	/// </summary>
+	private static async Task<bool> PollUntilAsync(Func<bool> condition, int timeoutMs = 1000, int pollIntervalMs = 10)
+	{
+		var waitedMs = 0;
+		while (!condition() && waitedMs < timeoutMs)
+		{
+			await Task.Delay(pollIntervalMs);
+			waitedMs += pollIntervalMs;
+		}
+		return condition();
+	}
+
 	[Test]
 	public async Task ClientRespondsWithDoMSSPToServerWill()
 	{
@@ -117,13 +131,15 @@ public class MSSPTests : BaseTest
 
 		// Wait for initial negotiation to complete (server sends WILL MSSP)
 		await server_ti.WaitForProcessingAsync();
-		await Task.Delay(50); // Extra buffer for callback to fire
+		await PollUntilAsync(() => negotiationOutput != null);
+		
+		// Now clear it and proceed with the actual test
 		negotiationOutput = null;
 
 		// Act - Server receives DO MSSP from client
 		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
 		await server_ti.WaitForProcessingAsync();
-		await Task.Delay(50); // Wait for MSSP data to be sent
+		await PollUntilAsync(() => negotiationOutput != null);
 
 		// Assert - Server should send MSSP subnegotiation with data
 		await Assert.That(negotiationOutput).IsNotNull();
@@ -350,7 +366,7 @@ public class MSSPTests : BaseTest
 		// Act - Trigger MSSP send
 		await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
 		await testServer.WaitForProcessingAsync();
-		await Task.Delay(100);
+		await PollUntilAsync(() => negotiationOutput != null);
 
 		// Assert
 		await Assert.That(negotiationOutput).IsNotNull();
