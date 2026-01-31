@@ -199,14 +199,27 @@ public partial class TelnetInterpreter
     private StateMachine<State, Trigger> SetupStandardProtocol(StateMachine<State, Trigger> tsm)
     {
         // If we are in Accepting mode, these should be interpreted as regular characters.
-        TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.Accepting).Permit(t, State.ReadingCharacters));
+        // EXCEPTION: NEWLINE should trigger submission (Act), not start a new character sequence
+        TriggerHelper.ForAllTriggersButIAC(t =>
+        {
+            if (t == Trigger.NEWLINE)
+            {
+                tsm.Configure(State.Accepting).Permit(t, State.Act);
+            }
+            else
+            {
+                tsm.Configure(State.Accepting).Permit(t, State.ReadingCharacters);
+            }
+        });
 
         // Standard triggers, which are fine in the Awaiting state and should just be interpreted as a character in this state.
         tsm.Configure(State.ReadingCharacters)
             .SubstateOf(State.Accepting)
             .Permit(Trigger.NEWLINE, State.Act);
 
-        TriggerHelper.ForAllTriggers(t => tsm.Configure(State.ReadingCharacters)
+        // Configure OnEntryFrom for all triggers to write bytes to buffer
+        // EXCEPT IAC which has special handling below
+        TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.ReadingCharacters)
             .OnEntryFromAsync(ParameterizedTrigger(t), async x => await WriteToBufferAndAdvanceAsync(x)));
 
         // Allow re-entry for continued character reading (critical fix for multi-byte data)
