@@ -210,7 +210,14 @@ public partial class TelnetInterpreter
             .OnEntryFromAsync(ParameterizedTrigger(t), async x => await WriteToBufferAndAdvanceAsync(x)));
 
         // Allow re-entry for continued character reading (critical fix for multi-byte data)
-        TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.ReadingCharacters).PermitReentry(t));
+        // Exclude NEWLINE since it transitions to Act
+        TriggerHelper.ForAllTriggersButIAC(t =>
+        {
+            if (t != Trigger.NEWLINE)
+            {
+                tsm.Configure(State.ReadingCharacters).PermitReentry(t);
+            }
+        });
 
         // We've gotten a newline. We interpret this as time to act and send a signal back.
         tsm.Configure(State.Act)
