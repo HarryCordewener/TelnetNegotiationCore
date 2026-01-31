@@ -115,14 +115,15 @@ public class MSSPTests : BaseTest
 			}
 		});
 
-		// Wait for initial negotiation to complete, then clear the output
-		await Task.Delay(100);
+		// Wait for initial negotiation to complete (server sends WILL MSSP)
+		await server_ti.WaitForProcessingAsync();
+		await Task.Delay(50); // Extra buffer for callback to fire
 		negotiationOutput = null;
 
 		// Act - Server receives DO MSSP from client
 		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
 		await server_ti.WaitForProcessingAsync();
-		await Task.Delay(100);
+		await Task.Delay(50); // Wait for MSSP data to be sent
 
 		// Assert - Server should send MSSP subnegotiation with data
 		await Assert.That(negotiationOutput).IsNotNull();
