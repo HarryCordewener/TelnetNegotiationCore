@@ -14,6 +14,20 @@ namespace TelnetNegotiationCore.UnitTests;
 
 public class GMCPTests : BaseTest
 {
+	/// <summary>
+	/// Polls for a condition with timeout, useful for async callback assertions
+	/// </summary>
+	private static async Task<bool> PollUntilAsync(Func<bool> condition, int timeoutMs = 2000, int pollIntervalMs = 10)
+	{
+		var waitedMs = 0;
+		while (!condition() && waitedMs < timeoutMs)
+		{
+			await Task.Delay(pollIntervalMs);
+			waitedMs += pollIntervalMs;
+		}
+		return condition();
+	}
+
 	[Test]
 	public async Task ServerCanSendGMCPMessage()
 	{
@@ -229,6 +243,13 @@ public class GMCPTests : BaseTest
 		// Act
 		await server_ti.InterpretByteArrayAsync(gmcpBytes.ToArray());
 		await server_ti.WaitForProcessingAsync();
+		
+		// Poll until callback fires
+		var gotMessage = await PollUntilAsync(() => receivedGMCP != null);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for GMCP message callback. receivedGMCP is null");
+		}
 
 		// Assert
 		await Assert.That(receivedGMCP).IsNotNull();
@@ -307,6 +328,13 @@ public class GMCPTests : BaseTest
 		// Act
 		await client_ti.InterpretByteArrayAsync(gmcpBytes.ToArray());
 		await client_ti.WaitForProcessingAsync();
+		
+		// Poll until callback fires
+		var gotMessage = await PollUntilAsync(() => receivedGMCP != null);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for GMCP message callback. receivedGMCP is null");
+		}
 
 		// Assert
 		await Assert.That(receivedGMCP).IsNotNull();
@@ -385,6 +413,13 @@ public class GMCPTests : BaseTest
 		// Act
 		await server_ti.InterpretByteArrayAsync(gmcpBytes.ToArray());
 		await server_ti.WaitForProcessingAsync();
+		
+		// Poll until callback fires
+		var gotMessage = await PollUntilAsync(() => receivedGMCP != null);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for GMCP message callback. receivedGMCP is null");
+		}
 
 		// Assert
 		await Assert.That(receivedGMCP).IsNotNull();

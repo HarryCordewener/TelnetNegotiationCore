@@ -391,6 +391,11 @@ public class MSSPTests : BaseTest
 			VT100 = true
 		});
 
+		// Wait for initial WILL MSSP, then clear
+		await testServer.WaitForProcessingAsync();
+		await PollUntilAsync(() => negotiationOutput != null);
+		negotiationOutput = null;
+
 		// Act - Trigger MSSP send
 		await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
 		await testServer.WaitForProcessingAsync();
@@ -514,9 +519,15 @@ public class MSSPTests : BaseTest
 			Mobiles = 500
 		});
 
+		// Wait for initial WILL MSSP, then clear
+		await testServer.WaitForProcessingAsync();
+		await PollUntilAsync(() => negotiationOutput != null);
+		negotiationOutput = null;
+
 		// Act - Trigger MSSP send
 		await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
 		await testServer.WaitForProcessingAsync();
+		await PollUntilAsync(() => negotiationOutput != null);
 
 		// Assert
 		await Assert.That(negotiationOutput).IsNotNull();
@@ -625,9 +636,15 @@ public class MSSPTests : BaseTest
 			Family = ["DikuMUD"]
 		});
 
+		// Wait for initial WILL MSSP, then clear
+		await testServer.WaitForProcessingAsync();
+		await PollUntilAsync(() => negotiationOutput != null);
+		negotiationOutput = null;
+
 		// Act - Trigger MSSP send
 		await testServer.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
 		await testServer.WaitForProcessingAsync();
+		await PollUntilAsync(() => negotiationOutput != null);
 
 		// Assert
 		await Assert.That(negotiationOutput).IsNotNull();
