@@ -550,8 +550,8 @@ public class EchoTests : BaseTest
                 .UseDefaultEchoHandler();
         var testServer = await BuildAndWaitAsync(builder);
 
-        // Act - Enable echo
-        await InterpretAndWaitAsync(testServer, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO });
+        // Act - Client accepts server's offer to echo (server sent WILL ECHO, client responds DO ECHO)
+        await InterpretAndWaitAsync(testServer, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
 
         // Act - Send some test bytes
         byte[] testBytes = new byte[] { (byte)'H', (byte)'e', (byte)'l', (byte)'l', (byte)'o' };

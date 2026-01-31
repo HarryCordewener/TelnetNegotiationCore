@@ -129,7 +129,7 @@ public class LineModeProtocol : TelnetProtocolPluginBase
     
     private void ConfigureAsClient(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
-        // Client responds to server's DO LINEMODE
+        // Client handles DO/DONT from server (server asking client to use LINEMODE)
         stateMachine.Configure(State.DoLINEMODE)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async () => await WillLineModeAsync(context));
@@ -137,6 +137,15 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         stateMachine.Configure(State.DontLINEMODE)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async () => await OnDontLineModeAsync(context));
+
+        // Client also handles WILL/WONT from server (server announcing ability to use LINEMODE)
+        stateMachine.Configure(State.WillLINEMODE)
+            .SubstateOf(State.Accepting)
+            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Server is willing to use line mode"));
+
+        stateMachine.Configure(State.WontLINEMODE)
+            .SubstateOf(State.Accepting)
+            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Server won't use line mode"));
 
         // Handle subnegotiations: IAC SB LINEMODE MODE <mode> IAC SE
         stateMachine.Configure(State.SubNegotiation)
@@ -168,7 +177,7 @@ public class LineModeProtocol : TelnetProtocolPluginBase
     
     private void ConfigureAsServer(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
-        // Server sends DO LINEMODE to client
+        // Server handles WILL/WONT from client (client announcing ability to use LINEMODE)
         stateMachine.Configure(State.WillLINEMODE)
             .SubstateOf(State.Accepting)
             .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client is willing to use line mode"));
@@ -176,6 +185,15 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         stateMachine.Configure(State.WontLINEMODE)
             .SubstateOf(State.Accepting)
             .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't use line mode"));
+
+        // Server also handles DO/DONT from client (client asking server to use LINEMODE)
+        stateMachine.Configure(State.DoLINEMODE)
+            .SubstateOf(State.Accepting)
+            .OnEntryAsync(async () => await WillLineModeAsync(context));
+
+        stateMachine.Configure(State.DontLINEMODE)
+            .SubstateOf(State.Accepting)
+            .OnEntryAsync(async () => await OnDontLineModeAsync(context));
 
         // Server can receive MODE subnegotiations from client
         stateMachine.Configure(State.SubNegotiation)

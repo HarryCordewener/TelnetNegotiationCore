@@ -106,11 +106,21 @@ public class EnvironProtocol : TelnetProtocolPluginBase
 
     private void ConfigureAsServer(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
+        // Server handles DO/DONT from client (client asking server to do ENVIRON)
         stateMachine.Configure(State.DoENVIRON)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async x => await OnDoEnvironAsync(x, context));
 
         stateMachine.Configure(State.DontENVIRON)
+            .SubstateOf(State.Accepting)
+            .OnEntry(() => context.Logger.LogDebug("Client won't do ENVIRON - do nothing"));
+
+        // Server also handles WILL/WONT from client (client announcing ability to do ENVIRON)
+        stateMachine.Configure(State.WillENVIRON)
+            .SubstateOf(State.Accepting)
+            .OnEntryAsync(async x => await OnWillEnvironAsync(x, context));
+
+        stateMachine.Configure(State.WontENVIRON)
             .SubstateOf(State.Accepting)
             .OnEntry(() => context.Logger.LogDebug("Client won't do ENVIRON - do nothing"));
 
@@ -172,6 +182,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
 
     private void ConfigureAsClient(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
+        // Client handles WILL/WONT from server (server announcing ability to do ENVIRON)
         stateMachine.Configure(State.WillENVIRON)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async x => await OnWillEnvironAsync(x, context));
@@ -179,6 +190,15 @@ public class EnvironProtocol : TelnetProtocolPluginBase
         stateMachine.Configure(State.WontENVIRON)
             .SubstateOf(State.Accepting)
             .OnEntry(() => context.Logger.LogDebug("Server won't do ENVIRON - do nothing"));
+
+        // Client also handles DO/DONT from server (server asking client to do ENVIRON)
+        stateMachine.Configure(State.DoENVIRON)
+            .SubstateOf(State.Accepting)
+            .OnEntryAsync(async x => await OnDoEnvironAsync(x, context));
+
+        stateMachine.Configure(State.DontENVIRON)
+            .SubstateOf(State.Accepting)
+            .OnEntry(() => context.Logger.LogDebug("Server telling client not to send ENVIRON"));
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.ENVIRON, State.AlmostNegotiatingENVIRON);

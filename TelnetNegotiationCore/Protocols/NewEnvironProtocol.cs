@@ -100,11 +100,21 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
     private void ConfigureAsServer(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
+        // Server handles DO/DONT from client (client asking server to do NEW-ENVIRON)
         stateMachine.Configure(State.DoNEWENVIRON)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async x => await OnDoNewEnvironAsync(x, context));
 
         stateMachine.Configure(State.DontNEWENVIRON)
+            .SubstateOf(State.Accepting)
+            .OnEntry(() => context.Logger.LogDebug("Client won't do NEW-ENVIRON - do nothing"));
+
+        // Server also handles WILL/WONT from client (client announcing ability to do NEW-ENVIRON)
+        stateMachine.Configure(State.WillNEWENVIRON)
+            .SubstateOf(State.Accepting)
+            .OnEntryAsync(async x => await OnWillNewEnvironAsync(x, context));
+
+        stateMachine.Configure(State.WontNEWENVIRON)
             .SubstateOf(State.Accepting)
             .OnEntry(() => context.Logger.LogDebug("Client won't do NEW-ENVIRON - do nothing"));
 
@@ -173,6 +183,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
     private void ConfigureAsClient(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
+        // Client handles WILL/WONT from server (server announcing ability to do NEW-ENVIRON)
         stateMachine.Configure(State.WillNEWENVIRON)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async x => await OnWillNewEnvironAsync(x, context));
@@ -180,6 +191,15 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         stateMachine.Configure(State.WontNEWENVIRON)
             .SubstateOf(State.Accepting)
             .OnEntry(() => context.Logger.LogDebug("Server won't do NEW-ENVIRON - do nothing"));
+
+        // Client also handles DO/DONT from server (server asking client to do NEW-ENVIRON)
+        stateMachine.Configure(State.DoNEWENVIRON)
+            .SubstateOf(State.Accepting)
+            .OnEntryAsync(async x => await OnDoNewEnvironAsync(x, context));
+
+        stateMachine.Configure(State.DontNEWENVIRON)
+            .SubstateOf(State.Accepting)
+            .OnEntry(() => context.Logger.LogDebug("Server telling client not to send NEW-ENVIRON"));
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.NEWENVIRON, State.AlmostNegotiatingNEWENVIRON);
