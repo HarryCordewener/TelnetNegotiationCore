@@ -15,6 +15,20 @@ public class MSDPTests : BaseTest
 {
 	private static readonly Encoding Encoding = Encoding.ASCII;
 
+	/// <summary>
+	/// Polls for a condition with timeout, useful for async callback assertions
+	/// </summary>
+	private static async Task<bool> PollUntilAsync(Func<bool> condition, int timeoutMs = 2000, int pollIntervalMs = 10)
+	{
+		var waitedMs = 0;
+		while (!condition() && waitedMs < timeoutMs)
+		{
+			await Task.Delay(pollIntervalMs);
+			waitedMs += pollIntervalMs;
+		}
+		return condition();
+	}
+
 	[Test]
 	[MethodDataSource(nameof(FSharpScanTestSequences))]
 	public async Task TestFSharpScan(byte[] testcase, object expectedObject)
@@ -168,6 +182,13 @@ public class MSDPTests : BaseTest
 
 		await telnet.InterpretByteArrayAsync(msdpRequest.ToArray());
 		await telnet.WaitForProcessingAsync();
+		
+		// Poll until callback fires
+		var gotMessage = await PollUntilAsync(() => receivedMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for MSDP message callback. Count: {receivedMessages.Count}");
+		}
 
 		// Verify message was received and parsed
 		await Assert.That(receivedMessages.Count).IsEqualTo(1);
@@ -215,6 +236,13 @@ public class MSDPTests : BaseTest
 
 		await telnet.InterpretByteArrayAsync(msdpData.ToArray());
 		await telnet.WaitForProcessingAsync();
+		
+		// Poll until callback fires
+		var gotMessage = await PollUntilAsync(() => receivedMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for MSDP message callback. Count: {receivedMessages.Count}");
+		}
 
 		// Verify message was received and parsed
 		await Assert.That(receivedMessages.Count).IsEqualTo(1);
@@ -268,6 +296,13 @@ public class MSDPTests : BaseTest
 
 		await telnet.InterpretByteArrayAsync(msdpArray.ToArray());
 		await telnet.WaitForProcessingAsync();
+		
+		// Poll until callback fires
+		var gotMessage = await PollUntilAsync(() => receivedMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for MSDP message callback. Count: {receivedMessages.Count}");
+		}
 
 		await Assert.That(receivedMessages.Count).IsEqualTo(1);
 		var parsed = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(receivedMessages[0]);
@@ -328,6 +363,13 @@ public class MSDPTests : BaseTest
 
 		await telnet.InterpretByteArrayAsync(msdpNested.ToArray());
 		await telnet.WaitForProcessingAsync();
+		
+		// Poll until callback fires
+		var gotMessage = await PollUntilAsync(() => receivedMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for MSDP message callback. Count: {receivedMessages.Count}");
+		}
 
 		await Assert.That(receivedMessages.Count).IsEqualTo(1);
 		var parsed = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(receivedMessages[0]);
@@ -377,6 +419,13 @@ public class MSDPTests : BaseTest
 
 		await telnet.InterpretByteArrayAsync(msdpEscaped.ToArray());
 		await telnet.WaitForProcessingAsync();
+		
+		// Poll until callback fires
+		var gotMessage = await PollUntilAsync(() => receivedMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for MSDP message callback. Count: {receivedMessages.Count}");
+		}
 
 		await Assert.That(receivedMessages.Count).IsEqualTo(1);
 
@@ -424,6 +473,13 @@ public class MSDPTests : BaseTest
 
 		await telnet.InterpretByteArrayAsync(msdpLarge.ToArray());
 		await telnet.WaitForProcessingAsync();
+		
+		// Poll until callback fires
+		var gotMessage = await PollUntilAsync(() => receivedMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for MSDP message callback. Count: {receivedMessages.Count}");
+		}
 
 		// Message should still be received (truncated)
 		await Assert.That(receivedMessages.Count).IsEqualTo(1);
