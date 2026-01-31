@@ -115,6 +115,10 @@ public class MSSPTests : BaseTest
 			}
 		});
 
+		// Wait for initial negotiation to complete, then clear the output
+		await Task.Delay(100);
+		negotiationOutput = null;
+
 		// Act - Server receives DO MSSP from client
 		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
 		await server_ti.WaitForProcessingAsync();
