@@ -209,6 +209,9 @@ public partial class TelnetInterpreter
         TriggerHelper.ForAllTriggers(t => tsm.Configure(State.ReadingCharacters)
             .OnEntryFromAsync(ParameterizedTrigger(t), async x => await WriteToBufferAndAdvanceAsync(x)));
 
+        // Allow re-entry for continued character reading (critical fix for multi-byte data)
+        TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.ReadingCharacters).PermitReentry(t));
+
         // We've gotten a newline. We interpret this as time to act and send a signal back.
         tsm.Configure(State.Act)
             .SubstateOf(State.Accepting)
@@ -243,7 +246,12 @@ public partial class TelnetInterpreter
         tsm.Configure(State.Dont);
 
         tsm.Configure(State.ReadingCharacters)
-            .OnEntryFrom(Trigger.IAC, _ => _logger.LogDebug("Connection: {ConnectionState}", "Canceling negotiation"));
+            .OnEntryFromAsync(Trigger.IAC, async _ =>
+            {
+                _logger.LogDebug("Connection: {ConnectionState}", "Escaped IAC - writing byte 255 to buffer");
+                // Escaped IAC (255,255) - write the actual IAC byte to buffer
+                await WriteToBufferAndAdvanceAsync(OneOf<byte, Trigger>.FromT0((byte)255));
+            });
 
         tsm.Configure(State.SubNegotiation)
             .OnEntryFrom(Trigger.IAC, _ => _logger.LogDebug("Connection: {ConnectionState}", "SubNegotiation request"));
