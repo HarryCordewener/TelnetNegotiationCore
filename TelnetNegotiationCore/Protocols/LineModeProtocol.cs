@@ -163,7 +163,10 @@ public class LineModeProtocol : TelnetProtocolPluginBase
             .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_FORWARDMASK), _ => CaptureSubnegotiationType(SUBNEG_TYPE_FORWARDMASK))
             .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_SLC), _ => CaptureSubnegotiationType(SUBNEG_TYPE_SLC))
             .Permit(Trigger.IAC, State.CompletingLINEMODE)
-            .PermitDynamic(Trigger.ReadNextCharacter, () => State.EvaluatingLINEMODE);
+            .PermitDynamic(Trigger.ReadNextCharacter, () => State.EvaluatingLINEMODE)
+            .Ignore(Trigger.LINEMODE_MODE) // Data byte might match this trigger value
+            .Ignore(Trigger.LINEMODE_FORWARDMASK)
+            .Ignore(Trigger.LINEMODE_SLC);
 
         stateMachine.Configure(State.EvaluatingLINEMODE)
             .OnEntryFromAsync(interpreter.ParameterizedTrigger(Trigger.ReadNextCharacter), async (b) => await CaptureLineModeDataAsync(b))
@@ -210,7 +213,10 @@ public class LineModeProtocol : TelnetProtocolPluginBase
             .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_FORWARDMASK), _ => CaptureSubnegotiationType(SUBNEG_TYPE_FORWARDMASK))
             .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_SLC), _ => CaptureSubnegotiationType(SUBNEG_TYPE_SLC))
             .Permit(Trigger.IAC, State.CompletingLINEMODE)
-            .PermitDynamic(Trigger.ReadNextCharacter, () => State.EvaluatingLINEMODE);
+            .PermitDynamic(Trigger.ReadNextCharacter, () => State.EvaluatingLINEMODE)
+            .Ignore(Trigger.LINEMODE_MODE) // Data byte might match this trigger value
+            .Ignore(Trigger.LINEMODE_FORWARDMASK)
+            .Ignore(Trigger.LINEMODE_SLC);
 
         stateMachine.Configure(State.EvaluatingLINEMODE)
             .OnEntryFromAsync(interpreter.ParameterizedTrigger(Trigger.ReadNextCharacter), async (b) => await CaptureLineModeDataAsync(b))
