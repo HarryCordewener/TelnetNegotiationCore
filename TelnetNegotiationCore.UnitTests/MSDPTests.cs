@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using TUnit.Core;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
@@ -28,8 +29,8 @@ public class MSDPTests : BaseTest
 	public async Task TestFSharpReport(object obj, byte[] expectedSequence)
 	{
 		byte[] result = Functional.MSDPLibrary.Report(JsonSerializer.Serialize(obj), Encoding);
-		logger.LogInformation("Sequence: {@Serialized}", result);
-		await Assert.That(result).IsEqualTo(expectedSequence);
+		logger.LogInformation("Sequence: {Serialized}", BitConverter.ToString(result));
+		await AssertByteArraysEqual(result, expectedSequence);
 	}
 
 	public static IEnumerable<(byte[], object)> FSharpScanTestSequences()
@@ -166,6 +167,7 @@ public class MSDPTests : BaseTest
 		msdpRequest.Add((byte)Trigger.SE);
 
 		await telnet.InterpretByteArrayAsync(msdpRequest.ToArray());
+		await telnet.WaitForProcessingAsync();
 
 		// Verify message was received and parsed
 		await Assert.That(receivedMessages.Count).IsEqualTo(1);
@@ -212,6 +214,7 @@ public class MSDPTests : BaseTest
 		msdpData.Add((byte)Trigger.SE);
 
 		await telnet.InterpretByteArrayAsync(msdpData.ToArray());
+		await telnet.WaitForProcessingAsync();
 
 		// Verify message was received and parsed
 		await Assert.That(receivedMessages.Count).IsEqualTo(1);
@@ -264,6 +267,7 @@ public class MSDPTests : BaseTest
 		msdpArray.Add((byte)Trigger.SE);
 
 		await telnet.InterpretByteArrayAsync(msdpArray.ToArray());
+		await telnet.WaitForProcessingAsync();
 
 		await Assert.That(receivedMessages.Count).IsEqualTo(1);
 		var parsed = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(receivedMessages[0]);
@@ -323,6 +327,7 @@ public class MSDPTests : BaseTest
 		msdpNested.Add((byte)Trigger.SE);
 
 		await telnet.InterpretByteArrayAsync(msdpNested.ToArray());
+		await telnet.WaitForProcessingAsync();
 
 		await Assert.That(receivedMessages.Count).IsEqualTo(1);
 		var parsed = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(receivedMessages[0]);
@@ -371,6 +376,7 @@ public class MSDPTests : BaseTest
 		msdpEscaped.Add((byte)Trigger.SE);
 
 		await telnet.InterpretByteArrayAsync(msdpEscaped.ToArray());
+		await telnet.WaitForProcessingAsync();
 
 		await Assert.That(receivedMessages.Count).IsEqualTo(1);
 
@@ -417,6 +423,7 @@ public class MSDPTests : BaseTest
 		msdpLarge.Add((byte)Trigger.SE);
 
 		await telnet.InterpretByteArrayAsync(msdpLarge.ToArray());
+		await telnet.WaitForProcessingAsync();
 
 		// Message should still be received (truncated)
 		await Assert.That(receivedMessages.Count).IsEqualTo(1);

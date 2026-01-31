@@ -81,7 +81,7 @@ public class RFC1950ComplianceTests : BaseTest
 
 		// Assert
 		await Assert.That(decompressedData.Length).IsEqualTo(originalData.Length);
-		await Assert.That(decompressedData).IsEquivalentTo(originalData);
+		await AssertByteArraysEqual(decompressedData, originalData);
 
 		var originalText = Encoding.UTF8.GetString(originalData);
 		var decompressedText = Encoding.UTF8.GetString(decompressedData);

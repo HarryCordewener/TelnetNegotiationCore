@@ -11,86 +11,90 @@ using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.UnitTests;
 
-
-public class TTypeTests: BaseTest
+public class TTypeTests : BaseTest
 {
-	private TelnetInterpreter _server_ti;
-	private TelnetInterpreter _client_ti;
-	private byte[] _negotiationOutput;
-
-	private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => throw new NotImplementedException();
-
-	private ValueTask WriteBackToNegotiate(byte[] arg1) { _negotiationOutput = arg1; return ValueTask.CompletedTask; }
-
-	private ValueTask WriteBackToGMCP((string Package, string Info) tuple) => throw new NotImplementedException();
-
-	[Before(Test)]
-	public async Task Setup()
-	{
-		_server_ti = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Server)
-			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
-			.OnNegotiation(WriteBackToNegotiate)
-			.AddPlugin<TerminalTypeProtocol>()
-			.BuildAsync();
-
-		_client_ti = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Client)
-			.UseLogger(logger)
-			.OnSubmit(WriteBackToOutput)
-			.OnNegotiation(WriteBackToNegotiate)
-			.AddPlugin<TerminalTypeProtocol>()
-			.BuildAsync();
-	}
-
-	[After(Test)]
-	public async Task TearDown()
-	{
-		if (_server_ti != null)
-			await _server_ti.DisposeAsync();
-		if (_client_ti != null)
-			await _client_ti.DisposeAsync();
-	}
-
 	[Test]
 	[MethodDataSource(nameof(ServerTTypeSequences))]
 	public async Task ServerEvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<string[]> RegisteredTTypes)
 	{
+		byte[] negotiationOutput = null;
+		
+		ValueTask CaptureNegotiation(byte[] data)
+		{
+			negotiationOutput = data;
+			return ValueTask.CompletedTask;
+		}
+		
+		var server_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit((data, enc, ti) => throw new NotImplementedException())
+			.OnNegotiation(CaptureNegotiation)
+			.AddPlugin<TerminalTypeProtocol>()
+			.BuildAsync();
+
 		if (clientSends.Count() != serverShouldRespondWith.Count())
 			throw new Exception("Invalid Testcase.");
 
 		foreach (var (clientSend, serverShouldRespond, shouldHaveTTypeList) in clientSends.Zip(serverShouldRespondWith, RegisteredTTypes))
 		{
-			_negotiationOutput = null;
+			negotiationOutput = null;
 			foreach (var x in clientSend ?? Enumerable.Empty<byte>())
 			{
-				await _server_ti.InterpretAsync(x);
+				await server_ti.InterpretAsync(x);
 			}
-			await _server_ti.WaitForProcessingAsync();
-			await Assert.That(_server_ti.TerminalTypes).IsEquivalentTo(shouldHaveTTypeList ?? Enumerable.Empty<string>());
-			await Assert.That(_negotiationOutput).IsEquivalentTo(serverShouldRespond);
+			await server_ti.WaitForProcessingAsync();
+			await Assert.That(server_ti.TerminalTypes).IsEquivalentTo(shouldHaveTTypeList ?? Enumerable.Empty<string>());
+			
+			if (serverShouldRespond == null)
+			{
+				await Assert.That(negotiationOutput).IsNull();
+			}
+			else
+			{
+				await AssertByteArraysEqual(negotiationOutput, serverShouldRespond);
+			}
 		}
+		
+		await server_ti.DisposeAsync();
 	}
 
 	[Test]
 	[MethodDataSource(nameof(ClientTTypeSequences))]
 	public async Task ClientEvaluationCheck(IEnumerable<byte[]> serverSends, IEnumerable<byte[]> serverShouldRespondWith)
 	{
+		byte[] negotiationOutput = null;
+		
+		ValueTask CaptureNegotiation(byte[] data)
+		{
+			negotiationOutput = data;
+			return ValueTask.CompletedTask;
+		}
+		
+		var client_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit((data, enc, ti) => throw new NotImplementedException())
+			.OnNegotiation(CaptureNegotiation)
+			.AddPlugin<TerminalTypeProtocol>()
+			.BuildAsync();
+
 		if (serverSends.Count() != serverShouldRespondWith.Count())
 			throw new Exception("Invalid Testcase.");
 
 		foreach (var (serverSend, clientShouldRespond) in serverSends.Zip(serverShouldRespondWith))
 		{
-			_negotiationOutput = null;
+			negotiationOutput = null;
 			foreach (var x in serverSend ?? Enumerable.Empty<byte>())
 			{
-				await _client_ti.InterpretAsync(x);
+				await client_ti.InterpretAsync(x);
 			}
-			await _client_ti.WaitForProcessingAsync();
+			await client_ti.WaitForProcessingAsync();
 			await Task.Delay(50);
-			await Assert.That(_negotiationOutput).IsEquivalentTo(clientShouldRespond);
+			await AssertByteArraysEqual(negotiationOutput, clientShouldRespond);
 		}
+		
+		await client_ti.DisposeAsync();
 	}
 
 	public static IEnumerable<(IEnumerable<byte[]>, IEnumerable<byte[]>)> ClientTTypeSequences()

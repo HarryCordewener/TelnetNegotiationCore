@@ -199,15 +199,38 @@ public partial class TelnetInterpreter
     private StateMachine<State, Trigger> SetupStandardProtocol(StateMachine<State, Trigger> tsm)
     {
         // If we are in Accepting mode, these should be interpreted as regular characters.
-        TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.Accepting).Permit(t, State.ReadingCharacters));
+        // EXCEPTION: NEWLINE should trigger submission (Act), not start a new character sequence
+        TriggerHelper.ForAllTriggersButIAC(t =>
+        {
+            if (t == Trigger.NEWLINE)
+            {
+                tsm.Configure(State.Accepting).Permit(t, State.Act);
+            }
+            else
+            {
+                tsm.Configure(State.Accepting).Permit(t, State.ReadingCharacters);
+            }
+        });
 
         // Standard triggers, which are fine in the Awaiting state and should just be interpreted as a character in this state.
         tsm.Configure(State.ReadingCharacters)
             .SubstateOf(State.Accepting)
             .Permit(Trigger.NEWLINE, State.Act);
 
-        TriggerHelper.ForAllTriggers(t => tsm.Configure(State.ReadingCharacters)
+        // Configure OnEntryFrom for all triggers to write bytes to buffer
+        // EXCEPT IAC which has special handling below
+        TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.ReadingCharacters)
             .OnEntryFromAsync(ParameterizedTrigger(t), async x => await WriteToBufferAndAdvanceAsync(x)));
+
+        // Allow re-entry for continued character reading (critical fix for multi-byte data)
+        // Exclude NEWLINE since it transitions to Act
+        TriggerHelper.ForAllTriggersButIAC(t =>
+        {
+            if (t != Trigger.NEWLINE)
+            {
+                tsm.Configure(State.ReadingCharacters).PermitReentry(t);
+            }
+        });
 
         // We've gotten a newline. We interpret this as time to act and send a signal back.
         tsm.Configure(State.Act)
@@ -243,7 +266,12 @@ public partial class TelnetInterpreter
         tsm.Configure(State.Dont);
 
         tsm.Configure(State.ReadingCharacters)
-            .OnEntryFrom(Trigger.IAC, _ => _logger.LogDebug("Connection: {ConnectionState}", "Canceling negotiation"));
+            .OnEntryFromAsync(Trigger.IAC, async _ =>
+            {
+                _logger.LogDebug("Connection: {ConnectionState}", "Escaped IAC - writing byte 255 to buffer");
+                // Escaped IAC (255,255) - write the actual IAC byte to buffer
+                await WriteToBufferAndAdvanceAsync(OneOf<byte, Trigger>.FromT0((byte)255));
+            });
 
         tsm.Configure(State.SubNegotiation)
             .OnEntryFrom(Trigger.IAC, _ => _logger.LogDebug("Connection: {ConnectionState}", "SubNegotiation request"));
@@ -393,8 +421,10 @@ public partial class TelnetInterpreter
     {
         try
         {
+            int byteCount = 0;
             await foreach (var bt in _byteChannel.Reader.ReadAllAsync(cancellationToken))
             {
+                byteCount++;
                 if (!_isDefinedDictionary.TryGetValue(bt, out var triggerOrByte))
                 {
                     // Use generated IsDefined method instead of reflection
@@ -404,8 +434,13 @@ public partial class TelnetInterpreter
                     _isDefinedDictionary.Add(bt, triggerOrByte);
                 }
 
+                _logger.LogTrace("Processing byte #{ByteNum}: {Byte:X2} (trigger: {Trigger}), current state: {State}", 
+                    byteCount, bt, triggerOrByte, TelnetStateMachine.State);
                 await TelnetStateMachine.FireAsync(ParameterizedTrigger(triggerOrByte), bt);
+                _logger.LogTrace("After byte #{ByteNum}, new state: {State}, buffer position: {BufferPos}", 
+                    byteCount, TelnetStateMachine.State, _bufferPosition);
             }
+            _logger.LogDebug("Byte processing completed. Total bytes processed: {ByteCount}", byteCount);
         }
         catch (OperationCanceledException)
         {
@@ -414,7 +449,7 @@ public partial class TelnetInterpreter
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error in byte processing pipeline");
+            _logger.LogError(ex, "Error in byte processing pipeline at byte position");
         }
     }
 
