@@ -112,7 +112,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         // Server also handles WILL/WONT from client (client announcing ability to do NEW-ENVIRON)
         stateMachine.Configure(State.WillNEWENVIRON)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await OnWillNewEnvironAsync(x, context));
+            .OnEntryAsync(async x => await ServerOnWillNewEnvironAsync(x, context));
 
         stateMachine.Configure(State.WontNEWENVIRON)
             .SubstateOf(State.Accepting)
@@ -186,7 +186,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         // Client handles WILL/WONT from server (server announcing ability to do NEW-ENVIRON)
         stateMachine.Configure(State.WillNEWENVIRON)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await OnWillNewEnvironAsync(x, context));
+            .OnEntryAsync(async x => await ClientOnWillNewEnvironAsync(x, context));
 
         stateMachine.Configure(State.WontNEWENVIRON)
             .SubstateOf(State.Accepting)
@@ -397,7 +397,26 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         });
     }
 
-    private async ValueTask OnWillNewEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask ServerOnWillNewEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    {
+        context.Logger.LogDebug("Client will do NEW-ENVIRON - accepting and requesting variables");
+        
+        // Send DO to accept the capability
+        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NEWENVIRON });
+        
+        // Immediately send SEND to request all variables
+        await context.SendNegotiationAsync(new byte[]
+        {
+            (byte)Trigger.IAC,
+            (byte)Trigger.SB,
+            (byte)Trigger.NEWENVIRON,
+            (byte)Trigger.SEND,
+            (byte)Trigger.IAC,
+            (byte)Trigger.SE
+        });
+    }
+
+    private async ValueTask ClientOnWillNewEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Server will do NEW-ENVIRON");
         await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NEWENVIRON });

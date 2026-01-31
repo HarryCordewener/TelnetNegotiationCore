@@ -65,6 +65,13 @@ namespace TelnetNegotiationCore.UnitTests
 		/// <param name="expected">The expected byte array (the correct value)</param>
 		protected static async Task AssertByteArraysEqual(byte[] actual, byte[] expected)
 		{
+			// Handle null expected values (test expects no response)
+			if (expected == null)
+			{
+				await Assert.That(actual).IsNull();
+				return;
+			}
+			
 			await Assert.That(actual).IsNotNull();
 			await Assert.That(actual.Length).IsEqualTo(expected.Length);
 			

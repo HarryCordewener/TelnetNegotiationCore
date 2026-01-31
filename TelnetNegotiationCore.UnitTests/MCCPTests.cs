@@ -181,8 +181,8 @@ public class MCCPTests : BaseTest
 
 		// Assert - Client should send DO MCCP3 and IAC SB MCCP3 IAC SE
 		await Assert.That(_negotiationOutput).IsNotNull();
-		// First response should be DO MCCP3
-		await AssertByteArraysEqual(_negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP3 });
+		// Last response should be the subnegotiation (starting compression)
+		await AssertByteArraysEqual(_negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP3, (byte)Trigger.IAC, (byte)Trigger.SE });
 	}
 
 	[Test]
