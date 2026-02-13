@@ -107,12 +107,9 @@ public partial class TelnetInterpreter
 #if NET5_0_OR_GREATER
 		// Use CollectionsMarshal.AsSpan with slicing for zero-copy access
 		var gmcpSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(gmcpBytes);
-		var packageBytes = gmcpSpan[..firstSpace].ToArray();
-		var rest = gmcpSpan[(firstSpace + 1)..].ToArray();
 		var package = CurrentEncoding.GetString(gmcpSpan[..firstSpace]);
 #else
 		var packageBytes = gmcpBytes.Take(firstSpace).ToArray();
-		var rest = gmcpBytes.Skip(firstSpace + 1).ToArray();
 		var package = CurrentEncoding.GetString(packageBytes);
 #endif
 
@@ -122,6 +119,10 @@ public partial class TelnetInterpreter
 			var msdpPlugin = PluginManager?.GetPlugin<Protocols.MSDPProtocol>();
 			if (msdpPlugin != null && msdpPlugin.IsEnabled)
 			{
+#if NET5_0_OR_GREATER
+				// MSDPScan requires byte[] - only allocate when MSDP plugin is enabled
+				var packageBytes = gmcpSpan[..firstSpace].ToArray();
+#endif
 				await msdpPlugin.OnMSDPMessageAsync(this, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(packageBytes, CurrentEncoding)));
 			}
 		}
@@ -131,7 +132,13 @@ public partial class TelnetInterpreter
 			var gmcpPlugin = PluginManager?.GetPlugin<Protocols.GMCPProtocol>();
 			if (gmcpPlugin != null && gmcpPlugin.IsEnabled)
 			{
+#if NET5_0_OR_GREATER
+				var rest = gmcpSpan[(firstSpace + 1)..];
 				await gmcpPlugin.OnGMCPMessageAsync((Package: package, Info: CurrentEncoding.GetString(rest)));
+#else
+				var rest = gmcpBytes.Skip(firstSpace + 1).ToArray();
+				await gmcpPlugin.OnGMCPMessageAsync((Package: package, Info: CurrentEncoding.GetString(rest)));
+#endif
 			}
 		}
 	}
