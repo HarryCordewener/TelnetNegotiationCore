@@ -305,40 +305,13 @@ public partial class TelnetInterpreter
             return;
         }
 
-        byte[]? rentedBuffer = null;
-        try
-        {
-            // Use stackalloc for very small buffers (<=512 bytes), ArrayPool for larger
-            // This reduces heap allocations for common case of small messages
-            byte[] cp;
-            if (_bufferPosition <= 512)
-            {
-                // For small buffers, allocate directly - no intermediate stackalloc needed
-                // since we must create a byte[] for the callback anyway
-                cp = _buffer.AsSpan()[.._bufferPosition].ToArray();
-            }
-            else
-            {
-                // Rent from pool for larger buffers to reduce allocations
-                rentedBuffer = ArrayPool<byte>.Shared.Rent(_bufferPosition);
-                _buffer.AsSpan()[.._bufferPosition].CopyTo(rentedBuffer);
-                cp = rentedBuffer[.._bufferPosition];
-            }
+        // Create array for callback - always allocate exact size needed
+        var cp = _buffer.AsSpan()[.._bufferPosition].ToArray();
+        _bufferPosition = 0;
 
-            _bufferPosition = 0;
-
-            if (CallbackOnSubmitAsync is not null)
-            {
-                await CallbackOnSubmitAsync(cp, CurrentEncoding, this);
-            }
-        }
-        finally
+        if (CallbackOnSubmitAsync is not null)
         {
-            // Return rented buffer to pool
-            if (rentedBuffer != null)
-            {
-                ArrayPool<byte>.Shared.Return(rentedBuffer);
-            }
+            await CallbackOnSubmitAsync(cp, CurrentEncoding, this);
         }
     }
 
