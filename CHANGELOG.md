@@ -1,6 +1,15 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.3.0] - 2026-02-13
+
+### Performance Improvements
+- **GMCP Protocol**: Optimized message parsing using `CollectionsMarshal.AsSpan()` for .NET 5+ to eliminate 2 `ToArray()` allocations per message
+- **MSSP Protocol**: Optimized string encoding operations using `CollectionsMarshal.AsSpan()` to avoid intermediate array allocations
+- **NAWS Protocol**: Replaced `BitConverter.GetBytes()` with `BinaryPrimitives.WriteInt16BigEndian()` and `stackalloc` for explicit big-endian encoding and improved performance on .NET 5+
+- **TelnetStandardInterpreter**: Simplified `WriteToOutput()` method by removing unnecessary ArrayPool pattern
+- **Documentation**: Added inline comments explaining design decisions for performance-critical code paths
+
 ## [2.0.0] - 2026-01-19
 
 ### Added

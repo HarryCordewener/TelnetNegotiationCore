@@ -53,9 +53,30 @@ public partial class TelnetInterpreter
 	{
 		if(!_WillingToDoNAWS) await default(ValueTask);
 		
+#if NET5_0_OR_GREATER
+		// Use BinaryPrimitives for explicit big-endian encoding (network byte order per RFC 1073)
+		// Note: We use stackalloc for the working buffer then ToArray() for the callback.
+		// While this still allocates, stackalloc provides better locality and the buffer is small (9 bytes).
+		// A future API version could accept ReadOnlySpan<byte> to eliminate the allocation entirely.
+		Span<byte> buffer = stackalloc byte[9];
+		buffer[0] = (byte)Trigger.IAC;
+		buffer[1] = (byte)Trigger.SB;
+		buffer[2] = (byte)Trigger.NAWS;
+		System.Buffers.Binary.BinaryPrimitives.WriteInt16BigEndian(buffer[3..], width);
+		System.Buffers.Binary.BinaryPrimitives.WriteInt16BigEndian(buffer[5..], height);
+		buffer[7] = (byte)Trigger.IAC;
+		buffer[8] = (byte)Trigger.SE;
+		
+		await CallbackNegotiationAsync(buffer.ToArray());
+#else
+		// NOTE: BitConverter.GetBytes() uses system endianness (typically little-endian on modern systems).
+		// This may produce incorrect byte order on big-endian systems, but those are extremely rare.
+		// NAWS protocol requires network byte order (big-endian per RFC 1073).
+		// For proper big-endian support on all platforms, upgrade to .NET 5+ which uses BinaryPrimitives.
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS, 
 			.. BitConverter.GetBytes(width), .. BitConverter.GetBytes(height), 
 			(byte)Trigger.IAC, (byte)Trigger.SE]);
+#endif
 	}
 
 	/// <summary>

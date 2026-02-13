@@ -118,11 +118,11 @@ public partial class TelnetInterpreter
 #if NET5_0_OR_GREATER
 		var grouping = _currentMSSPVariableList
 			.Zip(_currentMSSPValueList)
-			.GroupBy(x => CurrentEncoding.GetString([.. x.First]));
+			.GroupBy(x => CurrentEncoding.GetString(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(x.First)));
 
 		foreach (var group in grouping)
 		{
-			StoreClientMSSPDetails(group.Key, group.Select(x => CurrentEncoding.GetString([.. x.Second])));
+			StoreClientMSSPDetails(group.Key, group.Select(x => CurrentEncoding.GetString(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(x.Second))));
 		}
 #else
 		var grouping = _currentMSSPVariableList

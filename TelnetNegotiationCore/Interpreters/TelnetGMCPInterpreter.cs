@@ -95,7 +95,9 @@ public partial class TelnetInterpreter
 			return;
 		}
 
-		var space = CurrentEncoding.GetBytes(" ").First();
+		const byte space = (byte)' ';  // Literal instead of GetBytes(" ").First()
+		// Note: Space (0x20) is the same across ASCII, UTF-8, and most encodings, but we assume
+		// GMCP uses ASCII-compatible encoding as per the protocol specification
 		var firstSpace = gmcpBytes.FindIndex(x => x == space);
 		
 		if (firstSpace < 0)
@@ -104,11 +106,14 @@ public partial class TelnetInterpreter
 			return;
 		}
 
+#if NET5_0_OR_GREATER
+		// Use CollectionsMarshal.AsSpan with slicing for zero-copy access
+		var gmcpSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(gmcpBytes);
+		var package = CurrentEncoding.GetString(gmcpSpan[..firstSpace]);
+#else
 		var packageBytes = gmcpBytes.Take(firstSpace).ToArray();
-		var rest = gmcpBytes.Skip(firstSpace + 1).ToArray();
-		
-		// TODO: Consideration: a version of this that sends back a Dynamic or other similar object.
 		var package = CurrentEncoding.GetString(packageBytes);
+#endif
 
 		if(package == "MSDP")
 		{
@@ -116,6 +121,10 @@ public partial class TelnetInterpreter
 			var msdpPlugin = PluginManager?.GetPlugin<Protocols.MSDPProtocol>();
 			if (msdpPlugin != null && msdpPlugin.IsEnabled)
 			{
+#if NET5_0_OR_GREATER
+				// MSDPScan requires byte[] - only allocate when MSDP plugin is enabled
+				var packageBytes = gmcpSpan[..firstSpace].ToArray();
+#endif
 				await msdpPlugin.OnMSDPMessageAsync(this, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(packageBytes, CurrentEncoding)));
 			}
 		}
@@ -125,7 +134,13 @@ public partial class TelnetInterpreter
 			var gmcpPlugin = PluginManager?.GetPlugin<Protocols.GMCPProtocol>();
 			if (gmcpPlugin != null && gmcpPlugin.IsEnabled)
 			{
+#if NET5_0_OR_GREATER
+				var rest = gmcpSpan[(firstSpace + 1)..];
 				await gmcpPlugin.OnGMCPMessageAsync((Package: package, Info: CurrentEncoding.GetString(rest)));
+#else
+				var rest = gmcpBytes.Skip(firstSpace + 1).ToArray();
+				await gmcpPlugin.OnGMCPMessageAsync((Package: package, Info: CurrentEncoding.GetString(rest)));
+#endif
 			}
 		}
 	}
