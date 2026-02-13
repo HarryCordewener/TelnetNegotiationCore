@@ -53,9 +53,24 @@ public partial class TelnetInterpreter
 	{
 		if(!_WillingToDoNAWS) await default(ValueTask);
 		
+#if NET5_0_OR_GREATER
+		// Use BinaryPrimitives for explicit big-endian encoding (network byte order)
+		Span<byte> buffer = stackalloc byte[9];
+		buffer[0] = (byte)Trigger.IAC;
+		buffer[1] = (byte)Trigger.SB;
+		buffer[2] = (byte)Trigger.NAWS;
+		System.Buffers.Binary.BinaryPrimitives.WriteInt16BigEndian(buffer[3..], width);
+		System.Buffers.Binary.BinaryPrimitives.WriteInt16BigEndian(buffer[5..], height);
+		buffer[7] = (byte)Trigger.IAC;
+		buffer[8] = (byte)Trigger.SE;
+		
+		await CallbackNegotiationAsync(buffer.ToArray());
+#else
+		// Fall back to BitConverter for older frameworks (assumes little-endian)
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS, 
 			.. BitConverter.GetBytes(width), .. BitConverter.GetBytes(height), 
 			(byte)Trigger.IAC, (byte)Trigger.SE]);
+#endif
 	}
 
 	/// <summary>
