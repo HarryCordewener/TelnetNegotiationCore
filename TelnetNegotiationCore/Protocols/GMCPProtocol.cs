@@ -249,11 +249,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
             // Call GMCP plugin callback
             if (_onGMCPReceived != null)
             {
-#if NET5_0_OR_GREATER
                 await _onGMCPReceived((Package: package, Info: context.CurrentEncoding.GetString(rest)));
-#else
-                await _onGMCPReceived((Package: package, Info: context.CurrentEncoding.GetString(rest)));
-#endif
             }
         }
     }

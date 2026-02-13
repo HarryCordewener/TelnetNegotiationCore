@@ -66,7 +66,10 @@ public partial class TelnetInterpreter
 		
 		await CallbackNegotiationAsync(buffer.ToArray());
 #else
-		// Fall back to BitConverter for older frameworks (assumes little-endian)
+		// NOTE: BitConverter.GetBytes() uses system endianness (typically little-endian on modern systems).
+		// This may produce incorrect byte order on big-endian systems, but those are extremely rare.
+		// NAWS protocol requires network byte order (big-endian per RFC 1073).
+		// For proper big-endian support on all platforms, upgrade to .NET 5+ which uses BinaryPrimitives.
 		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS, 
 			.. BitConverter.GetBytes(width), .. BitConverter.GetBytes(height), 
 			(byte)Trigger.IAC, (byte)Trigger.SE]);
