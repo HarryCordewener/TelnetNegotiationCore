@@ -1,7 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [2.3.0] - 2026-02-13
 
 ### Performance Improvements
 - **GMCP Protocol**: Optimized message parsing using `CollectionsMarshal.AsSpan()` for .NET 5+ to eliminate 2 `ToArray()` allocations per message
