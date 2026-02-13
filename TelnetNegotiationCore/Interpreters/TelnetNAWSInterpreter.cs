@@ -54,7 +54,10 @@ public partial class TelnetInterpreter
 		if(!_WillingToDoNAWS) await default(ValueTask);
 		
 #if NET5_0_OR_GREATER
-		// Use BinaryPrimitives for explicit big-endian encoding (network byte order)
+		// Use BinaryPrimitives for explicit big-endian encoding (network byte order per RFC 1073)
+		// Note: We use stackalloc for the working buffer then ToArray() for the callback.
+		// While this still allocates, stackalloc provides better locality and the buffer is small (9 bytes).
+		// A future API version could accept ReadOnlySpan<byte> to eliminate the allocation entirely.
 		Span<byte> buffer = stackalloc byte[9];
 		buffer[0] = (byte)Trigger.IAC;
 		buffer[1] = (byte)Trigger.SB;

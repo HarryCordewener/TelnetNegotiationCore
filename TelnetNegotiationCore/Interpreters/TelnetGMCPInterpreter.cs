@@ -96,6 +96,8 @@ public partial class TelnetInterpreter
 		}
 
 		const byte space = (byte)' ';  // Literal instead of GetBytes(" ").First()
+		// Note: Space (0x20) is the same across ASCII, UTF-8, and most encodings, but we assume
+		// GMCP uses ASCII-compatible encoding as per the protocol specification
 		var firstSpace = gmcpBytes.FindIndex(x => x == space);
 		
 		if (firstSpace < 0)
