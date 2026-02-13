@@ -95,7 +95,7 @@ public partial class TelnetInterpreter
 			return;
 		}
 
-		var space = CurrentEncoding.GetBytes(" ").First();
+		const byte space = (byte)' ';  // Literal instead of GetBytes(" ").First()
 		var firstSpace = gmcpBytes.FindIndex(x => x == space);
 		
 		if (firstSpace < 0)
@@ -104,11 +104,17 @@ public partial class TelnetInterpreter
 			return;
 		}
 
+#if NET5_0_OR_GREATER
+		// Use CollectionsMarshal.AsSpan with slicing for zero-copy access
+		var gmcpSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(gmcpBytes);
+		var packageBytes = gmcpSpan[..firstSpace].ToArray();
+		var rest = gmcpSpan[(firstSpace + 1)..].ToArray();
+		var package = CurrentEncoding.GetString(gmcpSpan[..firstSpace]);
+#else
 		var packageBytes = gmcpBytes.Take(firstSpace).ToArray();
 		var rest = gmcpBytes.Skip(firstSpace + 1).ToArray();
-		
-		// TODO: Consideration: a version of this that sends back a Dynamic or other similar object.
 		var package = CurrentEncoding.GetString(packageBytes);
+#endif
 
 		if(package == "MSDP")
 		{
