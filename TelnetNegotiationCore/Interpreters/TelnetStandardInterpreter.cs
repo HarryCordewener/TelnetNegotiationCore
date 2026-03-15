@@ -369,13 +369,6 @@ public partial class TelnetInterpreter
     }
 
     /// <summary>
-    /// Convenience overload — forwards a <c>byte[]</c> to the primary <see cref="WriteToNetworkAsync(ReadOnlyMemory{byte}, CancellationToken)"/>
-    /// overload without copying. Internal call sites that produce <c>byte[]</c> via collection expressions use this path.
-    /// </summary>
-    public ValueTask WriteToNetworkAsync(byte[] data, CancellationToken cancellationToken = default)
-        => WriteToNetworkAsync((ReadOnlyMemory<byte>)data, cancellationToken);
-
-    /// <summary>
     /// Interprets the next byte in an asynchronous way.
     /// Non-blocking - submits byte to processing channel and returns immediately.
     /// </summary>

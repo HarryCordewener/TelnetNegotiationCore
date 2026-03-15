@@ -51,9 +51,8 @@ internal class ProtocolContext : IProtocolContext
 
     /// <inheritdoc />
     public async ValueTask SendNegotiationAsync(ReadOnlyMemory<byte> bytes)
-    {
-        await _interpreter.WriteToNetworkAsync(bytes);
-    }
+      => await _interpreter.WriteToNetworkAsync(bytes);
+    
 
     /// <inheritdoc />
     public ValueTask WriteToBufferAsync(ReadOnlyMemory<byte> data)
