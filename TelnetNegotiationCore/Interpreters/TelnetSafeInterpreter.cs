@@ -44,47 +44,57 @@ public partial class TelnetInterpreter
 
 	/// <summary>
 	/// Internal helper to escape IAC bytes (255) without MemoryStream allocation.
+	/// Uses <see cref="MemoryExtensions.IndexOf"/> for SIMD-accelerated early exit when no IAC bytes
+	/// are present, then builds the output via <see cref="MemoryExtensions.CopyTo"/> block copies
+	/// between each found IAC position instead of copying one byte at a time.
+	/// An <see cref="ArrayPool{T}"/> worst-case buffer is used so no counting pass is needed.
 	/// </summary>
-	private byte[] TelnetSafeBytesInternal(ReadOnlySpan<byte> input)
+	private static byte[] TelnetSafeBytesInternal(ReadOnlySpan<byte> input)
 	{
-		// Count how many 255s we have to determine final size
-#if NET5_0_OR_GREATER
-		// Use MemoryExtensions.Count for optimized SIMD counting (.NET 5+)
-		int count255 = input.Count((byte)255);
-#else
-		// Fallback to manual counting for .NET Core 3.1 and earlier
-		int count255 = 0;
-		foreach (var bt in input)
-		{
-			if (bt == 255) count255++;
-		}
-#endif
-
-		// If no 255s, return a copy of the input
-		if (count255 == 0)
+		// Use IndexOf for early exit - stops at first IAC byte without scanning the whole input
+		if (input.IndexOf((byte)255) < 0)
 		{
 			return input.ToArray();
 		}
 
-		// Allocate the exact size needed
-		var result = new byte[input.Length + count255];
-		int writePos = 0;
-
-		// Copy bytes, duplicating 255s
-		foreach (var bt in input)
+		// Rent a worst-case buffer (every byte could be 0xFF, needing two output bytes each)
+		// so we can build the result in a single pass with no counting step.
+		var pooled = ArrayPool<byte>.Shared.Rent(input.Length * 2);
+		try
 		{
-			if (bt == 255)
-			{
-				result[writePos++] = 255;
-				result[writePos++] = 255;
-			}
-			else
-			{
-				result[writePos++] = bt;
-			}
-		}
+			int writePos = 0;
+			var remaining = input;
 
-		return result;
+			// Walk through the input using IndexOf to locate each IAC byte, copying the spans
+			// between them in bulk via CopyTo instead of iterating one byte at a time.
+			while (!remaining.IsEmpty)
+			{
+				int iacPos = remaining.IndexOf((byte)255);
+				if (iacPos < 0)
+				{
+					// No more IAC bytes - bulk copy the rest and finish
+					remaining.CopyTo(pooled.AsSpan(writePos));
+					writePos += remaining.Length;
+					break;
+				}
+
+				// Bulk copy bytes before this IAC byte
+				remaining[..iacPos].CopyTo(pooled.AsSpan(writePos));
+				writePos += iacPos;
+
+				// Double the IAC byte
+				pooled[writePos++] = 255;
+				pooled[writePos++] = 255;
+
+				remaining = remaining[(iacPos + 1)..];
+			}
+
+			return pooled[..writePos].ToArray();
+		}
+		finally
+		{
+			ArrayPool<byte>.Shared.Return(pooled);
+		}
 	}
 
 	/// <summary>
