@@ -21,11 +21,17 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private static readonly Trigger[] s_allTriggers = TriggerExtensions.AllValues.ToArray();
 	/// <summary>
+	/// The two-byte escaped IAC sequence (0xFF 0xFF) written between segments when escaping.
+	/// Stored as a static array so it can be sliced as a <see cref="ReadOnlySpan{T}"/> and
+	/// copied in a single <c>CopyTo</c> call instead of two individual byte assignments.
+	/// </summary>
+	private static readonly byte[] s_iacEscape = [255, 255];
+	/// <summary>
 	/// Create a byte[] that is safe to send over telnet by repeating 255s. 
 	/// </summary>
 	/// <param name="str">The string intent to be sent across the wire.</param>
 	/// <returns>The new byte[] with 255s duplicated.</returns>
-	public byte[] TelnetSafeString(string str)
+	internal byte[] TelnetSafeString(string str)
 	{
 		var byteSpan = CurrentEncoding.GetBytes(str).AsSpan();
 		return TelnetSafeBytesInternal(byteSpan);
@@ -33,58 +39,97 @@ public partial class TelnetInterpreter
 
 	/// <summary>
 	/// Create a byte[] that is safe to send over telnet by repeating 255s. 
-	/// Only use this function if you do not intend to send any kind of negotiation.
+	/// This is handled automatically by <see cref="SendAsync"/> and <see cref="SendPromptAsync"/>.
 	/// </summary>
 	/// <param name="str">The original bytes intent to be sent.</param>
 	/// <returns>The new byte[] with 255s duplicated.</returns>
-	public byte[] TelnetSafeBytes(byte[] str)
+	internal byte[] TelnetSafeBytes(byte[] str)
 	{
 		return TelnetSafeBytesInternal(str.AsSpan());
 	}
 
 	/// <summary>
 	/// Internal helper to escape IAC bytes (255) without MemoryStream allocation.
+	/// Uses <see cref="MemoryExtensions.IndexOf"/> for an early exit when no IAC bytes are present.
+	/// On .NET 9+, <see cref="MemoryExtensions.Split"/> is enumerated once into a <see cref="List{T}"/>
+	/// of <see cref="Range"/> values. The list length gives the exact count of segments, allowing a
+	/// precise allocation, and then each segment is bulk-copied via <see cref="MemoryExtensions.CopyTo"/>.
+	/// On earlier runtimes (where <c>Split&lt;T&gt;(T)</c> is unavailable) the same
+	/// <see cref="ArrayPool{T}"/> + <c>IndexOf</c> loop with <c>CopyTo</c> block copies is used.
 	/// </summary>
-	private byte[] TelnetSafeBytesInternal(ReadOnlySpan<byte> input)
+	private static byte[] TelnetSafeBytesInternal(ReadOnlySpan<byte> input)
 	{
-		// Count how many 255s we have to determine final size
-#if NET5_0_OR_GREATER
-		// Use MemoryExtensions.Count for optimized SIMD counting (.NET 5+)
-		int count255 = input.Count((byte)255);
-#else
-		// Fallback to manual counting for .NET Core 3.1 and earlier
-		int count255 = 0;
-		foreach (var bt in input)
-		{
-			if (bt == 255) count255++;
-		}
-#endif
-
-		// If no 255s, return a copy of the input
-		if (count255 == 0)
+		// Use IndexOf for early exit - stops at first IAC byte without scanning the whole input
+		if (input.IndexOf((byte)255) < 0)
 		{
 			return input.ToArray();
 		}
 
-		// Allocate the exact size needed
-		var result = new byte[input.Length + count255];
+#if NET9_0_OR_GREATER
+		// Single pass: enumerate the SpanSplitEnumerator once into a List<Range>.
+		// The list length tells us the number of segments, so we can compute the exact output
+		// size (original length + one extra byte per IAC delimiter) for a precise allocation.
+		// SpanSplitEnumerator<T> is a ref struct, so LINQ Select/ToArray cannot be used here.
+		// Capacity hint: assume roughly one IAC per 256 bytes (IAC bytes are rare in practice).
+		var ranges = new List<Range>(capacity: 1 + input.Length / 256);
+		foreach (var range in input.Split((byte)255))
+		{
+			ranges.Add(range);
+		}
+
+		var result = new byte[input.Length + ranges.Count - 1];
 		int writePos = 0;
 
-		// Copy bytes, duplicating 255s
-		foreach (var bt in input)
+		for (int i = 0; i < ranges.Count; i++)
 		{
-			if (bt == 255)
+			if (i > 0)
 			{
-				result[writePos++] = 255;
-				result[writePos++] = 255;
+				s_iacEscape.AsSpan().CopyTo(result.AsSpan(writePos));
+				writePos += 2;
 			}
-			else
-			{
-				result[writePos++] = bt;
-			}
+
+			var segment = input[ranges[i]];
+			segment.CopyTo(result.AsSpan(writePos));
+			writePos += segment.Length;
 		}
 
 		return result;
+#else
+		// Fallback for netstandard2.1 and .NET 8: ArrayPool worst-case buffer + IndexOf loop
+		// with CopyTo block copies. MemoryExtensions.Split<T>(T value) returning
+		// SpanSplitEnumerator<T> was introduced in .NET 9 and has no available polyfill.
+		var pooled = ArrayPool<byte>.Shared.Rent(input.Length * 2);
+		try
+		{
+			int writePos = 0;
+			var remaining = input;
+
+			while (!remaining.IsEmpty)
+			{
+				int iacPos = remaining.IndexOf((byte)255);
+				if (iacPos < 0)
+				{
+					remaining.CopyTo(pooled.AsSpan(writePos));
+					writePos += remaining.Length;
+					break;
+				}
+
+				remaining[..iacPos].CopyTo(pooled.AsSpan(writePos));
+				writePos += iacPos;
+
+				s_iacEscape.AsSpan().CopyTo(pooled.AsSpan(writePos));
+				writePos += 2;
+
+				remaining = remaining[(iacPos + 1)..];
+			}
+
+			return pooled[..writePos].ToArray();
+		}
+		finally
+		{
+			ArrayPool<byte>.Shared.Return(pooled);
+		}
+#endif
 	}
 
 	/// <summary>
@@ -129,7 +174,7 @@ public partial class TelnetInterpreter
 						.OnEntryFromAsync(trigger, async () =>
 						{
 							_logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
-							await WriteToNetworkAsync([(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger]);
+							await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger]);
 						});
 				}
 				else if (state is State.Willing)
@@ -138,7 +183,7 @@ public partial class TelnetInterpreter
 						.OnEntryFromAsync(trigger, async () =>
 						{
 							_logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Don't send {trigger}.");
-							await WriteToNetworkAsync([(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger]);
+							await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger]);
 						});
 				}
 			}

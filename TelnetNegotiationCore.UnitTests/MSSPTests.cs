@@ -38,9 +38,9 @@ public class MSSPTests : BaseTest
 
 		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
-		ValueTask WriteBackToNegotiate(byte[] arg1)
+		ValueTask WriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
 		{
-			negotiationOutput = arg1;
+			negotiationOutput = arg1.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -86,11 +86,11 @@ public class MSSPTests : BaseTest
 
 		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
-		ValueTask WriteBackToNegotiate(byte[] arg1)
+		ValueTask WriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
 		{
 			lock (negotiationOutputs)
 			{
-				negotiationOutputs.Add(arg1);
+				negotiationOutputs.Add(arg1.ToArray());
 			}
 			return ValueTask.CompletedTask;
 		}
@@ -197,9 +197,9 @@ public class MSSPTests : BaseTest
 
 		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
-		ValueTask WriteBackToNegotiate(byte[] arg1)
+		ValueTask WriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
 		{
-			negotiationOutput = arg1;
+			negotiationOutput = arg1.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -262,9 +262,9 @@ public class MSSPTests : BaseTest
 
 		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
-		ValueTask WriteBackToNegotiate(byte[] arg1)
+		ValueTask WriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
 		{
-			negotiationOutput = arg1;
+			negotiationOutput = arg1.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -311,9 +311,9 @@ public class MSSPTests : BaseTest
 
 		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
-		ValueTask WriteBackToNegotiate(byte[] arg1)
+		ValueTask WriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
 		{
-			negotiationOutput = arg1;
+			negotiationOutput = arg1.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -437,9 +437,9 @@ public class MSSPTests : BaseTest
 
 		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
-		ValueTask WriteBackToNegotiate(byte[] arg1)
+		ValueTask WriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
 		{
-			negotiationOutput = arg1;
+			negotiationOutput = arg1.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -556,9 +556,9 @@ public class MSSPTests : BaseTest
 
 		ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
-		ValueTask WriteBackToNegotiate(byte[] arg1)
+		ValueTask WriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
 		{
-			negotiationOutput = arg1;
+			negotiationOutput = arg1.ToArray();
 			return ValueTask.CompletedTask;
 		}
 

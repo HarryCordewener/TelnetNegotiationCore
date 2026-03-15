@@ -22,9 +22,9 @@ public class EORTests : BaseTest
 		byte[] negotiationOutput = null;
 
 		// Local callbacks
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -56,9 +56,9 @@ public class EORTests : BaseTest
 		byte[] negotiationOutput = null;
 
 		// Local callbacks
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -91,9 +91,9 @@ public class EORTests : BaseTest
 		byte[] negotiationOutput = null;
 
 		// Local callbacks
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -126,9 +126,9 @@ public class EORTests : BaseTest
 		byte[] negotiationOutput = null;
 
 		// Local callbacks
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -160,9 +160,9 @@ public class EORTests : BaseTest
 		byte[] negotiationOutput = null;
 
 		// Local callbacks
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -194,9 +194,9 @@ public class EORTests : BaseTest
 		bool promptReceived = false;
 
 		// Local callbacks
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -239,9 +239,9 @@ public class EORTests : BaseTest
 		byte[] negotiationOutput = null;
 
 		// Local callbacks
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -284,9 +284,9 @@ public class EORTests : BaseTest
 		byte[] negotiationOutput = null;
 
 		// Local callbacks
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -326,9 +326,9 @@ public class EORTests : BaseTest
 		bool promptReceived = false;
 
 		// Local callbacks
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -375,9 +375,9 @@ public class EORTests : BaseTest
 		bool promptReceived = false;
 
 		// Local callbacks
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 

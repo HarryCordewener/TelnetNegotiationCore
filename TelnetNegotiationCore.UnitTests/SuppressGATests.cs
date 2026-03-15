@@ -20,9 +20,9 @@ public class SuppressGATests : BaseTest
 		// Arrange
 		byte[] negotiationOutput = null;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -50,9 +50,9 @@ public class SuppressGATests : BaseTest
 		// Arrange
 		byte[] negotiationOutput = null;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -82,9 +82,9 @@ public class SuppressGATests : BaseTest
 		// Arrange
 		byte[] negotiationOutput = null;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -112,9 +112,9 @@ public class SuppressGATests : BaseTest
 		// Arrange
 		byte[] negotiationOutput = null;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -143,9 +143,9 @@ public class SuppressGATests : BaseTest
 		// Arrange
 		byte[] negotiationOutput = null;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -172,9 +172,9 @@ public class SuppressGATests : BaseTest
 		// Arrange
 		byte[] negotiationOutput = null;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -202,9 +202,9 @@ public class SuppressGATests : BaseTest
 		// Arrange
 		byte[] negotiationOutput = null;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -234,9 +234,9 @@ public class SuppressGATests : BaseTest
 		// Arrange
 		byte[] negotiationOutput = null;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -266,9 +266,9 @@ public class SuppressGATests : BaseTest
 		// Arrange
 		byte[] negotiationOutput = null;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -297,9 +297,9 @@ public class SuppressGATests : BaseTest
 		// Arrange
 		byte[] negotiationOutput = null;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 

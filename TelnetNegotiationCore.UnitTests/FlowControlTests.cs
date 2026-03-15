@@ -19,9 +19,9 @@ public class FlowControlTests : BaseTest
         byte[] negotiationOutput = null;
         bool? flowControlStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -63,9 +63,9 @@ public class FlowControlTests : BaseTest
     {
         byte[] negotiationOutput = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -99,9 +99,9 @@ public class FlowControlTests : BaseTest
         byte[] negotiationOutput = null;
         bool? flowControlStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -148,9 +148,9 @@ public class FlowControlTests : BaseTest
     {
         byte[] negotiationOutput = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -184,9 +184,9 @@ public class FlowControlTests : BaseTest
         byte[] negotiationOutput = null;
         bool? flowControlStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -238,9 +238,9 @@ public class FlowControlTests : BaseTest
         byte[] negotiationOutput = null;
         bool? flowControlStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -299,9 +299,9 @@ public class FlowControlTests : BaseTest
         bool? flowControlStateChanged = null;
         FlowControlProtocol.FlowControlRestartMode? restartModeChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -362,9 +362,9 @@ public class FlowControlTests : BaseTest
         bool? flowControlStateChanged = null;
         FlowControlProtocol.FlowControlRestartMode? restartModeChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -423,9 +423,9 @@ public class FlowControlTests : BaseTest
     {
         byte[] negotiationOutput = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -472,9 +472,9 @@ public class FlowControlTests : BaseTest
     {
         byte[] negotiationOutput = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -521,9 +521,9 @@ public class FlowControlTests : BaseTest
     {
         byte[] negotiationOutput = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -570,9 +570,9 @@ public class FlowControlTests : BaseTest
     {
         byte[] negotiationOutput = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -621,9 +621,9 @@ public class FlowControlTests : BaseTest
         bool? flowControlStateChanged = null;
         FlowControlProtocol.FlowControlRestartMode? restartModeChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -816,9 +816,9 @@ public class FlowControlTests : BaseTest
         byte[] negotiationOutput = null;
         bool? flowControlStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -881,9 +881,9 @@ public class FlowControlTests : BaseTest
         bool? flowControlStateChanged = null;
         FlowControlProtocol.FlowControlRestartMode? restartModeChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 

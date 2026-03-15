@@ -19,9 +19,9 @@ public class MCCPTests : BaseTest
 	private int _compressionVersion;
 	private bool _compressionEnabled;
 
-	private ValueTask WriteBackToNegotiate(byte[] arg1)
+	private ValueTask WriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
 	{
-		_negotiationOutput = arg1;
+		_negotiationOutput = arg1.ToArray();
 		return ValueTask.CompletedTask;
 	}
 

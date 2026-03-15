@@ -55,9 +55,9 @@ public partial class TelnetInterpreter
 		
 #if NET5_0_OR_GREATER
 		// Use BinaryPrimitives for explicit big-endian encoding (network byte order per RFC 1073)
-		// Note: We use stackalloc for the working buffer then ToArray() for the callback.
-		// While this still allocates, stackalloc provides better locality and the buffer is small (9 bytes).
-		// A future API version could accept ReadOnlySpan<byte> to eliminate the allocation entirely.
+		// Note: We use stackalloc for the working buffer then ToArray() for ReadOnlyMemory<byte>.
+		// Although ReadOnlyMemory<byte> can wrap stack memory via MemoryMarshal, this method is async
+		// so the stackalloc'd buffer cannot safely escape the current stack frame via an async state machine.
 		Span<byte> buffer = stackalloc byte[9];
 		buffer[0] = (byte)Trigger.IAC;
 		buffer[1] = (byte)Trigger.SB;
@@ -73,7 +73,7 @@ public partial class TelnetInterpreter
 		// This may produce incorrect byte order on big-endian systems, but those are extremely rare.
 		// NAWS protocol requires network byte order (big-endian per RFC 1073).
 		// For proper big-endian support on all platforms, upgrade to .NET 5+ which uses BinaryPrimitives.
-		await WriteToNetworkAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS, 
+		await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS, 
 			.. BitConverter.GetBytes(width), .. BitConverter.GetBytes(height), 
 			(byte)Trigger.IAC, (byte)Trigger.SE]);
 #endif
@@ -88,7 +88,7 @@ public partial class TelnetInterpreter
 		{
 			_logger.LogDebug("Connection: {ConnectionState}", "Requesting NAWS details from Client");
 
-			await WriteToNetworkAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS]);
+			await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS]);
 			_WillingToDoNAWS = true;
 		}
 	}

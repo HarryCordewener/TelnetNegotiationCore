@@ -25,9 +25,9 @@ public class NewEnvironIntegrationTests : BaseTest
         int receivedHeight = 0;
         int receivedWidth = 0;
 
-        ValueTask ServerWriteBackToNegotiate(byte[] arg1)
+        ValueTask ServerWriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
         {
-            negotiationOutput = arg1;
+            negotiationOutput = arg1.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -104,9 +104,9 @@ public class NewEnvironIntegrationTests : BaseTest
         byte[] negotiationOutput = null;
         Dictionary<string, string> receivedEnvVars = null;
 
-        ValueTask ServerWriteBackToNegotiate(byte[] arg1)
+        ValueTask ServerWriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
         {
-            negotiationOutput = arg1;
+            negotiationOutput = arg1.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -245,9 +245,9 @@ public class NewEnvironIntegrationTests : BaseTest
     {
         byte[] negotiationOutput = null;
 
-        ValueTask ServerWriteBackToNegotiate(byte[] arg1)
+        ValueTask ServerWriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
         {
-            negotiationOutput = arg1;
+            negotiationOutput = arg1.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -280,9 +280,9 @@ public class NewEnvironIntegrationTests : BaseTest
         byte[] negotiationOutput = null;
         Dictionary<string, string> receivedEnvVars = null;
 
-        ValueTask ServerWriteBackToNegotiate(byte[] arg1)
+        ValueTask ServerWriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
         {
-            negotiationOutput = arg1;
+            negotiationOutput = arg1.ToArray();
             return ValueTask.CompletedTask;
         }
 

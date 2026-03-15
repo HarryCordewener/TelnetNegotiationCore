@@ -123,7 +123,7 @@ public partial class TelnetInterpreter
     /// Callback to the output stream directly for negotiation.
     /// Internal use - negotiation messages are queued through _negotiationChannel.
     /// </summary>
-    public required Func<byte[], ValueTask> CallbackNegotiationAsync { get; init; }
+    public required Func<ReadOnlyMemory<byte>, ValueTask> CallbackNegotiationAsync { get; init; }
 
     /// <summary>
     /// Callback per byte.
@@ -353,7 +353,7 @@ public partial class TelnetInterpreter
     /// <param name="data">The bytes to send.</param>
     /// <param name="cancellationToken">Token to cancel the wait for the write lock.</param>
     /// <returns>A ValueTask representing the asynchronous operation.</returns>
-    public async ValueTask WriteToNetworkAsync(byte[] data, CancellationToken cancellationToken = default)
+    public async ValueTask WriteToNetworkAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
         if (CallbackNegotiationAsync is null) return;
 

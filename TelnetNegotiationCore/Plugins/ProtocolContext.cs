@@ -51,12 +51,8 @@ internal class ProtocolContext : IProtocolContext
 
     /// <inheritdoc />
     public async ValueTask SendNegotiationAsync(ReadOnlyMemory<byte> bytes)
-    {
-        // Note: ToArray() is necessary here because WriteToNetworkAsync signature requires byte[]
-        // Changing this would be a breaking API change. The allocation is acceptable since
-        // negotiation messages are typically small (2-10 bytes) and infrequent.
-        await _interpreter.WriteToNetworkAsync(bytes.ToArray());
-    }
+      => await _interpreter.WriteToNetworkAsync(bytes);
+    
 
     /// <inheritdoc />
     public ValueTask WriteToBufferAsync(ReadOnlyMemory<byte> data)

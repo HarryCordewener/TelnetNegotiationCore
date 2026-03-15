@@ -15,7 +15,7 @@ namespace TelnetNegotiationCore.UnitTests;
 public class PluginDependencyTests : BaseTest
 {
     private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
-    private ValueTask WriteBackToNegotiate(byte[] arg1) => ValueTask.CompletedTask;
+    private ValueTask WriteBackToNegotiate(ReadOnlyMemory<byte> arg1) => ValueTask.CompletedTask;
 
     /// <summary>
     /// Test plugin with dependencies for testing
