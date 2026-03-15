@@ -94,7 +94,7 @@ public partial class TelnetInterpreter
 	private async ValueTask WillingEORAsync()
 	{
 		_logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to EOR!");
-		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR]);
+		await WriteToNetworkAsync([(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR]);
 	}
 
 	/// <summary>
@@ -114,7 +114,7 @@ public partial class TelnetInterpreter
 	{
 		_logger.LogDebug("Connection: {ConnectionState}", "Server supports End of Record.");
 		_doEOR = true;
-		await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR]);
+		await WriteToNetworkAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR]);
 	}
 
 	/// <summary>
@@ -125,18 +125,18 @@ public partial class TelnetInterpreter
 	/// <returns>A completed ValueTask</returns>
 	public async ValueTask SendPromptAsync(byte[] send)
 	{
-		await CallbackNegotiationAsync(TelnetSafeBytesInternal(send));
+		var safeSend = TelnetSafeBytesInternal(send);
 		if (_doEOR is null or false)
 		{
-			await CallbackNegotiationAsync(CurrentEncoding.GetBytes(Environment.NewLine));
+			await WriteToNetworkAsync([.. safeSend, .. CurrentEncoding.GetBytes(Environment.NewLine)]);
 		}
 		else if(_doEOR is true)
 		{
-			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.EOR]);
+			await WriteToNetworkAsync([.. safeSend, (byte)Trigger.IAC, (byte)Trigger.EOR]);
 		}
 		else if (_doGA is not null)
 		{
-			await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.GA]);
+			await WriteToNetworkAsync([.. safeSend, (byte)Trigger.IAC, (byte)Trigger.GA]);
 		}
 	}
 
@@ -148,7 +148,6 @@ public partial class TelnetInterpreter
 	/// <returns>A completed ValueTask</returns>
 	public async ValueTask SendAsync(byte[] send)
 	{
-		await CallbackNegotiationAsync(TelnetSafeBytesInternal(send));
-		await CallbackNegotiationAsync(CurrentEncoding.GetBytes(Environment.NewLine));
+		await WriteToNetworkAsync([.. TelnetSafeBytesInternal(send), .. CurrentEncoding.GetBytes(Environment.NewLine)]);
 	}
 }
