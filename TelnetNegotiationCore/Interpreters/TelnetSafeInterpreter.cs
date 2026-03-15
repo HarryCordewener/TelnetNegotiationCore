@@ -129,7 +129,7 @@ public partial class TelnetInterpreter
 						.OnEntryFromAsync(trigger, async () =>
 						{
 							_logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
-							await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger]);
+							await WriteToNetworkAsync([(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger]);
 						});
 				}
 				else if (state is State.Willing)
@@ -138,7 +138,7 @@ public partial class TelnetInterpreter
 						.OnEntryFromAsync(trigger, async () =>
 						{
 							_logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Don't send {trigger}.");
-							await CallbackNegotiationAsync([(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger]);
+							await WriteToNetworkAsync([(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger]);
 						});
 				}
 			}

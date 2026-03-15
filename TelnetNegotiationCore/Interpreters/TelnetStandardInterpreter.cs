@@ -77,6 +77,12 @@ public partial class TelnetInterpreter
     });
 
     /// <summary>
+    /// SemaphoreSlim used to serialize all writes to the output stream,
+    /// preventing concurrent write conflicts on the dual-channel telnet pipe.
+    /// </summary>
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
+
+    /// <summary>
     /// Cancellation token source for graceful shutdown.
     /// </summary>
     private readonly CancellationTokenSource _processingCts = new();
@@ -340,6 +346,29 @@ public partial class TelnetInterpreter
     }
 
     /// <summary>
+    /// Writes data to the output stream in a thread-safe manner using an internal write lock.
+    /// All outgoing telnet data (negotiation, user data, prompts) should go through this method
+    /// to prevent concurrent write conflicts on the dual-channel telnet pipe.
+    /// </summary>
+    /// <param name="data">The bytes to send.</param>
+    /// <param name="cancellationToken">Token to cancel the wait for the write lock.</param>
+    /// <returns>A ValueTask representing the asynchronous operation.</returns>
+    public async ValueTask WriteToNetworkAsync(byte[] data, CancellationToken cancellationToken = default)
+    {
+        if (CallbackNegotiationAsync is null) return;
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            await CallbackNegotiationAsync(data);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    /// <summary>
     /// Interprets the next byte in an asynchronous way.
     /// Non-blocking - submits byte to processing channel and returns immediately.
     /// </summary>
@@ -452,5 +481,6 @@ public partial class TelnetInterpreter
         }
         
         _processingCts.Dispose();
+        _writeLock.Dispose();
     }
 }

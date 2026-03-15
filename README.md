@@ -8,6 +8,8 @@ This is done with an eye on MUDs at this time, but may improve to support more t
 
 The library now features a modern plugin-based architecture with System.Threading.Channels for high-performance async processing, making it suitable for production use with proper backpressure handling and DOS protection.
 
+All outgoing writes — negotiation responses, `SendAsync`, `SendPromptAsync`, `SendGMCPCommand`, etc. — are serialized internally via a `SemaphoreSlim` write lock. This means callers do **not** need to add their own external locking around concurrent writes on a telnet connection.
+
 ## State
 This library is in a stable state. The legacy API remains fully supported for backward compatibility, while a new plugin-based architecture is available for modern applications.
 
@@ -1190,6 +1192,9 @@ while (true)
 ### Server
 A documented example exists in the [TestServer Project](TelnetNegotiationCore.TestServer/KestrelMockServer.cs). 
 This uses a Kestrel server to make the TCP handling easier.
+
+> **Thread safety**: The library's `OnNegotiation` callback is always invoked under an internal write lock, so `WriteToOutputStreamAsync` will never be called concurrently by the library. You do **not** need an external `SemaphoreSlim` or similar guard around it.
+
 ```csharp
 public class KestrelMockServer : ConnectionHandler
 {
@@ -1201,6 +1206,8 @@ public class KestrelMockServer : ConnectionHandler
     _logger = logger;
   }
 
+  // This is the low-level transport write. The library serializes all calls to it,
+  // so no external locking is required.
   private async ValueTask WriteToOutputStreamAsync(byte[] arg, PipeWriter writer)
   {
     try
@@ -1239,7 +1246,7 @@ public class KestrelMockServer : ConnectionHandler
     var str = encoding.GetString(writeback);
     if (str.StartsWith("echo"))
     {
-      await telnet.SendAsync(encoding.GetBytes($"We heard: {str}" + Environment.NewLine));
+      await telnet.SendAsync(encoding.GetBytes($"We heard: {str}"));
     }
     Console.WriteLine(encoding.GetString(writeback));
   }

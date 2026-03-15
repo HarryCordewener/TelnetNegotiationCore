@@ -66,7 +66,7 @@ public class MSDPServerHandler(MSDPServerModel model)
     private async ValueTask HandleListRequestAsync(TelnetInterpreter telnet, string item) =>
         await ExecuteOnAsync(item, async (val) =>
             await (Data.Lists.TryGetValue(val, out var value)
-                ? telnet.CallbackNegotiationAsync(
+                ? telnet.WriteToNetworkAsync(
                     MSDPLibrary.Report(JsonSerializer.Serialize(value()),
                         telnet.CurrentEncoding))
                 : default(ValueTask)));
@@ -104,7 +104,7 @@ public class MSDPServerHandler(MSDPServerModel model)
         {
             var found = Data.Sendable_Variables().TryGetValue(var, out var val);
             var jsonString = $"{{{var}:{(found ? val : "null")}}}";
-            await telnet.CallbackNegotiationAsync(MSDPLibrary.Report(jsonString, telnet.CurrentEncoding));
+            await telnet.WriteToNetworkAsync(MSDPLibrary.Report(jsonString, telnet.CurrentEncoding));
         });
 
     /// <summary>

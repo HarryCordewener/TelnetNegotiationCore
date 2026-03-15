@@ -60,7 +60,7 @@ public partial class TelnetInterpreter
 	/// <returns>A ValueTask representing the asynchronous operation.</returns>
 	public async ValueTask SendGMCPCommand(byte[] package, byte[] command)
 	{
-		await CallbackNegotiationAsync(
+		await WriteToNetworkAsync(
 			[
 				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.GMCP,
 				.. package,
