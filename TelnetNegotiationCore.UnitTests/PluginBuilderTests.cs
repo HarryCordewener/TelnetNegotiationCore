@@ -20,9 +20,9 @@ public class PluginBuilderTests : BaseTest
 
     private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
-    private ValueTask WriteBackToNegotiate(byte[] arg1)
+    private ValueTask WriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
     {
-        _negotiationOutput = arg1;
+        _negotiationOutput = arg1.ToArray();
         return ValueTask.CompletedTask;
     }
 

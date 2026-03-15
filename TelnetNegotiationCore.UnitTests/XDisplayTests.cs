@@ -18,9 +18,9 @@ public class XDisplayTests : BaseTest
         // Arrange - Create local variables
         byte[] negotiationOutput = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
@@ -47,9 +47,9 @@ public class XDisplayTests : BaseTest
         // Arrange - Create local variables
         byte[] negotiationOutput = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
@@ -96,9 +96,9 @@ public class XDisplayTests : BaseTest
         byte[] negotiationOutput = null;
         string receivedDisplayLocation = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
@@ -144,9 +144,9 @@ public class XDisplayTests : BaseTest
         // Arrange - Create local variables
         byte[] negotiationOutput = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
@@ -275,9 +275,9 @@ public class XDisplayTests : BaseTest
         // Arrange - Create local variables
         byte[] negotiationOutput = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         

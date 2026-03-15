@@ -1,5 +1,6 @@
 ﻿using TUnit.Core;
 using Stateless.Graph;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -60,7 +61,7 @@ public class CreateDotGraph : BaseTest
             dotGraph);
     }
 
-    private async ValueTask WriteToOutputStream(byte[] arg) => await ValueTask.CompletedTask;
+    private async ValueTask WriteToOutputStream(ReadOnlyMemory<byte> arg) => await ValueTask.CompletedTask;
 
     private async ValueTask SignalNAWS(int arg1, int arg2) => await ValueTask.CompletedTask;
 

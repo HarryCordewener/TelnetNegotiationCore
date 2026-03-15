@@ -18,9 +18,9 @@ public class EnvironTests : BaseTest
     {
         byte[] negotiationOutput = null;
 
-        ValueTask ServerWriteBackToNegotiate(byte[] arg1)
+        ValueTask ServerWriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
         {
-            negotiationOutput = arg1;
+            negotiationOutput = arg1.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -60,9 +60,9 @@ public class EnvironTests : BaseTest
     {
         byte[] negotiationOutput = null;
 
-        ValueTask ClientWriteBackToNegotiate(byte[] arg1)
+        ValueTask ClientWriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
         {
-            negotiationOutput = arg1;
+            negotiationOutput = arg1.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -158,9 +158,9 @@ public class EnvironTests : BaseTest
     {
         byte[] negotiationOutput = null;
 
-        ValueTask ServerWriteBackToNegotiate(byte[] arg1)
+        ValueTask ServerWriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
         {
-            negotiationOutput = arg1;
+            negotiationOutput = arg1.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -337,9 +337,9 @@ public class EnvironTests : BaseTest
     {
         byte[] negotiationOutput = null;
 
-        ValueTask ServerWriteBackToNegotiate(byte[] arg1)
+        ValueTask ServerWriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
         {
-            negotiationOutput = arg1;
+            negotiationOutput = arg1.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -377,9 +377,9 @@ public class EnvironTests : BaseTest
         Dictionary<string, string> receivedNewEnvVars = null;
         Dictionary<string, string> receivedNewUserVars = null;
 
-        ValueTask ServerWriteBackToNegotiate(byte[] arg1)
+        ValueTask ServerWriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
         {
-            negotiationOutput = arg1;
+            negotiationOutput = arg1.ToArray();
             return ValueTask.CompletedTask;
         }
 

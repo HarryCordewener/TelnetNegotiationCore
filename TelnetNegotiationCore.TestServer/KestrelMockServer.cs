@@ -24,11 +24,11 @@ namespace TelnetNegotiationCore.TestServer
 			_logger = logger;
 		}
 
-		private async ValueTask WriteToOutputStreamAsync(byte[] arg, PipeWriter writer)
+		private async ValueTask WriteToOutputStreamAsync(ReadOnlyMemory<byte> arg, PipeWriter writer)
 		{
 			try
 			{
-				await writer.WriteAsync(new ReadOnlyMemory<byte>(arg), CancellationToken.None);
+				await writer.WriteAsync(arg, CancellationToken.None);
 			}
 			catch (ObjectDisposedException ode)
 			{

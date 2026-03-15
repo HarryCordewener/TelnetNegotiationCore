@@ -18,9 +18,9 @@ public class AuthenticationTests : BaseTest
         // Arrange - Create local variable for capturing output
         byte[] negotiationOutput = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
@@ -49,9 +49,9 @@ public class AuthenticationTests : BaseTest
         // Arrange - Create local variable for capturing output
         byte[] negotiationOutput = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
@@ -88,9 +88,9 @@ public class AuthenticationTests : BaseTest
         // Arrange - Create local variables
         byte[] negotiationOutput = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
@@ -130,9 +130,9 @@ public class AuthenticationTests : BaseTest
         // Arrange - Create local variables
         byte[] negotiationOutput = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
@@ -182,9 +182,9 @@ public class AuthenticationTests : BaseTest
         // Arrange - Create local variables
         byte[] negotiationOutput = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
@@ -219,9 +219,9 @@ public class AuthenticationTests : BaseTest
         // Arrange - Create local variables
         byte[] negotiationOutput = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
@@ -257,15 +257,15 @@ public class AuthenticationTests : BaseTest
         byte[] serverNegOutput = null;
         byte[] clientNegOutput = null;
         
-        ValueTask CaptureServerNegotiation(byte[] data)
+        ValueTask CaptureServerNegotiation(ReadOnlyMemory<byte> data)
         {
-            serverNegOutput = data;
+            serverNegOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
-        ValueTask CaptureClientNegotiation(byte[] data)
+        ValueTask CaptureClientNegotiation(ReadOnlyMemory<byte> data)
         {
-            clientNegOutput = data;
+            clientNegOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
@@ -326,9 +326,9 @@ public class AuthenticationTests : BaseTest
         var authTypesCalled = false;
         byte[] negotiationOutput = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
@@ -381,9 +381,9 @@ public class AuthenticationTests : BaseTest
         byte[] receivedRequest = null;
         byte[] negotiationOutput = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         
@@ -446,9 +446,9 @@ public class AuthenticationTests : BaseTest
         byte[] receivedAuthData = null;
         byte[] negotiationOutput = null;
         
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
         

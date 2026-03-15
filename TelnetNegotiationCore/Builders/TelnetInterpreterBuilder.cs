@@ -16,7 +16,7 @@ public class TelnetInterpreterBuilder
     private TelnetInterpreter.TelnetMode _mode = TelnetInterpreter.TelnetMode.Error;
     private ILogger? _logger;
     private Func<byte[], System.Text.Encoding, TelnetInterpreter, ValueTask>? _onSubmit;
-    private Func<byte[], ValueTask>? _onNegotiation;
+    private Func<ReadOnlyMemory<byte>, ValueTask>? _onNegotiation;
     private int? _maxBufferSize;
     private readonly List<ITelnetProtocolPlugin> _plugins = new();
     private ProtocolPluginManager? _pluginManager;
@@ -63,7 +63,7 @@ public class TelnetInterpreterBuilder
     /// </summary>
     /// <param name="callback">The callback to invoke for negotiation</param>
     /// <returns>This builder for chaining</returns>
-    public TelnetInterpreterBuilder OnNegotiation(Func<byte[], ValueTask> callback)
+    public TelnetInterpreterBuilder OnNegotiation(Func<ReadOnlyMemory<byte>, ValueTask> callback)
     {
         _onNegotiation = callback;
         return this;

@@ -19,9 +19,9 @@ public class EchoTests : BaseTest
         byte[] negotiationOutput = null;
         bool? echoStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -61,9 +61,9 @@ public class EchoTests : BaseTest
         byte[] negotiationOutput = null;
         bool? echoStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -106,9 +106,9 @@ public class EchoTests : BaseTest
         byte[] negotiationOutput = null;
         bool? echoStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -148,9 +148,9 @@ public class EchoTests : BaseTest
         byte[] negotiationOutput = null;
         bool? echoStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -193,9 +193,9 @@ public class EchoTests : BaseTest
         byte[] negotiationOutput = null;
         bool? echoStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -234,9 +234,9 @@ public class EchoTests : BaseTest
         byte[] negotiationOutput = null;
         bool? echoStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -274,9 +274,9 @@ public class EchoTests : BaseTest
         byte[] negotiationOutput = null;
         bool? echoStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -317,9 +317,9 @@ public class EchoTests : BaseTest
         byte[] negotiationOutput = null;
         bool? echoStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -358,9 +358,9 @@ public class EchoTests : BaseTest
         byte[] negotiationOutput = null;
         bool? echoStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -401,9 +401,9 @@ public class EchoTests : BaseTest
         byte[] negotiationOutput = null;
         bool? echoStateChanged = null;
 
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -530,13 +530,14 @@ public class EchoTests : BaseTest
         // Arrange - Create local variables
         var echoedBytes = new System.Collections.Generic.List<byte>();
         
-        ValueTask CaptureNegotiation(byte[] bytes)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> bytes)
         {
             // Capture echoed bytes (but not negotiation sequences)
-            logger.LogInformation("CAPTURE: Received {Length} bytes: {Bytes}", bytes.Length, string.Join(", ", bytes));
-            if (bytes.Length == 1)
+            var span = bytes.Span;
+            logger.LogInformation("CAPTURE: Received {Length} bytes: {Bytes}", span.Length, string.Join(", ", span.ToArray()));
+            if (span.Length == 1)
             {
-                echoedBytes.Add(bytes[0]);
+                echoedBytes.Add(span[0]);
             }
             return ValueTask.CompletedTask;
         }
@@ -576,12 +577,12 @@ public class EchoTests : BaseTest
         // Arrange - Create local variables
         var echoedBytes = new System.Collections.Generic.List<byte>();
         
-        ValueTask CaptureNegotiation(byte[] bytes)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> bytes)
         {
             // Capture echoed bytes
             if (bytes.Length == 1)
             {
-                echoedBytes.Add(bytes[0]);
+                echoedBytes.Add(bytes.Span[0]);
             }
             return ValueTask.CompletedTask;
         }

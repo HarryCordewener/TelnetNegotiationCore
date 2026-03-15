@@ -19,9 +19,9 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -57,9 +57,9 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -91,9 +91,9 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -128,9 +128,9 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -163,9 +163,9 @@ public class LineModeTests : BaseTest
         byte? modeChanged = null;
 
         // Arrange - Local callbacks
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -233,9 +233,9 @@ public class LineModeTests : BaseTest
         byte? modeChanged = null;
 
         // Arrange - Local callbacks
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -302,9 +302,9 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -349,9 +349,9 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -396,9 +396,9 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -443,9 +443,9 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 
@@ -487,9 +487,9 @@ public class LineModeTests : BaseTest
         byte[] negotiationOutput = null;
 
         // Arrange - Local callbacks
-        ValueTask CaptureNegotiation(byte[] data)
+        ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
         {
-            negotiationOutput = data;
+            negotiationOutput = data.ToArray();
             return ValueTask.CompletedTask;
         }
 

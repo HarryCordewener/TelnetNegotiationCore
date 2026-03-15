@@ -25,9 +25,9 @@ public class MCCPProtocolInteractionTests : BaseTest
 		int nawsWidth = 0;
 		bool mccpEnabled = false;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -114,9 +114,9 @@ public class MCCPProtocolInteractionTests : BaseTest
 		int nawsWidth = 0;
 		bool mccpEnabled = false;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -190,9 +190,9 @@ public class MCCPProtocolInteractionTests : BaseTest
 		int nawsWidth = 0;
 		bool mccpEnabled = false;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -287,9 +287,9 @@ public class MCCPProtocolInteractionTests : BaseTest
 		int nawsWidth = 0;
 		bool mccpEnabled = false;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -340,9 +340,9 @@ public class MCCPProtocolInteractionTests : BaseTest
 		int nawsWidth = 0;
 		bool mccpEnabled = false;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 
@@ -398,9 +398,9 @@ public class MCCPProtocolInteractionTests : BaseTest
 		int nawsWidth = 0;
 		bool mccpEnabled = false;
 
-		ValueTask CaptureNegotiation(byte[] data)
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
-			negotiationOutput = data;
+			negotiationOutput = data.ToArray();
 			return ValueTask.CompletedTask;
 		}
 

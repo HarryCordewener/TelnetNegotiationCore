@@ -40,9 +40,9 @@ namespace TelnetNegotiationCore.UnitTests
 		{
 			byte[] negotiationOutput = null;
 			
-			ValueTask CaptureNegotiation(byte[] data)
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 			{
-				negotiationOutput = data;
+				negotiationOutput = data.ToArray();
 				return ValueTask.CompletedTask;
 			}
 			
@@ -79,9 +79,9 @@ namespace TelnetNegotiationCore.UnitTests
 		{
 			byte[] negotiationOutput = null;
 			
-			ValueTask CaptureNegotiation(byte[] data)
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 			{
-				negotiationOutput = data;
+				negotiationOutput = data.ToArray();
 				return ValueTask.CompletedTask;
 			}
 			
@@ -298,9 +298,9 @@ namespace TelnetNegotiationCore.UnitTests
 
 			byte[] negotiationOutput = null;
 			
-			ValueTask CaptureNegotiation(byte[] data)
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 			{
-				negotiationOutput = data;
+				negotiationOutput = data.ToArray();
 				return ValueTask.CompletedTask;
 			}
 
@@ -353,9 +353,9 @@ namespace TelnetNegotiationCore.UnitTests
 				return ValueTask.CompletedTask;
 			}
 
-			ValueTask CaptureNegotiation(byte[] data)
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 			{
-				negotiationOutput = data;
+				negotiationOutput = data.ToArray();
 				return ValueTask.CompletedTask;
 			}
 
@@ -416,9 +416,9 @@ namespace TelnetNegotiationCore.UnitTests
 				return ValueTask.CompletedTask;
 			}
 
-			ValueTask CaptureNegotiation(byte[] data)
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 			{
-				negotiationOutput = data;
+				negotiationOutput = data.ToArray();
 				return ValueTask.CompletedTask;
 			}
 
@@ -491,9 +491,9 @@ namespace TelnetNegotiationCore.UnitTests
 				return ValueTask.CompletedTask;
 			}
 
-			ValueTask CaptureNegotiation(byte[] data)
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 			{
-				negotiationOutput = data;
+				negotiationOutput = data.ToArray();
 				return ValueTask.CompletedTask;
 			}
 
@@ -621,9 +621,9 @@ namespace TelnetNegotiationCore.UnitTests
 			var wasCallbackInvoked = false;
 			byte[] negotiationOutput = null;
 
-			ValueTask CaptureNegotiation(byte[] data)
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 			{
-				negotiationOutput = data;
+				negotiationOutput = data.ToArray();
 				return ValueTask.CompletedTask;
 			}
 
@@ -692,9 +692,9 @@ namespace TelnetNegotiationCore.UnitTests
 		{
 			byte[] negotiationOutput = null;
 
-			ValueTask CaptureNegotiation(byte[] data)
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 			{
-				negotiationOutput = data;
+				negotiationOutput = data.ToArray();
 				return ValueTask.CompletedTask;
 			}
 
@@ -742,9 +742,9 @@ namespace TelnetNegotiationCore.UnitTests
 		{
 			byte[] negotiationOutput = null;
 
-			ValueTask CaptureNegotiation(byte[] data)
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 			{
-				negotiationOutput = data;
+				negotiationOutput = data.ToArray();
 				return ValueTask.CompletedTask;
 			}
 
@@ -802,9 +802,9 @@ namespace TelnetNegotiationCore.UnitTests
 		{
 			byte[] negotiationOutput = null;
 
-			ValueTask CaptureNegotiation(byte[] data)
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 			{
-				negotiationOutput = data;
+				negotiationOutput = data.ToArray();
 				return ValueTask.CompletedTask;
 			}
 
@@ -847,9 +847,9 @@ namespace TelnetNegotiationCore.UnitTests
 		{
 			byte[] negotiationOutput = null;
 
-			ValueTask CaptureNegotiation(byte[] data)
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 			{
-				negotiationOutput = data;
+				negotiationOutput = data.ToArray();
 				return ValueTask.CompletedTask;
 			}
 

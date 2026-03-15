@@ -21,7 +21,7 @@ public class NAWSTests : BaseTest
 		int receivedHeight = 0;
 		int receivedWidth = 0;
 
-		ValueTask CaptureNegotiation(byte[] data) { negotiationOutput = data; return ValueTask.CompletedTask; }
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 		ValueTask CaptureNAWS(int height, int width) 
 		{ 
 			receivedHeight = height; 
@@ -95,7 +95,7 @@ public class NAWSTests : BaseTest
 		int receivedHeight = 0;
 		int receivedWidth = 0;
 
-		ValueTask CaptureNegotiation(byte[] data) { negotiationOutput = data; return ValueTask.CompletedTask; }
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 		ValueTask CaptureNAWS(int height, int width) 
 		{ 
 			receivedHeight = height; 
@@ -177,7 +177,7 @@ public class NAWSTests : BaseTest
 		int receivedHeight = 0;
 		int receivedWidth = 0;
 
-		ValueTask CaptureNegotiation(byte[] data) { negotiationOutput = data; return ValueTask.CompletedTask; }
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 		ValueTask CaptureNAWS(int height, int width) 
 		{ 
 			receivedHeight = height; 
@@ -230,7 +230,7 @@ public class NAWSTests : BaseTest
 		int receivedHeight = 0;
 		int receivedWidth = 0;
 
-		ValueTask CaptureNegotiation(byte[] data) { negotiationOutput = data; return ValueTask.CompletedTask; }
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 		ValueTask CaptureNAWS(int height, int width) 
 		{ 
 			receivedHeight = height; 
@@ -274,7 +274,7 @@ public class NAWSTests : BaseTest
 		int receivedHeight = 0;
 		int receivedWidth = 0;
 
-		ValueTask CaptureNegotiation(byte[] data) { negotiationOutput = data; return ValueTask.CompletedTask; }
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 		ValueTask CaptureNAWS(int height, int width) 
 		{ 
 			receivedHeight = height; 
@@ -318,7 +318,7 @@ public class NAWSTests : BaseTest
 		int receivedHeight = 0;
 		int receivedWidth = 0;
 
-		ValueTask CaptureNegotiation(byte[] data) { negotiationOutput = data; return ValueTask.CompletedTask; }
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 		ValueTask CaptureNAWS(int height, int width) 
 		{ 
 			receivedHeight = height; 
@@ -393,7 +393,7 @@ public class NAWSTests : BaseTest
 		int receivedHeight = 0;
 		int receivedWidth = 0;
 
-		ValueTask CaptureNegotiation(byte[] data) { negotiationOutput = data; return ValueTask.CompletedTask; }
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 		ValueTask CaptureNAWS(int height, int width) 
 		{ 
 			receivedHeight = height; 
@@ -470,7 +470,7 @@ public class NAWSTests : BaseTest
 		int receivedHeight = 0;
 		int receivedWidth = 0;
 
-		ValueTask CaptureNegotiation(byte[] data) { negotiationOutput = data; return ValueTask.CompletedTask; }
+		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 		ValueTask CaptureNAWS(int height, int width) 
 		{ 
 			receivedHeight = height; 
