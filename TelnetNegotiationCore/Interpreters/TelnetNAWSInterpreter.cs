@@ -73,7 +73,7 @@ public partial class TelnetInterpreter
 		// This may produce incorrect byte order on big-endian systems, but those are extremely rare.
 		// NAWS protocol requires network byte order (big-endian per RFC 1073).
 		// For proper big-endian support on all platforms, upgrade to .NET 5+ which uses BinaryPrimitives.
-		await WriteToNetworkAsync([(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS, 
+		await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS, 
 			.. BitConverter.GetBytes(width), .. BitConverter.GetBytes(height), 
 			(byte)Trigger.IAC, (byte)Trigger.SE]);
 #endif
@@ -88,7 +88,7 @@ public partial class TelnetInterpreter
 		{
 			_logger.LogDebug("Connection: {ConnectionState}", "Requesting NAWS details from Client");
 
-			await WriteToNetworkAsync([(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS]);
+			await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS]);
 			_WillingToDoNAWS = true;
 		}
 	}

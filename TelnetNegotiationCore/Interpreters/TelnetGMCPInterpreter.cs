@@ -61,7 +61,7 @@ public partial class TelnetInterpreter
 	public async ValueTask SendGMCPCommand(byte[] package, byte[] command)
 	{
 		await WriteToNetworkAsync(
-			[
+			(byte[])[
 				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.GMCP,
 				.. package,
 				.. CurrentEncoding.GetBytes(" "),

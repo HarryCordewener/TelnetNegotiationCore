@@ -73,7 +73,7 @@ public partial class TelnetInterpreter
     public async ValueTask RequestTerminalTypeAsync()
     {
         _logger.LogDebug("Connection: {ConnectionState}", "Telling the client, to send the next Terminal Type.");
-        await WriteToNetworkAsync([
+        await WriteToNetworkAsync((byte[])[
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC,
             (byte)Trigger.SE
         ]);
