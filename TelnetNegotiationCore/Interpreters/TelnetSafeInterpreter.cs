@@ -44,10 +44,11 @@ public partial class TelnetInterpreter
 
 	/// <summary>
 	/// Internal helper to escape IAC bytes (255) without MemoryStream allocation.
-	/// Uses <see cref="MemoryExtensions.IndexOf"/> for SIMD-accelerated early exit when no IAC bytes
-	/// are present, then builds the output via <see cref="MemoryExtensions.CopyTo"/> block copies
-	/// between each found IAC position instead of copying one byte at a time.
-	/// An <see cref="ArrayPool{T}"/> worst-case buffer is used so no counting pass is needed.
+	/// Uses <see cref="MemoryExtensions.IndexOf"/> for an early exit when no IAC bytes are present.
+	/// On .NET 9+, <see cref="MemoryExtensions.Split"/> enumerates segments between each IAC byte,
+	/// giving us the exact segment count (and therefore the exact output length) so we can allocate
+	/// precisely and bulk-copy each segment via <see cref="MemoryExtensions.CopyTo"/> in a second pass.
+	/// On earlier runtimes the same <see cref="ArrayPool{T}"/> + <c>IndexOf</c> loop is used instead.
 	/// </summary>
 	private static byte[] TelnetSafeBytesInternal(ReadOnlySpan<byte> input)
 	{
@@ -57,32 +58,57 @@ public partial class TelnetInterpreter
 			return input.ToArray();
 		}
 
-		// Rent a worst-case buffer (every byte could be 0xFF, needing two output bytes each)
-		// so we can build the result in a single pass with no counting step.
+#if NET9_0_OR_GREATER
+		// First pass: count segments produced by splitting on 0xFF.
+		// N segments means (N-1) IAC bytes, each of which expands to two bytes in the output.
+		int segmentCount = 0;
+		foreach (var _ in input.Split((byte)255))
+		{
+			segmentCount++;
+		}
+
+		// Allocate exactly the right size: original length + one extra byte per IAC byte
+		var result = new byte[input.Length + segmentCount - 1];
+		int writePos = 0;
+		int segIdx = 0;
+
+		// Second pass: bulk-copy each segment, inserting the doubled IAC between segments
+		foreach (var range in input.Split((byte)255))
+		{
+			if (segIdx++ > 0)
+			{
+				result[writePos++] = 255;
+				result[writePos++] = 255;
+			}
+
+			var segment = input[range];
+			segment.CopyTo(result.AsSpan(writePos));
+			writePos += segment.Length;
+		}
+
+		return result;
+#else
+		// Fallback for netstandard2.1 and .NET 8: ArrayPool worst-case buffer + IndexOf loop
+		// with CopyTo block copies. (MemoryExtensions.Split<T>(T) requires .NET 9+.)
 		var pooled = ArrayPool<byte>.Shared.Rent(input.Length * 2);
 		try
 		{
 			int writePos = 0;
 			var remaining = input;
 
-			// Walk through the input using IndexOf to locate each IAC byte, copying the spans
-			// between them in bulk via CopyTo instead of iterating one byte at a time.
 			while (!remaining.IsEmpty)
 			{
 				int iacPos = remaining.IndexOf((byte)255);
 				if (iacPos < 0)
 				{
-					// No more IAC bytes - bulk copy the rest and finish
 					remaining.CopyTo(pooled.AsSpan(writePos));
 					writePos += remaining.Length;
 					break;
 				}
 
-				// Bulk copy bytes before this IAC byte
 				remaining[..iacPos].CopyTo(pooled.AsSpan(writePos));
 				writePos += iacPos;
 
-				// Double the IAC byte
 				pooled[writePos++] = 255;
 				pooled[writePos++] = 255;
 
@@ -95,6 +121,7 @@ public partial class TelnetInterpreter
 		{
 			ArrayPool<byte>.Shared.Return(pooled);
 		}
+#endif
 	}
 
 	/// <summary>
