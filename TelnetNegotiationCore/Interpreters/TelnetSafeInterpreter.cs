@@ -21,6 +21,12 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private static readonly Trigger[] s_allTriggers = TriggerExtensions.AllValues.ToArray();
 	/// <summary>
+	/// The two-byte escaped IAC sequence (0xFF 0xFF) written between segments when escaping.
+	/// Stored as a static array so it can be sliced as a <see cref="ReadOnlySpan{T}"/> and
+	/// copied in a single <c>CopyTo</c> call instead of two individual byte assignments.
+	/// </summary>
+	private static readonly byte[] s_iacEscape = [255, 255];
+	/// <summary>
 	/// Create a byte[] that is safe to send over telnet by repeating 255s. 
 	/// </summary>
 	/// <param name="str">The string intent to be sent across the wire.</param>
@@ -78,8 +84,8 @@ public partial class TelnetInterpreter
 		{
 			if (i > 0)
 			{
-				result[writePos++] = 255;
-				result[writePos++] = 255;
+				s_iacEscape.AsSpan().CopyTo(result.AsSpan(writePos));
+				writePos += 2;
 			}
 
 			var segment = input[ranges[i]];
@@ -111,8 +117,8 @@ public partial class TelnetInterpreter
 				remaining[..iacPos].CopyTo(pooled.AsSpan(writePos));
 				writePos += iacPos;
 
-				pooled[writePos++] = 255;
-				pooled[writePos++] = 255;
+				s_iacEscape.AsSpan().CopyTo(pooled.AsSpan(writePos));
+				writePos += 2;
 
 				remaining = remaining[(iacPos + 1)..];
 			}
