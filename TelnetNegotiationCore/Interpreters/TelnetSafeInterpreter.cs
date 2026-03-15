@@ -45,10 +45,11 @@ public partial class TelnetInterpreter
 	/// <summary>
 	/// Internal helper to escape IAC bytes (255) without MemoryStream allocation.
 	/// Uses <see cref="MemoryExtensions.IndexOf"/> for an early exit when no IAC bytes are present.
-	/// On .NET 9+, <see cref="MemoryExtensions.Split"/> enumerates segments between each IAC byte,
-	/// giving us the exact segment count (and therefore the exact output length) so we can allocate
-	/// precisely and bulk-copy each segment via <see cref="MemoryExtensions.CopyTo"/> in a second pass.
-	/// On earlier runtimes the same <see cref="ArrayPool{T}"/> + <c>IndexOf</c> loop is used instead.
+	/// On .NET 9+, <see cref="MemoryExtensions.Split"/> is enumerated once into a <see cref="List{T}"/>
+	/// of <see cref="Range"/> values. The list length gives the exact count of segments, allowing a
+	/// precise allocation, and then each segment is bulk-copied via <see cref="MemoryExtensions.CopyTo"/>.
+	/// On earlier runtimes (where <c>Split&lt;T&gt;(T)</c> is unavailable) the same
+	/// <see cref="ArrayPool{T}"/> + <c>IndexOf</c> loop with <c>CopyTo</c> block copies is used.
 	/// </summary>
 	private static byte[] TelnetSafeBytesInternal(ReadOnlySpan<byte> input)
 	{
@@ -59,29 +60,29 @@ public partial class TelnetInterpreter
 		}
 
 #if NET9_0_OR_GREATER
-		// First pass: count segments produced by splitting on 0xFF.
-		// N segments means (N-1) IAC bytes, each of which expands to two bytes in the output.
-		int segmentCount = 0;
-		foreach (var _ in input.Split((byte)255))
-		{
-			segmentCount++;
-		}
-
-		// Allocate exactly the right size: original length + one extra byte per IAC byte
-		var result = new byte[input.Length + segmentCount - 1];
-		int writePos = 0;
-		int segIdx = 0;
-
-		// Second pass: bulk-copy each segment, inserting the doubled IAC between segments
+		// Single pass: enumerate the SpanSplitEnumerator once into a List<Range>.
+		// The list length tells us the number of segments, so we can compute the exact output
+		// size (original length + one extra byte per IAC delimiter) for a precise allocation.
+		// SpanSplitEnumerator<T> is a ref struct, so LINQ Select/ToArray cannot be used here.
+		// Capacity hint: assume roughly one IAC per 256 bytes (IAC bytes are rare in practice).
+		var ranges = new List<Range>(capacity: 1 + input.Length / 256);
 		foreach (var range in input.Split((byte)255))
 		{
-			if (segIdx++ > 0)
+			ranges.Add(range);
+		}
+
+		var result = new byte[input.Length + ranges.Count - 1];
+		int writePos = 0;
+
+		for (int i = 0; i < ranges.Count; i++)
+		{
+			if (i > 0)
 			{
 				result[writePos++] = 255;
 				result[writePos++] = 255;
 			}
 
-			var segment = input[range];
+			var segment = input[ranges[i]];
 			segment.CopyTo(result.AsSpan(writePos));
 			writePos += segment.Length;
 		}
@@ -89,7 +90,8 @@ public partial class TelnetInterpreter
 		return result;
 #else
 		// Fallback for netstandard2.1 and .NET 8: ArrayPool worst-case buffer + IndexOf loop
-		// with CopyTo block copies. (MemoryExtensions.Split<T>(T) requires .NET 9+.)
+		// with CopyTo block copies. MemoryExtensions.Split<T>(T value) returning
+		// SpanSplitEnumerator<T> was introduced in .NET 9 and has no available polyfill.
 		var pooled = ArrayPool<byte>.Shared.Rent(input.Length * 2);
 		try
 		{
