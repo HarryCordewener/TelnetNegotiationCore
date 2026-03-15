@@ -62,7 +62,7 @@ namespace TelnetNegotiationCore.TestServer
 			var str = encoding.GetString(writeback);
 			if (str.StartsWith("echo"))
 			{
-				await telnet.SendAsync(encoding.GetBytes($"We heard: {str}" + Environment.NewLine));
+				await telnet.SendAsync(encoding.GetBytes($"We heard: {str}"));
 			}
 			Console.WriteLine(encoding.GetString(writeback));
 		}
