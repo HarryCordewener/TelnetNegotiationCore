@@ -1,12 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
 using Microsoft.AspNetCore.Connections;
-using System.IO.Pipelines;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Handlers;
 using TelnetNegotiationCore.Builders;
@@ -22,18 +20,6 @@ namespace TelnetNegotiationCore.TestServer
 		{
 			Console.OutputEncoding = Encoding.UTF8;
 			_logger = logger;
-		}
-
-		private async ValueTask WriteToOutputStreamAsync(ReadOnlyMemory<byte> arg, PipeWriter writer)
-		{
-			try
-			{
-				await writer.WriteAsync(arg, CancellationToken.None);
-			}
-			catch (ObjectDisposedException ode)
-			{
-				_logger.LogError(ode, "Stream has been closed");
-			}
 		}
 
 		public ValueTask SignalGMCPAsync((string module, string writeback) val)
@@ -87,11 +73,10 @@ namespace TelnetNegotiationCore.TestServer
 					Sendable_Variables = () => ["ROOM"],
 				});
 
-				var telnet = await new TelnetInterpreterBuilder()
+				var (telnet, readTask) = await new TelnetInterpreterBuilder()
 				.UseMode(TelnetInterpreter.TelnetMode.Server)
 				.UseLogger(_logger)
 				.OnSubmit(WriteBackAsync)
-				.OnNegotiation(x => WriteToOutputStreamAsync(x, connection.Transport.Output))
 				.AddPlugin<NAWSProtocol>()
 					.OnNAWS(SignalNAWSAsync)
 				.AddPlugin<GMCPProtocol>()
@@ -104,7 +89,7 @@ namespace TelnetNegotiationCore.TestServer
 				.AddPlugin<CharsetProtocol>()
 				.AddPlugin<EORProtocol>()
 				.AddPlugin<SuppressGoAheadProtocol>()
-				.BuildAsync();
+				.BuildAndStartAsync(connection.Transport);
 
 			// Configure MSSP
 			var mssp = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
@@ -128,23 +113,8 @@ namespace TelnetNegotiationCore.TestServer
 			if (charset != null)
 				charset.CharsetOrder = [Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1")];
 
-			while (true)
-			{
-					var result = await connection.Transport.Input.ReadAsync();
-					var buffer = result.Buffer;
+			await readTask;
 
-					foreach (var segment in buffer)
-					{
-						await telnet.InterpretByteArrayAsync(segment);
-					}
-
-					if (result.IsCompleted)
-					{
-						break;
-					}
-
-					connection.Transport.Input.AdvanceTo(buffer.End);
-				}
 				_logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
 			}
 		}

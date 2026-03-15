@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO.Pipelines;
 using System.Linq;
+using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Interpreters;
@@ -80,6 +83,101 @@ public class TelnetInterpreterBuilder
             throw new ArgumentOutOfRangeException(nameof(size), "Buffer size must be positive");
         _maxBufferSize = size;
         return this;
+    }
+
+    /// <summary>
+    /// Configures the interpreter to use an <see cref="IDuplexPipe"/> for network I/O,
+    /// automatically wiring up the negotiation write callback to the pipe's output.
+    /// After calling <see cref="BuildAsync"/>, use <see cref="ReadFromPipeAsync"/> to start
+    /// reading from the pipe's input, or use <see cref="BuildAndStartAsync(IDuplexPipe, CancellationToken)"/>
+    /// which does both in one step.
+    /// </summary>
+    /// <param name="pipe">The duplex pipe to use for network I/O</param>
+    /// <returns>This builder for chaining</returns>
+    public TelnetInterpreterBuilder UsePipe(IDuplexPipe pipe)
+    {
+        if (pipe == null)
+            throw new ArgumentNullException(nameof(pipe));
+        _onNegotiation = async data => await pipe.Output.WriteAsync(data);
+        return this;
+    }
+
+    /// <summary>
+    /// Builds the interpreter and starts the network read loop from the given
+    /// <see cref="IDuplexPipe"/>. The negotiation write callback is automatically
+    /// wired to the pipe's output; you do not need to call <see cref="UsePipe"/> or
+    /// <see cref="OnNegotiation"/> separately.
+    /// </summary>
+    /// <param name="pipe">The duplex pipe to use for network I/O</param>
+    /// <param name="cancellationToken">Token to cancel the read loop</param>
+    /// <returns>
+    /// The configured <see cref="TelnetInterpreter"/> and a <see cref="Task"/> that
+    /// completes when the remote end closes the connection or the token is cancelled.
+    /// </returns>
+    public async Task<(TelnetInterpreter Interpreter, Task ReadTask)> BuildAndStartAsync(
+        IDuplexPipe pipe,
+        CancellationToken cancellationToken = default)
+    {
+        if (pipe == null)
+            throw new ArgumentNullException(nameof(pipe));
+
+        UsePipe(pipe);
+        var interpreter = await BuildAsync();
+        var readTask = ReadFromPipeAsync(interpreter, pipe.Input, cancellationToken);
+        return (interpreter, readTask);
+    }
+
+    /// <summary>
+    /// Reads incoming data from <paramref name="reader"/> and feeds it to the
+    /// <paramref name="interpreter"/> until the pipe completes or the token is cancelled.
+    /// </summary>
+    /// <param name="interpreter">The interpreter to feed bytes to</param>
+    /// <param name="reader">The pipe reader to read from</param>
+    /// <param name="cancellationToken">Token to cancel reading</param>
+    public static async Task ReadFromPipeAsync(
+        TelnetInterpreter interpreter,
+        PipeReader reader,
+        CancellationToken cancellationToken = default)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var result = await reader.ReadAtLeastAsync(1, cancellationToken);
+
+            foreach (var segment in result.Buffer)
+            {
+                await interpreter.InterpretByteArrayAsync(segment);
+            }
+
+            reader.AdvanceTo(result.Buffer.End);
+
+            if (result.IsCompleted)
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Builds the interpreter and starts the network read loop from the given
+    /// <see cref="TcpClient"/>. The client's underlying stream is wrapped in pipeline
+    /// readers and writers, and the negotiation write callback is automatically wired
+    /// to the pipe's output. You do not need to call <see cref="UsePipe"/> or
+    /// <see cref="OnNegotiation"/> separately.
+    /// </summary>
+    /// <param name="client">The connected TCP client</param>
+    /// <param name="cancellationToken">Token to cancel the read loop</param>
+    /// <returns>
+    /// The configured <see cref="TelnetInterpreter"/> and a <see cref="Task"/> that
+    /// completes when the remote end closes the connection or the token is cancelled.
+    /// </returns>
+    public Task<(TelnetInterpreter Interpreter, Task ReadTask)> BuildAndStartAsync(
+        TcpClient client,
+        CancellationToken cancellationToken = default)
+    {
+        if (client == null)
+            throw new ArgumentNullException(nameof(client));
+
+        var stream = client.GetStream();
+        var pipe = new StreamDuplexPipe(PipeReader.Create(stream), PipeWriter.Create(stream));
+        return BuildAndStartAsync(pipe, cancellationToken);
     }
 
     /// <summary>
@@ -249,5 +347,40 @@ public class PluginConfigurationContext<T> where T : ITelnetProtocolPlugin
     public Task<Interpreters.TelnetInterpreter> BuildAsync()
     {
         return _builder.BuildAsync();
+    }
+
+    /// <summary>
+    /// Builds the interpreter and starts the network read loop from the given
+    /// <see cref="IDuplexPipe"/>. The negotiation write callback is automatically
+    /// wired to the pipe's output.
+    /// </summary>
+    /// <param name="pipe">The duplex pipe to use for network I/O</param>
+    /// <param name="cancellationToken">Token to cancel the read loop</param>
+    /// <returns>
+    /// The configured <see cref="Interpreters.TelnetInterpreter"/> and a <see cref="Task"/> that
+    /// completes when the remote end closes the connection or the token is cancelled.
+    /// </returns>
+    public Task<(Interpreters.TelnetInterpreter Interpreter, Task ReadTask)> BuildAndStartAsync(
+        IDuplexPipe pipe,
+        CancellationToken cancellationToken = default)
+    {
+        return _builder.BuildAndStartAsync(pipe, cancellationToken);
+    }
+
+    /// <summary>
+    /// Builds the interpreter and starts the network read loop from the given
+    /// <see cref="TcpClient"/>.
+    /// </summary>
+    /// <param name="client">The connected TCP client</param>
+    /// <param name="cancellationToken">Token to cancel the read loop</param>
+    /// <returns>
+    /// The configured <see cref="Interpreters.TelnetInterpreter"/> and a <see cref="Task"/> that
+    /// completes when the remote end closes the connection or the token is cancelled.
+    /// </returns>
+    public Task<(Interpreters.TelnetInterpreter Interpreter, Task ReadTask)> BuildAndStartAsync(
+        TcpClient client,
+        CancellationToken cancellationToken = default)
+    {
+        return _builder.BuildAndStartAsync(client, cancellationToken);
     }
 }
