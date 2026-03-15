@@ -119,12 +119,13 @@ public partial class TelnetInterpreter
 
 	/// <summary>
 	/// Sends a byte message as a Prompt, if supported, by not sending an EOR at the end.
+	/// IAC bytes (255) in <paramref name="send"/> are automatically escaped.
 	/// </summary>
 	/// <param name="send">Byte array</param>
 	/// <returns>A completed ValueTask</returns>
 	public async ValueTask SendPromptAsync(byte[] send)
 	{
-		await CallbackNegotiationAsync(send);
+		await CallbackNegotiationAsync(TelnetSafeBytesInternal(send));
 		if (_doEOR is null or false)
 		{
 			await CallbackNegotiationAsync(CurrentEncoding.GetBytes(Environment.NewLine));
@@ -141,12 +142,13 @@ public partial class TelnetInterpreter
 
 	/// <summary>
 	/// Sends a byte message, adding an EOR at the end if needed.
+	/// IAC bytes (255) in <paramref name="send"/> are automatically escaped.
 	/// </summary>
 	/// <param name="send">Byte array</param>
 	/// <returns>A completed ValueTask</returns>
 	public async ValueTask SendAsync(byte[] send)
 	{
-		await CallbackNegotiationAsync(send);
+		await CallbackNegotiationAsync(TelnetSafeBytesInternal(send));
 		await CallbackNegotiationAsync(CurrentEncoding.GetBytes(Environment.NewLine));
 	}
 }

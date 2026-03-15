@@ -17,6 +17,23 @@ namespace TelnetNegotiationCore.UnitTests
 	{
 		private ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
+		/// <summary>
+		/// Escapes IAC (0xFF/255) bytes by doubling them, matching what a remote Telnet endpoint would send over the wire.
+		/// </summary>
+		private static byte[] EscapeIACBytes(byte[] input)
+		{
+			int count255 = input.Count(b => b == 255);
+			if (count255 == 0) return input;
+			var result = new byte[input.Length + count255];
+			int writePos = 0;
+			foreach (var bt in input)
+			{
+				if (bt == 255) result[writePos++] = 255;
+				result[writePos++] = bt;
+			}
+			return result;
+		}
+
 		[Test]
 		[MethodDataSource(nameof(ServerCHARSETSequences))]
 		public async Task ServerEvaluationCheck(IEnumerable<byte[]> clientSends, IEnumerable<byte[]> serverShouldRespondWith, IEnumerable<Encoding> currentEncoding)
@@ -303,7 +320,7 @@ namespace TelnetNegotiationCore.UnitTests
 			var binaryData = new byte[] { 72, 101, 108, 108, 111, 255, 87, 111, 114, 108, 100 }; // "Hello[255]World"
 			
 			// Escape the IAC bytes
-			var escapedData = server.TelnetSafeBytes(binaryData);
+			var escapedData = EscapeIACBytes(binaryData);
 			
 			// Verify IAC was doubled
 			var originalIACCount = binaryData.Count(b => b == 255);
@@ -370,7 +387,7 @@ namespace TelnetNegotiationCore.UnitTests
 
 				// Send test data
 				var testBytes = targetEncoding.GetBytes(testString);
-				var escapedBytes = server.TelnetSafeBytes(testBytes);
+				var escapedBytes = EscapeIACBytes(testBytes);
 				
 				// Add newline to trigger OnSubmit
 				var withNewline = escapedBytes.Concat(new byte[] { (byte)'\n' }).ToArray();
@@ -441,7 +458,7 @@ namespace TelnetNegotiationCore.UnitTests
 
 				// Send test data
 				var testBytes = targetEncoding.GetBytes(testString);
-				var escapedBytes = client.TelnetSafeBytes(testBytes);
+				var escapedBytes = EscapeIACBytes(testBytes);
 				
 				// Add newline to trigger OnSubmit
 				var withNewline = escapedBytes.Concat(new byte[] { (byte)'\n' }).ToArray();
@@ -510,7 +527,7 @@ namespace TelnetNegotiationCore.UnitTests
 			logger.LogInformation("Original bytes ({Length}): {Bytes}", originalBytes.Length, string.Join(" ", originalBytes.Select(b => $"{b:X2}")));
 			
 			// Escape IAC bytes (255) by doubling them
-			var escapedBytes = ti.TelnetSafeBytes(originalBytes);
+			var escapedBytes = EscapeIACBytes(originalBytes);
 			logger.LogInformation("Escaped bytes ({Length}): {Bytes}", escapedBytes.Length, string.Join(" ", escapedBytes.Select(b => $"{b:X2}")));
 			
 			// Verify IAC escaping: count 255s in original and escaped

@@ -25,7 +25,7 @@ public partial class TelnetInterpreter
 	/// </summary>
 	/// <param name="str">The string intent to be sent across the wire.</param>
 	/// <returns>The new byte[] with 255s duplicated.</returns>
-	public byte[] TelnetSafeString(string str)
+	internal byte[] TelnetSafeString(string str)
 	{
 		var byteSpan = CurrentEncoding.GetBytes(str).AsSpan();
 		return TelnetSafeBytesInternal(byteSpan);
@@ -33,11 +33,11 @@ public partial class TelnetInterpreter
 
 	/// <summary>
 	/// Create a byte[] that is safe to send over telnet by repeating 255s. 
-	/// Only use this function if you do not intend to send any kind of negotiation.
+	/// This is handled automatically by <see cref="SendAsync"/> and <see cref="SendPromptAsync"/>.
 	/// </summary>
 	/// <param name="str">The original bytes intent to be sent.</param>
 	/// <returns>The new byte[] with 255s duplicated.</returns>
-	public byte[] TelnetSafeBytes(byte[] str)
+	internal byte[] TelnetSafeBytes(byte[] str)
 	{
 		return TelnetSafeBytesInternal(str.AsSpan());
 	}
