@@ -12,31 +12,23 @@ using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.TestServer
 {
-	public class KestrelMockServer : ConnectionHandler
+	public class KestrelMockServer(ILogger<KestrelMockServer> logger, ITelnetInterpreterFactory telnetFactory) : ConnectionHandler
 	{
-		private readonly ILogger _logger;
-
-		public KestrelMockServer(ILogger<KestrelMockServer> logger)
-		{
-			Console.OutputEncoding = Encoding.UTF8;
-			_logger = logger;
-		}
-
 		public ValueTask SignalGMCPAsync((string module, string writeback) val)
 		{
-			_logger.LogDebug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback);
+			logger.LogDebug("GMCP Signal: {Module}: {WriteBack}", val.module, val.writeback);
 			return ValueTask.CompletedTask;
 		}
 
 		public ValueTask SignalMSSPAsync(MSSPConfig val)
 		{
-			_logger.LogDebug("New MSSP: {@MSSPConfig}", val);
+			logger.LogDebug("New MSSP: {@MSSPConfig}", val);
 			return ValueTask.CompletedTask;
 		}
 
 		public ValueTask SignalNAWSAsync(int height, int width)
 		{
-			_logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width);
+			logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width);
 			return ValueTask.CompletedTask;
 		}
 
@@ -55,15 +47,15 @@ namespace TelnetNegotiationCore.TestServer
 
 		private async ValueTask MSDPUpdateBehavior(string resetVariable)
 		{
-			_logger.LogDebug("MSDP Reset Request: {@Reset}", resetVariable);
+			logger.LogDebug("MSDP Reset Request: {@Reset}", resetVariable);
 			await ValueTask.CompletedTask;
 		}
 
 		public override async Task OnConnectedAsync(ConnectionContext connection)
 		{
-			using (_logger.BeginScope(new Dictionary<string, object> { { "ConnectionId", connection.ConnectionId } }))
+			using (logger.BeginScope(new Dictionary<string, object> { { "ConnectionId", connection.ConnectionId } }))
 			{
-				_logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
+				logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
 
 				var msdpHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
 				{
@@ -73,9 +65,7 @@ namespace TelnetNegotiationCore.TestServer
 					Sendable_Variables = () => ["ROOM"],
 				});
 
-				var (telnet, readTask) = await new TelnetInterpreterBuilder()
-				.UseMode(TelnetInterpreter.TelnetMode.Server)
-				.UseLogger(_logger)
+				var (telnet, readTask) = await telnetFactory.CreateBuilder()
 				.OnSubmit(WriteBackAsync)
 				.AddPlugin<NAWSProtocol>()
 					.OnNAWS(SignalNAWSAsync)
@@ -105,7 +95,7 @@ namespace TelnetNegotiationCore.TestServer
 
 				await readTask;
 
-				_logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
+				logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
 			}
 		}
 	}

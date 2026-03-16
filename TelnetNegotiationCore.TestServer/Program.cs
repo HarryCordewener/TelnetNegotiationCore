@@ -1,28 +1,30 @@
-﻿using Microsoft.AspNetCore;
-using Microsoft.AspNetCore.Connections;
-using Microsoft.AspNetCore.Hosting;
+﻿using Microsoft.AspNetCore.Connections;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Serilog;
-using System.Threading.Tasks;
+using TelnetNegotiationCore.TestServer;
 
-namespace TelnetNegotiationCore.TestServer;
+Log.Logger = new LoggerConfiguration()
+	.Enrich.FromLogContext()
+	.WriteTo.Console()
+	.MinimumLevel.Debug()
+	.CreateLogger();
 
-public class Program
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddLogging(logging =>
 {
-	public static async Task Main(string[] args)
-	{
-		var log = new LoggerConfiguration()
-			.Enrich.FromLogContext()
-			.WriteTo.Console()
-			.MinimumLevel.Debug()
-			.CreateLogger();
+	logging.ClearProviders();
+	logging.AddSerilog();
+	logging.SetMinimumLevel(LogLevel.Debug);
+});
 
-		Log.Logger = log;
+builder.Services.AddTelnetServer();
 
-		await CreateWebHostBuilder(args).Build().RunAsync();
-	}
+builder.WebHost.UseKestrel(options =>
+	options.ListenLocalhost(4202, listenOptions =>
+		listenOptions.UseConnectionHandler<KestrelMockServer>()));
 
-	private static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
-		WebHost.CreateDefaultBuilder(args)
-			.UseStartup<Startup>()
-			.UseKestrel(options => options.ListenLocalhost(4202, builder => builder.UseConnectionHandler<KestrelMockServer>()));
-}
+var app = builder.Build();
+
+await app.RunAsync();
