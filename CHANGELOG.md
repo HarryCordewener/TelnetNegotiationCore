@@ -1,6 +1,18 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Automatic pipe/stream wiring** — `BuildAndStartAsync` overloads on `TelnetInterpreterBuilder` and `PluginConfigurationContext<T>` eliminate boilerplate read loops and `OnNegotiation` wiring:
+  - `BuildAndStartAsync(IDuplexPipe, CancellationToken)` — wires negotiation output to `pipe.Output`, starts read loop; returns `(TelnetInterpreter, Task readTask)`
+  - `BuildAndStartAsync(Stream, CancellationToken)` — wraps any `Stream` (e.g. `NetworkStream`, `SslStream`) using `PipeReader.Create` / `PipeWriter.Create`
+  - `BuildAndStartAsync(TcpClient, CancellationToken)` — convenience overload; delegates to the `Stream` overload via `client.GetStream()`
+  - `UsePipe(IDuplexPipe)` — wires `OnNegotiation` to `pipe.Output`; leaves read loop to the caller
+  - `UseStream(Stream)` — wires `OnNegotiation` via `PipeWriter.Create(stream)`; leaves read loop to the caller
+  - `ReadFromPipeAsync(TelnetInterpreter, PipeReader, CancellationToken)` — static helper that drives the standard read loop
+- Added `System.IO.Pipelines` as an explicit package reference for `net8.0` and `netstandard2.1` targets
+
 ## [2.3.0] - 2026-02-13
 
 ### Performance Improvements
