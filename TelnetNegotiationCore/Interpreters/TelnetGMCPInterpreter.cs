@@ -60,14 +60,17 @@ public partial class TelnetInterpreter
 	/// <returns>A ValueTask representing the asynchronous operation.</returns>
 	public async ValueTask SendGMCPCommand(byte[] package, byte[] command)
 	{
-		await WriteToNetworkAsync(
-			(byte[])[
-				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.GMCP,
-				.. package,
-				.. CurrentEncoding.GetBytes(" "),
-				.. command,
-				.. new[] { (byte)Trigger.IAC, (byte)Trigger.SE },
-			]);
+		// Pre-allocate exact-size buffer: IAC SB GMCP <package> ' ' <command> IAC SE
+		var output = new byte[3 + package.Length + 1 + command.Length + 2];
+		output[0] = (byte)Trigger.IAC;
+		output[1] = (byte)Trigger.SB;
+		output[2] = (byte)Trigger.GMCP;
+		package.AsSpan().CopyTo(output.AsSpan(3));
+		output[3 + package.Length] = (byte)' ';
+		command.AsSpan().CopyTo(output.AsSpan(3 + package.Length + 1));
+		output[output.Length - 2] = (byte)Trigger.IAC;
+		output[output.Length - 1] = (byte)Trigger.SE;
+		await WriteToNetworkAsync(output);
 	}
 
 	/// <summary>

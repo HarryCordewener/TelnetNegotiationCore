@@ -177,7 +177,8 @@ public partial class TelnetInterpreter
 
 	private byte[] MSSPReadConfig(MSSPConfig config)
 	{
-		byte[] msspBytes = [];
+		// Use a List<byte> accumulator to avoid O(n²) repeated array spread allocations.
+		var msspBytes = new List<byte>();
 
 		var fields = typeof(MSSPConfig).GetProperties();
 		var knownFields = fields.Where(field => Attribute.IsDefined(field, typeof(NameAttribute)));
@@ -189,51 +190,55 @@ public partial class TelnetInterpreter
 
 			var attr = Attribute.GetCustomAttribute(field, typeof(NameAttribute)) as NameAttribute;
 
-			msspBytes = [.. msspBytes, .. ConvertToMSSP(attr!.Name, b)];
+			AppendMSSP(msspBytes, attr!.Name, b);
 		}
 
 		foreach (var item in config.Extended ?? [])
 		{
 			if (item.Value == null) continue;
-			msspBytes = [.. msspBytes, .. (byte[])ConvertToMSSP(item.Key, item.Value)];
+			AppendMSSP(msspBytes, item.Key, item.Value);
 		}
 
-		return msspBytes;
+		return msspBytes.ToArray();
 	}
 
-	private byte[] ConvertToMSSP(string name, dynamic val)
+	private void AppendMSSP(List<byte> buffer, string name, dynamic val)
 	{
-		byte[] bt = [(byte)Trigger.MSSP_VAR, .. ascii.GetBytes(name)];
+		buffer.Add((byte)Trigger.MSSP_VAR);
+		buffer.AddRange(ascii.GetBytes(name));
 
 		switch (val)
 		{
 			case string s:
 				{
 					_logger.LogDebug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, s);
-					return [..bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(s)];
+					buffer.Add((byte)Trigger.MSSP_VAL);
+					buffer.AddRange(ascii.GetBytes(s));
+					break;
 				}
 			case int i:
 				{
 					_logger.LogDebug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, i.ToString());
-					return [.. bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(i.ToString())];
+					buffer.Add((byte)Trigger.MSSP_VAL);
+					buffer.AddRange(ascii.GetBytes(i.ToString()));
+					break;
 				}
 			case bool boolean:
 				{
 					_logger.LogDebug("MSSP Announcement: {MSSPKey}: {MSSPVal}", name, boolean);
-					return [.. bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(boolean ? "1" : "0")];
+					buffer.Add((byte)Trigger.MSSP_VAL);
+					buffer.AddRange(ascii.GetBytes(boolean ? "1" : "0"));
+					break;
 				}
 			case IEnumerable<string> list:
 				{
 					foreach (var item in list)
 					{
 						_logger.LogDebug("MSSP Announcement: {MSSPKey}[]: {MSSPVal}", name, item);
-						bt = [.. bt, (byte)Trigger.MSSP_VAL, .. ascii.GetBytes(item)];
+						buffer.Add((byte)Trigger.MSSP_VAL);
+						buffer.AddRange(ascii.GetBytes(item));
 					}
-					return bt;
-				}
-			default:
-				{
-					return [];
+					break;
 				}
 		}
 	}

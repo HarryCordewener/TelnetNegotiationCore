@@ -26,6 +26,9 @@ namespace TelnetNegotiationCore.Protocols;
 [RequiredMethod("OnGMCPMessage", Description = "Configure the callback to handle GMCP messages (optional but recommended)")]
 public class GMCPProtocol : TelnetProtocolPluginBase
 {
+    private static readonly byte[] s_willGmcp = { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP };
+    private static readonly byte[] s_doGmcp = { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP };
+
     private Channel<byte> _gmcpByteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(8192)
     {
         FullMode = BoundedChannelFullMode.DropWrite  // Drop bytes if message too large (DOS protection)
@@ -263,14 +266,14 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing the server will GMCP");
 
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP });
+        await context.SendNegotiationAsync(s_willGmcp);
     }
 
     private async ValueTask DoGMCPAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing the client can do GMCP");
 
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP });
+        await context.SendNegotiationAsync(s_doGmcp);
     }
 
     #endregion
@@ -287,6 +290,9 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 [RequiredMethod("OnMSDPMessage", Description = "Configure the callback to handle MSDP messages (optional but recommended)")]
 public class MSDPProtocol : TelnetProtocolPluginBase
 {
+    private static readonly byte[] s_willMsdp = { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSDP };
+    private static readonly byte[] s_doMsdp = { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP };
+
     private const int MaxMessageSize = 8192; // 8KB DOS protection
     private readonly List<byte> _msdpBytes = new();
 
@@ -488,13 +494,13 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     private async ValueTask WillMSDPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing the server will MSDP");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSDP });
+        await context.SendNegotiationAsync(s_willMsdp);
     }
 
     private async ValueTask DoMSDPAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing the client can do MSDP");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP });
+        await context.SendNegotiationAsync(s_doMsdp);
     }
 
     #endregion
