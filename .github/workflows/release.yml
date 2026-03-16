@@ -71,7 +71,7 @@ jobs:
       run: dotnet build --configuration Release /p:Version=${VERSION} --no-restore
 
     - name: Upload NuGet packages
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v4.6.2
       with:
         name: nuget-packages
         path: "**/*.nupkg"
@@ -85,7 +85,7 @@ jobs:
     needs: build
     steps:
     - name: Download NuGet packages
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v4.3.0
       with:
         name: nuget-packages
         path: packages
