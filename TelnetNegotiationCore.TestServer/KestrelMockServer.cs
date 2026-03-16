@@ -85,35 +85,25 @@ namespace TelnetNegotiationCore.TestServer
 					.OnMSDPMessage((t, config) => SignalMSDPAsync(msdpHandler, t, config))
 				.AddPlugin<MSSPProtocol>()
 					.OnMSSP(SignalMSSPAsync)
+					.WithMSSPConfig(() => new MSSPConfig
+					{
+						Name = "My Telnet Negotiated Server",
+						UTF_8 = true,
+						Gameplay = ["ABC", "DEF"],
+						Extended = new Dictionary<string, dynamic>
+						{
+							{ "Foo",  "Bar"},
+							{ "Baz", (string[])["Moo", "Meow"] }
+						}
+					})
 				.AddPlugin<TerminalTypeProtocol>()
 				.AddPlugin<CharsetProtocol>()
+					.WithCharsetOrder(Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1"))
 				.AddPlugin<EORProtocol>()
 				.AddPlugin<SuppressGoAheadProtocol>()
 				.BuildAndStartAsync(connection.Transport);
 
-			// Configure MSSP
-			var mssp = telnet.PluginManager!.GetPlugin<MSSPProtocol>();
-			if (mssp != null)
-			{
-				mssp.SetMSSPConfig(() => new MSSPConfig
-				{
-					Name = "My Telnet Negotiated Server",
-					UTF_8 = true,
-					Gameplay = ["ABC", "DEF"],
-					Extended = new Dictionary<string, dynamic>
-					{
-						{ "Foo",  "Bar"},
-						{ "Baz", (string[])["Moo", "Meow"] }
-					}
-				});
-			}
-
-			// Configure Charset
-			var charset = telnet.PluginManager!.GetPlugin<CharsetProtocol>();
-			if (charset != null)
-				charset.CharsetOrder = [Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1")];
-
-			await readTask;
+				await readTask;
 
 				_logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
 			}
