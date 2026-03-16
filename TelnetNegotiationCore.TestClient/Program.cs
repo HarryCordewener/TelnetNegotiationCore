@@ -9,26 +9,22 @@ namespace TelnetNegotiationCore.TestClient
 	{
 		static async Task Main(string[] args)
 		{
-			var log = new LoggerConfiguration()
+			Log.Logger = new LoggerConfiguration()
 				.Enrich.FromLogContext()
 				.WriteTo.Console()
 				.MinimumLevel.Debug()
 				.CreateLogger();
 
-			Log.Logger = log;
+			var builder = Host.CreateApplicationBuilder(args);
 
-			var builder = Host.CreateDefaultBuilder(args)
-					.ConfigureServices(services =>
-					{
-						services.AddTransient<MockPipelineClient>();
-					});
+			builder.Logging.ClearProviders();
+			builder.Logging.AddSerilog();
+			builder.Logging.SetMinimumLevel(LogLevel.Debug);
 
-			var host = builder.ConfigureLogging(logging =>
-			{
-				logging.ClearProviders();
-				logging.AddSerilog();
-				logging.SetMinimumLevel(LogLevel.Debug);
-			}).Build();
+			builder.Services.AddTelnetClient();
+			builder.Services.AddTransient<MockPipelineClient>();
+
+			var host = builder.Build();
 
 			await host.Services.GetRequiredService<MockPipelineClient>().StartAsync("127.0.0.1", 4201);
 		}

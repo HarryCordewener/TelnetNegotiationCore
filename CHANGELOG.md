@@ -12,6 +12,12 @@ All notable changes to this project will be documented in this file.
   - `UseStream(Stream)` — wires `OnNegotiation` via `PipeWriter.Create(stream)`; leaves read loop to the caller
   - `ReadFromPipeAsync(TelnetInterpreter, PipeReader, CancellationToken)` — static helper that drives the standard read loop
 - Added `System.IO.Pipelines` as an explicit package reference for `net8.0` and `netstandard2.0` targets
+- **Dependency injection integration** — `AddTelnetServer()` and `AddTelnetClient()` extension methods on `IServiceCollection` register an `ITelnetInterpreterFactory` that creates pre-configured `TelnetInterpreterBuilder` instances with mode and logger resolved from DI:
+  - `ITelnetInterpreterFactory` — factory interface; call `CreateBuilder()` to get a fresh builder per connection
+  - `TelnetServiceCollectionExtensions.AddTelnetServer(Action<TelnetInterpreterBuilder>?)` — registers the factory in server mode
+  - `TelnetServiceCollectionExtensions.AddTelnetClient(Action<TelnetInterpreterBuilder>?)` — registers the factory in client mode
+  - Added `Microsoft.Extensions.DependencyInjection.Abstractions` as a package dependency
+- **Modernized test projects** — TestServer updated from legacy `WebHost.CreateDefaultBuilder` + `Startup` class to `WebApplication.CreateBuilder()` minimal hosting; TestClient updated from `Host.CreateDefaultBuilder` to `Host.CreateApplicationBuilder()`; both now use `ITelnetInterpreterFactory` from DI
 
 ## [2.3.0] - 2026-02-13
 

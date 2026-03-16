@@ -8,7 +8,7 @@ using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.TestClient;
 
-public class MockPipelineClient(ILogger<MockPipelineClient> logger)
+public class MockPipelineClient(ILogger<MockPipelineClient> logger, ITelnetInterpreterFactory telnetFactory)
 {
 	public static async ValueTask WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter t) =>
 		await Task.Run(() => Console.WriteLine(encoding.GetString(writeback.AsSpan())));
@@ -32,9 +32,7 @@ public class MockPipelineClient(ILogger<MockPipelineClient> logger)
 	{
 		var client = new TcpClient(address, port);
 
-		var (telnet, readTask) = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Client)
-			.UseLogger(logger)
+		var (telnet, readTask) = await telnetFactory.CreateBuilder()
 			.OnSubmit(WriteBackAsync)
 			.AddPlugin<NAWSProtocol>()
 			.AddPlugin<GMCPProtocol>()
