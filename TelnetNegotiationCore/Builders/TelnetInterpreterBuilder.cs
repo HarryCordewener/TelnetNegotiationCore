@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.IO.Pipelines;
 using System.Linq;
 using System.Net.Sockets;
@@ -103,6 +104,25 @@ public class TelnetInterpreterBuilder
     }
 
     /// <summary>
+    /// Configures the interpreter to use a <see cref="Stream"/> for network I/O,
+    /// automatically wiring up the negotiation write callback to a <see cref="PipeWriter"/>
+    /// created from the stream. After calling <see cref="BuildAsync"/>, use
+    /// <see cref="ReadFromPipeAsync"/> with a <see cref="PipeReader"/> created from the
+    /// same stream, or use <see cref="BuildAndStartAsync(Stream, CancellationToken)"/>
+    /// which does both in one step.
+    /// </summary>
+    /// <param name="stream">The stream to use for network I/O (e.g. <see cref="NetworkStream"/>)</param>
+    /// <returns>This builder for chaining</returns>
+    public TelnetInterpreterBuilder UseStream(Stream stream)
+    {
+        if (stream == null)
+            throw new ArgumentNullException(nameof(stream));
+        var writer = PipeWriter.Create(stream);
+        _onNegotiation = async data => await writer.WriteAsync(data);
+        return this;
+    }
+
+    /// <summary>
     /// Builds the interpreter and starts the network read loop from the given
     /// <see cref="IDuplexPipe"/>. The negotiation write callback is automatically
     /// wired to the pipe's output; you do not need to call <see cref="UsePipe"/> or
@@ -124,6 +144,34 @@ public class TelnetInterpreterBuilder
         UsePipe(pipe);
         var interpreter = await BuildAsync();
         var readTask = ReadFromPipeAsync(interpreter, pipe.Input, cancellationToken);
+        return (interpreter, readTask);
+    }
+
+    /// <summary>
+    /// Builds the interpreter and starts the network read loop from the given
+    /// <see cref="Stream"/>. <see cref="PipeReader"/> and <see cref="PipeWriter"/> are
+    /// created directly from the stream, and the negotiation write callback is automatically
+    /// wired to the writer. You do not need to call <see cref="UseStream"/> or
+    /// <see cref="OnNegotiation"/> separately.
+    /// </summary>
+    /// <param name="stream">The stream to use for network I/O (e.g. <see cref="NetworkStream"/>)</param>
+    /// <param name="cancellationToken">Token to cancel the read loop</param>
+    /// <returns>
+    /// The configured <see cref="TelnetInterpreter"/> and a <see cref="Task"/> that
+    /// completes when the remote end closes the connection or the token is cancelled.
+    /// </returns>
+    public async Task<(TelnetInterpreter Interpreter, Task ReadTask)> BuildAndStartAsync(
+        Stream stream,
+        CancellationToken cancellationToken = default)
+    {
+        if (stream == null)
+            throw new ArgumentNullException(nameof(stream));
+
+        var reader = PipeReader.Create(stream);
+        var writer = PipeWriter.Create(stream);
+        _onNegotiation = async data => await writer.WriteAsync(data);
+        var interpreter = await BuildAsync();
+        var readTask = ReadFromPipeAsync(interpreter, reader, cancellationToken);
         return (interpreter, readTask);
     }
 
@@ -157,10 +205,10 @@ public class TelnetInterpreterBuilder
 
     /// <summary>
     /// Builds the interpreter and starts the network read loop from the given
-    /// <see cref="TcpClient"/>. The client's underlying stream is wrapped in pipeline
-    /// readers and writers, and the negotiation write callback is automatically wired
-    /// to the pipe's output. You do not need to call <see cref="UsePipe"/> or
-    /// <see cref="OnNegotiation"/> separately.
+    /// <see cref="TcpClient"/>. The client's underlying <see cref="NetworkStream"/> is used
+    /// directly via <see cref="PipeReader"/> and <see cref="PipeWriter"/>; the negotiation
+    /// write callback is automatically wired to the stream's writer. You do not need to call
+    /// <see cref="UseStream"/> or <see cref="OnNegotiation"/> separately.
     /// </summary>
     /// <param name="client">The connected TCP client</param>
     /// <param name="cancellationToken">Token to cancel the read loop</param>
@@ -175,9 +223,7 @@ public class TelnetInterpreterBuilder
         if (client == null)
             throw new ArgumentNullException(nameof(client));
 
-        var stream = client.GetStream();
-        var pipe = new StreamDuplexPipe(PipeReader.Create(stream), PipeWriter.Create(stream));
-        return BuildAndStartAsync(pipe, cancellationToken);
+        return BuildAndStartAsync(client.GetStream(), cancellationToken);
     }
 
     /// <summary>
@@ -365,6 +411,23 @@ public class PluginConfigurationContext<T> where T : ITelnetProtocolPlugin
         CancellationToken cancellationToken = default)
     {
         return _builder.BuildAndStartAsync(pipe, cancellationToken);
+    }
+
+    /// <summary>
+    /// Builds the interpreter and starts the network read loop from the given
+    /// <see cref="Stream"/> (e.g. <see cref="NetworkStream"/>).
+    /// </summary>
+    /// <param name="stream">The stream to use for network I/O</param>
+    /// <param name="cancellationToken">Token to cancel the read loop</param>
+    /// <returns>
+    /// The configured <see cref="Interpreters.TelnetInterpreter"/> and a <see cref="Task"/> that
+    /// completes when the remote end closes the connection or the token is cancelled.
+    /// </returns>
+    public Task<(Interpreters.TelnetInterpreter Interpreter, Task ReadTask)> BuildAndStartAsync(
+        Stream stream,
+        CancellationToken cancellationToken = default)
+    {
+        return _builder.BuildAndStartAsync(stream, cancellationToken);
     }
 
     /// <summary>

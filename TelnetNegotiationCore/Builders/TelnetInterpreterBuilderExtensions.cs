@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO.Pipelines;
 using System.Text;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Models;
@@ -104,21 +103,4 @@ public static class TelnetInterpreterBuilderExtensions
     {
         return AddDefaultMUDProtocols(builder, null, null, null, null, null, null, null, null);
     }
-}
-
-/// <summary>
-/// Minimal <see cref="IDuplexPipe"/> implementation that pairs a
-/// <see cref="PipeReader"/> with a <see cref="PipeWriter"/>.
-/// Used internally to wrap a <see cref="System.Net.Sockets.TcpClient"/> stream.
-/// </summary>
-internal sealed class StreamDuplexPipe : IDuplexPipe
-{
-    public StreamDuplexPipe(PipeReader input, PipeWriter output)
-    {
-        Input = input;
-        Output = output;
-    }
-
-    public PipeReader Input { get; }
-    public PipeWriter Output { get; }
 }
