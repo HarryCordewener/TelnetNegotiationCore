@@ -255,6 +255,149 @@ The `AddDefaultMUDProtocols()` helper method now supports optional parameters to
 
 All parameters are optional. Omitted parameters will leave the corresponding protocols with default settings and no callbacks.
 
+### Automatic Pipe / Stream Wiring
+
+Instead of manually wiring `OnNegotiation` to a `PipeWriter` and writing your own read loop, you can use the built-in helpers that do it all in one call.
+
+#### `BuildAndStartAsync` — build + wire + start read loop
+
+**With a Kestrel / ASP.NET Core `ConnectionContext`** (or any `IDuplexPipe`):
+
+```csharp
+// Before (manual)
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(_logger)
+    .OnSubmit(WriteBackAsync)
+    .OnNegotiation(x => WriteToOutputStreamAsync(x, connection.Transport.Output))
+    .AddPlugin<NAWSProtocol>()
+    // ...
+    .BuildAsync();
+
+while (true)
+{
+    var result = await connection.Transport.Input.ReadAsync();
+    foreach (var segment in result.Buffer)
+        await telnet.InterpretByteArrayAsync(segment);
+    if (result.IsCompleted) break;
+    connection.Transport.Input.AdvanceTo(result.Buffer.End);
+}
+
+// After (automatic)
+var (telnet, readTask) = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(_logger)
+    .OnSubmit(WriteBackAsync)
+    .AddPlugin<NAWSProtocol>()
+    // ...
+    .BuildAndStartAsync(connection.Transport);    // IDuplexPipe overload
+
+await readTask; // completes when the connection closes or the token is cancelled
+```
+
+**With a `TcpClient`** (wraps `NetworkStream` internally via `PipeReader.Create` / `PipeWriter.Create`):
+
+```csharp
+// Before (manual)
+var stream = client.GetStream();
+var writer = PipeWriter.Create(stream);
+var reader = PipeReader.Create(stream);
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(_logger)
+    .OnSubmit(WriteBackAsync)
+    .OnNegotiation(x => writer.WriteAsync(x))
+    // ...
+    .BuildAsync();
+
+while (true)
+{
+    var result = await reader.ReadAsync();
+    foreach (var segment in result.Buffer)
+        await telnet.InterpretByteArrayAsync(segment);
+    if (result.IsCompleted) break;
+    reader.AdvanceTo(result.Buffer.End);
+}
+
+// After (automatic)
+var (telnet, readTask) = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(_logger)
+    .OnSubmit(WriteBackAsync)
+    // ...
+    .BuildAndStartAsync(client);    // TcpClient overload
+
+await readTask;
+```
+
+**With a raw `Stream`** (e.g. `NetworkStream`, `SslStream`):
+
+```csharp
+var (telnet, readTask) = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(_logger)
+    .OnSubmit(WriteBackAsync)
+    // ...
+    .BuildAndStartAsync(client.GetStream());    // Stream overload
+
+await readTask;
+```
+
+All three overloads are also available on `PluginConfigurationContext<T>`, so you can call `BuildAndStartAsync` at the end of a fluent plugin chain:
+
+```csharp
+var (telnet, readTask) = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(_logger)
+    .OnSubmit(WriteBackAsync)
+    .AddPlugin<NAWSProtocol>()
+        .OnNAWS(SignalNAWSAsync)
+    .AddPlugin<GMCPProtocol>()
+        .OnGMCPMessage(SignalGMCPAsync)
+    .BuildAndStartAsync(connection.Transport);    // called directly on PluginConfigurationContext<T>
+
+await readTask;
+```
+
+#### `UsePipe` / `UseStream` — wire write only, manage read loop yourself
+
+If you need control over the read loop (e.g., to interleave other reads), use `UsePipe` or `UseStream` to wire only the write side, then call `BuildAsync` and drive the read loop yourself:
+
+```csharp
+// Wire write side to an IDuplexPipe
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(_logger)
+    .OnSubmit(WriteBackAsync)
+    .UsePipe(connection.Transport)    // wires OnNegotiation → pipe.Output
+    .AddPlugin<NAWSProtocol>()
+    .BuildAsync();
+
+// Drive the read loop manually
+await TelnetInterpreterBuilder.ReadFromPipeAsync(telnet, connection.Transport.Input, cancellationToken);
+
+// Wire write side to a Stream (PipeWriter.Create is used internally)
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(_logger)
+    .OnSubmit(WriteBackAsync)
+    .UseStream(client.GetStream())    // wires OnNegotiation → PipeWriter.Create(stream)
+    .AddPlugin<NAWSProtocol>()
+    .BuildAsync();
+
+await TelnetInterpreterBuilder.ReadFromPipeAsync(telnet, PipeReader.Create(client.GetStream()), cancellationToken);
+```
+
+#### `ReadFromPipeAsync` — static read-loop helper
+
+`TelnetInterpreterBuilder.ReadFromPipeAsync(interpreter, reader, cancellationToken)` runs the standard read loop:
+
+```csharp
+await TelnetInterpreterBuilder.ReadFromPipeAsync(telnet, pipeReader, cancellationToken);
+```
+
+It reads from `reader` in a loop, feeds each segment to `interpreter.InterpretByteArrayAsync`, and returns when the pipe completes or the token is cancelled. Use this when you manage the interpreter lifetime yourself but want to avoid duplicating the read-loop boilerplate.
+
 ### Legacy API (Deprecated)
 
 **Note:** The legacy direct instantiation API with callback properties is deprecated. Please migrate to the plugin-based Fluent API shown above for better performance, type safety, and maintainability.
@@ -1194,6 +1337,58 @@ A documented example exists in the [TestServer Project](TelnetNegotiationCore.Te
 This uses a Kestrel server to make the TCP handling easier.
 
 > **Thread safety**: The library's `OnNegotiation` callback is always invoked under an internal write lock, so `WriteToOutputStreamAsync` will never be called concurrently by the library. You do **not** need an external `SemaphoreSlim` or similar guard around it.
+
+**Simplified with `BuildAndStartAsync` (recommended):**
+
+```csharp
+public async override Task OnConnectedAsync(ConnectionContext connection)
+{
+    using (_logger.BeginScope(new Dictionary<string, object> { { "ConnectionId", connection.ConnectionId } }))
+    {
+        _logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
+
+        var msdpHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
+        {
+            Commands = () => ["help", "stats", "info"],
+            Configurable_Variables = () => ["CLIENT_NAME", "CLIENT_VERSION", "PLUGIN_ID"],
+            Reportable_Variables = () => ["ROOM"],
+            Sendable_Variables = () => ["ROOM"],
+        });
+
+        // BuildAndStartAsync wires OnNegotiation → connection.Transport.Output
+        // and starts the read loop automatically.
+        var (telnet, readTask) = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(_logger)
+            .OnSubmit(WriteBackAsync)
+            .AddPlugin<NAWSProtocol>()
+                .OnNAWS(SignalNAWSAsync)
+            .AddPlugin<GMCPProtocol>()
+                .OnGMCPMessage(SignalGMCPAsync)
+            .AddPlugin<MSDPProtocol>()
+                .OnMSDPMessage((t, config) => SignalMSDPAsync(msdpHandler, t, config))
+            .AddPlugin<MSSPProtocol>()
+                .OnMSSP(SignalMSSPAsync)
+                .WithMSSPConfig(() => new MSSPConfig
+                {
+                    Name = "My Telnet Negotiated Server",
+                    UTF_8 = true,
+                    Gameplay = ["ABC", "DEF"],
+                })
+            .AddPlugin<TerminalTypeProtocol>()
+            .AddPlugin<CharsetProtocol>()
+                .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
+            .AddPlugin<EORProtocol>()
+            .AddPlugin<SuppressGoAheadProtocol>()
+            .BuildAndStartAsync(connection.Transport);    // IDuplexPipe overload
+
+        await readTask;    // completes when the connection closes
+        _logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
+    }
+}
+```
+
+**Full example (manual read loop):**
 
 ```csharp
 public class KestrelMockServer : ConnectionHandler
