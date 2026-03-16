@@ -14,14 +14,18 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+  
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: ${{ matrix.dotnet-version }}
+  
     - name: Restore dependencies
       run: dotnet restore
+  
     - name: Build
       run: dotnet build --configuration Release --no-restore
+    
     - name: Test with TUnit (.NET ${{ matrix.dotnet-version }})
       run: dotnet run --project TelnetNegotiationCore.UnitTests --configuration Release --no-build --framework net${{ matrix.dotnet-version == '8.0.x' && '8.0' || '10.0' }}
   
@@ -32,25 +36,38 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+ 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: |
           8.0.x
           10.0.x
+    
     - name: Restore dependencies
       run: dotnet restore
+   
     - name: Verify commit exists in origin/main
       run: |
         git fetch --no-tags --prune --depth=1 origin +refs/heads/*:refs/remotes/origin/*
         git branch --remote --contains | grep origin/main
+   
     - name: Set VERSION variable from tag
       run: echo "VERSION=${GITHUB_REF/refs\/tags\/v/}" >> $GITHUB_ENV
+   
     - name: Build
       run: dotnet build --configuration Release /p:Version=${VERSION} --no-restore
+ 
     - name: Push to Github
       run: dotnet nuget push "**/*.nupkg" --skip-duplicate --source https://nuget.pkg.github.com/HarryCordewener/index.json --api-key ${GITHUB_TOKEN}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: NuGet Login
+      uses: NuGet/login@v1
+      id: login
+      with:
+        user: harrycordewener
+        
     - name: Push to NuGet
-      run: dotnet nuget push "**/*.nupkg" --skip-duplicate --source https://api.nuget.org/v3/index.json -k ${{ secrets.NUGET_TOKEN }}
+      run: dotnet nuget push "**/*.nupkg" --skip-duplicate --source https://api.nuget.org/v3/index.json -k ${{steps.login.outputs.NUGET_API_KEY}}
