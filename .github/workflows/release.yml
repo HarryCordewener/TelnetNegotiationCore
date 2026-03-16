@@ -58,7 +58,7 @@ jobs:
     - name: Build
       run: dotnet build --configuration Release /p:Version=${VERSION} --no-restore
 
- release:
+  release:
     permissions:
       id-token: write 
     runs-on: ubuntu-latest
