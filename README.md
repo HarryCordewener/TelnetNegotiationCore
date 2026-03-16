@@ -89,13 +89,22 @@ await readTask;
 
 ### Dependency Injection
 
-Register telnet services with `AddTelnetServer()` or `AddTelnetClient()` for seamless integration with `WebApplication.CreateBuilder()` or `Host.CreateApplicationBuilder()`. The factory automatically resolves the logger from the DI container:
+Register telnet services with `AddTelnetServer()` or `AddTelnetClient()` for seamless integration with `WebApplication.CreateBuilder()` or `Host.CreateApplicationBuilder()`. The factory automatically resolves the logger from the DI container. Configure shared plugins in the registration call:
 
 ```csharp
 // Program.cs — Server with WebApplication
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddTelnetServer();
+builder.Services.AddTelnetServer(telnet => telnet
+    .AddPlugin<NAWSProtocol>()
+    .AddPlugin<GMCPProtocol>()
+    .AddPlugin<MSSPProtocol>()
+        .WithMSSPConfig(() => new MSSPConfig { Name = "My Server", UTF_8 = true })
+    .AddPlugin<TerminalTypeProtocol>()
+    .AddPlugin<CharsetProtocol>()
+        .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
+    .AddPlugin<EORProtocol>()
+    .AddPlugin<SuppressGoAheadProtocol>());
 
 builder.WebHost.UseKestrel(options =>
     options.ListenLocalhost(4202, listenOptions =>
@@ -115,8 +124,6 @@ public class MyConnectionHandler(
     {
         var (telnet, readTask) = await telnetFactory.CreateBuilder()
             .OnSubmit(WriteBackAsync)
-            .AddPlugin<NAWSProtocol>()
-            .AddPlugin<GMCPProtocol>()
             .BuildAndStartAsync(connection.Transport);
 
         await readTask;
@@ -128,20 +135,12 @@ public class MyConnectionHandler(
 // Program.cs — Client with Host.CreateApplicationBuilder
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.Services.AddTelnetClient();
+builder.Services.AddTelnetClient(telnet => telnet
+    .AddDefaultMUDProtocols());
 builder.Services.AddTransient<MyTelnetClient>();
 
 var host = builder.Build();
 await host.Services.GetRequiredService<MyTelnetClient>().ConnectAsync();
-```
-
-Shared plugin configuration can be passed to the registration call:
-
-```csharp
-builder.Services.AddTelnetServer(telnet =>
-{
-    telnet.AddDefaultMUDProtocols();
-});
 ```
 
 ### Fluent Configuration Reference
