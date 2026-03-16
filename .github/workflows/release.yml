@@ -4,7 +4,7 @@ on:
   push:
     tags:
     - "v[0-9]+.[0-9]+.[0-9]+"
-jobs:
+jobs:    
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -57,7 +57,14 @@ jobs:
    
     - name: Build
       run: dotnet build --configuration Release /p:Version=${VERSION} --no-restore
- 
+
+ release:
+    permissions:
+      id-token: write 
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    steps:
     - name: Push to Github
       run: dotnet nuget push "**/*.nupkg" --skip-duplicate --source https://nuget.pkg.github.com/HarryCordewener/index.json --api-key ${GITHUB_TOKEN}
       env:
