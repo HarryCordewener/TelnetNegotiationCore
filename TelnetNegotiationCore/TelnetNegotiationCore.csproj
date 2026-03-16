@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFrameworks>netstandard2.1;net8.0;net10.0</TargetFrameworks>
+		<TargetFrameworks>netstandard2.0;net8.0;net10.0</TargetFrameworks>
 		<LangVersion>latest</LangVersion>
 		<Version>2.3.0</Version>
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
@@ -19,7 +19,7 @@
 		<PackageReleaseNotes>https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/CHANGELOG.md</PackageReleaseNotes>
 		<Copyright>Copyright © TelnetNegotiationCore Contributors 2024-$([System.DateTime]::Now.ToString(yyyy))</Copyright>
 		<Nullable>enable</Nullable>
-		<!-- Suppress NU1510 for System.Memory - it's only needed for netstandard2.1 -->
+		<!-- Suppress NU1510 for System.Memory - it's only needed for netstandard2.0 -->
 		<NoWarn>$(NoWarn);NU1510</NoWarn>
 	</PropertyGroup>
 
@@ -53,8 +53,8 @@
 		<PackageReference Include="stateless" Version="5.20.0" />
 	</ItemGroup>
 
-	<!-- Packages needed for netstandard2.1 -->
-	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
+	<!-- Packages needed for netstandard2.0 -->
+	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
 		<PackageReference Include="System.Memory" Version="4.6.3" />
 		<PackageReference Include="System.Collections.Immutable" Version="10.0.2" />
 		<PackageReference Include="System.Threading.Channels" Version="10.0.2" />

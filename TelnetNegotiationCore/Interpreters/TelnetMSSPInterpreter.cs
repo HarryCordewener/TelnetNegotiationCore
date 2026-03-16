@@ -81,7 +81,11 @@ public partial class TelnetInterpreter
 		{
 			dynamic valueToSet = value.Count() > 1 ? value : value.First();
 
-			if (!_msspConfig().Extended.TryAdd(variable, valueToSet))
+			if (!_msspConfig().Extended.ContainsKey(variable))
+			{
+				_msspConfig().Extended.Add(variable, valueToSet);
+			}
+			else
 			{
 				_msspConfig().Extended[variable] = valueToSet;
 			}

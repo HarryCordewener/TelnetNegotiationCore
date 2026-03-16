@@ -120,7 +120,7 @@ public class MSDPServerHandler(MSDPServerModel model)
 
     private async ValueTask ExecuteOnAsync(string item, Func<string, ValueTask> function)
     {
-        var items = item.StartsWith('[')
+        var items = item.StartsWith("[", StringComparison.Ordinal)
             ? JsonSerializer.Deserialize<string[]>(item)
             : [item];
 
