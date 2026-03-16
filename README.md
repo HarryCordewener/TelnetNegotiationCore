@@ -45,233 +45,86 @@ Being a Telnet Negotiation Library, this library doesn't give support for extens
 
 ## Use
 
-### Modern Plugin-Based API (Recommended)
+### Quick Start
 
-The library uses a modern, type-safe plugin architecture with fluent configuration:
+`BuildAndStartAsync` wires the connection and starts the read loop automatically. Pass an `IDuplexPipe` (e.g. Kestrel's `connection.Transport`), a `TcpClient`, or a raw `Stream`:
 
 ```csharp
-using TelnetNegotiationCore.Builders;
-using TelnetNegotiationCore.Protocols;
-
-// Create interpreter with fluent plugin configuration
-var telnet = await new TelnetInterpreterBuilder()
+var (telnet, readTask) = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Server)
     .UseLogger(logger)
-    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
-    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .OnSubmit(HandleSubmitAsync)
     .AddPlugin<NAWSProtocol>()
-        .OnNAWS((height, width) => HandleWindowSizeAsync(height, width))
+        .OnNAWS(HandleWindowSizeAsync)
     .AddPlugin<GMCPProtocol>()
-        .OnGMCPMessage((msg) => HandleGMCPAsync(msg.Package, msg.Info))
-    .AddPlugin<MSDPProtocol>()
-        .OnMSDPMessage((telnet, data) => HandleMSDPAsync(telnet, data))
+        .OnGMCPMessage(HandleGMCPAsync)
     .AddPlugin<MSSPProtocol>()
-        .OnMSSP((config) => HandleMSSPAsync(config))
-        .WithMSSPConfig(() => new MSSPConfig
-        {
-            Name = "My MUD Server",
-            UTF_8 = true,
-            Gameplay = ["Fantasy", "Adventure"]
-        })
-    .AddPlugin<TerminalTypeProtocol>()
+        .OnMSSP(HandleMSSPAsync)
+        .WithMSSPConfig(() => new MSSPConfig { Name = "My Server", UTF_8 = true })
     .AddPlugin<CharsetProtocol>()
         .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
     .AddPlugin<EORProtocol>()
-        .OnPrompt(() => HandlePromptAsync())
     .AddPlugin<SuppressGoAheadProtocol>()
-    .AddPlugin<MCCPProtocol>()
-        .OnCompressionEnabled((version, enabled) => HandleCompressionAsync(version, enabled))
-    .BuildAsync();
+    .BuildAndStartAsync(connection.Transport);   // IDuplexPipe (Kestrel), TcpClient, or Stream
 
-// Use the interpreter (non-blocking with automatic backpressure)
-await telnet.InterpretByteArrayAsync(bytes);
-
-// Proper cleanup
-await telnet.DisposeAsync();
+await readTask; // completes when the connection closes
 ```
 
-**Alternatively, use AddDefaultMUDProtocols() for quick setup with inline configuration:**
+`AddDefaultMUDProtocols()` registers NAWS, GMCP, MSDP, MSSP, Terminal Type, Charset, EOR, and Suppress Go-Ahead in one call:
 
 ```csharp
-var telnet = await new TelnetInterpreterBuilder()
+var (telnet, readTask) = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Server)
     .UseLogger(logger)
-    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
-    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .OnSubmit(HandleSubmitAsync)
     .AddDefaultMUDProtocols(
-        onNAWS: (height, width) => HandleWindowSizeAsync(height, width),
-        onGMCPMessage: (msg) => HandleGMCPAsync(msg.Package, msg.Info),
-        onMSSP: (config) => HandleMSSPAsync(config),
-        msspConfig: () => new MSSPConfig
-        {
-            Name = "My MUD Server",
-            UTF_8 = true,
-            Gameplay = ["Fantasy", "Adventure"]
-        },
-        onPrompt: () => HandlePromptAsync(),
-        charsetOrder: [Encoding.UTF8, Encoding.GetEncoding("iso-8859-1")]
+        onNAWS: HandleWindowSizeAsync,
+        onGMCPMessage: HandleGMCPAsync,
+        msspConfig: () => new MSSPConfig { Name = "My Server", UTF_8 = true }
     )
-    .BuildAsync();
+    .BuildAndStartAsync(connection.Transport);
+
+await readTask;
 ```
 
-**Or use the parameterless version and configure later:**
+### Fluent Configuration Reference
+
+All plugin callbacks and settings are set inline on the builder:
+
+- `.OnNAWS((height, width) => ...)` — window size changes
+- `.OnGMCPMessage(msg => ...)` — GMCP messages
+- `.OnMSSP(config => ...)` — MSSP requests
+- `.OnMSDPMessage((telnet, data) => ...)` — MSDP messages
+- `.OnPrompt(() => ...)` — EOR / Suppress Go-Ahead prompt signals
+- `.WithMSSPConfig(() => new MSSPConfig { ... })` — server advertisement data
+- `.WithCharsetOrder(Encoding.UTF8, ...)` — encoding preference order
+- `.WithTTableSupport(true)` / `.OnTTableReceived(...)` / `.OnTTableRequested(...)` — TTABLE support (RFC 2066)
+
+### Manual Connection Management
+
+If you need control over the read loop, use `UsePipe` or `UseStream` to wire only the write side:
 
 ```csharp
 var telnet = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Server)
     .UseLogger(logger)
-    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
-    .OnNegotiation((data) => WriteToNetworkAsync(data))
-    .AddDefaultMUDProtocols()  // Adds all 7 common MUD protocols
+    .OnSubmit(HandleSubmitAsync)
+    .UsePipe(connection.Transport)   // wires OnNegotiation → pipe.Output
+    .AddPlugin<NAWSProtocol>()
     .BuildAsync();
 
-// Configure callbacks and settings after build if needed
-var gmcpPlugin = telnet.PluginManager!.GetPlugin<GMCPProtocol>();
-if (gmcpPlugin != null)
-    gmcpPlugin.OnGMCPMessage((msg) => HandleGMCPAsync(msg.Package, msg.Info));
+await TelnetInterpreterBuilder.ReadFromPipeAsync(telnet, connection.Transport.Input, cancellationToken);
 ```
 
-**Note:** AddDefaultMUDProtocols() adds NAWS, GMCP, MSDP, MSSP, Terminal Type, Charset, EOR, and Suppress Go-Ahead protocols. You can configure them inline with the overload parameters, or configure them after building by getting the plugin from PluginManager.
-
-**Key Benefits:**
-- **Fluent callback configuration** - Set callbacks inline during builder setup
-- **Type-safe protocol registration** - Use class types instead of magic numbers
-- **Non-blocking operations** - System.Threading.Channels with automatic backpressure (10,000 byte buffer)
-- **Configurable buffer size** - Default 5MB line buffer, customizable via `MaxBufferSize` property
-- **DOS protection** - 8KB message limits for GMCP and MSDP protocols
-- **Runtime protocol management** - Enable/disable protocols dynamically
-- **Better performance** - Parallel byte processing while network I/O continues
-- **Proper resource cleanup** - IAsyncDisposable support
-
-### Fluent Configuration API Reference
-
-The library provides fluent extension methods for inline protocol configuration:
-
-#### CharsetProtocol Configuration
-
-**WithCharsetOrder()** - Sets the preferred character encoding order for charset negotiation.
-
-```csharp
-.AddPlugin<CharsetProtocol>()
-    .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
-```
-
-This eliminates the need to access the plugin via PluginManager after building. The charset order determines the priority of encodings during negotiation with the remote party.
-
-**WithTTableSupport()** - Enables TTABLE (Translation Table) support for custom character set mappings (RFC 2066).
-
-```csharp
-.AddPlugin<CharsetProtocol>()
-    .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
-    .WithTTableSupport(true)
-    .OnTTableReceived(async (ttableData) =>
-    {
-        // Validate and parse the TTABLE data
-        // Return true to ACK, false to NAK
-        return true;
-    })
-```
-
-TTABLE allows negotiation of custom character set translation tables beyond standard named encodings. This is useful for specialized character mappings or legacy systems. The callback receives the raw TTABLE data in RFC 2066 version 1 format and should return true to acknowledge or false to request retransmission.
-
-**OnTTableRequested()** - Provides a callback to send custom TTABLE data when requested by the remote party.
-
-```csharp
-.AddPlugin<CharsetProtocol>()
-    .WithTTableSupport(true)
-    .OnTTableRequested(async () =>
-    {
-        // Generate and return TTABLE data
-        // Return null to reject the request
-        return CreateCustomTTable();
-    })
-```
-
-#### MSSPProtocol Configuration
-
-**WithMSSPConfig()** - Provides MSSP (Mud Server Status Protocol) configuration inline.
-
-```csharp
-.AddPlugin<MSSPProtocol>()
-    .WithMSSPConfig(() => new MSSPConfig
-    {
-        Name = "My MUD Server",
-        UTF_8 = true,
-        Gameplay = ["Adventure", "Fantasy"],
-        Contact = "admin@example.com"
-    })
-```
-
-The MSSP configuration is sent to clients that request server information. This is commonly used by MUD listing sites and clients.
-
-#### Protocol Callback Configuration
-
-All protocol plugins support fluent callback configuration:
-
-- **OnNAWS()** - Window size changes (height, width)
-- **OnGMCPMessage()** - GMCP messages (package, info tuple)
-- **OnMSSP()** - MSSP requests
-- **OnMSDPMessage()** - MSDP messages
-- **OnPrompt()** - Prompt events (EOR/SuppressGoAhead)
-
-Example combining multiple configurations:
+Or supply `OnNegotiation` and manage the loop entirely:
 
 ```csharp
 var telnet = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Server)
     .UseLogger(logger)
-    .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
-    .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .OnSubmit(HandleSubmitAsync)
+    .OnNegotiation(data => WriteToNetworkAsync(data))
     .AddPlugin<NAWSProtocol>()
-        .OnNAWS((height, width) => HandleWindowSizeAsync(height, width))
-    .AddPlugin<GMCPProtocol>()
-        .OnGMCPMessage((msg) => HandleGMCPAsync(msg.Package, msg.Info))
-    .AddPlugin<MSSPProtocol>()
-        .OnMSSP((config) => HandleMSSPAsync(config))
-        .WithMSSPConfig(() => new MSSPConfig { Name = "My Server" })
-    .AddPlugin<CharsetProtocol>()
-        .WithCharsetOrder(Encoding.UTF8)
-    .AddPlugin<EORProtocol>()
-        .OnPrompt(() => HandlePromptAsync())
-    .BuildAsync();
-```
-
-#### AddDefaultMUDProtocols with Inline Configuration
-
-The `AddDefaultMUDProtocols()` helper method now supports optional parameters to configure all protocols at once:
-
-```csharp
-.AddDefaultMUDProtocols(
-    onNAWS: (height, width) => HandleWindowSizeAsync(height, width),
-    onGMCPMessage: (msg) => HandleGMCPAsync(msg.Package, msg.Info),
-    onMSSP: (config) => HandleMSSPAsync(config),
-    msspConfig: () => new MSSPConfig { Name = "My Server", UTF_8 = true },
-    onMSDPMessage: (telnet, data) => HandleMSDPAsync(telnet, data),
-    onPrompt: () => HandlePromptAsync(),
-    charsetOrder: [Encoding.UTF8, Encoding.GetEncoding("iso-8859-1")],
-    onCompressionEnabled: (version, enabled) => HandleCompressionAsync(version, enabled)
-)
-```
-
-All parameters are optional. Omitted parameters will leave the corresponding protocols with default settings and no callbacks.
-
-### Automatic Pipe / Stream Wiring
-
-Instead of manually wiring `OnNegotiation` to a `PipeWriter` and writing your own read loop, you can use the built-in helpers that do it all in one call.
-
-#### `BuildAndStartAsync` — build + wire + start read loop
-
-**With a Kestrel / ASP.NET Core `ConnectionContext`** (or any `IDuplexPipe`):
-
-```csharp
-// Before (manual)
-var telnet = await new TelnetInterpreterBuilder()
-    .UseMode(TelnetInterpreter.TelnetMode.Server)
-    .UseLogger(_logger)
-    .OnSubmit(WriteBackAsync)
-    .OnNegotiation(x => WriteToOutputStreamAsync(x, connection.Transport.Output))
-    .AddPlugin<NAWSProtocol>()
-    // ...
     .BuildAsync();
 
 while (true)
@@ -282,203 +135,35 @@ while (true)
     if (result.IsCompleted) break;
     connection.Transport.Input.AdvanceTo(result.Buffer.End);
 }
-
-// After (automatic)
-var (telnet, readTask) = await new TelnetInterpreterBuilder()
-    .UseMode(TelnetInterpreter.TelnetMode.Server)
-    .UseLogger(_logger)
-    .OnSubmit(WriteBackAsync)
-    .AddPlugin<NAWSProtocol>()
-    // ...
-    .BuildAndStartAsync(connection.Transport);    // IDuplexPipe overload
-
-await readTask; // completes when the connection closes or the token is cancelled
 ```
-
-**With a `TcpClient`** (wraps `NetworkStream` internally via `PipeReader.Create` / `PipeWriter.Create`):
-
-```csharp
-// Before (manual)
-var stream = client.GetStream();
-var writer = PipeWriter.Create(stream);
-var reader = PipeReader.Create(stream);
-var telnet = await new TelnetInterpreterBuilder()
-    .UseMode(TelnetInterpreter.TelnetMode.Client)
-    .UseLogger(_logger)
-    .OnSubmit(WriteBackAsync)
-    .OnNegotiation(x => writer.WriteAsync(x))
-    // ...
-    .BuildAsync();
-
-while (true)
-{
-    var result = await reader.ReadAsync();
-    foreach (var segment in result.Buffer)
-        await telnet.InterpretByteArrayAsync(segment);
-    if (result.IsCompleted) break;
-    reader.AdvanceTo(result.Buffer.End);
-}
-
-// After (automatic)
-var (telnet, readTask) = await new TelnetInterpreterBuilder()
-    .UseMode(TelnetInterpreter.TelnetMode.Client)
-    .UseLogger(_logger)
-    .OnSubmit(WriteBackAsync)
-    // ...
-    .BuildAndStartAsync(client);    // TcpClient overload
-
-await readTask;
-```
-
-**With a raw `Stream`** (e.g. `NetworkStream`, `SslStream`):
-
-```csharp
-var (telnet, readTask) = await new TelnetInterpreterBuilder()
-    .UseMode(TelnetInterpreter.TelnetMode.Client)
-    .UseLogger(_logger)
-    .OnSubmit(WriteBackAsync)
-    // ...
-    .BuildAndStartAsync(client.GetStream());    // Stream overload
-
-await readTask;
-```
-
-All three overloads are also available on `PluginConfigurationContext<T>`, so you can call `BuildAndStartAsync` at the end of a fluent plugin chain:
-
-```csharp
-var (telnet, readTask) = await new TelnetInterpreterBuilder()
-    .UseMode(TelnetInterpreter.TelnetMode.Server)
-    .UseLogger(_logger)
-    .OnSubmit(WriteBackAsync)
-    .AddPlugin<NAWSProtocol>()
-        .OnNAWS(SignalNAWSAsync)
-    .AddPlugin<GMCPProtocol>()
-        .OnGMCPMessage(SignalGMCPAsync)
-    .BuildAndStartAsync(connection.Transport);    // called directly on PluginConfigurationContext<T>
-
-await readTask;
-```
-
-#### `UsePipe` / `UseStream` — wire write only, manage read loop yourself
-
-If you need control over the read loop (e.g., to interleave other reads), use `UsePipe` or `UseStream` to wire only the write side, then call `BuildAsync` and drive the read loop yourself:
-
-```csharp
-// Wire write side to an IDuplexPipe
-var telnet = await new TelnetInterpreterBuilder()
-    .UseMode(TelnetInterpreter.TelnetMode.Server)
-    .UseLogger(_logger)
-    .OnSubmit(WriteBackAsync)
-    .UsePipe(connection.Transport)    // wires OnNegotiation → pipe.Output
-    .AddPlugin<NAWSProtocol>()
-    .BuildAsync();
-
-// Drive the read loop manually
-await TelnetInterpreterBuilder.ReadFromPipeAsync(telnet, connection.Transport.Input, cancellationToken);
-
-// Wire write side to a Stream (PipeWriter.Create is used internally)
-var telnet = await new TelnetInterpreterBuilder()
-    .UseMode(TelnetInterpreter.TelnetMode.Client)
-    .UseLogger(_logger)
-    .OnSubmit(WriteBackAsync)
-    .UseStream(client.GetStream())    // wires OnNegotiation → PipeWriter.Create(stream)
-    .AddPlugin<NAWSProtocol>()
-    .BuildAsync();
-
-await TelnetInterpreterBuilder.ReadFromPipeAsync(telnet, PipeReader.Create(client.GetStream()), cancellationToken);
-```
-
-#### `ReadFromPipeAsync` — static read-loop helper
-
-`TelnetInterpreterBuilder.ReadFromPipeAsync(interpreter, reader, cancellationToken)` runs the standard read loop:
-
-```csharp
-await TelnetInterpreterBuilder.ReadFromPipeAsync(telnet, pipeReader, cancellationToken);
-```
-
-It reads from `reader` in a loop, feeds each segment to `interpreter.InterpretByteArrayAsync`, and returns when the pipe completes or the token is cancelled. Use this when you manage the interpreter lifetime yourself but want to avoid duplicating the read-loop boilerplate.
 
 ### Legacy API (Deprecated)
 
-**Note:** The legacy direct instantiation API with callback properties is deprecated. Please migrate to the plugin-based Fluent API shown above for better performance, type safety, and maintainability.
+**Note:** The legacy direct instantiation API with callback properties is deprecated. Please migrate to the plugin-based Fluent API shown above.
 
 ### Client
 A documented example exists in the [TestClient Project](TelnetNegotiationCore.TestClient/MockPipelineClient.cs).
 
-Initiate a logger. A Serilog logger is required by this library at this time.
 ```csharp
-var log = new LoggerConfiguration()
-  .Enrich.FromLogContext()
-  .WriteTo.Console()
-  .WriteTo.File(new CompactJsonFormatter(), "LogResult.log")
-  .MinimumLevel.Debug()
-  .CreateLogger();
+var (telnet, readTask) = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .UseLogger(logger)
+    .OnSubmit(WriteBackAsync)
+    .AddPlugin<NAWSProtocol>()
+    .AddPlugin<GMCPProtocol>()
+        .OnGMCPMessage(SignalGMCPAsync)
+    .AddPlugin<MSSPProtocol>()
+        .OnMSSP(SignalMSSPAsync)
+    .AddPlugin<TerminalTypeProtocol>()
+    .AddPlugin<CharsetProtocol>()
+        .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
+    .AddPlugin<EORProtocol>()
+        .OnPrompt(SignalPromptAsync)
+    .AddPlugin<SuppressGoAheadProtocol>()
+    .BuildAndStartAsync(tcpClient);
 
-Log.Logger = log;
-```
-
-Create functions that implement your desired behavior on getting a signal.
-```csharp
-private async ValueTask WriteToOutputStreamAsync(byte[] arg, StreamWriter writer)
-{
-  try 
-  { 
-    await writer.BaseStream.WriteAsync(arg, CancellationToken.None);
-  }
-  catch(ObjectDisposedException ode)
-  {
-    _Logger.LogInformation(ode, "Stream has been closed");
-  }
-}
-
-public static ValueTask WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter telnet) =>
-  Task.Run(() => Console.WriteLine(encoding.GetString(writeback)));
-
-public ValueTask SignalGMCPAsync((string Package, string Info) val)
-{
-  _Logger.LogDebug("GMCP Signal: {Module}: {Info}", val.Package, val.Info);
-  return ValueTask.CompletedTask;
-}
-
-public ValueTask SignalMSSPAsync(MSSPConfig val)
-{
-  _Logger.LogDebug("New MSSP: {@MSSP}", val);
-  return ValueTask.CompletedTask;
-}
-
-public ValueTask SignalPromptAsync()
-{
-  _Logger.LogDebug("Prompt");
-  return ValueTask.CompletedTask;
-}
-
-public ValueTask SignalNAWSAsync(int height, int width)
-{
-  _Logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width);
-  return ValueTask.CompletedTask;
-}
-```
-
-Initialize the Interpreter using the fluent builder.
-```csharp
-var telnet = await new TelnetInterpreterBuilder()
-  .UseMode(TelnetInterpreter.TelnetMode.Client)
-  .UseLogger(_Logger)
-  .OnSubmit(WriteBackAsync)
-  .OnNegotiation((x) => WriteToOutputStreamAsync(x, output))
-  .AddPlugin<NAWSProtocol>()
-    .OnNAWS(SignalNAWSAsync)
-  .AddPlugin<GMCPProtocol>()
-    .OnGMCPMessage(SignalGMCPAsync)
-  .AddPlugin<MSSPProtocol>()
-    .OnMSSP(SignalMSSPAsync)
-  .AddPlugin<TerminalTypeProtocol>()
-  .AddPlugin<CharsetProtocol>()
-    .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
-  .AddPlugin<EORProtocol>()
-    .OnPrompt(SignalPromptAsync)
-  .AddPlugin<SuppressGoAheadProtocol>()
-  .BuildAsync();
+// readTask completes when the server closes the connection
+await readTask;
 ```
 
 ### Sending GMCP Messages
@@ -1333,189 +1018,50 @@ while (true)
 ```
 
 ### Server
-A documented example exists in the [TestServer Project](TelnetNegotiationCore.TestServer/KestrelMockServer.cs). 
+A documented example exists in the [TestServer Project](TelnetNegotiationCore.TestServer/KestrelMockServer.cs).
 This uses a Kestrel server to make the TCP handling easier.
 
-> **Thread safety**: The library's `OnNegotiation` callback is always invoked under an internal write lock, so `WriteToOutputStreamAsync` will never be called concurrently by the library. You do **not** need an external `SemaphoreSlim` or similar guard around it.
-
-**Simplified with `BuildAndStartAsync` (recommended):**
+> **Thread safety**: All outgoing writes are serialized internally. You do **not** need external locking around concurrent writes on a telnet connection.
 
 ```csharp
-public async override Task OnConnectedAsync(ConnectionContext connection)
+public override async Task OnConnectedAsync(ConnectionContext connection)
 {
-    using (_logger.BeginScope(new Dictionary<string, object> { { "ConnectionId", connection.ConnectionId } }))
+    _logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
+
+    var msdpHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
     {
-        _logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
-
-        var msdpHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
-        {
-            Commands = () => ["help", "stats", "info"],
-            Configurable_Variables = () => ["CLIENT_NAME", "CLIENT_VERSION", "PLUGIN_ID"],
-            Reportable_Variables = () => ["ROOM"],
-            Sendable_Variables = () => ["ROOM"],
-        });
-
-        // BuildAndStartAsync wires OnNegotiation → connection.Transport.Output
-        // and starts the read loop automatically.
-        var (telnet, readTask) = await new TelnetInterpreterBuilder()
-            .UseMode(TelnetInterpreter.TelnetMode.Server)
-            .UseLogger(_logger)
-            .OnSubmit(WriteBackAsync)
-            .AddPlugin<NAWSProtocol>()
-                .OnNAWS(SignalNAWSAsync)
-            .AddPlugin<GMCPProtocol>()
-                .OnGMCPMessage(SignalGMCPAsync)
-            .AddPlugin<MSDPProtocol>()
-                .OnMSDPMessage((t, config) => SignalMSDPAsync(msdpHandler, t, config))
-            .AddPlugin<MSSPProtocol>()
-                .OnMSSP(SignalMSSPAsync)
-                .WithMSSPConfig(() => new MSSPConfig
-                {
-                    Name = "My Telnet Negotiated Server",
-                    UTF_8 = true,
-                    Gameplay = ["ABC", "DEF"],
-                })
-            .AddPlugin<TerminalTypeProtocol>()
-            .AddPlugin<CharsetProtocol>()
-                .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
-            .AddPlugin<EORProtocol>()
-            .AddPlugin<SuppressGoAheadProtocol>()
-            .BuildAndStartAsync(connection.Transport);    // IDuplexPipe overload
-
-        await readTask;    // completes when the connection closes
-        _logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
-    }
-}
-```
-
-**Full example (manual read loop):**
-
-```csharp
-public class KestrelMockServer : ConnectionHandler
-{
-  private readonly ILogger _logger;
-
-  public KestrelMockServer(ILogger<KestrelMockServer> logger) : base()
-  {
-    Console.OutputEncoding = Encoding.UTF8;
-    _logger = logger;
-  }
-
-  // This is the low-level transport write. The library serializes all calls to it,
-  // so no external locking is required.
-  private async ValueTask WriteToOutputStreamAsync(byte[] arg, PipeWriter writer)
-  {
-    try
-    {
-      await writer.WriteAsync(new ReadOnlyMemory<byte>(arg), CancellationToken.None);
-    }
-    catch (ObjectDisposedException ode)
-    {
-      _logger.LogError(ode, "Stream has been closed");
-    }
-  }
-
-  public ValueTask SignalGMCPAsync((string Package, string Info) val)
-  {
-    _logger.LogDebug("GMCP Signal: {Module}: {Info}", val.Package, val.Info);
-    return ValueTask.CompletedTask;
-  }
-
-  public ValueTask SignalMSSPAsync(MSSPConfig val)
-  {
-    _logger.LogDebug("New MSSP: {@MSSPConfig}", val);
-    return ValueTask.CompletedTask;
-  }
-
-  public ValueTask SignalNAWSAsync(int height, int width)
-  {
-    _logger.LogDebug("Client Height and Width updated: {Height}x{Width}", height, width);
-    return ValueTask.CompletedTask;
-  }
-
-  private static async ValueTask SignalMSDPAsync(MSDPServerHandler handler, TelnetInterpreter telnet, string config) =>
-    await handler.HandleAsync(telnet, config);
-
-  public static async ValueTask WriteBackAsync(byte[] writeback, Encoding encoding, TelnetInterpreter telnet)
-  {
-    var str = encoding.GetString(writeback);
-    if (str.StartsWith("echo"))
-    {
-      await telnet.SendAsync(encoding.GetBytes($"We heard: {str}"));
-    }
-    Console.WriteLine(encoding.GetString(writeback));
-  }
-
-  private async ValueTask MSDPUpdateBehavior(string resetVariable)
-  {
-    _logger.LogDebug("MSDP Reset Request: {@Reset}", resetVariable);
-    await ValueTask.CompletedTask;
-  }
-
-  public async override Task OnConnectedAsync(ConnectionContext connection)
-  {
-    using (_logger.BeginScope(new Dictionary<string, object> { { "ConnectionId", connection.ConnectionId } }))
-    {
-      _logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
-
-      var msdpHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
-      {
         Commands = () => ["help", "stats", "info"],
         Configurable_Variables = () => ["CLIENT_NAME", "CLIENT_VERSION", "PLUGIN_ID"],
         Reportable_Variables = () => ["ROOM"],
         Sendable_Variables = () => ["ROOM"],
-      });
+    });
 
-      var telnet = await new TelnetInterpreterBuilder()
+    var (telnet, readTask) = await new TelnetInterpreterBuilder()
         .UseMode(TelnetInterpreter.TelnetMode.Server)
         .UseLogger(_logger)
         .OnSubmit(WriteBackAsync)
-        .OnNegotiation(x => WriteToOutputStreamAsync(x, connection.Transport.Output))
         .AddPlugin<NAWSProtocol>()
-          .OnNAWS(SignalNAWSAsync)
+            .OnNAWS(SignalNAWSAsync)
         .AddPlugin<GMCPProtocol>()
-          .OnGMCPMessage(SignalGMCPAsync)
+            .OnGMCPMessage(SignalGMCPAsync)
         .AddPlugin<MSDPProtocol>()
-          .OnMSDPMessage((t, config) => SignalMSDPAsync(msdpHandler, t, config))
+            .OnMSDPMessage((t, config) => SignalMSDPAsync(msdpHandler, t, config))
         .AddPlugin<MSSPProtocol>()
-          .OnMSSP(SignalMSSPAsync)
-          .WithMSSPConfig(() => new MSSPConfig
-          {
-            Name = "My Telnet Negotiated Server",
-            UTF_8 = true,
-            Gameplay = ["ABC", "DEF"],
-            Extended = new Dictionary<string, dynamic>
+            .OnMSSP(SignalMSSPAsync)
+            .WithMSSPConfig(() => new MSSPConfig
             {
-              { "Foo",  "Bar"},
-              { "Baz", (string[])["Moo", "Meow"] }
-            }
-          })
+                Name = "My Telnet Negotiated Server",
+                UTF_8 = true,
+                Gameplay = ["ABC", "DEF"],
+            })
         .AddPlugin<TerminalTypeProtocol>()
         .AddPlugin<CharsetProtocol>()
-          .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
+            .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
         .AddPlugin<EORProtocol>()
         .AddPlugin<SuppressGoAheadProtocol>()
-        .BuildAsync();
+        .BuildAndStartAsync(connection.Transport);
 
-      while (true)
-      {
-        var result = await connection.Transport.Input.ReadAsync();
-        var buffer = result.Buffer;
-
-        foreach (var segment in buffer)
-        {
-          await telnet.InterpretByteArrayAsync(segment);
-        }
-
-        if (result.IsCompleted)
-        {
-          break;
-        }
-
-        connection.Transport.Input.AdvanceTo(buffer.End);
-      }
-      _logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
-    }
-  }
+    await readTask;
+    _logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
 }
 ```
