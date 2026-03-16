@@ -193,10 +193,6 @@ while (true)
 }
 ```
 
-### Legacy API (Deprecated)
-
-**Note:** The legacy direct instantiation API with callback properties is deprecated. Please migrate to the plugin-based Fluent API shown above.
-
 ### Client
 A documented example exists in the [TestClient Project](TelnetNegotiationCore.TestClient/MockPipelineClient.cs).
 
