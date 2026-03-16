@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file.
   - `UsePipe(IDuplexPipe)` — wires `OnNegotiation` to `pipe.Output`; leaves read loop to the caller
   - `UseStream(Stream)` — wires `OnNegotiation` via `PipeWriter.Create(stream)`; leaves read loop to the caller
   - `ReadFromPipeAsync(TelnetInterpreter, PipeReader, CancellationToken)` — static helper that drives the standard read loop
-- Added `System.IO.Pipelines` as an explicit package reference for `net8.0` and `netstandard2.1` targets
+- Added `System.IO.Pipelines` as an explicit package reference for `net8.0` and `netstandard2.0` targets
 
 ## [2.3.0] - 2026-02-13
 

@@ -95,7 +95,7 @@ public partial class TelnetInterpreter
 
 		return result;
 #else
-		// Fallback for netstandard2.1 and .NET 8: ArrayPool worst-case buffer + IndexOf loop
+		// Fallback for netstandard2.0 and .NET 8: ArrayPool worst-case buffer + IndexOf loop
 		// with CopyTo block copies. MemoryExtensions.Split<T>(T value) returning
 		// SpanSplitEnumerator<T> was introduced in .NET 9 and has no available polyfill.
 		var pooled = ArrayPool<byte>.Shared.Rent(input.Length * 2);
@@ -123,7 +123,7 @@ public partial class TelnetInterpreter
 				remaining = remaining[(iacPos + 1)..];
 			}
 
-			return pooled[..writePos].ToArray();
+			return pooled.AsSpan(0, writePos).ToArray();
 		}
 		finally
 		{

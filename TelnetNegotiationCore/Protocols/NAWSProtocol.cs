@@ -278,8 +278,8 @@ public class NAWSProtocol : TelnetProtocolPluginBase
             Array.Reverse(height);
         }
 
-        ClientWidth = BitConverter.ToInt16(width);
-        ClientHeight = BitConverter.ToInt16(height);
+        ClientWidth = BitConverter.ToInt16(width, 0);
+        ClientHeight = BitConverter.ToInt16(height, 0);
 
         context.Logger.LogDebug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
         
