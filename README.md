@@ -87,6 +87,63 @@ var (telnet, readTask) = await new TelnetInterpreterBuilder()
 await readTask;
 ```
 
+### Dependency Injection
+
+Register telnet services with `AddTelnetServer()` or `AddTelnetClient()` for seamless integration with `WebApplication.CreateBuilder()` or `Host.CreateApplicationBuilder()`. The factory automatically resolves the logger from the DI container:
+
+```csharp
+// Program.cs — Server with WebApplication
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddTelnetServer();
+
+builder.WebHost.UseKestrel(options =>
+    options.ListenLocalhost(4202, listenOptions =>
+        listenOptions.UseConnectionHandler<MyConnectionHandler>()));
+
+var app = builder.Build();
+await app.RunAsync();
+```
+
+```csharp
+// ConnectionHandler — inject ITelnetInterpreterFactory
+public class MyConnectionHandler(
+    ILogger<MyConnectionHandler> logger,
+    ITelnetInterpreterFactory telnetFactory) : ConnectionHandler
+{
+    public override async Task OnConnectedAsync(ConnectionContext connection)
+    {
+        var (telnet, readTask) = await telnetFactory.CreateBuilder()
+            .OnSubmit(WriteBackAsync)
+            .AddPlugin<NAWSProtocol>()
+            .AddPlugin<GMCPProtocol>()
+            .BuildAndStartAsync(connection.Transport);
+
+        await readTask;
+    }
+}
+```
+
+```csharp
+// Program.cs — Client with Host.CreateApplicationBuilder
+var builder = Host.CreateApplicationBuilder(args);
+
+builder.Services.AddTelnetClient();
+builder.Services.AddTransient<MyTelnetClient>();
+
+var host = builder.Build();
+await host.Services.GetRequiredService<MyTelnetClient>().ConnectAsync();
+```
+
+Shared plugin configuration can be passed to the registration call:
+
+```csharp
+builder.Services.AddTelnetServer(telnet =>
+{
+    telnet.AddDefaultMUDProtocols();
+});
+```
+
 ### Fluent Configuration Reference
 
 All plugin callbacks and settings are set inline on the builder:
