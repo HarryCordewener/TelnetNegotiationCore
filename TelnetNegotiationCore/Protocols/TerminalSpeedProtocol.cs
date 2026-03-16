@@ -18,6 +18,9 @@ namespace TelnetNegotiationCore.Protocols;
 /// </summary>
 public class TerminalSpeedProtocol : TelnetProtocolPluginBase
 {
+    private static readonly byte[] s_willTspeed = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED };
+    private static readonly byte[] s_doTspeed = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED };
+
     private int _transmitSpeed = 38400;  // Default speeds
     private int _receiveSpeed = 38400;
     private Func<int, int, ValueTask>? _onTerminalSpeed;
@@ -269,13 +272,13 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
     private async ValueTask WillTerminalSpeedAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the server, Willing to send Terminal Speed.");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TSPEED });
+        await context.SendNegotiationAsync(s_willTspeed);
     }
 
     private async ValueTask SendDoTerminalSpeedAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the client to send Terminal Speed.");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TSPEED });
+        await context.SendNegotiationAsync(s_doTspeed);
     }
 
     private async ValueTask RequestTerminalSpeedAsync(IProtocolContext context)

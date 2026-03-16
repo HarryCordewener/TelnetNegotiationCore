@@ -19,8 +19,8 @@ namespace TelnetNegotiationCore.Protocols;
 /// </summary>
 public class TerminalTypeProtocol : TelnetProtocolPluginBase
 {
-    private static readonly byte[] s_willTtype = { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE };
-    private static readonly byte[] s_doTtype = { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE };
+    private static readonly byte[] s_willTtype = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE };
+    private static readonly byte[] s_doTtype = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE };
 
     private ImmutableList<string> _terminalTypes = [];
     private int _currentTerminalType = -1;

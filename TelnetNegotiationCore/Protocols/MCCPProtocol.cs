@@ -34,6 +34,17 @@ namespace TelnetNegotiationCore.Protocols;
 [RequiredMethod("OnCompressionEnabled", Description = "Configure the callback to handle compression state changes (optional)")]
 public class MCCPProtocol : TelnetProtocolPluginBase
 {
+    private static readonly byte[] s_wontMccp2 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.MCCP2 };
+    private static readonly byte[] s_wontMccp3 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.MCCP3 };
+    private static readonly byte[] s_dontMccp2 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP2 };
+    private static readonly byte[] s_dontMccp3 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP3 };
+    private static readonly byte[] s_willMccp2 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 };
+    private static readonly byte[] s_willMccp3 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP3 };
+    private static readonly byte[] s_doMccp2 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 };
+    private static readonly byte[] s_doMccp3 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP3 };
+    private static readonly byte[] s_sbMccp2 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP2, (byte)Trigger.IAC, (byte)Trigger.SE };
+    private static readonly byte[] s_sbMccp3 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP3, (byte)Trigger.IAC, (byte)Trigger.SE };
+
     private bool _mccp2Enabled = false;
     private bool _mccp3Enabled = false;
 #if NETSTANDARD2_0
@@ -297,13 +308,13 @@ public class MCCPProtocol : TelnetProtocolPluginBase
         // Send DONT MCCP to remote party
         if (Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            await Context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.MCCP2 });
-            await Context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.MCCP3 });
+            await Context.SendNegotiationAsync(s_wontMccp2);
+            await Context.SendNegotiationAsync(s_wontMccp3);
         }
         else
         {
-            await Context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP2 });
-            await Context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP3 });
+            await Context.SendNegotiationAsync(s_dontMccp2);
+            await Context.SendNegotiationAsync(s_dontMccp3);
         }
     }
 
@@ -312,15 +323,15 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask InitiateMCCPServerAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server announcing MCCP2 and MCCP3 support");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 });
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP3 });
+        await context.SendNegotiationAsync(s_willMccp2);
+        await context.SendNegotiationAsync(s_willMccp3);
     }
 
     private async ValueTask OnDoMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Client supports MCCP2 - will start compression");
         // Send sub-negotiation to start compression: IAC SB MCCP2 IAC SE
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP2, (byte)Trigger.IAC, (byte)Trigger.SE });
+        await context.SendNegotiationAsync(s_sbMccp2);
         // Compression will be enabled in CompleteMCCP2NegotiationAsync
     }
 
@@ -352,7 +363,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWillMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server supports MCCP2 - accepting");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 });
+        await context.SendNegotiationAsync(s_doMccp2);
     }
 
     private async ValueTask OnWontMCCP2Async(IProtocolContext context)
@@ -366,9 +377,9 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWillMCCP3Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server supports MCCP3 - will start compressing output");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP3 });
+        await context.SendNegotiationAsync(s_doMccp3);
         // Send sub-negotiation: IAC SB MCCP3 IAC SE
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP3, (byte)Trigger.IAC, (byte)Trigger.SE });
+        await context.SendNegotiationAsync(s_sbMccp3);
         // Start compression
         _compressionBuffer = new MemoryStream();
 #if NETSTANDARD2_0

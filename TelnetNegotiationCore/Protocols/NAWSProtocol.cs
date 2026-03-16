@@ -22,8 +22,8 @@ namespace TelnetNegotiationCore.Protocols;
 [RequiredMethod("OnNAWS", Description = "Configure the callback to handle window size changes (optional but recommended)")]
 public class NAWSProtocol : TelnetProtocolPluginBase
 {
-    private static readonly byte[] s_wontNaws = { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS };
-    private static readonly byte[] s_doNaws = { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS };
+    private static readonly byte[] s_wontNaws = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS };
+    private static readonly byte[] s_doNaws = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS };
 
     private byte[] _nawsByteState = [];
     private int _nawsIndex = 0;

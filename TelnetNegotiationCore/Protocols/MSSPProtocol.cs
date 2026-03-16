@@ -27,8 +27,8 @@ namespace TelnetNegotiationCore.Protocols;
 [RequiredMethod("OnMSSP", Description = "Configure the callback to handle MSSP requests and provide server information")]
 public class MSSPProtocol : TelnetProtocolPluginBase
 {
-    private static readonly byte[] s_willMssp = { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP };
-    private static readonly byte[] s_doMssp = { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP };
+    private static readonly byte[] s_willMssp = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP };
+    private static readonly byte[] s_doMssp = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP };
 
     private Func<MSSPConfig, ValueTask>? _onMSSPRequest;
 

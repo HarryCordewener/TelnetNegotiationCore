@@ -21,8 +21,8 @@ namespace TelnetNegotiationCore.Protocols;
 [RequiredMethod("OnEchoStateChanged", Description = "Configure the callback to handle echo state changes (optional but recommended)")]
 public class EchoProtocol : TelnetProtocolPluginBase
 {
-    private static readonly byte[] s_willEcho = { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO };
-    private static readonly byte[] s_doEcho = { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO };
+    private static readonly byte[] s_willEcho = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO };
+    private static readonly byte[] s_doEcho = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO };
 
     private bool? _willEcho = null;
 

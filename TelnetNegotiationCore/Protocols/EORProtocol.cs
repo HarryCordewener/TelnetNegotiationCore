@@ -20,8 +20,8 @@ namespace TelnetNegotiationCore.Protocols;
 [RequiredMethod("OnPrompt", Description = "Configure the callback to handle prompt events (optional but recommended)")]
 public class EORProtocol : TelnetProtocolPluginBase
 {
-    private static readonly byte[] s_willEor = { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR };
-    private static readonly byte[] s_doEor = { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR };
+    private static readonly byte[] s_willEor = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR };
+    private static readonly byte[] s_doEor = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR };
 
     private bool? _doEOR = null;
 
