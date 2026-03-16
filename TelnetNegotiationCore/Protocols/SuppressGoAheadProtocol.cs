@@ -20,6 +20,9 @@ namespace TelnetNegotiationCore.Protocols;
 [RequiredMethod("OnPrompt", Description = "Configure the callback to handle prompt events (optional but recommended)")]
 public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 {
+    private static readonly byte[] s_willSga = { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD };
+    private static readonly byte[] s_doSga = { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD };
+
     private bool? _doGA = true;
 
     private Func<ValueTask>? _onPromptReceived;
@@ -201,7 +204,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     private async ValueTask WillingSuppressGAAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Announcing willingness to SUPPRESSGOAHEAD!");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
+        await context.SendNegotiationAsync(s_willSga);
     }
 
     private ValueTask OnDoSuppressGAAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
@@ -215,7 +218,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogDebug("Server supports Suppress Go-Ahead.");
         _doGA = false;
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
+        await context.SendNegotiationAsync(s_doSga);
     }
 
     #endregion

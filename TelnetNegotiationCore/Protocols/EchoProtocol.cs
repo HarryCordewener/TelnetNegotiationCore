@@ -21,6 +21,9 @@ namespace TelnetNegotiationCore.Protocols;
 [RequiredMethod("OnEchoStateChanged", Description = "Configure the callback to handle echo state changes (optional but recommended)")]
 public class EchoProtocol : TelnetProtocolPluginBase
 {
+    private static readonly byte[] s_willEcho = { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO };
+    private static readonly byte[] s_doEcho = { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO };
+
     private bool? _willEcho = null;
 
     private Func<bool, ValueTask>? _onEchoStateChanged;
@@ -242,7 +245,7 @@ public class EchoProtocol : TelnetProtocolPluginBase
     private async ValueTask WillingEchoAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Announcing willingness to ECHO!");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO });
+        await context.SendNegotiationAsync(s_willEcho);
     }
 
     private async ValueTask OnDoEchoAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
@@ -260,7 +263,7 @@ public class EchoProtocol : TelnetProtocolPluginBase
         context.Logger.LogDebug("Server will echo - client accepting");
         var previousState = _willEcho;
         _willEcho = true;
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO });
+        await context.SendNegotiationAsync(s_doEcho);
         
         if (previousState != _willEcho && _onEchoStateChanged != null)
             await _onEchoStateChanged(true);

@@ -27,6 +27,9 @@ namespace TelnetNegotiationCore.Protocols;
 [RequiredMethod("OnMSSP", Description = "Configure the callback to handle MSSP requests and provide server information")]
 public class MSSPProtocol : TelnetProtocolPluginBase
 {
+    private static readonly byte[] s_willMssp = { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP };
+    private static readonly byte[] s_doMssp = { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP };
+
     private Func<MSSPConfig, ValueTask>? _onMSSPRequest;
 
     /// <summary>
@@ -324,7 +327,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     private async ValueTask WillingMSSPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Announcing willingness to MSSP!");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP });
+        await context.SendNegotiationAsync(s_willMssp);
     }
 
     private async ValueTask OnDoMSSPAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
@@ -338,7 +341,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWillMSSPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server will send MSSP data");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });
+        await context.SendNegotiationAsync(s_doMssp);
     }
 
     private async ValueTask SendMSSPDataAsync(MSSPConfig config, IProtocolContext context)

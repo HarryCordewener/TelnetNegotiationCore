@@ -19,6 +19,9 @@ namespace TelnetNegotiationCore.Protocols;
 /// </summary>
 public class TerminalTypeProtocol : TelnetProtocolPluginBase
 {
+    private static readonly byte[] s_willTtype = { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE };
+    private static readonly byte[] s_doTtype = { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE };
+
     private ImmutableList<string> _terminalTypes = [];
     private int _currentTerminalType = -1;
     private byte[] _ttypeByteState = [];
@@ -279,13 +282,13 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     private async ValueTask WillDoTerminalTypeAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the other party, Willing to do Terminal Type.");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE });
+        await context.SendNegotiationAsync(s_willTtype);
     }
 
     private async ValueTask SendDoTerminalTypeAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the other party, to do Terminal Type.");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TTYPE });
+        await context.SendNegotiationAsync(s_doTtype);
     }
 
     private async ValueTask ReportNextAvailableTerminalTypeAsync(IProtocolContext context)
