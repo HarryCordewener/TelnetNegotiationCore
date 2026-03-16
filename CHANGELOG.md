@@ -1,7 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [2.4.2]
 
 ### Added
 - **Automatic pipe/stream wiring** — `BuildAndStartAsync` overloads on `TelnetInterpreterBuilder` and `PluginConfigurationContext<T>` eliminate boilerplate read loops and `OnNegotiation` wiring:
