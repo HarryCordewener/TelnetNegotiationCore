@@ -11,6 +11,8 @@ internal static class NetStandard20Polyfills
 {
 	/// <summary>
 	/// Polyfill for <see cref="HashSet{T}.TryGetValue"/> (added in netstandard2.1).
+	/// Note: Returns the input value rather than the stored value. This is correct for
+	/// default equality comparers but may differ from the real API with custom comparers.
 	/// </summary>
 	public static bool TryGetValue<T>(this HashSet<T> set, T equalValue, out T actualValue)
 	{
