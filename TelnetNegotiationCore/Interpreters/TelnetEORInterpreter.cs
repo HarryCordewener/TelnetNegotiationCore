@@ -10,6 +10,10 @@ public partial class TelnetInterpreter
 {
 	private bool? _doEOR = null;
 
+	// Cached negotiation byte arrays to avoid repeated allocations
+	private static readonly byte[] s_willEOR = [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR];
+	private static readonly byte[] s_doEOR = [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR];
+
 	/// <summary>
 	/// Character set Negotiation will set the Character Set and Character Page Server & Client have agreed to.
 	/// </summary>
@@ -94,7 +98,7 @@ public partial class TelnetInterpreter
 	private async ValueTask WillingEORAsync()
 	{
 		_logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to EOR!");
-		await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR]);
+		await WriteToNetworkAsync(s_willEOR);
 	}
 
 	/// <summary>
@@ -114,7 +118,7 @@ public partial class TelnetInterpreter
 	{
 		_logger.LogDebug("Connection: {ConnectionState}", "Server supports End of Record.");
 		_doEOR = true;
-		await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR]);
+		await WriteToNetworkAsync(s_doEOR);
 	}
 
 	/// <summary>
@@ -128,15 +132,30 @@ public partial class TelnetInterpreter
 		var safeSend = TelnetSafeBytesInternal(send);
 		if (_doEOR is null or false)
 		{
-			await WriteToNetworkAsync((byte[])[.. safeSend, (byte)'\r', (byte)'\n']);
+			// Pre-allocate exact-size buffer: safeSend + CR LF
+			var output = new byte[safeSend.Length + 2];
+			safeSend.AsSpan().CopyTo(output);
+			output[safeSend.Length] = (byte)'\r';
+			output[safeSend.Length + 1] = (byte)'\n';
+			await WriteToNetworkAsync(output);
 		}
 		else if(_doEOR is true)
 		{
-			await WriteToNetworkAsync((byte[])[.. safeSend, (byte)Trigger.IAC, (byte)Trigger.EOR]);
+			// Pre-allocate exact-size buffer: safeSend + IAC EOR
+			var output = new byte[safeSend.Length + 2];
+			safeSend.AsSpan().CopyTo(output);
+			output[safeSend.Length] = (byte)Trigger.IAC;
+			output[safeSend.Length + 1] = (byte)Trigger.EOR;
+			await WriteToNetworkAsync(output);
 		}
 		else if (_doGA is not null)
 		{
-			await WriteToNetworkAsync((byte[])[.. safeSend, (byte)Trigger.IAC, (byte)Trigger.GA]);
+			// Pre-allocate exact-size buffer: safeSend + IAC GA
+			var output = new byte[safeSend.Length + 2];
+			safeSend.AsSpan().CopyTo(output);
+			output[safeSend.Length] = (byte)Trigger.IAC;
+			output[safeSend.Length + 1] = (byte)Trigger.GA;
+			await WriteToNetworkAsync(output);
 		}
 	}
 
@@ -148,6 +167,12 @@ public partial class TelnetInterpreter
 	/// <returns>A completed ValueTask</returns>
 	public async ValueTask SendAsync(byte[] send)
 	{
-		await WriteToNetworkAsync((byte[])[.. TelnetSafeBytesInternal(send), (byte)'\r', (byte)'\n']);
+		var safeSend = TelnetSafeBytesInternal(send);
+		// Pre-allocate exact-size buffer: safeSend + CR LF
+		var output = new byte[safeSend.Length + 2];
+		safeSend.AsSpan().CopyTo(output);
+		output[safeSend.Length] = (byte)'\r';
+		output[safeSend.Length + 1] = (byte)'\n';
+		await WriteToNetworkAsync(output);
 	}
 }

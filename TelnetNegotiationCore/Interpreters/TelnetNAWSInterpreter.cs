@@ -49,6 +49,9 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private bool _WillingToDoNAWS = false;
 
+	// Cached negotiation byte array to avoid repeated allocations
+	private static readonly byte[] s_doNAWS = [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS];
+
 	public async ValueTask SendNAWS(short width, short height)
 	{
 		if(!_WillingToDoNAWS) await default(ValueTask);
@@ -88,7 +91,7 @@ public partial class TelnetInterpreter
 		{
 			_logger.LogDebug("Connection: {ConnectionState}", "Requesting NAWS details from Client");
 
-			await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS]);
+			await WriteToNetworkAsync(s_doNAWS);
 			_WillingToDoNAWS = true;
 		}
 	}

@@ -67,15 +67,18 @@ public partial class TelnetInterpreter
         { 1024, "MSLP" }
     };
 
+    // Cached negotiation byte array to avoid repeated allocations
+    private static readonly byte[] s_requestTerminalType = [
+        (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC,
+        (byte)Trigger.SE
+    ];
+
     /// <summary>
     /// Request Terminal Type from Client. This flips to the next one.
     /// </summary>
     public async ValueTask RequestTerminalTypeAsync()
     {
         _logger.LogDebug("Connection: {ConnectionState}", "Telling the client, to send the next Terminal Type.");
-        await WriteToNetworkAsync((byte[])[
-            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.SEND, (byte)Trigger.IAC,
-            (byte)Trigger.SE
-        ]);
+        await WriteToNetworkAsync(s_requestTerminalType);
     }
 }

@@ -26,6 +26,9 @@ namespace TelnetNegotiationCore.Protocols;
 [RequiredMethod("OnEnvironmentVariables", Description = "Configure the callback to handle environment variable updates (optional but recommended)")]
 public class EnvironProtocol : TelnetProtocolPluginBase
 {
+    private static readonly byte[] s_willEnviron = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ENVIRON };
+    private static readonly byte[] s_doEnviron = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ENVIRON };
+
     private readonly List<byte> _currentVar = [];
     private readonly List<byte> _currentValue = [];
     private readonly Dictionary<string, string> _environmentVariables = new();
@@ -344,7 +347,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     private async ValueTask WillingEnvironAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Announcing willingness to ENVIRON!");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ENVIRON });
+        await context.SendNegotiationAsync(s_willEnviron);
     }
 
     private async ValueTask OnDoEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
@@ -366,7 +369,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWillEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Server will do ENVIRON");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ENVIRON });
+        await context.SendNegotiationAsync(s_doEnviron);
     }
 
     private async ValueTask CompleteEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)

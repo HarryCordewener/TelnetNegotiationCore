@@ -22,6 +22,9 @@ namespace TelnetNegotiationCore.Protocols;
 [RequiredMethod("OnNAWS", Description = "Configure the callback to handle window size changes (optional but recommended)")]
 public class NAWSProtocol : TelnetProtocolPluginBase
 {
+    private static readonly byte[] s_wontNaws = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS };
+    private static readonly byte[] s_doNaws = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS };
+
     private byte[] _nawsByteState = [];
     private int _nawsIndex = 0;
     private bool _willingToDoNAWS = false;
@@ -241,7 +244,7 @@ public class NAWSProtocol : TelnetProtocolPluginBase
     private async ValueTask ServerWontNAWSAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Announcing refusing to send NAWS, this is a Server!");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS });
+        await context.SendNegotiationAsync(s_wontNaws);
     }
 
     private async ValueTask RequestNAWSAsync(StateMachine<State, Trigger>.Transition? _, IProtocolContext context)
@@ -249,7 +252,7 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         if (!_willingToDoNAWS)
         {
             context.Logger.LogDebug("Requesting NAWS details from Client");
-            await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS });
+            await context.SendNegotiationAsync(s_doNaws);
             _willingToDoNAWS = true;
         }
     }

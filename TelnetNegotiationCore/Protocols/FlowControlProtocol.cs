@@ -22,6 +22,9 @@ namespace TelnetNegotiationCore.Protocols;
 /// </remarks>
 public class FlowControlProtocol : TelnetProtocolPluginBase
 {
+    private static readonly byte[] s_willFlowControl = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.FLOWCONTROL };
+    private static readonly byte[] s_doFlowControl = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.FLOWCONTROL };
+
     // Flow control command constants per RFC 1372
     private const int CMD_OFF = 0;
     private const int CMD_ON = 1;
@@ -311,7 +314,7 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
     private async ValueTask WillFlowControlAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the server, Willing to toggle flow control.");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.FLOWCONTROL });
+        await context.SendNegotiationAsync(s_willFlowControl);
         
         // Per RFC 1372, flow control should be enabled when WILL is sent
         await SetFlowControlStateAsync(true);
@@ -326,7 +329,7 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
     private async ValueTask SendDoFlowControlAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the client to toggle flow control.");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.FLOWCONTROL });
+        await context.SendNegotiationAsync(s_doFlowControl);
     }
 
     private async ValueTask CompleteFlowControlAsync(IProtocolContext context)

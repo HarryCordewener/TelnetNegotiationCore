@@ -22,6 +22,13 @@ namespace TelnetNegotiationCore.Protocols;
 /// </remarks>
 public class CharsetProtocol : TelnetProtocolPluginBase
 {
+    private static readonly byte[] s_charsetRejected = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE };
+    private static readonly byte[] s_doCharset = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET };
+    private static readonly byte[] s_willCharset = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET };
+    private static readonly byte[] s_ttableRejected = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE };
+    private static readonly byte[] s_ttableAck = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_ACK, (byte)Trigger.IAC, (byte)Trigger.SE };
+    private static readonly byte[] s_ttableNak = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_NAK, (byte)Trigger.IAC, (byte)Trigger.SE };
+
     private byte[] _charsetByteState = [];
     private int _charsetByteIndex = 0;
     private byte[] _acceptedCharsetByteState = [];
@@ -327,7 +334,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         
         if (_charsetOffered && context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+            await context.SendNegotiationAsync(s_charsetRejected);
             return;
         }
 
@@ -346,7 +353,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
         if (chosenEncoding == null)
         {
-            await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+            await context.SendNegotiationAsync(s_charsetRejected);
             return;
         }
 
@@ -380,7 +387,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         catch (Exception ex)
         {
             context.Logger.LogError(ex, "Unexpected error during Accepting Charset Negotiation. Could not find charset: {charset}", ascii.GetString(_acceptedCharsetByteState!, 0, _acceptedCharsetByteIndex));
-            await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+            await context.SendNegotiationAsync(s_charsetRejected);
         }
         context.Logger.LogInformation("Connection: Accepted Charset Negotiation for: {charset}", CurrentEncoding.WebName);
         _charsetOffered = false;
@@ -389,14 +396,14 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWillingCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Request charset negotiation from Client");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET });
+        await context.SendNegotiationAsync(s_doCharset);
         _charsetOffered = false;
     }
 
     private async ValueTask WillingCharsetAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to Charset!");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
+        await context.SendNegotiationAsync(s_willCharset);
     }
 
     private async ValueTask OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
@@ -455,7 +462,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             if (_ttableByteIndex < TTABLE_MIN_LENGTH)
             {
                 context.Logger.LogWarning("TTABLE-IS message too short");
-                await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+                await context.SendNegotiationAsync(s_ttableRejected);
                 return;
             }
 
@@ -463,7 +470,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             if (version != TTABLE_VERSION_1)
             {
                 context.Logger.LogWarning("Unsupported TTABLE version: {Version}", version);
-                await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+                await context.SendNegotiationAsync(s_ttableRejected);
                 return;
             }
 
@@ -482,26 +489,26 @@ public class CharsetProtocol : TelnetProtocolPluginBase
                     
                     // Send TTABLE-ACK
                     context.Logger.LogInformation("TTABLE accepted and acknowledged");
-                    await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_ACK, (byte)Trigger.IAC, (byte)Trigger.SE });
+                    await context.SendNegotiationAsync(s_ttableAck);
                 }
                 else
                 {
                     // Send TTABLE-NAK to request retransmission
                     context.Logger.LogInformation("TTABLE rejected by callback, sending NAK");
-                    await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_NAK, (byte)Trigger.IAC, (byte)Trigger.SE });
+                    await context.SendNegotiationAsync(s_ttableNak);
                 }
             }
             else
             {
                 // No callback registered, reject TTABLE
                 context.Logger.LogDebug("No TTABLE callback registered, rejecting");
-                await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+                await context.SendNegotiationAsync(s_ttableRejected);
             }
         }
         catch (Exception ex)
         {
             context.Logger.LogError(ex, "Error processing TTABLE-IS message");
-            await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+            await context.SendNegotiationAsync(s_ttableRejected);
         }
     }
 
@@ -614,7 +621,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             throw new InvalidOperationException("Protocol not initialized");
         }
 
-        await Context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, (byte)Trigger.IAC, (byte)Trigger.SE });
+        await Context.SendNegotiationAsync(s_ttableRejected);
         Context.Logger.LogInformation("Sent TTABLE-REJECTED message");
     }
 

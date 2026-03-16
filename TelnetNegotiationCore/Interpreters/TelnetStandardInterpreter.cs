@@ -387,11 +387,12 @@ public partial class TelnetInterpreter
     /// <returns>ValueTask</returns>
     public async ValueTask InterpretByteArrayAsync(ReadOnlyMemory<byte> byteArray)
     {
-        // Convert to array first to avoid Span across await boundary
-        var bytes = byteArray.ToArray();
-        foreach (var b in bytes)
+        // Index into ReadOnlyMemory<byte> directly to avoid a .ToArray() allocation.
+        // ReadOnlyMemory<byte> (unlike ReadOnlySpan<byte>) is not a ref struct,
+        // so it is safe to hold across await boundaries.
+        for (int i = 0; i < byteArray.Length; i++)
         {
-            await _byteChannel.Writer.WriteAsync(b);
+            await _byteChannel.Writer.WriteAsync(byteArray.Span[i]);
         }
     }
 

@@ -18,6 +18,9 @@ namespace TelnetNegotiationCore.Protocols;
 /// </summary>
 public class XDisplayProtocol : TelnetProtocolPluginBase
 {
+    private static readonly byte[] s_willXdisploc = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC };
+    private static readonly byte[] s_doXdisploc = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.XDISPLOC };
+
     private string _displayLocation = string.Empty;
     private Func<string, ValueTask>? _onDisplayLocation;
     private readonly List<byte> _displayBuffer = new();
@@ -267,13 +270,13 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
     private async ValueTask WillXDisplayAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the server, Willing to send X Display Location.");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.XDISPLOC });
+        await context.SendNegotiationAsync(s_willXdisploc);
     }
 
     private async ValueTask SendDoXDisplayLocationAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the client to send X Display Location.");
-        await context.SendNegotiationAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.XDISPLOC });
+        await context.SendNegotiationAsync(s_doXdisploc);
     }
 
     private async ValueTask RequestXDisplayLocationAsync(IProtocolContext context)
