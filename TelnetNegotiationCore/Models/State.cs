@@ -99,6 +99,12 @@ public enum State : short
 	EscapingGMCPValue,
 	CompletingGMCPValue,
 	#endregion GMCP Negotiation
+	#region MXP Negotiation
+	DoMXP,
+	DontMXP,
+	WillMXP,
+	WontMXP,
+	#endregion MXP Negotiation
 	#region MSDP Negotiation
 	DontMSDP,
 	DoMSDP,

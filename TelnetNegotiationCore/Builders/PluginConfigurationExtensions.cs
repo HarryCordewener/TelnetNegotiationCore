@@ -407,4 +407,18 @@ public static class PluginConfigurationExtensions
         context.Plugin.WithClientDisplayLocation(displayLocation);
         return context;
     }
+
+    /// <summary>
+    /// Sets the MXP enabled callback in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle MXP activation</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MXPProtocol> OnMXPEnabled(
+        this PluginConfigurationContext<MXPProtocol> context,
+        Func<ValueTask>? callback)
+    {
+        context.Plugin.OnMXPEnabled(callback);
+        return context;
+    }
 }

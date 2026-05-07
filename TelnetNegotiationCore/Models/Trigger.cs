@@ -308,6 +308,13 @@ public enum Trigger : short
 	/// </remarks>
 	MCCP2 = 86,
 	MCCP3 = 87,
+	/// <summary>
+	/// MUD eXtension Protocol
+	/// </summary>
+	/// <remarks>
+	/// MXP: https://www.zuggsoft.com/zmud/mxp.htm
+	/// </remarks>
+	MXP = 91,
 	/// Generic Mud Communication Protocol	
 	/// </summary>
 	/// <remarks>

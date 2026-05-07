@@ -1,6 +1,13 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.5.0]
+
+### Added
+- **MXP Protocol** — `MXPProtocol` plugin implementing MUD eXtension Protocol (telnet option 91) handshake negotiation. Server sends `IAC WILL MXP`, client responds `IAC DO MXP`. Included in `AddDefaultMUDProtocols()`.
+- `.OnMXPEnabled(() => ...)` fluent callback for MXP negotiation success
+- `MXPProtocol.IsMXPActive` property to check negotiation state
+
 ## [2.4.2]
 
 ### Added

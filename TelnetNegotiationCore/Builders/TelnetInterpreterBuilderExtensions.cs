@@ -36,7 +36,8 @@ public static class TelnetInterpreterBuilderExtensions
         Func<Interpreters.TelnetInterpreter, string, ValueTask>? onMSDPMessage = null,
         Func<ValueTask>? onPrompt = null,
         Encoding[]? charsetOrder = null,
-        Func<int, bool, ValueTask>? onCompressionEnabled = null)
+        Func<int, bool, ValueTask>? onCompressionEnabled = null,
+        Func<ValueTask>? onMXPEnabled = null)
     {
         if (builder == null)
             throw new ArgumentNullException(nameof(builder));
@@ -81,15 +82,20 @@ public static class TelnetInterpreterBuilderExtensions
         if (onPrompt != null)
             sgaContext = sgaContext.OnPrompt(onPrompt);
 
+        // Add MXP protocol
+        var mxpContext = sgaContext.AddPlugin<MXPProtocol>();
+        if (onMXPEnabled != null)
+            mxpContext = mxpContext.OnMXPEnabled(onMXPEnabled);
+
         // Add MCCP protocol if compression callback is provided
         if (onCompressionEnabled != null)
         {
-            var mccpContext = sgaContext.AddPlugin<MCCPProtocol>();
+            var mccpContext = mxpContext.AddPlugin<MCCPProtocol>();
             mccpContext = mccpContext.OnCompressionEnabled(onCompressionEnabled);
             return mccpContext;
         }
 
-        return sgaContext;
+        return mxpContext;
     }
 
     /// <summary>
