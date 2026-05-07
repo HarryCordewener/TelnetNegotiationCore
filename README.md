@@ -39,9 +39,10 @@ This library is in a stable state. The legacy API remains fully supported for ba
 | [RFC 1408](http://www.faqs.org/rfcs/rfc1408.html)   | Environment Negotiation            | Full       |                    | 
 | [RFC 2941](http://www.faqs.org/rfcs/rfc2941.html)   | Authentication Negotiation         | Full       |                    |
 | [RFC 2946](http://www.faqs.org/rfcs/rfc2946.html)   | Encryption Negotiation             | Full       |                    |
+| [MXP](https://www.zuggsoft.com/zmud/mxp.htm)       | MUD eXtension Protocol             | Full       | Telnet option 91   |
 
 ## ANSI Support, ETC?
-Being a Telnet Negotiation Library, this library doesn't give support for extensions like ANSI, Pueblo, MXP, etc at this time.
+Being a Telnet Negotiation Library, this library doesn't give support for extensions like ANSI or Pueblo at this time. MXP negotiation (telnet option 91) is supported — see the MXP protocol plugin.
 
 ## Use
 
@@ -65,12 +66,13 @@ var (telnet, readTask) = await new TelnetInterpreterBuilder()
         .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
     .AddPlugin<EORProtocol>()
     .AddPlugin<SuppressGoAheadProtocol>()
+    .AddPlugin<MXPProtocol>()
     .BuildAndStartAsync(connection.Transport);   // IDuplexPipe (Kestrel), TcpClient, or Stream
 
 await readTask; // completes when the connection closes
 ```
 
-`AddDefaultMUDProtocols()` registers NAWS, GMCP, MSDP, MSSP, Terminal Type, Charset, EOR, and Suppress Go-Ahead in one call:
+`AddDefaultMUDProtocols()` registers NAWS, GMCP, MSDP, MSSP, Terminal Type, Charset, EOR, Suppress Go-Ahead, and MXP in one call:
 
 ```csharp
 var (telnet, readTask) = await new TelnetInterpreterBuilder()
@@ -104,7 +106,8 @@ builder.Services.AddTelnetServer(telnet => telnet
     .AddPlugin<CharsetProtocol>()
         .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
     .AddPlugin<EORProtocol>()
-    .AddPlugin<SuppressGoAheadProtocol>());
+    .AddPlugin<SuppressGoAheadProtocol>()
+    .AddPlugin<MXPProtocol>());
 
 builder.WebHost.UseKestrel(options =>
     options.ListenLocalhost(4202, listenOptions =>
@@ -155,6 +158,7 @@ All plugin callbacks and settings are set inline on the builder:
 - `.WithMSSPConfig(() => new MSSPConfig { ... })` — server advertisement data
 - `.WithCharsetOrder(Encoding.UTF8, ...)` — encoding preference order
 - `.WithTTableSupport(true)` / `.OnTTableReceived(...)` / `.OnTTableRequested(...)` — TTABLE support (RFC 2066)
+- `.OnMXPEnabled(() => ...)` — MXP negotiation success
 
 ### Manual Connection Management
 
@@ -1111,6 +1115,7 @@ public override async Task OnConnectedAsync(ConnectionContext connection)
             .WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
         .AddPlugin<EORProtocol>()
         .AddPlugin<SuppressGoAheadProtocol>()
+        .AddPlugin<MXPProtocol>()
         .BuildAndStartAsync(connection.Transport);
 
     await readTask;
