@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFrameworks>netstandard2.0;net8.0;net10.0</TargetFrameworks>
 		<LangVersion>latest</LangVersion>
-		<Version>2.5.0</Version>
+		<Version>2.5.1</Version>
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
 		<Title>Telnet Negotiation Core</Title>
 		<PackageId>$(AssemblyName)</PackageId>
@@ -52,6 +52,13 @@
 		<PackageReference Include="OneOf" Version="3.0.271" />
 		<PackageReference Include="System.IO.Pipelines" Version="10.0.2" />
 		<PackageReference Include="stateless" Version="5.20.0" />
+		<!-- The bundled TelnetNegotiationCore.Functional.dll is an F# assembly (MSDP) that requires
+		     FSharp.Core at runtime. The Functional project is referenced with PrivateAssets="all"
+		     (so its build assets don't leak), which also means its FSharp.Core dependency is NOT
+		     forwarded into this package's nuspec. Declare it explicitly here so consumers restore it;
+		     without this, the first MSDP negotiation throws "Could not load file or assembly
+		     'FSharp.Core'" and crashes (notably a hard SIGSEGV under Mono/.NET-Android). -->
+		<PackageReference Include="FSharp.Core" Version="10.1.203" />
 	</ItemGroup>
 
 	<!-- Packages needed for netstandard2.0 -->

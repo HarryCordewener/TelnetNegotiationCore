@@ -3,10 +3,20 @@
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0;net8.0;net10.0</TargetFrameworks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Don't let the SDK inject its implicit FSharp.Core (which drifts per SDK band, e.g. an F# 11
+         preview on newer SDKs). Pin it below so the assembly this DLL binds against — and the
+         dependency the NuGet package declares — are stable and identical across local and CI. -->
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="MSDPLibrary.fs" />
+  </ItemGroup>
+
+  <!-- Pin FSharp.Core explicitly (instead of the SDK's implicit reference) so the assembly version
+       this DLL binds against is stable and matches the dependency the consuming package declares. -->
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" Version="10.1.203" />
   </ItemGroup>
 
   <!-- System.Text.Json for netstandard2.0 -->

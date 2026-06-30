@@ -1,6 +1,11 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.5.1]
+
+### Fixed
+- **Missing `FSharp.Core` dependency** — the package bundles the F# assembly `TelnetNegotiationCore.Functional.dll` (MSDP support) but its `FSharp.Core` dependency was not declared in the nuspec (the F# project is referenced with `PrivateAssets="all"`). Consumers therefore never restored `FSharp.Core`, and the first MSDP negotiation threw `Could not load file or assembly 'FSharp.Core'` — a hard native `SIGSEGV` under Mono / .NET-Android. `FSharp.Core` is now declared as an explicit package dependency (pinned to 10.1.203 to match the bundled assembly).
+
 ## [2.5.0]
 
 ### Added
