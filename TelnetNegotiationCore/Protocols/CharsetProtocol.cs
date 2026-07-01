@@ -253,7 +253,15 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             .OnEntryAsync(async x => await CompleteCharsetAsync(x, context))
             .SubstateOf(State.Accepting);
 
-        context.RegisterInitialNegotiation(async () => await WillingCharsetAsync(context));
+        // RFC 2066: the server initiates CHARSET by offering WILL CHARSET; the client responds
+        // (DO CHARSET, then ACCEPTED). If the client also proactively offered WILL CHARSET, two
+        // peers would collide (WILL/WILL) and the negotiation would never resolve — a stuck CHARSET
+        // state that can make a server discard the client's first line (observed against SharpMUSH:
+        // the login line was dropped and the login screen redrawn). Only the server initiates.
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            context.RegisterInitialNegotiation(async () => await WillingCharsetAsync(context));
+        }
     }
 
     /// <inheritdoc />

@@ -216,6 +216,80 @@ namespace TelnetNegotiationCore.UnitTests
 				});
 		}
 
+		private static bool ContainsSequence(IReadOnlyList<byte> haystack, byte[] needle)
+		{
+			for (var i = 0; i + needle.Length <= haystack.Count; i++)
+			{
+				var match = true;
+				for (var j = 0; j < needle.Length; j++)
+				{
+					if (haystack[i + j] != needle[j]) { match = false; break; }
+				}
+				if (match) return true;
+			}
+			return false;
+		}
+
+		/// <summary>
+		/// RFC 2066 CHARSET is initiated by the server (WILL CHARSET), and the client responds.
+		/// A client must NOT proactively send WILL CHARSET: if both peers offer WILL CHARSET the
+		/// negotiation collides and never resolves, and a stuck CHARSET state can cause a server to
+		/// discard the client's first line (observed against SharpMUSH: the login line was dropped and
+		/// the login screen redrawn). Only the server initiates.
+		/// </summary>
+		[Test]
+		public async Task ClientDoesNotProactivelyOfferCharset()
+		{
+			var initialNegotiation = new List<byte>();
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
+			{
+				initialNegotiation.AddRange(data.ToArray());
+				return ValueTask.CompletedTask;
+			}
+
+			var client = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			var willCharset = new[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET };
+			await Assert.That(ContainsSequence(initialNegotiation, willCharset)).IsFalse();
+
+			await client.DisposeAsync();
+		}
+
+		/// <summary>
+		/// The server side still initiates CHARSET by offering WILL CHARSET on connect, so a
+		/// responding client can negotiate an encoding. This guards against "fixing" the collision
+		/// by disabling CHARSET entirely.
+		/// </summary>
+		[Test]
+		public async Task ServerProactivelyOffersCharset()
+		{
+			var initialNegotiation = new List<byte>();
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
+			{
+				initialNegotiation.AddRange(data.ToArray());
+				return ValueTask.CompletedTask;
+			}
+
+			var server = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			var willCharset = new[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET };
+			await Assert.That(ContainsSequence(initialNegotiation, willCharset)).IsTrue();
+
+			await server.DisposeAsync();
+		}
+
 		// New tests for character encoding with IAC escaping
 
 		[Test]
