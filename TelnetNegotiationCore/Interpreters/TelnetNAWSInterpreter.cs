@@ -54,8 +54,19 @@ public partial class TelnetInterpreter
 
 	public async ValueTask SendNAWS(short width, short height)
 	{
-		if(!_WillingToDoNAWS) await default(ValueTask);
-		
+		// Only report window size once NAWS is actually enabled with the peer. When the plugin is
+		// in use it owns that state (for a client, set when the server sends DO NAWS); otherwise
+		// fall back to the legacy interpreter flag. Sending an SB NAWS unsolicited desyncs a strict
+		// server's telnet parser and can make it swallow the following line (RFC 1073).
+		var nawsPlugin = PluginManager?.GetPlugin<Protocols.NAWSProtocol>();
+		var enabled = nawsPlugin is { IsEnabled: true }
+			? nawsPlugin.WindowSizeReportingEnabled
+			: _WillingToDoNAWS;
+		if (!enabled)
+		{
+			return;
+		}
+
 #if NET5_0_OR_GREATER
 		// Use BinaryPrimitives for explicit big-endian encoding (network byte order per RFC 1073)
 		// Note: We use stackalloc for the working buffer then ToArray() for ReadOnlyMemory<byte>.

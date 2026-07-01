@@ -507,4 +507,73 @@ public class NAWSTests : BaseTest
 
 		await server.DisposeAsync();
 	}
+
+	private static bool ContainsSequence(System.Collections.Generic.IReadOnlyList<byte> haystack, byte[] needle)
+	{
+		for (var i = 0; i + needle.Length <= haystack.Count; i++)
+		{
+			var match = true;
+			for (var j = 0; j < needle.Length; j++)
+				if (haystack[i + j] != needle[j]) { match = false; break; }
+			if (match) return true;
+		}
+		return false;
+	}
+
+	/// <summary>
+	/// RFC 1073: NAWS is the client's window, so the client offers it with WILL NAWS and the
+	/// server replies DO NAWS. A client must NOT send DO NAWS (that asks the server for a window
+	/// it doesn't have) — SharpMUSH answers WONT and never enables NAWS, and the follow-up
+	/// SB NAWS then desyncs its parser and swallows the next line.
+	/// </summary>
+	[Test]
+	public async Task ClientOffersWillNawsNotDoOnConnect()
+	{
+		var init = new System.Collections.Generic.List<byte>();
+		ValueTask Capture(ReadOnlyMemory<byte> data) { init.AddRange(data.ToArray()); return ValueTask.CompletedTask; }
+		ValueTask Sub(byte[] a, Encoding e, TelnetInterpreter t) => ValueTask.CompletedTask;
+
+		var client = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(Sub)
+			.OnNegotiation(Capture)
+			.AddPlugin<NAWSProtocol>()
+			.BuildAsync();
+
+		await Assert.That(ContainsSequence(init, new[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NAWS })).IsTrue();
+		await Assert.That(ContainsSequence(init, new[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS })).IsFalse();
+
+		await client.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A client must not emit an SB NAWS subnegotiation before the server has enabled NAWS
+	/// (sent DO NAWS). Emitting it unsolicited is what swallowed the login line against SharpMUSH.
+	/// </summary>
+	[Test]
+	public async Task ClientSuppressesNawsUntilServerAgrees()
+	{
+		byte[] negotiationOutput = null;
+		ValueTask Capture(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
+		ValueTask Sub(byte[] a, Encoding e, TelnetInterpreter t) => ValueTask.CompletedTask;
+
+		var client = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(Sub)
+			.OnNegotiation(Capture)
+			.AddPlugin<NAWSProtocol>()
+			.BuildAsync();
+
+		// No DO NAWS received yet.
+		negotiationOutput = null;
+		await client.SendNAWS(100, 40);
+		await client.WaitForProcessingAsync();
+
+		// Nothing should have gone out — the server never enabled NAWS.
+		await Assert.That(negotiationOutput).IsNull();
+
+		await client.DisposeAsync();
+	}
 }
