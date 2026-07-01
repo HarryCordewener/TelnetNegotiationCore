@@ -24,10 +24,18 @@ public class NAWSProtocol : TelnetProtocolPluginBase
 {
     private static readonly byte[] s_wontNaws = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NAWS };
     private static readonly byte[] s_doNaws = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS };
+    private static readonly byte[] s_willNaws = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NAWS };
 
     private byte[] _nawsByteState = [];
     private int _nawsIndex = 0;
     private bool _willingToDoNAWS = false;
+
+    /// <summary>
+    /// True once NAWS is enabled with the peer (for a client, after the server sends DO NAWS).
+    /// The client must not emit an SB NAWS subnegotiation until this is true; sending one
+    /// unsolicited desyncs a strict server's telnet parser (RFC 1073).
+    /// </summary>
+    public bool WindowSizeReportingEnabled => _willingToDoNAWS;
 
     private Func<int, int, ValueTask>? _onNAWSNegotiated;
 
@@ -99,7 +107,12 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         {
             stateMachine.Configure(State.DontNAWS)
                 .SubstateOf(State.Accepting)
-                .OnEntry(() => context.Logger.LogDebug("Server won't do NAWS - do nothing"));
+                .OnEntry(() =>
+                {
+                    // Server refused NAWS — must not report window size.
+                    _willingToDoNAWS = false;
+                    context.Logger.LogDebug("Server won't do NAWS - do nothing");
+                });
 
             stateMachine.Configure(State.DoNAWS)
                 .SubstateOf(State.Accepting)
@@ -142,7 +155,25 @@ public class NAWSProtocol : TelnetProtocolPluginBase
             .SubstateOf(State.EndSubNegotiation)
             .OnEntryAsync(async x => await CompleteNAWSAsync(x, context));
 
-        context.RegisterInitialNegotiation(async () => await RequestNAWSAsync(null, context));
+        // RFC 1073: NAWS describes the CLIENT's window. The client offers it with WILL NAWS and
+        // the server enables it with DO NAWS. Only then may the client send SB NAWS. Previously
+        // this initial negotiation was ungated, so a client also sent DO NAWS (asking the server
+        // for a window it has no concept of) and then an unsolicited SB NAWS — which desynced a
+        // strict server's telnet parser and swallowed the following line (observed vs SharpMUSH).
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            context.RegisterInitialNegotiation(async () => await RequestNAWSAsync(null, context));
+        }
+        else
+        {
+            context.RegisterInitialNegotiation(async () => await OfferNAWSAsync(context));
+        }
+    }
+
+    private async ValueTask OfferNAWSAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Offering to report window size (WILL NAWS)");
+        await context.SendNegotiationAsync(s_willNaws);
     }
 
     /// <inheritdoc />
