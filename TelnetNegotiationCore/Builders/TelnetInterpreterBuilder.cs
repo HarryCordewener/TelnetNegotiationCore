@@ -22,6 +22,8 @@ public class TelnetInterpreterBuilder
     private Func<byte[], System.Text.Encoding, TelnetInterpreter, ValueTask>? _onSubmit;
     private Func<ReadOnlyMemory<byte>, ValueTask>? _onNegotiation;
     private int? _maxBufferSize;
+    private TimeSpan? _keepAliveInterval;
+    private Func<TelnetInterpreter, CancellationToken, ValueTask>? _keepAliveAsync;
     private readonly List<ITelnetProtocolPlugin> _plugins = new();
     private ProtocolPluginManager? _pluginManager;
 
@@ -83,6 +85,65 @@ public class TelnetInterpreterBuilder
         if (size <= 0)
             throw new ArgumentOutOfRangeException(nameof(size), "Buffer size must be positive");
         _maxBufferSize = size;
+        return this;
+    }
+
+    /// <summary>
+    /// Enables an idle keep-alive on the connection. Disabled unless this is called.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The interval is an <b>idle</b> window, not a fixed heartbeat: it restarts on every outbound
+    /// write through <see cref="TelnetInterpreter.WriteToNetworkAsync"/>, so a connection that is
+    /// already sending data never sends anything extra. A keep-alive only goes out after a genuine
+    /// period of silence.
+    /// </para>
+    /// <para>
+    /// This works in both <see cref="TelnetInterpreter.TelnetMode.Server"/> and
+    /// <see cref="TelnetInterpreter.TelnetMode.Client"/> mode: NOP is a plain telnet command that
+    /// either end may send at any time (RFC 854), and both ends have the same reason to want it.
+    /// </para>
+    /// <para>
+    /// <b>A keep-alive is not peer-liveness detection.</b> The default payload is <c>IAC NOP</c>,
+    /// which the peer is not required to answer, so a successful send only proves the local write
+    /// succeeded — not that anyone is still listening. Use it to stop NAT tables, load balancers and
+    /// idle timers from dropping a quiet connection. Verifying that the peer is actually alive needs
+    /// a round trip the peer must answer, such as TIMING-MARK (RFC 860, option 6), which this
+    /// library does not implement.
+    /// </para>
+    /// <para>
+    /// If the send throws — typically because the peer is gone — the exception is logged as a
+    /// warning and the keep-alive stops for that connection. It is never rethrown onto the host
+    /// application, and it does not disturb the byte-processing loop.
+    /// </para>
+    /// </remarks>
+    /// <param name="interval">
+    /// How long the connection may stay silent before a keep-alive is sent, for example
+    /// <c>TimeSpan.FromSeconds(30)</c>. Defaults to
+    /// <see cref="TelnetInterpreter.DefaultKeepAliveInterval"/> (30 seconds). Must be between
+    /// <see cref="TelnetInterpreter.MinimumKeepAliveInterval"/> (1 second) and
+    /// <see cref="TelnetInterpreter.MaximumKeepAliveInterval"/> (24 hours).
+    /// </param>
+    /// <param name="sendAsync">
+    /// Optional replacement for the default <c>IAC NOP</c> send. Receives the interpreter and a
+    /// token that is cancelled when the interpreter is disposed.
+    /// </param>
+    /// <returns>This builder for chaining</returns>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The interval is outside
+    /// [<see cref="TelnetInterpreter.MinimumKeepAliveInterval"/>,
+    /// <see cref="TelnetInterpreter.MaximumKeepAliveInterval"/>]. Out-of-range values are rejected
+    /// rather than clamped, so a mistyped interval is never silently turned into a different one.
+    /// </exception>
+    public TelnetInterpreterBuilder WithKeepAlive(
+        TimeSpan? interval = null,
+        Func<TelnetInterpreter, CancellationToken, ValueTask>? sendAsync = null)
+    {
+        var resolved = interval ?? TelnetInterpreter.DefaultKeepAliveInterval;
+        TelnetInterpreter.ValidateKeepAliveInterval(resolved, nameof(interval));
+
+        _keepAliveInterval = resolved;
+        _keepAliveAsync = sendAsync;
         return this;
     }
 
@@ -301,7 +362,9 @@ public class TelnetInterpreterBuilder
             CallbackOnSubmitAsync = _onSubmit,
             CallbackNegotiationAsync = _onNegotiation,
             CallbackOnByteAsync = byteCallback,
-            PluginManager = _pluginManager
+            PluginManager = _pluginManager,
+            KeepAliveInterval = _keepAliveInterval,
+            KeepAliveAsync = _keepAliveAsync
         };
 
         // Set max buffer size if specified

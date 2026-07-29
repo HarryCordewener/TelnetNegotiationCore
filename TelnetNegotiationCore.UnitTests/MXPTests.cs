@@ -12,17 +12,6 @@ namespace TelnetNegotiationCore.UnitTests;
 
 public class MXPTests : BaseTest
 {
-	private static async Task<bool> PollUntilAsync(Func<bool> condition, int timeoutMs = 2000, int pollIntervalMs = 10)
-	{
-		var waitedMs = 0;
-		while (!condition() && waitedMs < timeoutMs)
-		{
-			await Task.Delay(pollIntervalMs);
-			waitedMs += pollIntervalMs;
-		}
-		return condition();
-	}
-
 	[Test]
 	public async Task ServerAnnouncesMXPOnBuild()
 	{

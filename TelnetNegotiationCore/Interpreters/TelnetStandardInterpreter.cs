@@ -189,6 +189,9 @@ public partial class TelnetInterpreter
         // Start background processing task
         _processingTask = Task.Run(() => ProcessBytesAsync(_processingCts.Token));
 
+        // Start the idle keep-alive loop, if one was configured.
+        StartKeepAlive();
+
         foreach (var t in _initialCall)
         {
             await t();
@@ -337,6 +340,13 @@ public partial class TelnetInterpreter
             throw new ApplicationException($"{CallbackNegotiationAsync} is null and has not been registered.");
         }
 
+        // Also checked by TelnetInterpreterBuilder.WithKeepAlive; repeated here because
+        // KeepAliveInterval is a public init property that can be assigned without the builder.
+        if (KeepAliveInterval is { } keepAliveInterval)
+        {
+            ValidateKeepAliveInterval(keepAliveInterval, nameof(KeepAliveInterval));
+        }
+
         return this;
     }
 
@@ -365,6 +375,10 @@ public partial class TelnetInterpreter
         finally
         {
             _writeLock.Release();
+            // Restart the keep-alive idle window. This is an interlocked store of a timestamp,
+            // not a call into the keep-alive loop, so it cannot re-enter or deadlock the lock we
+            // just released. See TelnetKeepAliveInterpreter.
+            MarkNetworkWrite();
         }
     }
 
@@ -468,7 +482,11 @@ public partial class TelnetInterpreter
 #else
         _processingCts.Cancel();
 #endif
-        
+
+        // Let the keep-alive loop observe the cancellation and finish any write it already started,
+        // BEFORE the write lock and the token source it uses are disposed.
+        await StopKeepAliveAsync();
+
         if (_processingTask != null)
         {
             try

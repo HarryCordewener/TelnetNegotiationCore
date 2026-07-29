@@ -46,6 +46,26 @@ namespace TelnetNegotiationCore.UnitTests
 		}
 
 		/// <summary>
+		/// Polls <paramref name="condition"/> until it is true or <paramref name="timeoutMs"/> elapses.
+		/// Preferred over a fixed delay in tests that wait on background work: it returns as soon as
+		/// the condition holds, so the timeout can be generous without slowing the suite down.
+		/// </summary>
+		/// <param name="condition">The condition to wait for</param>
+		/// <param name="timeoutMs">Maximum time to wait, in milliseconds</param>
+		/// <param name="pollIntervalMs">How often to re-evaluate the condition, in milliseconds</param>
+		/// <returns>The final value of the condition</returns>
+		protected static async Task<bool> PollUntilAsync(Func<bool> condition, int timeoutMs = 2000, int pollIntervalMs = 10)
+		{
+			var waitedMs = 0;
+			while (!condition() && waitedMs < timeoutMs)
+			{
+				await Task.Delay(pollIntervalMs);
+				waitedMs += pollIntervalMs;
+			}
+			return condition();
+		}
+
+		/// <summary>
 		/// Interprets a byte array and waits for processing to complete.
 		/// </summary>
 		protected static async Task InterpretAndWaitAsync(TelnetInterpreter interpreter, byte[] data)

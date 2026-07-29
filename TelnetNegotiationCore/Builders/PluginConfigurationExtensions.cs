@@ -421,4 +421,30 @@ public static class PluginConfigurationExtensions
         context.Plugin.OnMXPEnabled(callback);
         return context;
     }
+
+    /// <summary>
+    /// Enables the idle keep-alive from inside a plugin configuration chain.
+    /// See <see cref="TelnetInterpreterBuilder.WithKeepAlive"/>.
+    /// </summary>
+    /// <typeparam name="T">The plugin type currently being configured</typeparam>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="interval">
+    /// How long the connection may stay silent before a keep-alive is sent, for example
+    /// <c>TimeSpan.FromSeconds(30)</c>. Defaults to
+    /// <see cref="Interpreters.TelnetInterpreter.DefaultKeepAliveInterval"/> (30 seconds). Must be between
+    /// <see cref="Interpreters.TelnetInterpreter.MinimumKeepAliveInterval"/> (1 second) and
+    /// <see cref="Interpreters.TelnetInterpreter.MaximumKeepAliveInterval"/> (24 hours).
+    /// </param>
+    /// <param name="sendAsync">Optional replacement for the default <c>IAC NOP</c> send</param>
+    /// <returns>The builder for continued chaining</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The interval is outside the accepted range.</exception>
+    public static TelnetInterpreterBuilder WithKeepAlive<T>(
+        this PluginConfigurationContext<T> context,
+        TimeSpan? interval = null,
+        Func<Interpreters.TelnetInterpreter, System.Threading.CancellationToken, ValueTask>? sendAsync = null)
+        where T : Plugins.ITelnetProtocolPlugin
+    {
+        TelnetInterpreterBuilder builder = context;
+        return builder.WithKeepAlive(interval, sendAsync);
+    }
 }

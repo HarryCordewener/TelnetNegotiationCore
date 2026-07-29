@@ -18,17 +18,6 @@ public class MSSPTests : BaseTest
 	/// <summary>
 	/// Polls for a condition with timeout, useful for async callback assertions
 	/// </summary>
-	private static async Task<bool> PollUntilAsync(Func<bool> condition, int timeoutMs = 2000, int pollIntervalMs = 10)
-	{
-		var waitedMs = 0;
-		while (!condition() && waitedMs < timeoutMs)
-		{
-			await Task.Delay(pollIntervalMs);
-			waitedMs += pollIntervalMs;
-		}
-		return condition();
-	}
-
 	[Test]
 	public async Task ClientRespondsWithDoMSSPToServerWill()
 	{
