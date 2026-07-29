@@ -1,6 +1,27 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.6.0]
+
+### Added
+- **Keep-alive** — opt-in idle keep-alive that stops NAT tables, load balancers and idle timers from dropping a quiet connection:
+  - `.WithKeepAlive(TimeSpan? interval = null, Func<TelnetInterpreter, CancellationToken, ValueTask>? sendAsync = null)` on `TelnetInterpreterBuilder` (and on a plugin configuration chain). Off unless called, so upgrading changes nothing for existing consumers.
+  - The interval is an **idle** window, not a fixed heartbeat: it is restarted by every outbound write through `WriteToNetworkAsync`, so a connection that is already sending data sends nothing extra. Defaults to 30 seconds (`TelnetInterpreter.DefaultKeepAliveInterval`).
+  - The interval is bounded: at least 1 second (`TelnetInterpreter.MinimumKeepAliveInterval`) and at most 24 hours (`TelnetInterpreter.MaximumKeepAliveInterval`), inclusive. Out-of-range values throw `ArgumentOutOfRangeException` naming both bounds rather than being clamped, and the check applies both to `.WithKeepAlive(...)` and to `BuildAsync()` for anyone assigning the `KeepAliveInterval` init property directly. Under a second a keep-alive is a flood — no idle timeout it defends against is that short — and over a day it cannot keep anything alive, besides approaching the interval at which `Task.Delay` itself throws (over `int.MaxValue` ms on .NET Framework, reachable through the `netstandard2.0` target).
+  - The payload is overridable via `sendAsync`; the default is `IAC NOP` (RFC 854), also available on its own as `TelnetInterpreter.SendKeepAliveAsync()`.
+  - Works in both client and server mode. A failing send (typically a vanished peer) is logged as a warning and stops the keep-alive for that connection; it is never rethrown onto the host application and does not disturb the byte-processing loop.
+  - **Note:** a NOP keep-alive is not peer-liveness detection. A successful send only proves the local write succeeded, not that anyone is still listening — the peer is not required to answer. Verifying the peer is alive needs a round trip it must answer, such as TIMING-MARK (RFC 860, option 6), which this library does not implement.
+
+## [2.5.3]
+
+### Fixed
+- **NAWS negotiation direction (RFC 1073)** — the client offered `DO NAWS` (asking the server for a window it has no concept of) and then sent an unsolicited `SB NAWS` because `SendNAWS`'s guard was a no-op. A strict server answered the stray `DO NAWS` with `WONT`, and the unsolicited subnegotiation then desynced its parser and swallowed the following line, making typed logins intermittently bounce back to the login screen. The client now offers `WILL NAWS` and only reports its size once the server enables it with `DO NAWS`.
+
+## [2.5.2]
+
+### Fixed
+- **CHARSET initiation (RFC 2066)** — the CHARSET plugin registered its proactive `WILL CHARSET` offer in both client and server mode. Two peers both offering `WILL CHARSET` collided and never resolved, leaving a stuck CHARSET state that discarded the client's first line. The initial offer is now gated to server mode, matching how GMCP and MCCP gate theirs.
+
 ## [2.5.1]
 
 ### Fixed
