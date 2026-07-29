@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -133,6 +135,57 @@ public class KeepAliveTests : BaseTest
 		await Assert.That(repeated).IsTrue();
 
 		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A received keep-alive is a protocol message, not input. RFC 1123 §3.2.3 makes accepting it a
+	/// MUST — "a host MUST be able to receive and ignore any Telnet control functions that it does not
+	/// support", with NOP among those every implementation supports — and the whole point of the IAC
+	/// escape is that a command is distinguishable from the data around it. So an <c>IAC NOP</c>
+	/// arriving mid-line must vanish at the telnet layer: the application sees the line it was sent,
+	/// with no 255 or 241 spliced into it, and no line break where the keep-alive landed.
+	/// </summary>
+	[Test]
+	[Arguments(TelnetInterpreter.TelnetMode.Client)]
+	[Arguments(TelnetInterpreter.TelnetMode.Server)]
+	public async Task AReceivedKeepAliveIsConsumedAndNeverReachesTheApplication(
+		TelnetInterpreter.TelnetMode mode)
+	{
+		// Arrange
+		var submitted = new List<byte[]>();
+
+		ValueTask CaptureSubmit(byte[] data, Encoding encoding, TelnetInterpreter ti)
+		{
+			lock (submitted) submitted.Add(data);
+			return ValueTask.CompletedTask;
+		}
+
+		var ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(mode)
+				.UseLogger(logger)
+				.OnSubmit(CaptureSubmit)
+				.OnNegotiation(_ => ValueTask.CompletedTask));
+
+		// Act - a keep-alive lands in the middle of a line, and again between lines.
+		await InterpretAndWaitAsync(ti, Encoding.ASCII.GetBytes("he"));
+		await InterpretAndWaitAsync(ti, s_iacNop);
+		await InterpretAndWaitAsync(ti, Encoding.ASCII.GetBytes("llo\r\n"));
+		await InterpretAndWaitAsync(ti, s_iacNop);
+		await InterpretAndWaitAsync(ti, Encoding.ASCII.GetBytes("world\r\n"));
+
+		await PollUntilAsync(() => { lock (submitted) return submitted.Count >= 2; });
+
+		// Assert - the two lines arrive whole, and neither carries a byte of the keep-alive.
+		List<byte[]> lines;
+		lock (submitted) lines = [.. submitted];
+
+		await Assert.That(lines.Count).IsEqualTo(2);
+		await Assert.That(Encoding.ASCII.GetString(lines[0])).IsEqualTo("hello");
+		await Assert.That(Encoding.ASCII.GetString(lines[1])).IsEqualTo("world");
+		await Assert.That(lines.SelectMany(l => l).Any(b => b is 255 or 241)).IsFalse();
+
+		await ti.DisposeAsync();
 	}
 
 	[Test]
