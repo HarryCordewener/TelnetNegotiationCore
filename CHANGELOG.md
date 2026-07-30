@@ -1,6 +1,28 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.7.0]
+
+### Fixed
+- **MSSP multi-value variables, booleans and unknown variables** — the MSSP reader could not represent what the protocol sends, and destroyed the data before any consumer saw it.
+  - Every `MSSP_VAL` under one `MSSP_VAR` was accumulated into a single byte buffer with no separator, so `PORT "80" "23" "4201"` arrived as the integer `80234201`. The specification says "It's also possible to attach several values to a single variable by using MSSP_VAL more than once, with the default value reported last."
+  - The same variable repeated (`MSSP_VAR "PORT" MSSP_VAL "80" MSSP_VAR "PORT" MSSP_VAL "23"`) kept only whichever value happened to be bound last, and paired names to values by index, so one malformed field misaligned the whole report.
+  - `REFERRAL` — a list by definition, and the variable a crawler runs on — came out `null`: the run-together string could not bind to its list-typed property and was dropped.
+  - Booleans (`ANSI`, `UTF-8`, `PAY TO PLAY`, …) were parsed with `bool.TryParse`, which rejects MSSP's `1`/`0`, so every one of them was dropped.
+  - Variables with no property on `MSSPConfig` were discarded rather than collected, and `MSSPConfig.Extended` was never populated on receive.
+  - Variable names were matched case-sensitively after `ToUpper()` (culture-sensitive) and without the specification's recommended underscore-for-space substitution, so a server sending `CRAWL_DELAY` or `MINIMUM_AGE` was ignored.
+  - A payload whose last field was a variable name with no value (`… MSSP_VAR "FOO" IAC SE`) hit an unhandled trigger and left the MSSP state machine wedged for the rest of the connection.
+
+### Added
+- **`MSSPConfig.Variables`** — an ordered, canonicalized variable name → value **list** map holding everything a peer reported, which the strongly typed properties are projected from. Scalar properties take the last value (the specification's default); list-typed properties take all of them. `Default`, `Flag` and `Integer` read the default value in the shape a caller usually wants, and `OfficialNames` / `UnofficialNames` partition a report against the specification's tables.
+- **`MSSPVariables`** — `Canonicalize` (upper case, underscores folded to spaces, whitespace runs collapsed), `IsOfficial`, `IsKnown`, and the official name list.
+- **`MSSPConfig.Charset` and `MSSPConfig.Discord`** — official Generic variables that were missing from the model. `CHARSET` is array-capable.
+- **`MSSPConfigAccessor.TrySetValues`** — binds every value of a variable at once. `TrySetProperty` is unchanged in signature and now defers to it.
+- When a received `MSSPConfig` is sent back out, `Variables` is written verbatim — arrays and unknown variables included — and the typed properties and `Extended` supply only names it does not mention. A configuration built by hand has an empty map and sends exactly what it always did.
+
+### Changed
+- `MSSPConfig.MSP` is now marked `[Official(false)]`. `MSP` is not in the specification's official variable tables.
+
 ## [2.6.0]
 
 ### Added

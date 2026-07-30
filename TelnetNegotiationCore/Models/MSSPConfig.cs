@@ -38,6 +38,11 @@ public class MSSPConfig
 	[Name("UPTIME"), Official(true)]
 	public int? Uptime { get; set; }
 
+	/// <summary>CHARSET: ASCII, BIG5, CP437, CP949, CP1251, EUC-KR, GB18030, ISO-8859-1, ISO-8859-2, KOI8-R, UTF-8.
+	/// Name of the charset in use. You can report multiple charsets using the array format, the preferred / default charset last.</summary>
+	[Name("CHARSET"), Official(true)]
+	public IEnumerable<string>? Charset { get; set; }
+
 	/// <summary>CODEBASE: Name of the codebase, eg Merc 2.1. You can report multiple codebases using the array format, make sure to report the current codebase last.</summary>
 	[Name("CODEBASE"), Official(true)]
 	public IEnumerable<string>? Codebase { get; set; }
@@ -46,13 +51,18 @@ public class MSSPConfig
 	[Name("CONTACT"), Official(true)]
 	public string? Contact { get; set; }
 
-	/// <summary>CRAWL DELAY: Preferred minimum number of hours between crawls. Send -1 to use the crawler's default.</summary>
+	/// <summary>CRAWL DELAY: Preferred minimum number of hours between crawls. Send -1 to use the crawler's default.
+	/// Recommended values are -1, 1, 5, 11, and 23.</summary>
 	[Name("CRAWL DELAY"), Official(true)]
 	public int? Crawl_Delay { get; set; }
 
 	/// <summary>CREATED: Year the MUD was created.</summary>
 	[Name("CREATED"), Official(true)]
 	public string? Created { get; set; }
+
+	/// <summary>DISCORD: URL to a Discord server, this should include the https:// prefix.</summary>
+	[Name("DISCORD"), Official(true)]
+	public string? Discord { get; set; }
 
 	/// <summary>HOSTNAME: Current or new hostname.</summary>
 	[Name("HOSTNAME"), Official(true)]
@@ -120,7 +130,8 @@ public class MSSPConfig
 	[Name("STATUS"), Official(true)]
 	public string? Status { get; set; }
 
-	/// <summary>GAMESYSTEM: D&D, d20 System, World of Darkness, Etc. Use Custom if using a custom game system. Use None if not available.</summary>
+	/// <summary>GAMESYSTEM: D&D, d20 System, World of Darkness, Etc.
+	/// Use Real Time, Tick Based, Turn Based, or Custom if using a custom gamesystems. Use None if not available.</summary>
 	[Name("GAMESYSTEM"), Official(true)]
 	public string? Gamesystem { get; set; }
 
@@ -181,8 +192,8 @@ public class MSSPConfig
 	[Name("PUEBLO"), Official(false)]
 	public bool? Pueblo { get; set; }
 
-	/// <summary>MSP: Supports MSP ? 1 or 0</summary>
-	[Name("MSP"), Official(true)]
+	/// <summary>MSP: Supports MSP ? 1 or 0. Not in the specification's official tables.</summary>
+	[Name("MSP"), Official(false)]
 	public bool? MSP { get; set; }
 
 	/// <summary>UTF-8: Supports UTF-8 ? 1 or 0</summary>
@@ -217,11 +228,42 @@ public class MSSPConfig
 	[Name("HIRING CODERS"), Official(true)]
 	public bool? Hiring_Coders { get; set; }
 
-	/// <summary>Additional information. 
+	/// <summary>Additional information.
 	/// Dictionary Key serves as the MSSP Key
 	/// Dictionary Value.obj serves as the MSSP Value
 	/// Dictionary Value.type serves as the MSSP Value Type for unboxing
-	/// We only support IEnumerable<string>, bool, int and string at this time</summary>
+	/// We only support IEnumerable&lt;string&gt;, bool, int and string at this time.</summary>
+	/// <remarks>
+	/// When a report is <em>received</em>, every variable without a strongly typed property above --
+	/// whether one of the specification's unofficial extras or a name a codebase invented -- is added
+	/// here as an <see cref="IReadOnlyList{T}"/> of its values in wire order, so a single-valued
+	/// variable arrives as a one-element list. <see cref="Variables"/> holds the same data for every
+	/// variable, typed or not.
+	/// </remarks>
 	[Official(false)]
 	public Dictionary<string, dynamic> Extended { get; set; } = [];
+
+	/// <summary>
+	/// Every variable reported, with every value, in wire order -- the lossless record the strongly
+	/// typed properties above are projected from.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// The typed properties cannot represent MSSP faithfully: a variable may carry several values
+	/// ("The same variable can be send more than once with different values, in which case the last
+	/// reported value should be used as the default value"), and a server may send names this library
+	/// has never heard of, which is the whole point of a protocol for servers describing themselves.
+	/// Read this when you need what the peer actually said; read the properties when you want the
+	/// convenient scalar. For a scalar property the value here is the <em>last</em> reported one, per
+	/// the specification's rule.
+	/// </para>
+	/// <para>
+	/// When sending, this takes precedence: any variable present here is written verbatim, with one
+	/// <c>MSSP_VAL</c> per value, and the typed properties and <see cref="Extended"/> only supply
+	/// names it does not mention. A configuration built by hand leaves it empty, so nothing changes
+	/// for a server that only sets properties; a configuration received from a peer round-trips
+	/// exactly.
+	/// </para>
+	/// </remarks>
+	public MSSPVariableCollection Variables { get; } = new();
 }
