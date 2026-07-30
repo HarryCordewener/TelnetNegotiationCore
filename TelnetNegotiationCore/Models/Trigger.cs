@@ -38,17 +38,39 @@ public class ParameterizedTriggers
 /// </summary>
 public static class TriggerHelper
 {
-	// Use generated AllValues instead of reflection
-	private static readonly ImmutableHashSet<Trigger> AllTriggers = TriggerExtensions.AllValues;
+	/// <summary>
+	/// Every <see cref="Trigger"/> the byte-processing loop can fire from data a peer sent: all the
+	/// named byte triggers, plus <see cref="Trigger.ReadNextCharacter"/>, which is the catch-all
+	/// fired for any byte that has no named trigger.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// <see cref="Trigger.Error"/> is deliberately excluded. It is not data — it is the recovery
+	/// trigger the interpreter fires at itself from
+	/// <c>StateMachine.OnUnhandledTriggerAsync</c>, and the safe interpreter gives every
+	/// non-accepting state a single <c>Permit(Trigger.Error, State.Accepting)</c> so that recovery
+	/// has exactly one destination.
+	/// </para>
+	/// <para>
+	/// Including it was actively harmful: every <c>Permit</c>/<c>PermitReentry</c> loop built over
+	/// this set handed its state a second, unguarded <see cref="Trigger.Error"/> transition, which
+	/// collides with that recovery transition. Stateless then throws
+	/// <c>InvalidOperationException: Multiple permitted exit transitions are configured from state
+	/// 'X' for trigger 'Error'</c> at the exact moment the interpreter is trying to recover from a
+	/// bad byte, which kills the byte-processing loop for the rest of the connection.
+	/// </para>
+	/// </remarks>
+	public static readonly ImmutableHashSet<Trigger> DataTriggers =
+		TriggerExtensions.AllValues.Remove(Trigger.Error);
 
 	public static void ForAllTriggers(Action<Trigger> f)
 	{
-		foreach(var trigger in AllTriggers) f(trigger);
-	} 
+		foreach(var trigger in DataTriggers) f(trigger);
+	}
 
 	public static void ForAllTriggersExcept(IEnumerable<Trigger> except, Action<Trigger> f)
 	{
-		foreach (var trigger in AllTriggers.Except(except)) f(trigger);
+		foreach (var trigger in DataTriggers.Except(except)) f(trigger);
 	}
 
 	public static void ForAllTriggersButIAC(Action<Trigger> f)

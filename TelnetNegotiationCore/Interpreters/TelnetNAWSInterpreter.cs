@@ -67,30 +67,27 @@ public partial class TelnetInterpreter
 			return;
 		}
 
-#if NET5_0_OR_GREATER
-		// Use BinaryPrimitives for explicit big-endian encoding (network byte order per RFC 1073)
-		// Note: We use stackalloc for the working buffer then ToArray() for ReadOnlyMemory<byte>.
-		// Although ReadOnlyMemory<byte> can wrap stack memory via MemoryMarshal, this method is async
-		// so the stackalloc'd buffer cannot safely escape the current stack frame via an async state machine.
-		Span<byte> buffer = stackalloc byte[9];
-		buffer[0] = (byte)Trigger.IAC;
-		buffer[1] = (byte)Trigger.SB;
-		buffer[2] = (byte)Trigger.NAWS;
-		System.Buffers.Binary.BinaryPrimitives.WriteInt16BigEndian(buffer[3..], width);
-		System.Buffers.Binary.BinaryPrimitives.WriteInt16BigEndian(buffer[5..], height);
-		buffer[7] = (byte)Trigger.IAC;
-		buffer[8] = (byte)Trigger.SE;
-		
-		await WriteToNetworkAsync(buffer.ToArray());
-#else
-		// NOTE: BitConverter.GetBytes() uses system endianness (typically little-endian on modern systems).
-		// This may produce incorrect byte order on big-endian systems, but those are extremely rare.
-		// NAWS protocol requires network byte order (big-endian per RFC 1073).
-		// For proper big-endian support on all platforms, upgrade to .NET 5+ which uses BinaryPrimitives.
-		await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS, 
-			.. BitConverter.GetBytes(width), .. BitConverter.GetBytes(height), 
-			(byte)Trigger.IAC, (byte)Trigger.SE]);
-#endif
+		// RFC 1073: "IAC SB NAWS WIDTH[1] WIDTH[0] HEIGHT[1] HEIGHT[0] IAC SE", high byte first
+		// (network byte order). Shifting explicitly is endian-independent, so this is one code path
+		// on every target framework.
+		//
+		// RFC 1073: "As required by the Telnet protocol, any occurrence of 255 in the subnegotiation
+		// must be doubled to distinguish it from the IAC character (which has a value of 255)."
+		// A dimension byte of 255 is an ordinary terminal size, not a corner case - a 255-column
+		// window, or any height/width whose high or low byte happens to be 255. Sent raw, the peer
+		// reads that byte as the IAC that ends the subnegotiation and the rest of the stream desyncs.
+		var dimensions = TelnetSafeBytesInternal(new byte[]
+		{
+			(byte)(width >> 8), (byte)width,
+			(byte)(height >> 8), (byte)height
+		});
+
+		await WriteToNetworkAsync((byte[])
+		[
+			(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS,
+			.. dimensions,
+			(byte)Trigger.IAC, (byte)Trigger.SE
+		]);
 	}
 
 	/// <summary>
@@ -109,17 +106,10 @@ public partial class TelnetInterpreter
 
 	private async ValueTask CompleteNAWSAsync(StateMachine<State, Trigger>.Transition _)
 	{
-		byte[] width = [_nawsByteState[0], _nawsByteState[1]];
-		byte[] height = [_nawsByteState[2], _nawsByteState[3]];
-
-		if (BitConverter.IsLittleEndian)
-		{
-			Array.Reverse(width);
-			Array.Reverse(height);
-		}
-
-		ClientWidth = BitConverter.ToInt16(width, 0);
-		ClientHeight = BitConverter.ToInt16(height, 0);
+		// See NAWSProtocol.CompleteNAWSAsync: RFC 1073 is high byte first and allows up to 65535,
+		// so the pair must be read unsigned rather than through BitConverter.ToInt16.
+		ClientWidth = (_nawsByteState[0] << 8) | _nawsByteState[1];
+		ClientHeight = (_nawsByteState[2] << 8) | _nawsByteState[3];
 
 		_logger.LogDebug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
 		

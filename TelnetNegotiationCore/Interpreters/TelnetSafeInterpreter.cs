@@ -6,7 +6,6 @@ using System.Buffers;
 using System.Collections.Immutable;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Generated;
-using System.IO;
 using Microsoft.Extensions.Logging;
 
 namespace TelnetNegotiationCore.Interpreters;
@@ -17,9 +16,12 @@ namespace TelnetNegotiationCore.Interpreters;
 public partial class TelnetInterpreter
 {
 	/// <summary>
-	/// Cached array of all trigger values to avoid repeated allocations.
+	/// Cached array of every trigger a peer's data can fire, to avoid repeated allocations.
+	/// Uses <see cref="TriggerHelper.DataTriggers"/> so <see cref="Trigger.Error"/> is excluded —
+	/// permitting it here would give the state a second, unguarded <see cref="Trigger.Error"/>
+	/// transition that collides with the recovery transition configured below.
 	/// </summary>
-	private static readonly Trigger[] s_allTriggers = TriggerExtensions.AllValues.ToArray();
+	private static readonly Trigger[] s_allTriggers = [.. TriggerHelper.DataTriggers];
 	/// <summary>
 	/// The two-byte escaped IAC sequence (0xFF 0xFF) written between segments when escaping.
 	/// Stored as a static array so it can be sliced as a <see cref="ReadOnlySpan{T}"/> and
@@ -27,19 +29,10 @@ public partial class TelnetInterpreter
 	/// </summary>
 	private static readonly byte[] s_iacEscape = [255, 255];
 	/// <summary>
-	/// Create a byte[] that is safe to send over telnet by repeating 255s. 
-	/// </summary>
-	/// <param name="str">The string intent to be sent across the wire.</param>
-	/// <returns>The new byte[] with 255s duplicated.</returns>
-	internal byte[] TelnetSafeString(string str)
-	{
-		var byteSpan = CurrentEncoding.GetBytes(str).AsSpan();
-		return TelnetSafeBytesInternal(byteSpan);
-	}
-
-	/// <summary>
-	/// Create a byte[] that is safe to send over telnet by repeating 255s. 
-	/// This is handled automatically by <see cref="SendAsync"/> and <see cref="SendPromptAsync"/>.
+	/// Create a byte[] that is safe to send over telnet by repeating 255s.
+	/// This is handled automatically by <see cref="SendAsync"/> and <see cref="SendPromptAsync"/>;
+	/// call it directly only when writing bytes to the peer through some other path, such as
+	/// <see cref="Protocols.EchoProtocol"/>'s default handler.
 	/// </summary>
 	/// <param name="str">The original bytes intent to be sent.</param>
 	/// <returns>The new byte[] with 255s duplicated.</returns>
@@ -202,8 +195,22 @@ public partial class TelnetInterpreter
 		TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.BadSubNegotiationEvaluating).PermitReentry(t));
 
 		tsm.Configure(State.BadSubNegotiation)
-			.Permit(Trigger.IAC, State.BadSubNegotiationEscaping)
-			.OnEntry(() => _logger.LogDebug("Connection: {ConnectionState}", $"Unsupported SubNegotiation."));
+			.Permit(Trigger.IAC, State.BadSubNegotiationEscaping);
+
+		// Name the option we are skipping. The trigger that moved us here from SubNegotiation carries
+		// the option byte, so the log says which peer feature went unhandled instead of just
+		// "Unsupported SubNegotiation."
+		TriggerHelper.ForAllTriggers(t => tsm.Configure(State.BadSubNegotiation)
+			.OnEntryFrom(ParameterizedTrigger(t), b => _logger.LogDebug(
+				"Connection: Unsupported SubNegotiation for option {Option}. Skipping its payload until IAC SE.",
+				b.IsT0 ? b.AsT0 : (short)b.AsT1)));
+		// RFC 855: "the receiver may locate the end of a parameter string by searching for the SE
+		// command (i.e., the string IAC SE), even if the receiver is unable to parse the parameters."
+		// Without this transition the only unsupported subnegotiation that could be skipped was the
+		// empty one (IAC SB <opt> IAC SE); any payload at all left the machine stuck in
+		// BadSubNegotiationEvaluating with nowhere to go on the terminating IAC.
+		tsm.Configure(State.BadSubNegotiationEvaluating)
+			.Permit(Trigger.IAC, State.BadSubNegotiationEscaping);
 		tsm.Configure(State.BadSubNegotiationEscaping)
 			.Permit(Trigger.IAC, State.BadSubNegotiationEvaluating)
 			.Permit(Trigger.SE, State.BadSubNegotiationCompleting);
@@ -222,10 +229,22 @@ public partial class TelnetInterpreter
 			tsm.Configure((State)state.UnderlyingState).Permit(Trigger.Error, State.Accepting);
 		}
 
+		// Accepting is where recovery lands, so it cannot transition on Error - but it must still
+		// *handle* it. Without this, an unhandled trigger fired while in Accepting would be
+		// unhandled itself and re-enter OnUnhandledTriggerAsync forever.
+		tsm.Configure(State.Accepting).Ignore(Trigger.Error);
+
 		tsm.OnUnhandledTriggerAsync(async (state, trigger, unmetGuards) =>
 		{
 			_logger.LogCritical("Bad transition from {@State} with trigger {@Trigger} due to unmet guards: {@UnmetGuards}. Cannot recover. " +
 				"Ignoring character and attempting to recover.", state, trigger, unmetGuards);
+
+			if (trigger == Trigger.Error)
+			{
+				// Recovery itself failed. Firing Error again would recurse; drop the byte instead.
+				return;
+			}
+
 			await tsm.FireAsync(ParameterizedTrigger(Trigger.Error), Trigger.Error);
 		});
 

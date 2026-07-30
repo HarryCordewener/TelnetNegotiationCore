@@ -451,10 +451,22 @@ public partial class TelnetInterpreter
                     _isDefinedDictionary.Add(bt, triggerOrByte);
                 }
 
-                _logger.LogTrace("Processing byte #{ByteNum}: {Byte:X2} (trigger: {Trigger}), current state: {State}", 
+                _logger.LogTrace("Processing byte #{ByteNum}: {Byte:X2} (trigger: {Trigger}), current state: {State}",
                     byteCount, bt, triggerOrByte, TelnetStateMachine.State);
-                await TelnetStateMachine.FireAsync(ParameterizedTrigger(triggerOrByte), bt);
-                _logger.LogTrace("After byte #{ByteNum}, new state: {State}, buffer position: {BufferPos}", 
+                try
+                {
+                    await TelnetStateMachine.FireAsync(ParameterizedTrigger(triggerOrByte), bt);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // One malformed byte must not end the connection. Before this, any throw out of
+                    // the state machine escaped the whole loop and every subsequent byte on the
+                    // socket was silently discarded for the life of the connection.
+                    _logger.LogError(ex,
+                        "Dropping byte #{ByteNum} ({Byte:X2}, trigger {Trigger}) that could not be processed in state {State}. Connection continues.",
+                        byteCount, bt, triggerOrByte, TelnetStateMachine.State);
+                }
+                _logger.LogTrace("After byte #{ByteNum}, new state: {State}, buffer position: {BufferPos}",
                     byteCount, TelnetStateMachine.State, _bufferPosition);
             }
             _logger.LogDebug("Byte processing completed. Total bytes processed: {ByteCount}", byteCount);
