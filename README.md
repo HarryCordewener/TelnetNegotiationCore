@@ -271,6 +271,28 @@ await telnet.SendGMCPCommand("Room.Info", "{\"num\":12345,\"name\":\"A dark room
 
 To receive GMCP messages, use the `OnGMCPMessage` callback as shown in the initialization example above.
 
+#### Messages without a data section
+
+The GMCP specification says the data field "is optional and should be separated from the package
+field with a space", and that "when sending a command without a data section the space should be
+omitted". A bodyless message such as `Core.Ping` is delivered with `Package = "Core.Ping"` and
+**`Info = ""`** — an empty string, not `"{}"`. The tuple reports what was on the wire; a consumer
+that would rather see an empty object can substitute one:
+
+```csharp
+ValueTask HandleGMCPAsync((string Package, string Info) message)
+{
+    var json = string.IsNullOrEmpty(message.Info) ? "{}" : message.Info;
+    ...
+}
+```
+
+A message that runs its data straight into the package name with no space (`Char.Vitals{"hp":1}`)
+is malformed by that same sentence, but a package name cannot contain `{`, so it is accepted —
+split at the first character that cannot belong to a package name — and logged as a warning naming
+the package. A payload with no package name at all is discarded, also with a warning that quotes
+what was thrown away.
+
 ### Using ENVIRON Protocol
 The ENVIRON protocol (RFC 1408) is the original environment variable negotiation protocol. It's simpler than NEW-ENVIRON and supports only basic environment variables (no user variables). This protocol can be activated in isolation.
 
