@@ -906,7 +906,7 @@ namespace TelnetNegotiationCore.UnitTests
 		/// over-specify the fix: whatever <see cref="TelnetInterpreter.CurrentEncoding"/> starts as, it
 		/// must not <em>destroy</em> the bytes handed alongside it. UTF-8 passes because it is correct;
 		/// ISO-8859-1 passes because it is byte-preserving, so a caller that later learns the real
-		/// charset can still re-decode. <c>Encoding.ASCII</c> — today's default — fails, because it maps
+		/// charset can still re-decode. <c>Encoding.ASCII</c> — the previous default — fails, because it maps
 		/// every byte above 127 to '?', and no later knowledge can undo that.
 		/// </para>
 		/// </summary>
