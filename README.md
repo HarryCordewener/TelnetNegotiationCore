@@ -160,6 +160,28 @@ All plugin callbacks and settings are set inline on the builder:
 - `.WithTTableSupport(true)` / `.OnTTableReceived(...)` / `.OnTTableRequested(...)` — TTABLE support (RFC 2066)
 - `.OnMXPEnabled(() => ...)` — MXP negotiation success
 - `.WithKeepAlive()` — idle keep-alive (off by default, see below)
+- `.WithMaxMessageSize(bytes)` / `.OnGMCPMessageTooLarge(...)` / `.OnMSDPMessageTooLarge(...)` — subnegotiation size limits (see below)
+- `.WithMaxTTableSize(bytes)` — TTABLE size limit (RFC 2066)
+
+### Subnegotiation Size Limits
+
+GMCP, MSDP and CHARSET TTABLE payloads arrive from an untrusted peer, so each is bounded. The
+default is **1 MiB per message**, configurable per protocol:
+
+```csharp
+.AddPlugin<GMCPProtocol>()
+    .OnGMCPMessage(HandleGMCPAsync)
+    .WithMaxMessageSize(256 * 1024)                 // default: 1 MiB
+    .OnGMCPMessageTooLarge(x => LogDroppedAsync(x)) // (Package, ReceivedBytes, MaxMessageSize)
+```
+
+Neither the GMCP nor the MSDP specification defines a maximum message size, so the limit is a
+library policy, not a protocol constant. Messages that exceed it are **dropped, never truncated** —
+half a JSON document is invalid JSON, and a consumer cannot tell it apart from a malformed server.
+Reaching the limit is reported three ways: an `Error` level log naming the package and the byte
+count, the `OnGMCPMessageTooLarge` / `OnMSDPMessageTooLarge` callback, and — for TTABLE, which has
+a word for this in RFC 2066 — a `TTABLE-REJECTED` reply to the peer. The connection is unaffected;
+the next message is processed normally.
 
 ### Keep-Alive
 
