@@ -25,6 +25,10 @@ All notable changes to this project will be documented in this file.
 
 ## [2.6.0]
 
+### Fixed
+- **Bodyless GMCP messages were dropped** — a message with no data section, such as `Core.Ping`, never reached `OnGMCPMessage`. The parser required a space separator unconditionally, so the one form the specification prescribes for a command without data was the one form that was discarded: *"The `<data>` field is optional and should be separated from the package field with a space. When sending a command without a data section the space should be omitted."* The same message *with* a trailing space was delivered fine. Such messages are now delivered with `Package = "Core.Ping"` and `Info = ""` — an empty string rather than a fabricated `"{}"`, so the callback reports what was actually on the wire (Mudlet substitutes `{}` because its Lua API has no way to express "no data section"; this one does).
+- **A GMCP message whose data ran into the package name was dropped without naming it** — `Char.Vitals{"hp":1}` is malformed by that same sentence, and was discarded with a log line that did not say which package it had been. A server spelling it that way was indistinguishable from a server with no GMCP at all. A package name cannot contain `{`, so the message is now split at the first character that cannot belong to a package name, delivered, and logged as a `Warning` naming the package — tolerated, but never in silence. A payload with no package name at all (`{"hp":1}` on its own) is still discarded, now with a warning quoting what was thrown away; previously it was delivered with an empty package name.
+
 ### Added
 - **Keep-alive** — opt-in idle keep-alive that stops NAT tables, load balancers and idle timers from dropping a quiet connection:
   - `.WithKeepAlive(TimeSpan? interval = null, Func<TelnetInterpreter, CancellationToken, ValueTask>? sendAsync = null)` on `TelnetInterpreterBuilder` (and on a plugin configuration chain). Off unless called, so upgrading changes nothing for existing consumers.
