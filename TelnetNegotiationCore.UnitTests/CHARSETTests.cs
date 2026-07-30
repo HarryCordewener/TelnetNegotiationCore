@@ -957,14 +957,84 @@ namespace TelnetNegotiationCore.UnitTests
 
 			// Verify TTABLE-REJECTED was sent
 			await Assert.That(negotiationOutput).IsNotNull();
-			var expected = new byte[] { 
-				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED, 
-				(byte)Trigger.IAC, (byte)Trigger.SE 
+			var expected = new byte[] {
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED,
+				(byte)Trigger.IAC, (byte)Trigger.SE
 			};
 			await AssertByteArraysEqual(negotiationOutput, expected);
 
 			await server_ti.DisposeAsync();
 		}
+
+		/// <summary>
+		/// TTABLE capture shared GMCP's 8KB ceiling: past it, bytes were dropped and the remainder
+		/// was parsed as if it were the whole table. A truncated translation table is a wrong
+		/// translation table, so the table is now rejected outright - and RFC 2066 has a message
+		/// for exactly that.
+		/// </summary>
+		[Test]
+		public async Task TTableBeyondTheConfiguredCeiling_IsRejectedNotTruncated()
+		{
+			var wasCallbackInvoked = false;
+			byte[] negotiationOutput = null;
+
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
+			{
+				negotiationOutput = data.ToArray();
+				return ValueTask.CompletedTask;
+			}
+
+			var server_ti = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<CharsetProtocol>()
+					.WithTTableSupport()
+					.WithMaxTTableSize(1024)
+					.OnTTableReceived((data) =>
+					{
+						wasCallbackInvoked = true;
+						return ValueTask.FromResult(true);
+					})
+				.BuildAsync();
+
+			await server_ti.InterpretByteArrayAsync(new byte[] {
+				(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET
+			});
+			await server_ti.WaitForProcessingAsync();
+
+			// A well-formed version 1 header followed by more mapping data than the ceiling allows.
+			var ttableMessage = new List<byte> {
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_IS,
+				1, // version
+				(byte)';', // separator
+				(byte)'u', (byte)'t', (byte)'f', (byte)'-', (byte)'8', (byte)';', // charset1
+				8, 0, 0, 10, // size1, count1
+				(byte)'u', (byte)'s', (byte)'-', (byte)'a', (byte)'s', (byte)'c', (byte)'i', (byte)'i', (byte)';', // charset2
+				8, 0, 0, 10 // size2, count2
+			};
+			ttableMessage.AddRange(Enumerable.Repeat((byte)0x41, 2048));
+			ttableMessage.Add((byte)Trigger.IAC);
+			ttableMessage.Add((byte)Trigger.SE);
+
+			await server_ti.InterpretByteArrayAsync(ttableMessage.ToArray());
+			await server_ti.WaitForProcessingAsync(maxWaitMs: 30000);
+
+			// The consumer is never handed a partial table...
+			await Assert.That(wasCallbackInvoked).IsFalse();
+
+			// ...and the peer is told, in the protocol's own words.
+			await Assert.That(negotiationOutput).IsNotNull();
+			var expectedRejection = new byte[] {
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED,
+				(byte)Trigger.IAC, (byte)Trigger.SE
+			};
+			await AssertByteArraysEqual(negotiationOutput, expectedRejection);
+
+			await server_ti.DisposeAsync();
+		}
+
 		/// <summary>
 		/// A line of non-ASCII text that arrives <em>before</em> CHARSET has been agreed must still reach
 		/// the application recoverably.

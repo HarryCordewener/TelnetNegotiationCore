@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using OneOf;
 using Stateless;
+using TelnetNegotiationCore.Helpers;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -41,15 +42,13 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     private static System.Reflection.PropertyInfo? _cachedEncodingProperty;
     
     // TTABLE support fields
-    private byte[] _ttableByteState = [];
-    private int _ttableByteIndex = 0;
+    private readonly SubnegotiationBuffer _ttableBytes = new();
     private bool _ttableSupportEnabled = false;
     private Dictionary<int, int>? _currentTranslationTable;
     private Func<byte[], ValueTask<bool>>? _onTTableReceived;
     private Func<ValueTask<byte[]?>>? _onTTableRequested;
     
     // TTABLE constants
-    private const int TTABLE_BUFFER_SIZE = 8192;
     private const byte TTABLE_VERSION_1 = 1;
     private const int TTABLE_MIN_LENGTH = 2;
 
@@ -99,6 +98,32 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     {
         get => _ttableSupportEnabled;
         set => _ttableSupportEnabled = value;
+    }
+
+    /// <summary>
+    /// The largest TTABLE-IS message this connection will accept, in bytes. Defaults to 1 MiB.
+    /// </summary>
+    /// <remarks>
+    /// RFC 2066 places no limit on the size of a translation table - a table covering a 16-bit
+    /// character set is legitimately large. A table beyond this size is rejected with
+    /// TTABLE-REJECTED rather than parsed from a truncated buffer.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not positive.</exception>
+    public int MaxTTableSize
+    {
+        get => _ttableBytes.MaxMessageSize;
+        set => _ttableBytes.MaxMessageSize = value;
+    }
+
+    /// <summary>
+    /// Sets the maximum TTABLE-IS message size in a fluent manner.
+    /// </summary>
+    /// <param name="maxTTableSize">The maximum TTABLE size in bytes</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public CharsetProtocol WithMaxTTableSize(int maxTTableSize)
+    {
+        MaxTTableSize = maxTTableSize;
+        return this;
     }
 
     /// <summary>
@@ -287,8 +312,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         _acceptedCharsetByteState = [];
         _acceptedCharsetByteIndex = 0;
         _charsetOffered = false;
-        _ttableByteState = [];
-        _ttableByteIndex = 0;
+        _ttableBytes.Reset();
         _currentTranslationTable = null;
         return default(ValueTask);
     }
@@ -298,7 +322,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     {
         _charsetByteState = [];
         _acceptedCharsetByteState = [];
-        _ttableByteState = [];
+        _ttableBytes.Reset();
         _currentTranslationTable = null;
         return default(ValueTask);
     }
@@ -441,40 +465,38 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     }
 
     // TTABLE state machine handlers
-    private void GetTTable(StateMachine<State, Trigger>.Transition _)
-    {
-        _ttableByteState = new byte[TTABLE_BUFFER_SIZE];
-        _ttableByteIndex = 0;
-    }
+    private void GetTTable(StateMachine<State, Trigger>.Transition _) => _ttableBytes.Reset();
 
-    private void CaptureTTable(OneOf<byte, Trigger> b)
-    {
-        if (_ttableByteIndex >= _ttableByteState.Length)
-        {
-            Context.Logger.LogWarning("TTABLE buffer overflow - data truncated at {MaxSize} bytes", TTABLE_BUFFER_SIZE);
-            return;
-        }
-        _ttableByteState[_ttableByteIndex] = b.AsT0;
-        _ttableByteIndex++;
-    }
+    private void CaptureTTable(OneOf<byte, Trigger> b) => _ttableBytes.Add(b.AsT0);
 
     private async ValueTask CompleteTTableAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
-        context.Logger.LogDebug("Processing TTABLE-IS message with {Bytes} bytes", _ttableByteIndex);
-        
+        context.Logger.LogDebug("Processing TTABLE-IS message with {Bytes} bytes", _ttableBytes.Count);
+
         try
         {
+            if (_ttableBytes.Overflowed)
+            {
+                // A truncated translation table is a wrong translation table. RFC 2066 gives us a
+                // way to say so, so say it instead of parsing the fragment.
+                context.Logger.LogError(
+                    "TTABLE-IS exceeded the maximum size of {MaxSize} bytes ({ReceivedBytes} bytes received) and was rejected. Raise CharsetProtocol.MaxTTableSize if this is legitimate traffic.",
+                    _ttableBytes.MaxMessageSize, _ttableBytes.ReceivedBytes);
+                await context.SendNegotiationAsync(s_ttableRejected);
+                return;
+            }
+
             // Parse TTABLE-IS message according to RFC 2066
             // Format: <version> <sep> <charset1> <sep> <size1> <count1> <charset2> <sep> <size2> <count2> <map1> <map2>
-            
-            if (_ttableByteIndex < TTABLE_MIN_LENGTH)
+
+            if (_ttableBytes.Count < TTABLE_MIN_LENGTH)
             {
                 context.Logger.LogWarning("TTABLE-IS message too short");
                 await context.SendNegotiationAsync(s_ttableRejected);
                 return;
             }
 
-            var version = _ttableByteState[0];
+            var version = _ttableBytes.Bytes[0];
             if (version != TTABLE_VERSION_1)
             {
                 context.Logger.LogWarning("Unsupported TTABLE version: {Version}", version);
@@ -485,9 +507,8 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             // Invoke callback if registered
             if (_onTTableReceived != null)
             {
-                var ttableData = new byte[_ttableByteIndex];
-                Array.Copy(_ttableByteState, 0, ttableData, 0, _ttableByteIndex);
-                
+                var ttableData = _ttableBytes.Bytes.ToArray();
+
                 var shouldAccept = await _onTTableReceived.Invoke(ttableData);
                 
                 if (shouldAccept)

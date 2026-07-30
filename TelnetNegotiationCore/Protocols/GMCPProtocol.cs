@@ -4,12 +4,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Attributes;
+using TelnetNegotiationCore.Helpers;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -41,12 +41,11 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     /// </summary>
     private const int MaxPreviewLength = 64;
 
-    private Channel<byte> _gmcpByteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(8192)
-    {
-        FullMode = BoundedChannelFullMode.DropWrite  // Drop bytes if message too large (DOS protection)
-    });
+    private readonly SubnegotiationBuffer _gmcpBytes = new();
 
     private Func<(string Package, string Info), ValueTask>? _onGMCPReceived;
+
+    private Func<(string Package, long ReceivedBytes, int MaxMessageSize), ValueTask>? _onGMCPMessageTooLarge;
 
     /// <summary>
     /// Sets the callback that is invoked when a GMCP message is received.
@@ -56,6 +55,50 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     public GMCPProtocol OnGMCPMessage(Func<(string Package, string Info), ValueTask>? callback)
     {
         _onGMCPReceived = callback;
+        return this;
+    }
+
+    /// <summary>
+    /// The largest GMCP message this connection will accept, in bytes, counted over the whole
+    /// subnegotiation payload (package name, separator and data together). Defaults to 1 MiB.
+    /// </summary>
+    /// <remarks>
+    /// The GMCP specification defines no maximum message size, so this is a defence against a
+    /// hostile or broken peer rather than a protocol limit. A message larger than this is
+    /// <em>dropped</em>, never truncated: it is logged at Error level and reported to the
+    /// <see cref="OnGMCPMessageTooLarge"/> callback, because half a JSON document is indistinguishable
+    /// from a malformed one.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not positive.</exception>
+    public int MaxMessageSize
+    {
+        get => _gmcpBytes.MaxMessageSize;
+        set => _gmcpBytes.MaxMessageSize = value;
+    }
+
+    /// <summary>
+    /// Sets the maximum GMCP message size in a fluent manner.
+    /// </summary>
+    /// <param name="maxMessageSize">The maximum message size in bytes</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public GMCPProtocol WithMaxMessageSize(int maxMessageSize)
+    {
+        MaxMessageSize = maxMessageSize;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the callback that is invoked when a GMCP message is dropped for exceeding
+    /// <see cref="MaxMessageSize"/>. This is the observable counterpart of the Error level log:
+    /// it lets a consumer distinguish "the server sent nothing" from "the server sent too much".
+    /// </summary>
+    /// <param name="callback">The callback to handle oversized GMCP messages. Receives the package
+    /// name (empty if the message had no separator), the number of bytes the peer sent, and the
+    /// configured limit.</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public GMCPProtocol OnGMCPMessageTooLarge(Func<(string Package, long ReceivedBytes, int MaxMessageSize), ValueTask>? callback)
+    {
+        _onGMCPMessageTooLarge = callback;
         return this;
     }
 
@@ -120,13 +163,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.AlmostNegotiatingGMCP)
             .Permit(Trigger.IAC, State.EscapingGMCPValue)
-            .OnEntry(() => {
-                // Reset channel for new message
-                _gmcpByteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(8192)
-                {
-                    FullMode = BoundedChannelFullMode.DropWrite
-                });
-            });
+            .OnEntry(() => _gmcpBytes.Reset());
 
         TriggerHelper.ForAllTriggersButIAC(t => stateMachine
                 .Configure(State.EvaluatingGMCPValue)
@@ -167,10 +204,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnProtocolDisabledAsync()
     {
         Context.Logger.LogInformation("GMCP Protocol disabled");
-        _gmcpByteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(8192)
-        {
-            FullMode = BoundedChannelFullMode.DropWrite
-        });
+        _gmcpBytes.Reset();
         return default(ValueTask);
     }
 
@@ -192,38 +226,44 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
-        _gmcpByteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(8192)
-        {
-            FullMode = BoundedChannelFullMode.DropWrite
-        });
+        _gmcpBytes.Reset();
         return default(ValueTask);
     }
 
     #region State Machine Handlers
 
-    private void RegisterGMCPValue(OneOf<byte, Trigger> b)
-    {
-        // Try to write to channel; if full (>8KB), byte is dropped (DOS protection)
-        _gmcpByteChannel.Writer.TryWrite(b.AsT0);
-    }
+    private void RegisterGMCPValue(OneOf<byte, Trigger> b) => _gmcpBytes.Add(b.AsT0);
 
     private async ValueTask CompleteGMCPNegotiation(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
-        // Read all bytes from channel into list
-        var gmcpBytes = new List<byte>(256);
-        while (_gmcpByteChannel.Reader.TryRead(out var bt))
+        var gmcpBytes = _gmcpBytes.Bytes;
+
+        if (_gmcpBytes.Overflowed)
         {
-            gmcpBytes.Add(bt);
-            if (gmcpBytes.Count >= 8192)
+            // The message is incomplete, so it is dropped rather than handed over as if it were
+            // whole. Report it loudly: a silently shortened payload is invalid JSON that the
+            // consumer cannot tell apart from a malformed server.
+            var receivedBytes = _gmcpBytes.ReceivedBytes;
+            var maxMessageSize = _gmcpBytes.MaxMessageSize;
+            var oversizedPackage = PackageNameOf(gmcpBytes, context.CurrentEncoding);
+            _gmcpBytes.Reset();
+
+            context.Logger.LogError(
+                "GMCP message for package {Package} exceeded the maximum message size of {MaxMessageSize} bytes ({ReceivedBytes} bytes received) and was dropped. Raise GMCPProtocol.MaxMessageSize if this is legitimate traffic.",
+                oversizedPackage, maxMessageSize, receivedBytes);
+
+            if (_onGMCPMessageTooLarge != null)
             {
-                context.Logger.LogWarning("GMCP message too large (>8KB), truncating");
-                break;
+                await _onGMCPMessageTooLarge((Package: oversizedPackage, ReceivedBytes: receivedBytes, MaxMessageSize: maxMessageSize));
             }
+
+            return;
         }
 
         if (gmcpBytes.Count == 0)
         {
             context.Logger.LogWarning("Empty GMCP message received");
+            _gmcpBytes.Reset();
             return;
         }
 
@@ -237,6 +277,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
             context.Logger.LogWarning(
                 "Discarded a GMCP message with no package name: {Payload}",
                 Preview(gmcpBytes, context.CurrentEncoding));
+            _gmcpBytes.Reset();
             return;
         }
 
@@ -249,8 +290,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         var gmcpSpan = CollectionsMarshal.AsSpan(gmcpBytes);
         var package = context.CurrentEncoding.GetString(gmcpSpan[..packageLength]);
 #else
-        var packageBytes = gmcpBytes.Take(packageLength).ToArray();
-        var package = context.CurrentEncoding.GetString(packageBytes);
+        var package = context.CurrentEncoding.GetString(gmcpBytes.Take(packageLength).ToArray());
 #endif
 
         if (separatorMissing)
@@ -276,6 +316,11 @@ public class GMCPProtocol : TelnetProtocolPluginBase
             ? context.CurrentEncoding.GetString(gmcpBytes.Skip(dataStart).ToArray())
 #endif
             : string.Empty;
+
+        // Release the payload before handing control to consumer code: a large message should not
+        // keep its buffer alive for the duration of the callback. Everything above still reads the
+        // buffer - gmcpSpan aliases it - so this is the first point at which it can be let go.
+        _gmcpBytes.Reset();
 
         if (hasMsdpPlugin)
         {
@@ -350,6 +395,25 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Best-effort package name for diagnostics, for a message that will not be delivered.
+    /// </summary>
+    private static string PackageNameOf(List<byte> bytes, System.Text.Encoding encoding)
+    {
+        var (packageLength, _) = SplitPackageAndData(bytes);
+
+        if (packageLength <= 0)
+        {
+            return string.Empty;
+        }
+
+#if NET5_0_OR_GREATER
+        return encoding.GetString(CollectionsMarshal.AsSpan(bytes)[..packageLength]);
+#else
+        return encoding.GetString(bytes.Take(packageLength).ToArray());
+#endif
     }
 
     /// <summary>
@@ -449,10 +513,11 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     private static readonly byte[] s_willMsdp = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSDP };
     private static readonly byte[] s_doMsdp = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP };
 
-    private const int MaxMessageSize = 8192; // 8KB DOS protection
-    private readonly List<byte> _msdpBytes = new();
+    private readonly SubnegotiationBuffer _msdpBytes = new();
 
     private Func<Interpreters.TelnetInterpreter, string, ValueTask>? _onMSDPReceived;
+
+    private Func<(long ReceivedBytes, int MaxMessageSize), ValueTask>? _onMSDPMessageTooLarge;
 
     /// <summary>
     /// Sets the callback that is invoked when an MSDP message is received.
@@ -462,6 +527,46 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     public MSDPProtocol OnMSDPMessage(Func<Interpreters.TelnetInterpreter, string, ValueTask>? callback)
     {
         _onMSDPReceived = callback;
+        return this;
+    }
+
+    /// <summary>
+    /// The largest MSDP message this connection will accept, in bytes. Defaults to 1 MiB.
+    /// </summary>
+    /// <remarks>
+    /// The MSDP specification defines no maximum message size, so this is a defence against a
+    /// hostile or broken peer rather than a protocol limit. A message larger than this is
+    /// <em>dropped</em>, never truncated: a half-read MSDP table does not parse into the data the
+    /// peer sent, it parses into different data.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not positive.</exception>
+    public int MaxMessageSize
+    {
+        get => _msdpBytes.MaxMessageSize;
+        set => _msdpBytes.MaxMessageSize = value;
+    }
+
+    /// <summary>
+    /// Sets the maximum MSDP message size in a fluent manner.
+    /// </summary>
+    /// <param name="maxMessageSize">The maximum message size in bytes</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public MSDPProtocol WithMaxMessageSize(int maxMessageSize)
+    {
+        MaxMessageSize = maxMessageSize;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the callback that is invoked when an MSDP message is dropped for exceeding
+    /// <see cref="MaxMessageSize"/>.
+    /// </summary>
+    /// <param name="callback">The callback to handle oversized MSDP messages. Receives the number
+    /// of bytes the peer sent and the configured limit.</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public MSDPProtocol OnMSDPMessageTooLarge(Func<(long ReceivedBytes, int MaxMessageSize), ValueTask>? callback)
+    {
+        _onMSDPMessageTooLarge = callback;
         return this;
     }
 
@@ -527,10 +632,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.AlmostNegotiatingMSDP)
             .Permit(Trigger.IAC, State.EscapingMSDP)
-            .OnEntry(() => {
-                // Reset byte collection for new message
-                _msdpBytes.Clear();
-            });
+            .OnEntry(() => _msdpBytes.Reset());
 
         // Configure transitions for all non-IAC triggers to capture MSDP values
         TriggerHelper.ForAllTriggersButIAC(t => stateMachine
@@ -572,7 +674,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnProtocolDisabledAsync()
     {
         Context.Logger.LogInformation("MSDP Protocol disabled");
-        _msdpBytes.Clear();
+        _msdpBytes.Reset();
         return default(ValueTask);
     }
 
@@ -594,7 +696,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
-        _msdpBytes.Clear();
+        _msdpBytes.Reset();
         return default(ValueTask);
     }
 
@@ -605,18 +707,31 @@ public class MSDPProtocol : TelnetProtocolPluginBase
         if (!IsEnabled)
             return;
 
-        // DOS protection: enforce max message size
-        if (_msdpBytes.Count >= MaxMessageSize)
-        {
-            Context.Logger.LogWarning("MSDP message exceeded max size of {MaxSize} bytes, truncating", MaxMessageSize);
-            return;
-        }
-
         _msdpBytes.Add(b.AsT0);
     }
 
     private async ValueTask CompleteMSDPNegotiation(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
+        if (_msdpBytes.Overflowed)
+        {
+            // Incomplete: dropped rather than parsed, since a truncated MSDP body decodes into
+            // different data than the peer sent, not less of it.
+            var receivedBytes = _msdpBytes.ReceivedBytes;
+            var maxMessageSize = _msdpBytes.MaxMessageSize;
+            _msdpBytes.Reset();
+
+            context.Logger.LogError(
+                "MSDP message exceeded the maximum message size of {MaxMessageSize} bytes ({ReceivedBytes} bytes received) and was dropped. Raise MSDPProtocol.MaxMessageSize if this is legitimate traffic.",
+                maxMessageSize, receivedBytes);
+
+            if (_onMSDPMessageTooLarge != null)
+            {
+                await _onMSDPMessageTooLarge((ReceivedBytes: receivedBytes, MaxMessageSize: maxMessageSize));
+            }
+
+            return;
+        }
+
         if (_msdpBytes.Count == 0)
         {
             context.Logger.LogWarning("Empty MSDP message received");
@@ -628,7 +743,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
             context.Logger.LogDebug("Processing MSDP message with {ByteCount} bytes", _msdpBytes.Count);
 
             // Parse MSDP bytes using the F# library
-            var parsedData = Functional.MSDPLibrary.MSDPScan(_msdpBytes, context.CurrentEncoding);
+            var parsedData = Functional.MSDPLibrary.MSDPScan(_msdpBytes.Bytes, context.CurrentEncoding);
             var jsonString = JsonSerializer.Serialize(parsedData);
 
             // Invoke the callback if registered
@@ -643,7 +758,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
         }
         finally
         {
-            _msdpBytes.Clear();
+            _msdpBytes.Reset();
         }
     }
 

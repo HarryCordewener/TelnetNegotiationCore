@@ -421,12 +421,36 @@ public class MSDPTests : BaseTest
 		await telnet.DisposeAsync();
 	}
 
-	[Test]
-	public async Task TestMSDPDOSProtection()
+	/// <summary>
+	/// Builds an MSDP subnegotiation carrying a single variable: IAC SB MSDP VAR name VAL value IAC SE.
+	/// </summary>
+	private static byte[] MSDPFrame(string variable, string value)
 	{
-		// Test that messages larger than 8KB are truncated for DOS protection
+		var frame = new List<byte>
+		{
+			(byte)Trigger.IAC,
+			(byte)Trigger.SB,
+			(byte)Trigger.MSDP,
+			(byte)Trigger.MSDP_VAR,
+		};
+		frame.AddRange(Encoding.GetBytes(variable));
+		frame.Add((byte)Trigger.MSDP_VAL);
+		frame.AddRange(Encoding.GetBytes(value));
+		frame.Add((byte)Trigger.IAC);
+		frame.Add((byte)Trigger.SE);
+		return frame.ToArray();
+	}
+
+	/// <summary>
+	/// MSDP shared GMCP's 8KB ceiling and its silent truncation. A 10KB value is not exotic - a
+	/// REPORT of a room's contents easily reaches it - and half a value parses into different data
+	/// rather than less of it.
+	/// </summary>
+	[Test]
+	public async Task TestMSDPLargeMessageArrivesWhole()
+	{
 		var receivedMessages = new List<string>();
-		
+
 		var telnet = await new Builders.TelnetInterpreterBuilder()
 			.UseMode(Interpreters.TelnetInterpreter.TelnetMode.Server)
 			.UseLogger(logger)
@@ -442,36 +466,82 @@ public class MSDPTests : BaseTest
 
 		await telnet.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP });
 
-		// Create a large MSDP message (> 8KB)
-		var largeValue = new byte[10000]; // 10KB of data
-		for (int i = 0; i < largeValue.Length; i++)
-			largeValue[i] = 0x41; // 'A'
+		var largeValue = new string('A', 10000);
 
-		var msdpLarge = new List<byte>
-		{
-			(byte)Trigger.IAC,
-			(byte)Trigger.SB,
-			(byte)Trigger.MSDP,
-			(byte)Trigger.MSDP_VAR,
-		};
-		msdpLarge.AddRange(Encoding.GetBytes("LARGE"));
-		msdpLarge.Add((byte)Trigger.MSDP_VAL);
-		msdpLarge.AddRange(largeValue);
-		msdpLarge.Add((byte)Trigger.IAC);
-		msdpLarge.Add((byte)Trigger.SE);
+		await telnet.InterpretByteArrayAsync(MSDPFrame("LARGE", largeValue));
+		await telnet.WaitForProcessingAsync(maxWaitMs: 30000);
 
-		await telnet.InterpretByteArrayAsync(msdpLarge.ToArray());
-		await telnet.WaitForProcessingAsync();
-		
-		// Poll until callback fires
-		var gotMessage = await PollUntilAsync(() => receivedMessages.Count > 0);
+		var gotMessage = await PollUntilAsync(() => receivedMessages.Count > 0, timeoutMs: 30000);
 		if (!gotMessage)
 		{
 			throw new Exception($"Timeout waiting for MSDP message callback. Count: {receivedMessages.Count}");
 		}
 
-		// Message should still be received (truncated)
 		await Assert.That(receivedMessages.Count).IsEqualTo(1);
+		var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(receivedMessages[0]);
+		await Assert.That(parsed!["LARGE"].Length).IsEqualTo(largeValue.Length);
+		await Assert.That(parsed!["LARGE"]).IsEqualTo(largeValue);
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// The bound that remains: past the configured ceiling the message is dropped and reported,
+	/// rather than parsed from a fragment.
+	/// </summary>
+	[Test]
+	public async Task TestMSDPMessageBeyondTheConfiguredCeilingIsDroppedAndReported()
+	{
+		var receivedMessages = new List<string>();
+		(long ReceivedBytes, int MaxMessageSize)? tooLarge = null;
+
+		var telnet = await new Builders.TelnetInterpreterBuilder()
+			.UseMode(Interpreters.TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit((data, encoding, telnet) => ValueTask.CompletedTask)
+			.OnNegotiation((data) => ValueTask.CompletedTask)
+			.AddPlugin<Protocols.MSDPProtocol>()
+				.OnMSDPMessage((telnet, message) =>
+				{
+					receivedMessages.Add(message);
+					return ValueTask.CompletedTask;
+				})
+				.WithMaxMessageSize(4096)
+				.OnMSDPMessageTooLarge(overflow =>
+				{
+					tooLarge = overflow;
+					return ValueTask.CompletedTask;
+				})
+			.BuildAsync();
+
+		await telnet.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP });
+
+		await telnet.InterpretByteArrayAsync(MSDPFrame("LARGE", new string('A', 10000)));
+		await telnet.WaitForProcessingAsync(maxWaitMs: 30000);
+
+		var reported = await PollUntilAsync(() => tooLarge != null, timeoutMs: 30000);
+		if (!reported)
+		{
+			throw new Exception("Timeout waiting for the oversized-message callback.");
+		}
+
+		await Assert.That(receivedMessages.Count).IsEqualTo(0);
+		await Assert.That(tooLarge!.Value.MaxMessageSize).IsEqualTo(4096);
+		// MSDP_VAR + "LARGE" + MSDP_VAL + 10000 == 10007 bytes.
+		await Assert.That(tooLarge!.Value.ReceivedBytes).IsEqualTo(10007);
+
+		// The connection keeps working.
+		await telnet.InterpretByteArrayAsync(MSDPFrame("HEALTH", "100"));
+		await telnet.WaitForProcessingAsync(maxWaitMs: 30000);
+
+		var gotNext = await PollUntilAsync(() => receivedMessages.Count > 0, timeoutMs: 30000);
+		if (!gotNext)
+		{
+			throw new Exception("Timeout waiting for the MSDP message following an oversized one.");
+		}
+
+		var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(receivedMessages[0]);
+		await Assert.That(parsed!["HEALTH"]).IsEqualTo("100");
 
 		await telnet.DisposeAsync();
 	}

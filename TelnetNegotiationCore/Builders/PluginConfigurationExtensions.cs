@@ -39,6 +39,36 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets the maximum GMCP message size in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="maxMessageSize">The maximum message size in bytes (default 1 MiB). Messages
+    /// larger than this are dropped and reported, never truncated.</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<GMCPProtocol> WithMaxMessageSize(
+        this PluginConfigurationContext<GMCPProtocol> context,
+        int maxMessageSize)
+    {
+        context.Plugin.WithMaxMessageSize(maxMessageSize);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback invoked when a GMCP message is dropped for exceeding the maximum message
+    /// size, in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle oversized GMCP messages</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<GMCPProtocol> OnGMCPMessageTooLarge(
+        this PluginConfigurationContext<GMCPProtocol> context,
+        Func<(string Package, long ReceivedBytes, int MaxMessageSize), ValueTask>? callback)
+    {
+        context.Plugin.OnGMCPMessageTooLarge(callback);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the MSDP message callback in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
@@ -49,6 +79,36 @@ public static class PluginConfigurationExtensions
         Func<Interpreters.TelnetInterpreter, string, ValueTask>? callback)
     {
         context.Plugin.OnMSDPMessage(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the maximum MSDP message size in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="maxMessageSize">The maximum message size in bytes (default 1 MiB). Messages
+    /// larger than this are dropped and reported, never truncated.</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MSDPProtocol> WithMaxMessageSize(
+        this PluginConfigurationContext<MSDPProtocol> context,
+        int maxMessageSize)
+    {
+        context.Plugin.WithMaxMessageSize(maxMessageSize);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback invoked when an MSDP message is dropped for exceeding the maximum message
+    /// size, in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle oversized MSDP messages</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MSDPProtocol> OnMSDPMessageTooLarge(
+        this PluginConfigurationContext<MSDPProtocol> context,
+        Func<(long ReceivedBytes, int MaxMessageSize), ValueTask>? callback)
+    {
+        context.Plugin.OnMSDPMessageTooLarge(callback);
         return context;
     }
 
@@ -122,6 +182,21 @@ public static class PluginConfigurationExtensions
         bool enabled = true)
     {
         context.Plugin.EnableTTableSupport = enabled;
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the maximum TTABLE-IS message size in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="maxTTableSize">The maximum TTABLE size in bytes (default 1 MiB). A larger table
+    /// is rejected with TTABLE-REJECTED rather than parsed from a truncated buffer.</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<CharsetProtocol> WithMaxTTableSize(
+        this PluginConfigurationContext<CharsetProtocol> context,
+        int maxTTableSize)
+    {
+        context.Plugin.WithMaxTTableSize(maxTTableSize);
         return context;
     }
 

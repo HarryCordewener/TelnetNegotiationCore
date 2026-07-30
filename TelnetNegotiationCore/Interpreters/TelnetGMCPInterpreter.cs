@@ -1,36 +1,11 @@
-﻿using Stateless;
-using System.Threading.Tasks;
 using System;
+using System.Threading.Tasks;
 using TelnetNegotiationCore.Models;
-using System.Collections.Generic;
-using OneOf;
-using System.Linq;
-using System.Text.Json;
-using Microsoft.Extensions.Logging;
-using System.Threading.Channels;
 
 namespace TelnetNegotiationCore.Interpreters;
 
 public partial class TelnetInterpreter
 {
-	/// <summary>
-	/// Bounded channel for GMCP message assembly (max 8KB per message).
-	/// </summary>
-	private Channel<byte> _gmcpByteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(8192)
-	{
-		FullMode = BoundedChannelFullMode.DropWrite  // Drop bytes if message too large (DOS protection)
-	});
-
-	/// <summary>
-	/// Adds a byte to the register.
-	/// </summary>
-	/// <param name="b">Byte.</param>
-	private void RegisterGMCPValue(OneOf<byte, Trigger> b)
-	{
-		// Try to write to channel; if full (>8KB), byte is dropped (DOS protection)
-		_gmcpByteChannel.Writer.TryWrite(b.AsT0);
-	}
-
 	/// <summary>
 	/// Sends a GMCP command to the remote party.
 	/// </summary>
@@ -71,80 +46,5 @@ public partial class TelnetInterpreter
 		output[output.Length - 2] = (byte)Trigger.IAC;
 		output[output.Length - 1] = (byte)Trigger.SE;
 		await WriteToNetworkAsync(output);
-	}
-
-	/// <summary>
-	/// Completes the GMCP Negotiation. This is currently assuming a golden path.
-	/// </summary>
-	/// <param name="_">Transition, ignored.</param>
-	/// <returns>ValueTask</returns>
-	private async ValueTask CompleteGMCPNegotiation(StateMachine<State, Trigger>.Transition _)
-	{
-		// Read all bytes from channel into list
-		var gmcpBytes = new List<byte>(256);
-		while (_gmcpByteChannel.Reader.TryRead(out var bt))
-		{
-			gmcpBytes.Add(bt);
-			if (gmcpBytes.Count >= 8192)
-			{
-				_logger.LogWarning("GMCP message too large (>8KB), truncating");
-				break;
-			}
-		}
-
-		if (gmcpBytes.Count == 0)
-		{
-			_logger.LogWarning("Empty GMCP message received");
-			return;
-		}
-
-		const byte space = (byte)' ';  // Literal instead of GetBytes(" ").First()
-		// Note: Space (0x20) is the same across ASCII, UTF-8, and most encodings, but we assume
-		// GMCP uses ASCII-compatible encoding as per the protocol specification
-		var firstSpace = gmcpBytes.FindIndex(x => x == space);
-		
-		if (firstSpace < 0)
-		{
-			_logger.LogWarning("Invalid GMCP message format (no space separator)");
-			return;
-		}
-
-#if NET5_0_OR_GREATER
-		// Use CollectionsMarshal.AsSpan with slicing for zero-copy access
-		var gmcpSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(gmcpBytes);
-		var package = CurrentEncoding.GetString(gmcpSpan[..firstSpace]);
-#else
-		var packageBytes = gmcpBytes.Take(firstSpace).ToArray();
-		var package = CurrentEncoding.GetString(packageBytes);
-#endif
-
-		if(package == "MSDP")
-		{
-			// Call MSDP plugin if available
-			var msdpPlugin = PluginManager?.GetPlugin<Protocols.MSDPProtocol>();
-			if (msdpPlugin != null && msdpPlugin.IsEnabled)
-			{
-#if NET5_0_OR_GREATER
-				// MSDPScan requires byte[] - only allocate when MSDP plugin is enabled
-				var packageBytes = gmcpSpan[..firstSpace].ToArray();
-#endif
-				await msdpPlugin.OnMSDPMessageAsync(this, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(packageBytes, CurrentEncoding)));
-			}
-		}
-		else
-		{
-			// Call GMCP plugin if available
-			var gmcpPlugin = PluginManager?.GetPlugin<Protocols.GMCPProtocol>();
-			if (gmcpPlugin != null && gmcpPlugin.IsEnabled)
-			{
-#if NET5_0_OR_GREATER
-				var rest = gmcpSpan[(firstSpace + 1)..];
-				await gmcpPlugin.OnGMCPMessageAsync((Package: package, Info: CurrentEncoding.GetString(rest)));
-#else
-				var rest = gmcpBytes.Skip(firstSpace + 1).ToArray();
-				await gmcpPlugin.OnGMCPMessageAsync((Package: package, Info: CurrentEncoding.GetString(rest)));
-#endif
-			}
-		}
 	}
 }

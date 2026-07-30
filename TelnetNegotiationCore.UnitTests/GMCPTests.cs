@@ -529,6 +529,12 @@ public class GMCPTests : BaseTest
 	}
 
 	/// <summary>
+	/// Wraps a package and payload in a GMCP subnegotiation: IAC SB GMCP package ' ' payload IAC SE.
+	/// </summary>
+	private static byte[] GMCPFrame(string package, string payload) =>
+		GMCPFrame(package + " " + payload);
+
+	/// <summary>
 	/// Wraps a subnegotiation around an already-composed GMCP payload: IAC SB GMCP payload IAC SE.
 	/// The payload is passed through verbatim so a test can control whether a separator is present.
 	/// </summary>
@@ -690,6 +696,184 @@ public class GMCPTests : BaseTest
 		await Assert.That(warnings.Any(x => x.Contains("{\"hp\":1}"))).IsTrue();
 
 		await client_ti.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A GMCP payload of any size the peer chooses to send must arrive intact. Neither the GMCP
+	/// specification nor the Aardwolf/IRE variants define a maximum message size, and packages such
+	/// as Char.Items.List or a room player list routinely run past 8KB. Truncating one produces
+	/// invalid JSON that the consumer cannot tell from a malformed server.
+	/// </summary>
+	[Test]
+	public async Task LargeGMCPMessageArrivesWhole()
+	{
+		// Arrange
+		var received = new List<(string Package, string Info)>();
+		var client_ti = await BuildNegotiatedGMCPClientAsync(received);
+
+		var package = "Char.Items.List";
+		var message = "{\"location\":\"inv\",\"items\":\"" + new string('x', 32 * 1024) + "\"}";
+
+		// Act
+		await client_ti.InterpretByteArrayAsync(GMCPFrame(package, message));
+		await client_ti.WaitForProcessingAsync(maxWaitMs: 30000);
+
+		var gotMessage = await PollUntilAsync(() => received.Count > 0, timeoutMs: 30000);
+		if (!gotMessage)
+		{
+			throw new Exception("Timeout waiting for GMCP message callback. Nothing was delivered.");
+		}
+
+		// Assert
+		await Assert.That(received[0].Package).IsEqualTo(package);
+		await Assert.That(received[0].Info.Length).IsEqualTo(message.Length);
+		await Assert.That(received[0].Info).IsEqualTo(message);
+
+		await client_ti.DisposeAsync();
+	}
+
+	/// <summary>
+	/// The boundary: package, separator and payload together used to be capped at 8192 bytes, so a
+	/// two-character package name plus 8190 bytes of payload lost its last byte - silently.
+	/// </summary>
+	[Test]
+	public async Task GMCPMessageOneByteOverTheOldEightKilobyteLimitArrivesWhole()
+	{
+		// Arrange
+		var received = new List<(string Package, string Info)>();
+		var client_ti = await BuildNegotiatedGMCPClientAsync(received);
+
+		// "Ab" + ' ' + 8190 == 8193 bytes of subnegotiation payload.
+		var package = "Ab";
+		var message = new string('x', 8190);
+
+		// Act
+		await client_ti.InterpretByteArrayAsync(GMCPFrame(package, message));
+		await client_ti.WaitForProcessingAsync(maxWaitMs: 30000);
+
+		var gotMessage = await PollUntilAsync(() => received.Count > 0, timeoutMs: 30000);
+		if (!gotMessage)
+		{
+			throw new Exception("Timeout waiting for GMCP message callback. Nothing was delivered.");
+		}
+
+		// Assert
+		await Assert.That(received[0].Package).IsEqualTo(package);
+		await Assert.That(received[0].Info.Length).IsEqualTo(8190);
+
+		await client_ti.DisposeAsync();
+	}
+
+	/// <summary>
+	/// Small messages are the overwhelmingly common case, and one arriving after an oversized one
+	/// proves the accumulator is reset rather than left holding the previous message's bytes.
+	/// </summary>
+	[Test]
+	public async Task SmallGMCPMessageAfterALargeOneStillArrivesWhole()
+	{
+		// Arrange
+		var received = new List<(string Package, string Info)>();
+		var client_ti = await BuildNegotiatedGMCPClientAsync(received);
+
+		// Act
+		await client_ti.InterpretByteArrayAsync(GMCPFrame("Char.Items.List", new string('x', 20000)));
+		await client_ti.WaitForProcessingAsync(maxWaitMs: 30000);
+		await PollUntilAsync(() => received.Count > 0, timeoutMs: 30000);
+
+		await client_ti.InterpretByteArrayAsync(GMCPFrame("Char.Vitals", "{\"hp\":1000}"));
+		await client_ti.WaitForProcessingAsync(maxWaitMs: 30000);
+
+		var gotSecond = await PollUntilAsync(() => received.Count > 1, timeoutMs: 30000);
+		if (!gotSecond)
+		{
+			throw new Exception($"Timeout waiting for the second GMCP message. Delivered: {received.Count}");
+		}
+
+		// Assert
+		await Assert.That(received[^1].Package).IsEqualTo("Char.Vitals");
+		await Assert.That(received[^1].Info).IsEqualTo("{\"hp\":1000}");
+
+		await client_ti.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A bound has to remain - GMCP arrives on the read loop from an untrusted peer - but reaching
+	/// it must be reported rather than passed off as a complete message. The connection also has to
+	/// survive it: the next message arrives normally.
+	/// </summary>
+	[Test]
+	public async Task GMCPMessageBeyondTheConfiguredCeilingIsDroppedAndReported()
+	{
+		// Arrange
+		var received = new List<(string Package, string Info)>();
+		(string Package, long ReceivedBytes, int MaxMessageSize)? tooLarge = null;
+
+		var client_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(_ => ValueTask.CompletedTask)
+			.AddPlugin<GMCPProtocol>()
+				.OnGMCPMessage(message =>
+				{
+					received.Add(message);
+					return ValueTask.CompletedTask;
+				})
+				.WithMaxMessageSize(4096)
+				.OnGMCPMessageTooLarge(overflow =>
+				{
+					tooLarge = overflow;
+					return ValueTask.CompletedTask;
+				})
+			.BuildAsync();
+
+		await client_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP });
+		await client_ti.WaitForProcessingAsync();
+		received.Clear();
+
+		// Act: "Char.Items.List" + ' ' + 8000 == 8016 bytes against a 4096 byte ceiling.
+		await client_ti.InterpretByteArrayAsync(GMCPFrame("Char.Items.List", new string('x', 8000)));
+		await client_ti.WaitForProcessingAsync(maxWaitMs: 30000);
+
+		var reported = await PollUntilAsync(() => tooLarge != null, timeoutMs: 30000);
+		if (!reported)
+		{
+			throw new Exception("Timeout waiting for the oversized-message callback.");
+		}
+
+		// Assert: dropped, not truncated, and the consumer was told why.
+		await Assert.That(received.Count).IsEqualTo(0);
+		await Assert.That(tooLarge!.Value.Package).IsEqualTo("Char.Items.List");
+		await Assert.That(tooLarge!.Value.MaxMessageSize).IsEqualTo(4096);
+		await Assert.That(tooLarge!.Value.ReceivedBytes).IsEqualTo(8016);
+
+		// The connection keeps working.
+		await client_ti.InterpretByteArrayAsync(GMCPFrame("Char.Vitals", "{\"hp\":1000}"));
+		await client_ti.WaitForProcessingAsync(maxWaitMs: 30000);
+
+		var gotNext = await PollUntilAsync(() => received.Count > 0, timeoutMs: 30000);
+		if (!gotNext)
+		{
+			throw new Exception("Timeout waiting for the GMCP message following an oversized one.");
+		}
+
+		await Assert.That(received[0].Package).IsEqualTo("Char.Vitals");
+		await Assert.That(received[0].Info).IsEqualTo("{\"hp\":1000}");
+
+		await client_ti.DisposeAsync();
+	}
+
+	/// <summary>
+	/// The ceiling is a byte count, so it must reject a value that cannot be one.
+	/// </summary>
+	[Test]
+	public async Task GMCPMaxMessageSizeRejectsNonPositiveValues()
+	{
+		var gmcp = new GMCPProtocol();
+
+		await Assert.That(gmcp.MaxMessageSize).IsEqualTo(1024 * 1024);
+		await Assert.That(() => gmcp.WithMaxMessageSize(0)).Throws<ArgumentOutOfRangeException>();
+		await Assert.That(() => gmcp.WithMaxMessageSize(-1)).Throws<ArgumentOutOfRangeException>();
 	}
 
 	/// <summary>
