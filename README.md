@@ -178,10 +178,15 @@ default is **1 MiB per message**, configurable per protocol:
 Neither the GMCP nor the MSDP specification defines a maximum message size, so the limit is a
 library policy, not a protocol constant. Messages that exceed it are **dropped, never truncated** —
 half a JSON document is invalid JSON, and a consumer cannot tell it apart from a malformed server.
-Reaching the limit is reported three ways: an `Error` level log naming the package and the byte
-count, the `OnGMCPMessageTooLarge` / `OnMSDPMessageTooLarge` callback, and — for TTABLE, which has
-a word for this in RFC 2066 — a `TTABLE-REJECTED` reply to the peer. The connection is unaffected;
-the next message is processed normally.
+Reaching the limit is never silent, but what is reported differs per protocol:
+
+| Protocol | At the ceiling |
+| --- | --- |
+| GMCP | `Error` log naming the package, the bytes received and the limit; `OnGMCPMessageTooLarge((Package, ReceivedBytes, MaxMessageSize))` |
+| MSDP | `Error` log with the bytes received and the limit; `OnMSDPMessageTooLarge((ReceivedBytes, MaxMessageSize))` — MSDP messages have no package name |
+| CHARSET TTABLE | `Error` log with the bytes received and the limit, plus a `TTABLE-REJECTED` reply to the peer, which is what RFC 2066 provides for this case. No callback: the `OnTTableReceived` callback is never handed a partial table |
+
+The connection is unaffected in every case; the next message is processed normally.
 
 ### Keep-Alive
 
