@@ -161,6 +161,41 @@ All plugin callbacks and settings are set inline on the builder:
 - `.OnMXPEnabled(() => ...)` — MXP negotiation success
 - `.WithKeepAlive()` — idle keep-alive (off by default, see below)
 
+### Reading MSSP
+
+`MSSPConfig` has strongly typed properties for every variable [the specification](https://tintin.mudhalla.net/protocols/mssp) defines, but those cannot represent MSSP on their own: a variable may carry **several values** — spelled either as repeated `MSSP_VAL` under one `MSSP_VAR`, or as the same `MSSP_VAR` repeated — and a server may send names this library has never heard of. `MSSPConfig.Variables` is the lossless record every property is projected from:
+
+```csharp
+ValueTask HandleMSSPAsync(MSSPConfig config)
+{
+    // Convenient scalars. For a multi-valued variable this is the *last* value,
+    // which the specification defines as the default.
+    Console.WriteLine(config.Name);            // "Test MUD"
+    Console.WriteLine(config.Port);            // 4201, from PORT "80" "23" "4201"
+
+    // Everything the server actually said, in wire order.
+    foreach (var (variable, values) in config.Variables)
+        Console.WriteLine($"{variable} = {string.Join(", ", values)}");
+
+    var ports    = config.Variables["PORT"];          // ["80", "23", "4201"]
+    var referral = config.Referral;                   // every REFERRAL entry
+    var charset  = config.Variables.Default("CHARSET");
+    var crawl    = config.Variables.Integer("CRAWL DELAY");  // -1 means "your default"
+    var ansi     = config.Variables.Flag("ANSI");
+
+    // Variables with no typed property — unofficial extras and invented names — are
+    // kept too, in Variables and in Extended (as IReadOnlyList<string>).
+    foreach (var name in config.Variables.UnofficialNames)
+        Console.WriteLine($"{name} = {string.Join(", ", config.Variables[name])}");
+
+    return ValueTask.CompletedTask;
+}
+```
+
+Variable names are canonicalized to the specification's spaced, upper-case spelling, so the recommended underscore substitution reads back the same: `config.Variables["CRAWL_DELAY"]`, `config.Variables["CRAWL DELAY"]` and `config.Variables["crawl delay"]` are one variable.
+
+When **sending**, a `MSSPConfig` you build by hand behaves exactly as before — set the properties, or add to `Extended`. A config you received from a peer round-trips verbatim, arrays and unknown variables included.
+
 ### Keep-Alive
 
 Off unless you ask for it. `WithKeepAlive()` sends `IAC NOP` after 30 seconds of outbound silence, which keeps NAT tables, load balancers and idle timers from tearing down a quiet connection:
