@@ -160,12 +160,12 @@ All plugin callbacks and settings are set inline on the builder:
 - `.WithTTableSupport(true)` / `.OnTTableReceived(...)` / `.OnTTableRequested(...)` — TTABLE support (RFC 2066)
 - `.OnMXPEnabled(() => ...)` — MXP negotiation success
 - `.WithKeepAlive()` — idle keep-alive (off by default, see below)
-- `.WithMaxMessageSize(bytes)` / `.OnGMCPMessageTooLarge(...)` / `.OnMSDPMessageTooLarge(...)` — subnegotiation size limits (see below)
+- `.WithMaxMessageSize(bytes)` / `.OnGMCPMessageTooLarge(...)` / `.OnMSDPMessageTooLarge(...)` / `.OnMSSPMessageTooLarge(...)` — subnegotiation size limits (see below)
 - `.WithMaxTTableSize(bytes)` — TTABLE size limit (RFC 2066)
 
 ### Subnegotiation Size Limits
 
-GMCP, MSDP and CHARSET TTABLE payloads arrive from an untrusted peer, so each is bounded. The
+GMCP, MSDP, MSSP and CHARSET TTABLE payloads arrive from an untrusted peer, so each is bounded. The
 default is **1 MiB per message**, configurable per protocol:
 
 ```csharp
@@ -175,7 +175,7 @@ default is **1 MiB per message**, configurable per protocol:
     .OnGMCPMessageTooLarge(x => LogDroppedAsync(x)) // (Package, ReceivedBytes, MaxMessageSize)
 ```
 
-Neither the GMCP nor the MSDP specification defines a maximum message size, so the limit is a
+None of the GMCP, MSDP or MSSP specifications defines a maximum message size, so the limit is a
 library policy, not a protocol constant. Messages that exceed it are **dropped, never truncated** —
 half a JSON document is invalid JSON, and a consumer cannot tell it apart from a malformed server.
 Reaching the limit is never silent, but what is reported differs per protocol:
@@ -184,6 +184,7 @@ Reaching the limit is never silent, but what is reported differs per protocol:
 | --- | --- |
 | GMCP | `Error` log naming the package, the bytes received and the limit; `OnGMCPMessageTooLarge((Package, ReceivedBytes, MaxMessageSize))` |
 | MSDP | `Error` log with the bytes received and the limit; `OnMSDPMessageTooLarge((ReceivedBytes, MaxMessageSize))` — MSDP messages have no package name |
+| MSSP | `Error` log with the bytes received and the limit; `OnMSSPMessageTooLarge((ReceivedBytes, MaxMessageSize))`. The count is over the whole report — every variable name and value together — because a report of a hundred thousand tiny variables costs the same memory as one enormous value |
 | CHARSET TTABLE | `Error` log with the bytes received and the limit, plus a `TTABLE-REJECTED` reply to the peer, which is what RFC 2066 provides for this case. No callback: the `OnTTableReceived` callback is never handed a partial table |
 
 The connection is unaffected in every case; the next message is processed normally.
@@ -222,6 +223,8 @@ ValueTask HandleMSSPAsync(MSSPConfig config)
 Variable names are canonicalized to the specification's spaced, upper-case spelling, so the recommended underscore substitution reads back the same: `config.Variables["CRAWL_DELAY"]`, `config.Variables["CRAWL DELAY"]` and `config.Variables["crawl delay"]` are one variable.
 
 When **sending**, a `MSSPConfig` you build by hand behaves exactly as before — set the properties, or add to `Extended`. A config you received from a peer round-trips verbatim, arrays and unknown variables included.
+
+MSSP mandates no character set — its only byte-level rule is that *"variables and values cannot contain the MSSP_VAL, MSSP_VAR, IAC, or NUL byte"*, and its own `CHARSET` variable reports *"ASCII, BIG5, CP437, CP949, CP1251, EUC-KR, GB18030, ISO-8859-1, ISO-8859-2, KOI8-R, UTF-8"* — so a report is read and written with `TelnetInterpreter.CurrentEncoding`, whatever RFC 2066 CHARSET negotiation has settled on (UTF-8 until it settles on something else).
 
 ### Keep-Alive
 
