@@ -126,7 +126,7 @@ namespace TelnetNegotiationCore.UnitTests
 				},
 				new[] // Registered CHARSET List After Negotiation
 				{
-					Encoding.ASCII,
+					Encoding.UTF8,
 				});
 			yield return (
 				new byte[][]
@@ -152,8 +152,8 @@ namespace TelnetNegotiationCore.UnitTests
 				},
 				new[] // Registered CHARSET List After Negotiation
 				{
-					Encoding.ASCII,
-					Encoding.ASCII,
+					Encoding.UTF8,
+					Encoding.UTF8,
 					Encoding.UTF8
 				});
 		}
@@ -169,7 +169,7 @@ namespace TelnetNegotiationCore.UnitTests
 				},
 				new[] // Registered CHARSET List After Negotiation
 				{
-					Encoding.ASCII
+					Encoding.UTF8
 				});
 			yield return (
 				new byte[][] { // Client Sends
@@ -192,7 +192,7 @@ namespace TelnetNegotiationCore.UnitTests
 				},
 				new[] // Registered CHARSET List After Negotiation
 				{
-					Encoding.ASCII,
+					Encoding.UTF8,
 					Encoding.GetEncoding("UTF-16")
 				});
 			yield return (
@@ -211,7 +211,7 @@ namespace TelnetNegotiationCore.UnitTests
 				},
 				new[] // Registered CHARSET List After Negotiation
 				{
-					Encoding.ASCII,
+					Encoding.UTF8,
 					Encoding.UTF8
 				});
 		}
