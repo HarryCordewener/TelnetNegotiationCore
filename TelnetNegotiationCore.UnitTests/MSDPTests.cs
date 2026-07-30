@@ -711,5 +711,37 @@ public class MSDPTests : BaseTest
 		await telnet.DisposeAsync();
 	}
 
+	/// <summary>
+	/// Only the exact package <c>MSDP</c> is MoG. An ordinary GMCP package must never reach the MSDP
+	/// callback, and neither must a package that merely contains or extends the name - the
+	/// specification names one package, not a family.
+	/// </summary>
+	[Test]
+	[Arguments("Char.Vitals {\"hp\" : 100}")]
+	[Arguments("Core.Ping")]
+	[Arguments("Room.Info {\"num\" : 6008}")]
+	[Arguments("MSDPX {\"LIST\" : \"COMMANDS\"}")]
+	[Arguments("MSDP.Sub {\"LIST\" : \"COMMANDS\"}")]
+	[Arguments("Char.MSDP {\"LIST\" : \"COMMANDS\"}")]
+	public async Task AnOrdinaryGMCPPackageNeverReachesTheMSDPCallback(string payload)
+	{
+		var msdpMessages = new List<string>();
+		var gmcpMessages = new List<(string Package, string Info)>();
+		var telnet = await BuildMoGClientAsync(msdpMessages, gmcpMessages);
+
+		await telnet.InterpretByteArrayAsync(GMCPFrame(payload));
+		await telnet.WaitForProcessingAsync();
+
+		var gotMessage = await PollUntilAsync(() => gmcpMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for the GMCP callback for {payload}.");
+		}
+
+		await Assert.That(msdpMessages.Count).IsEqualTo(0);
+
+		await telnet.DisposeAsync();
+	}
+
 	#endregion
 }
