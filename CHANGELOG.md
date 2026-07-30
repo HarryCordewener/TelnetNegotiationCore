@@ -1,7 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## [2.6.0]
+## [2.7.0]
 
 ### Fixed
 - **Silent truncation of large subnegotiation payloads (GMCP, MSDP, CHARSET TTABLE)** — GMCP messages were capped at 8192 bytes across the whole payload (package name, separator and data together), and everything past that was dropped. There was no error, no exception and no signal the consumer could observe: the callback fired with a shortened string, which for any JSON payload means invalid JSON that cannot be told apart from a malformed server. Measured with a client-mode interpreter: `"Ab " + 8189` bytes arrived whole, `"Ab " + 8190` arrived one byte short, and a 15-character package name left 8176 bytes for the data. The `Warning` that was logged did not help — it fired at exactly 8192 bytes whether or not anything had been lost.
@@ -10,6 +10,30 @@ All notable changes to this project will be documented in this file.
   - At the ceiling the message is **dropped rather than truncated**, and said out loud: an `Error` level log naming the package and byte count, plus the new `.OnGMCPMessageTooLarge(...)` / `.OnMSDPMessageTooLarge(...)` callbacks for consumers that want to observe it. An oversized TTABLE is answered with `TTABLE-REJECTED` (RFC 2066). The connection is unaffected and the next message is processed normally.
   - Small messages, the overwhelmingly common case, allocate *less*: the per-message `Channel<byte>` (allocated fresh for every GMCP and MSDP subnegotiation) and the copy out of it are gone, replaced by a reused `List<byte>` that releases its backing array only after an unusually large message.
   - Removed the unreachable duplicates of the GMCP and MSDP receive paths in `Interpreters/TelnetGMCPInterpreter.cs` and `Interpreters/TelnetMSDPInterpreter.cs`, which carried their own copies of the 8192-byte limit but were never wired into the state machine. `SendGMCPCommand` is unchanged.
+- **MSSP multi-value variables, booleans and unknown variables** — the MSSP reader could not represent what the protocol sends, and destroyed the data before any consumer saw it.
+  - Every `MSSP_VAL` under one `MSSP_VAR` was accumulated into a single byte buffer with no separator, so `PORT "80" "23" "4201"` arrived as the integer `80234201`. The specification says "It's also possible to attach several values to a single variable by using MSSP_VAL more than once, with the default value reported last."
+  - The same variable repeated (`MSSP_VAR "PORT" MSSP_VAL "80" MSSP_VAR "PORT" MSSP_VAL "23"`) kept only whichever value happened to be bound last, and paired names to values by index, so one malformed field misaligned the whole report.
+  - `REFERRAL` — a list by definition, and the variable a crawler runs on — came out `null`: the run-together string could not bind to its list-typed property and was dropped.
+  - Booleans (`ANSI`, `UTF-8`, `PAY TO PLAY`, …) were parsed with `bool.TryParse`, which rejects MSSP's `1`/`0`, so every one of them was dropped.
+  - Variables with no property on `MSSPConfig` were discarded rather than collected, and `MSSPConfig.Extended` was never populated on receive.
+  - Variable names were matched case-sensitively after `ToUpper()` (culture-sensitive) and without the specification's recommended underscore-for-space substitution, so a server sending `CRAWL_DELAY` or `MINIMUM_AGE` was ignored.
+  - A payload whose last field was a variable name with no value (`… MSSP_VAR "FOO" IAC SE`) hit an unhandled trigger and left the MSSP state machine wedged for the rest of the connection.
+
+### Added
+- **`MSSPConfig.Variables`** — an ordered, canonicalized variable name → value **list** map holding everything a peer reported, which the strongly typed properties are projected from. Scalar properties take the last value (the specification's default); list-typed properties take all of them. `Default`, `Flag` and `Integer` read the default value in the shape a caller usually wants, and `OfficialNames` / `UnofficialNames` partition a report against the specification's tables.
+- **`MSSPVariables`** — `Canonicalize` (upper case, underscores folded to spaces, whitespace runs collapsed), `IsOfficial`, `IsKnown`, and the official name list.
+- **`MSSPConfig.Charset` and `MSSPConfig.Discord`** — official Generic variables that were missing from the model. `CHARSET` is array-capable.
+- **`MSSPConfigAccessor.TrySetValues`** — binds every value of a variable at once. `TrySetProperty` is unchanged in signature and now defers to it.
+- When a received `MSSPConfig` is sent back out, `Variables` is written verbatim — arrays and unknown variables included — and the typed properties and `Extended` supply only names it does not mention. A configuration built by hand has an empty map and sends exactly what it always did.
+
+### Changed
+- `MSSPConfig.MSP` is now marked `[Official(false)]`. `MSP` is not in the specification's official variable tables.
+
+## [2.6.0]
+
+### Fixed
+- **Bodyless GMCP messages were dropped** — a message with no data section, such as `Core.Ping`, never reached `OnGMCPMessage`. The parser required a space separator unconditionally, so the one form the specification prescribes for a command without data was the one form that was discarded: *"The `<data>` field is optional and should be separated from the package field with a space. When sending a command without a data section the space should be omitted."* The same message *with* a trailing space was delivered fine. Such messages are now delivered with `Package = "Core.Ping"` and `Info = ""` — an empty string rather than a fabricated `"{}"`, so the callback reports what was actually on the wire (Mudlet substitutes `{}` because its Lua API has no way to express "no data section"; this one does).
+- **A GMCP message whose data ran into the package name was dropped without naming it** — `Char.Vitals{"hp":1}` is malformed by that same sentence, and was discarded with a log line that did not say which package it had been. A server spelling it that way was indistinguishable from a server with no GMCP at all. A package name cannot contain `{`, so the message is now split at the first character that cannot belong to a package name, delivered, and logged as a `Warning` naming the package — tolerated, but never in silence. A payload with no package name at all (`{"hp":1}` on its own) is still discarded, now with a warning quoting what was thrown away; previously it was delivered with an empty package name.
 
 ### Added
 - **Keep-alive** — opt-in idle keep-alive that stops NAT tables, load balancers and idle timers from dropping a quiet connection:

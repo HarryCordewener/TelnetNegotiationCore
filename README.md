@@ -188,6 +188,41 @@ Reaching the limit is never silent, but what is reported differs per protocol:
 
 The connection is unaffected in every case; the next message is processed normally.
 
+### Reading MSSP
+
+`MSSPConfig` has strongly typed properties for every variable [the specification](https://tintin.mudhalla.net/protocols/mssp) defines, but those cannot represent MSSP on their own: a variable may carry **several values** — spelled either as repeated `MSSP_VAL` under one `MSSP_VAR`, or as the same `MSSP_VAR` repeated — and a server may send names this library has never heard of. `MSSPConfig.Variables` is the lossless record every property is projected from:
+
+```csharp
+ValueTask HandleMSSPAsync(MSSPConfig config)
+{
+    // Convenient scalars. For a multi-valued variable this is the *last* value,
+    // which the specification defines as the default.
+    Console.WriteLine(config.Name);            // "Test MUD"
+    Console.WriteLine(config.Port);            // 4201, from PORT "80" "23" "4201"
+
+    // Everything the server actually said, in wire order.
+    foreach (var (variable, values) in config.Variables)
+        Console.WriteLine($"{variable} = {string.Join(", ", values)}");
+
+    var ports    = config.Variables["PORT"];          // ["80", "23", "4201"]
+    var referral = config.Referral;                   // every REFERRAL entry
+    var charset  = config.Variables.Default("CHARSET");
+    var crawl    = config.Variables.Integer("CRAWL DELAY");  // -1 means "your default"
+    var ansi     = config.Variables.Flag("ANSI");
+
+    // Variables with no typed property — unofficial extras and invented names — are
+    // kept too, in Variables and in Extended (as IReadOnlyList<string>).
+    foreach (var name in config.Variables.UnofficialNames)
+        Console.WriteLine($"{name} = {string.Join(", ", config.Variables[name])}");
+
+    return ValueTask.CompletedTask;
+}
+```
+
+Variable names are canonicalized to the specification's spaced, upper-case spelling, so the recommended underscore substitution reads back the same: `config.Variables["CRAWL_DELAY"]`, `config.Variables["CRAWL DELAY"]` and `config.Variables["crawl delay"]` are one variable.
+
+When **sending**, a `MSSPConfig` you build by hand behaves exactly as before — set the properties, or add to `Extended`. A config you received from a peer round-trips verbatim, arrays and unknown variables included.
+
 ### Keep-Alive
 
 Off unless you ask for it. `WithKeepAlive()` sends `IAC NOP` after 30 seconds of outbound silence, which keeps NAT tables, load balancers and idle timers from tearing down a quiet connection:
@@ -297,6 +332,28 @@ await telnet.SendGMCPCommand("Room.Info", "{\"num\":12345,\"name\":\"A dark room
 ```
 
 To receive GMCP messages, use the `OnGMCPMessage` callback as shown in the initialization example above.
+
+#### Messages without a data section
+
+The GMCP specification says the data field "is optional and should be separated from the package
+field with a space", and that "when sending a command without a data section the space should be
+omitted". A bodyless message such as `Core.Ping` is delivered with `Package = "Core.Ping"` and
+**`Info = ""`** — an empty string, not `"{}"`. The tuple reports what was on the wire; a consumer
+that would rather see an empty object can substitute one:
+
+```csharp
+ValueTask HandleGMCPAsync((string Package, string Info) message)
+{
+    var json = string.IsNullOrEmpty(message.Info) ? "{}" : message.Info;
+    ...
+}
+```
+
+A message that runs its data straight into the package name with no space (`Char.Vitals{"hp":1}`)
+is malformed by that same sentence, but a package name cannot contain `{`, so it is accepted —
+split at the first character that cannot belong to a package name — and logged as a warning naming
+the package. A payload with no package name at all is discarded, also with a warning that quotes
+what was thrown away.
 
 ### Using ENVIRON Protocol
 The ENVIRON protocol (RFC 1408) is the original environment variable negotiation protocol. It's simpler than NEW-ENVIRON and supports only basic environment variables (no user variables). This protocol can be activated in isolation.

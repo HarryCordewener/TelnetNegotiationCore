@@ -94,6 +94,7 @@ public class MSSPConfigGenerator : ISourceGenerator
         sb.AppendLine();
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Collections.Generic;");
+        sb.AppendLine("using System.Globalization;");
         sb.AppendLine("using TelnetNegotiationCore.Models;");
         sb.AppendLine();
         sb.AppendLine("namespace TelnetNegotiationCore.Generated;");
@@ -113,30 +114,70 @@ public class MSSPConfigGenerator : ISourceGenerator
         
         foreach (var prop in properties)
         {
-            sb.AppendLine($"        [\"{prop.MSSPName.ToUpperInvariant()}\"] = new(\"{prop.PropertyName}\", \"{prop.PropertyType}\", {prop.IsOfficial.ToString().ToLowerInvariant()}),");
+            sb.AppendLine($"        [\"{Canonicalize(prop.MSSPName)}\"] = new(\"{prop.PropertyName}\", \"{prop.PropertyType}\", {prop.IsOfficial.ToString().ToLowerInvariant()}),");
         }
         
         sb.AppendLine("    };");
+        sb.AppendLine();
+
+        // Generate TrySetValues method - the primary binder, taking every value MSSP reported
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// Binds every value MSSP reported for a variable onto the matching property (zero reflection).");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    /// <remarks>");
+        sb.AppendLine("    /// A variable may carry several values. List-typed properties take all of them in wire order;");
+        sb.AppendLine("    /// scalar properties take the last, which the specification defines as the default value.");
+        sb.AppendLine("    /// The name is canonicalized first, so the specification's recommended underscore-for-space");
+        sb.AppendLine("    /// substitution (<c>CRAWL_DELAY</c>) binds the same as the spaced spelling.");
+        sb.AppendLine("    /// </remarks>");
+        sb.AppendLine("    public static bool TrySetValues(MSSPConfig config, string msspVariableName, IReadOnlyList<string> values)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        if (config == null) throw new ArgumentNullException(nameof(config));");
+        sb.AppendLine("        if (values == null || values.Count == 0) return false;");
+        sb.AppendLine();
+        sb.AppendLine("        return MSSPVariables.Canonicalize(msspVariableName) switch");
+        sb.AppendLine("        {");
+
+        foreach (var prop in properties)
+        {
+            sb.AppendLine($"            \"{Canonicalize(prop.MSSPName)}\" => TrySet_{prop.PropertyName}(config, values),");
+        }
+
+        sb.AppendLine("            _ => false");
+        sb.AppendLine("        };");
+        sb.AppendLine("    }");
         sb.AppendLine();
 
         // Generate TrySetProperty method
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// Sets a property value by MSSP variable name using generated code (zero reflection).");
         sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    /// <remarks>Converts <paramref name=\"value\"/> to its MSSP wire form and defers to <see cref=\"TrySetValues\"/>.</remarks>");
         sb.AppendLine("    public static bool TrySetProperty(MSSPConfig config, string msspVariableName, object? value)");
         sb.AppendLine("    {");
         sb.AppendLine("        if (config == null) throw new ArgumentNullException(nameof(config));");
+        sb.AppendLine("        if (value == null) return false;");
         sb.AppendLine();
-        sb.AppendLine("        return msspVariableName.ToUpperInvariant() switch");
+        sb.AppendLine("        return TrySetValues(config, msspVariableName, ToWireValues(value));");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    private static IReadOnlyList<string> ToWireValues(object value)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        switch (value)");
         sb.AppendLine("        {");
-        
-        foreach (var prop in properties)
-        {
-            sb.AppendLine($"            \"{prop.MSSPName.ToUpperInvariant()}\" => TrySet_{prop.PropertyName}(config, value),");
-        }
-        
-        sb.AppendLine("            _ => false");
-        sb.AppendLine("        };");
+        sb.AppendLine("            case string text:");
+        sb.AppendLine("                return new[] { text };");
+        sb.AppendLine("            case bool flag:");
+        sb.AppendLine("                return new[] { flag ? \"1\" : \"0\" };");
+        sb.AppendLine("            case System.Collections.IEnumerable items:");
+        sb.AppendLine("            {");
+        sb.AppendLine("                var list = new List<string>();");
+        sb.AppendLine("                foreach (var item in items) list.Add(item?.ToString() ?? string.Empty);");
+        sb.AppendLine("                return list;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            default:");
+        sb.AppendLine("                return new[] { System.Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty };");
+        sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -160,36 +201,82 @@ public class MSSPConfigGenerator : ISourceGenerator
 
     private void GenerateSetterMethod(StringBuilder sb, MSSPPropertyInfo prop)
     {
-        sb.AppendLine($"    private static bool TrySet_{prop.PropertyName}(MSSPConfig config, object? value)");
+        sb.AppendLine($"    private static bool TrySet_{prop.PropertyName}(MSSPConfig config, IReadOnlyList<string> values)");
         sb.AppendLine("    {");
 
-        // Generate type-specific conversion logic
+        // Generate type-specific conversion logic. Scalars take the last value, which the MSSP
+        // specification defines as the default; list-typed properties take every value in order.
         if (prop.PropertyType == "string" || prop.PropertyType == "string?")
         {
-            sb.AppendLine("        if (value is string str) { config." + prop.PropertyName + " = str; return true; }");
+            sb.AppendLine("        config." + prop.PropertyName + " = values[values.Count - 1];");
+            sb.AppendLine("        return true;");
         }
         else if (prop.PropertyType == "int" || prop.PropertyType == "int?")
         {
-            sb.AppendLine("        if (value is int i) { config." + prop.PropertyName + " = i; return true; }");
-            sb.AppendLine("        if (value is string s && int.TryParse(s, out var parsed)) { config." + prop.PropertyName + " = parsed; return true; }");
+            sb.AppendLine("        if (int.TryParse(values[values.Count - 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))");
+            sb.AppendLine("        {");
+            sb.AppendLine("            config." + prop.PropertyName + " = parsed;");
+            sb.AppendLine("            return true;");
+            sb.AppendLine("        }");
+            sb.AppendLine("        return false;");
         }
         else if (prop.PropertyType == "bool" || prop.PropertyType == "bool?")
         {
-            sb.AppendLine("        if (value is bool b) { config." + prop.PropertyName + " = b; return true; }");
-            sb.AppendLine("        if (value is string s && bool.TryParse(s, out var parsed)) { config." + prop.PropertyName + " = parsed; return true; }");
+            sb.AppendLine("        if (MSSPValue.TryParseFlag(values[values.Count - 1], out var flag))");
+            sb.AppendLine("        {");
+            sb.AppendLine("            config." + prop.PropertyName + " = flag;");
+            sb.AppendLine("            return true;");
+            sb.AppendLine("        }");
+            sb.AppendLine("        return false;");
         }
         else if (prop.PropertyType.Contains("IEnumerable"))
         {
-            sb.AppendLine("        if (value is System.Collections.Generic.IEnumerable<string> enumerable) { config." + prop.PropertyName + " = enumerable; return true; }");
+            sb.AppendLine("        var all = new string[values.Count];");
+            sb.AppendLine("        for (var i = 0; i < values.Count; i++) all[i] = values[i];");
+            sb.AppendLine("        config." + prop.PropertyName + " = all;");
+            sb.AppendLine("        return true;");
         }
         else
         {
             sb.AppendLine("        // Type not supported for auto-generation: " + prop.PropertyType);
+            sb.AppendLine("        return false;");
         }
 
-        sb.AppendLine("        return false;");
         sb.AppendLine("    }");
         sb.AppendLine();
+    }
+
+    /// <summary>
+    /// The canonical spelling of an MSSP variable name, mirroring
+    /// <c>TelnetNegotiationCore.Models.MSSPVariables.Canonicalize</c>: upper case, underscores folded
+    /// to spaces, whitespace runs collapsed. Applied at generation time so the emitted switch labels
+    /// match what that method produces at runtime.
+    /// </summary>
+    private static string Canonicalize(string variable)
+    {
+        var folded = new StringBuilder(variable.Length);
+        var pendingSpace = false;
+
+        foreach (var character in variable)
+        {
+            var c = character == '_' ? ' ' : character;
+
+            if (char.IsWhiteSpace(c))
+            {
+                pendingSpace = folded.Length > 0;
+                continue;
+            }
+
+            if (pendingSpace)
+            {
+                folded.Append(' ');
+                pendingSpace = false;
+            }
+
+            folded.Append(char.ToUpperInvariant(c));
+        }
+
+        return folded.ToString();
     }
 
     private class MSSPPropertyInfo

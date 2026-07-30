@@ -14,6 +14,9 @@ namespace TelnetNegotiationCore.UnitTests;
 
 public class GMCPTests : BaseTest
 {
+	/// <summary>
+	/// Polls for a condition with timeout, useful for async callback assertions
+	/// </summary>
 	[Test]
 	public async Task ServerCanSendGMCPMessage()
 	{
@@ -528,18 +531,22 @@ public class GMCPTests : BaseTest
 	/// <summary>
 	/// Wraps a package and payload in a GMCP subnegotiation: IAC SB GMCP package ' ' payload IAC SE.
 	/// </summary>
-	private static byte[] GMCPFrame(string package, string payload)
+	private static byte[] GMCPFrame(string package, string payload) =>
+		GMCPFrame(package + " " + payload);
+
+	/// <summary>
+	/// Wraps a subnegotiation around an already-composed GMCP payload: IAC SB GMCP payload IAC SE.
+	/// The payload is passed through verbatim so a test can control whether a separator is present.
+	/// </summary>
+	private static byte[] GMCPFrame(string payload)
 	{
-		var encoding = Encoding.ASCII;
-		var frame = new List<byte>(package.Length + payload.Length + 6)
+		var frame = new List<byte>(payload.Length + 5)
 		{
 			(byte)Trigger.IAC,
 			(byte)Trigger.SB,
 			(byte)Trigger.GMCP
 		};
-		frame.AddRange(encoding.GetBytes(package));
-		frame.Add((byte)' ');
-		frame.AddRange(encoding.GetBytes(payload));
+		frame.AddRange(Encoding.ASCII.GetBytes(payload));
 		frame.Add((byte)Trigger.IAC);
 		frame.Add((byte)Trigger.SE);
 		return frame.ToArray();
@@ -550,11 +557,12 @@ public class GMCPTests : BaseTest
 	/// received message into <paramref name="received"/>.
 	/// </summary>
 	private static async Task<TelnetInterpreter> BuildNegotiatedGMCPClientAsync(
-		List<(string Package, string Info)> received)
+		List<(string Package, string Info)> received,
+		Microsoft.Extensions.Logging.ILogger useLogger = null)
 	{
 		var client_ti = await new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
-			.UseLogger(logger)
+			.UseLogger(useLogger ?? logger)
 			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(_ => ValueTask.CompletedTask)
 			.AddPlugin<GMCPProtocol>()
@@ -570,6 +578,124 @@ public class GMCPTests : BaseTest
 		received.Clear();
 
 		return client_ti;
+	}
+
+	/// <summary>
+	/// The GMCP specification: "The &lt;data&gt; field is optional and should be separated from the
+	/// package field with a space. When sending a command without a data section the space should be
+	/// omitted." A bodyless message such as Core.Ping is therefore not merely legal - it is the form
+	/// the specification prescribes - and it has to reach the consumer.
+	/// </summary>
+	[Test]
+	public async Task BodylessGMCPMessageIsDelivered()
+	{
+		// Arrange
+		var received = new List<(string Package, string Info)>();
+		var client_ti = await BuildNegotiatedGMCPClientAsync(received);
+
+		// Act
+		await client_ti.InterpretByteArrayAsync(GMCPFrame("Core.Ping"));
+		await client_ti.WaitForProcessingAsync();
+
+		var gotMessage = await PollUntilAsync(() => received.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception("Timeout waiting for a bodyless GMCP message. Nothing was delivered.");
+		}
+
+		// Assert
+		await Assert.That(received[0].Package).IsEqualTo("Core.Ping");
+		await Assert.That(received[0].Info).IsEqualTo(string.Empty);
+
+		await client_ti.DisposeAsync();
+	}
+
+	/// <summary>
+	/// The same message with a trailing space, which servers also send. This works today and must
+	/// keep working: it is the control that shows the separator, not the empty body, is what the
+	/// parser was tripping over.
+	/// </summary>
+	[Test]
+	public async Task BodylessGMCPMessageWithTrailingSpaceIsDelivered()
+	{
+		// Arrange
+		var received = new List<(string Package, string Info)>();
+		var client_ti = await BuildNegotiatedGMCPClientAsync(received);
+
+		// Act
+		await client_ti.InterpretByteArrayAsync(GMCPFrame("Core.Ping "));
+		await client_ti.WaitForProcessingAsync();
+
+		var gotMessage = await PollUntilAsync(() => received.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception("Timeout waiting for a bodyless GMCP message. Nothing was delivered.");
+		}
+
+		// Assert
+		await Assert.That(received[0].Package).IsEqualTo("Core.Ping");
+		await Assert.That(received[0].Info).IsEqualTo(string.Empty);
+
+		await client_ti.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A data section run together with the package name is malformed by the specification's own
+	/// wording, but the package name cannot contain '{' - so what the server meant is unambiguous.
+	/// It is delivered rather than discarded, and the malformation is logged.
+	/// </summary>
+	[Test]
+	public async Task GMCPMessageWithDataButNoSeparatorIsDeliveredAndReported()
+	{
+		// Arrange
+		var received = new List<(string Package, string Info)>();
+		var capturedLogs = new CapturingLogger();
+		var client_ti = await BuildNegotiatedGMCPClientAsync(received, capturedLogs);
+
+		// Act
+		await client_ti.InterpretByteArrayAsync(GMCPFrame("Char.Vitals{\"hp\":1}"));
+		await client_ti.WaitForProcessingAsync();
+
+		var gotMessage = await PollUntilAsync(() => received.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception("Timeout waiting for a separator-less GMCP message. Nothing was delivered.");
+		}
+
+		// Assert
+		await Assert.That(received[0].Package).IsEqualTo("Char.Vitals");
+		await Assert.That(received[0].Info).IsEqualTo("{\"hp\":1}");
+
+		// Accepted, but not in silence: a server spelling it this way should be fixable.
+		var warnings = capturedLogs.Entries(Microsoft.Extensions.Logging.LogLevel.Warning);
+		await Assert.That(warnings.Any(x => x.Contains("Char.Vitals"))).IsTrue();
+
+		await client_ti.DisposeAsync();
+	}
+
+	/// <summary>
+	/// With no package name there is nothing to deliver - but the consumer must not be left
+	/// unable to tell this apart from a server that sent nothing at all.
+	/// </summary>
+	[Test]
+	public async Task GMCPMessageWithNoPackageNameIsRejectedLoudly()
+	{
+		// Arrange
+		var received = new List<(string Package, string Info)>();
+		var capturedLogs = new CapturingLogger();
+		var client_ti = await BuildNegotiatedGMCPClientAsync(received, capturedLogs);
+
+		// Act
+		await client_ti.InterpretByteArrayAsync(GMCPFrame("{\"hp\":1}"));
+		await client_ti.WaitForProcessingAsync();
+
+		// Assert
+		await Assert.That(received.Count).IsEqualTo(0);
+
+		var warnings = capturedLogs.Entries(Microsoft.Extensions.Logging.LogLevel.Warning);
+		await Assert.That(warnings.Any(x => x.Contains("{\"hp\":1}"))).IsTrue();
+
+		await client_ti.DisposeAsync();
 	}
 
 	/// <summary>
@@ -748,5 +874,42 @@ public class GMCPTests : BaseTest
 		await Assert.That(gmcp.MaxMessageSize).IsEqualTo(1024 * 1024);
 		await Assert.That(() => gmcp.WithMaxMessageSize(0)).Throws<ArgumentOutOfRangeException>();
 		await Assert.That(() => gmcp.WithMaxMessageSize(-1)).Throws<ArgumentOutOfRangeException>();
+	}
+
+	/// <summary>
+	/// Captures formatted log output so a test can assert that a discarded or repaired message was
+	/// reported rather than handled in silence.
+	/// </summary>
+	private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger
+	{
+		private readonly List<(Microsoft.Extensions.Logging.LogLevel Level, string Message)> _entries = [];
+
+		public IDisposable BeginScope<TState>(TState state) where TState : notnull => null;
+
+		public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+		public void Log<TState>(
+			Microsoft.Extensions.Logging.LogLevel logLevel,
+			Microsoft.Extensions.Logging.EventId eventId,
+			TState state,
+			Exception exception,
+			Func<TState, Exception, string> formatter)
+		{
+			var message = formatter(state, exception);
+			lock (_entries)
+			{
+				_entries.Add((logLevel, message));
+			}
+
+			logger.Log(logLevel, exception, "{Message}", message);
+		}
+
+		public List<string> Entries(Microsoft.Extensions.Logging.LogLevel level)
+		{
+			lock (_entries)
+			{
+				return _entries.Where(x => x.Level == level).Select(x => x.Message).ToList();
+			}
+		}
 	}
 }

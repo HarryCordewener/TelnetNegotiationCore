@@ -251,36 +251,55 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         if (gmcpBytes.Count == 0)
         {
             context.Logger.LogWarning("Empty GMCP message received");
+            _gmcpBytes.Reset();
             return;
         }
 
-        const byte space = (byte)' ';  // Literal instead of GetBytes(" ").First()
-        var firstSpace = gmcpBytes.FindIndex(x => x == space);
+        var (packageLength, dataStart) = SplitPackageAndData(gmcpBytes);
 
-        if (firstSpace < 0)
+        if (packageLength == 0)
         {
-            context.Logger.LogWarning("Invalid GMCP message format (no space separator)");
+            // Nothing in front of the data that could be a package name, so there is no message to
+            // deliver - but say what was thrown away, or this is indistinguishable from a server
+            // that sent nothing at all.
+            context.Logger.LogWarning(
+                "Discarded a GMCP message with no package name: {Payload}",
+                Preview(gmcpBytes, context.CurrentEncoding));
+            _gmcpBytes.Reset();
             return;
         }
+
+        // A message with no data section at all is not an error: the specification says the space
+        // "should be omitted" when there is no data, so Core.Ping is exactly the prescribed form.
+        var separatorMissing = dataStart == packageLength && dataStart < gmcpBytes.Count;
 
 #if NET5_0_OR_GREATER
         // Use CollectionsMarshal.AsSpan with slicing for zero-copy access
         var gmcpSpan = CollectionsMarshal.AsSpan(gmcpBytes);
-        var package = context.CurrentEncoding.GetString(gmcpSpan[..firstSpace]);
+        var package = context.CurrentEncoding.GetString(gmcpSpan[..packageLength]);
         var isMsdp = package == "MSDP";
         // MSDPScan requires byte[] - only allocate for the destination that will actually be called.
-        var packageBytes = isMsdp ? gmcpSpan[..firstSpace].ToArray() : [];
+        var packageBytes = isMsdp ? gmcpSpan[..packageLength].ToArray() : [];
         var info = isMsdp || _onGMCPReceived is null
             ? string.Empty
-            : context.CurrentEncoding.GetString(gmcpSpan[(firstSpace + 1)..]);
+            : context.CurrentEncoding.GetString(gmcpSpan[dataStart..]);
 #else
-        var packageBytes = gmcpBytes.Take(firstSpace).ToArray();
+        var packageBytes = gmcpBytes.Take(packageLength).ToArray();
         var package = context.CurrentEncoding.GetString(packageBytes);
         var isMsdp = package == "MSDP";
         var info = isMsdp || _onGMCPReceived is null
             ? string.Empty
-            : context.CurrentEncoding.GetString(gmcpBytes.Skip(firstSpace + 1).ToArray());
+            : context.CurrentEncoding.GetString(gmcpBytes.Skip(dataStart).ToArray());
 #endif
+
+        if (separatorMissing)
+        {
+            // Malformed - but a package name cannot contain '{', so what the sender meant is not in
+            // doubt. Accepted, and reported so the sending side can be fixed.
+            context.Logger.LogWarning(
+                "GMCP message for package {Package} ran its data section into the package name with no space separator. Accepting it, but the sender does not match the GMCP specification.",
+                package);
+        }
 
         // Release the payload before handing control to consumer code: a large message should not
         // keep its buffer alive for the duration of the callback.
@@ -297,29 +316,90 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         }
         else if (_onGMCPReceived != null)
         {
-            // Call GMCP plugin callback
+            // Call GMCP plugin callback. A bodyless message delivers an empty Info rather than a
+            // fabricated "{}": the tuple reports what was on the wire, and the consumer decides.
             await _onGMCPReceived((Package: package, Info: info));
         }
     }
 
     /// <summary>
-    /// Best-effort package name for diagnostics: the text before the first space, or an empty
-    /// string when no separator was seen.
+    /// Best-effort package name for diagnostics, for a message that will not be delivered.
     /// </summary>
     private static string PackageNameOf(List<byte> bytes, System.Text.Encoding encoding)
     {
-        var firstSpace = bytes.FindIndex(x => x == (byte)' ');
+        var (packageLength, _) = SplitPackageAndData(bytes);
 
-        if (firstSpace <= 0)
+        if (packageLength <= 0)
         {
             return string.Empty;
         }
 
 #if NET5_0_OR_GREATER
-        return encoding.GetString(CollectionsMarshal.AsSpan(bytes)[..firstSpace]);
+        return encoding.GetString(CollectionsMarshal.AsSpan(bytes)[..packageLength]);
 #else
-        return encoding.GetString(bytes.Take(firstSpace).ToArray());
+        return encoding.GetString(bytes.Take(packageLength).ToArray());
 #endif
+    }
+
+    /// <summary>
+    /// Splits a GMCP payload into its package field and its optional data section.
+    /// </summary>
+    /// <remarks>
+    /// The specification states: "The &lt;data&gt; field is optional and should be separated from
+    /// the package field with a space. When sending a command without a data section the space
+    /// should be omitted." So the absence of a space is a bodyless message, not an error - unless
+    /// the sender ran the data straight into the package name, which is detectable because a
+    /// package name is limited to letters, digits, '.', '-' and '_'.
+    /// </remarks>
+    /// <returns>
+    /// The length of the package field, and the index at which the data section starts. The two are
+    /// equal when there is no separator; the data start equals the payload length when there is no
+    /// data at all.
+    /// </returns>
+    private static (int PackageLength, int DataStart) SplitPackageAndData(List<byte> payload)
+    {
+        const byte space = (byte)' ';  // Literal instead of GetBytes(" ").First()
+        var firstSpace = payload.FindIndex(x => x == space);
+
+        if (firstSpace >= 0)
+        {
+            return (firstSpace, firstSpace + 1);
+        }
+
+        var firstNonPackageByte = payload.FindIndex(IsNotPackageNameByte);
+
+        return firstNonPackageByte < 0
+            ? (payload.Count, payload.Count)                    // bodyless: all package, no data
+            : (firstNonPackageByte, firstNonPackageByte);       // data, missing its separator
+    }
+
+    /// <summary>
+    /// True for any byte that cannot appear in a GMCP package name, and therefore marks the start
+    /// of a data section that was sent without its separator.
+    /// </summary>
+    private static bool IsNotPackageNameByte(byte b) =>
+        !((b >= (byte)'a' && b <= (byte)'z')
+          || (b >= (byte)'A' && b <= (byte)'Z')
+          || (b >= (byte)'0' && b <= (byte)'9')
+          || b == (byte)'.'
+          || b == (byte)'-'
+          || b == (byte)'_');
+
+    /// <summary>
+    /// A bounded, loggable rendering of a payload that is being discarded.
+    /// </summary>
+    private static string Preview(List<byte> payload, System.Text.Encoding encoding)
+    {
+        const int maxPreviewLength = 64;
+        var length = Math.Min(payload.Count, maxPreviewLength);
+
+#if NET5_0_OR_GREATER
+        var text = encoding.GetString(CollectionsMarshal.AsSpan(payload)[..length]);
+#else
+        var text = encoding.GetString(payload.Take(length).ToArray());
+#endif
+
+        return payload.Count > maxPreviewLength ? text + "..." : text;
     }
 
     private async ValueTask WillGMCPAsync(IProtocolContext context)
