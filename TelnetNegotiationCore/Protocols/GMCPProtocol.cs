@@ -29,6 +29,18 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     private static readonly byte[] s_willGmcp = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP };
     private static readonly byte[] s_doGmcp = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP };
 
+    /// <summary>
+    /// The package name that carries MSDP over GMCP. The specification is explicit that it is
+    /// matched exactly: "When using MoG (MSDP over GMCP) the package name is considered case
+    /// sensitive and MSDP must be fully capitalized."
+    /// </summary>
+    private const string MSDPOverGMCPPackage = "MSDP";
+
+    /// <summary>
+    /// How much of a discarded payload to quote in a log line.
+    /// </summary>
+    private const int MaxPreviewLength = 64;
+
     private readonly SubnegotiationBuffer _gmcpBytes = new();
 
     private Func<(string Package, string Info), ValueTask>? _onGMCPReceived;
@@ -277,19 +289,8 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         // Use CollectionsMarshal.AsSpan with slicing for zero-copy access
         var gmcpSpan = CollectionsMarshal.AsSpan(gmcpBytes);
         var package = context.CurrentEncoding.GetString(gmcpSpan[..packageLength]);
-        var isMsdp = package == "MSDP";
-        // MSDPScan requires byte[] - only allocate for the destination that will actually be called.
-        var packageBytes = isMsdp ? gmcpSpan[..packageLength].ToArray() : [];
-        var info = isMsdp || _onGMCPReceived is null
-            ? string.Empty
-            : context.CurrentEncoding.GetString(gmcpSpan[dataStart..]);
 #else
-        var packageBytes = gmcpBytes.Take(packageLength).ToArray();
-        var package = context.CurrentEncoding.GetString(packageBytes);
-        var isMsdp = package == "MSDP";
-        var info = isMsdp || _onGMCPReceived is null
-            ? string.Empty
-            : context.CurrentEncoding.GetString(gmcpBytes.Skip(dataStart).ToArray());
+        var package = context.CurrentEncoding.GetString(gmcpBytes.Take(packageLength).ToArray());
 #endif
 
         if (separatorMissing)
@@ -301,24 +302,98 @@ public class GMCPProtocol : TelnetProtocolPluginBase
                 package);
         }
 
+        // MoG (MSDP over GMCP) is case sensitive: "the package name is considered case sensitive
+        // and MSDP must be fully capitalized". A "msdp" package is an ordinary GMCP package.
+        var isMsdpOverGmcp = package == MSDPOverGMCPPackage;
+        var msdpPlugin = isMsdpOverGmcp ? context.GetPlugin<MSDPProtocol>() : null;
+        var hasMsdpPlugin = msdpPlugin != null && msdpPlugin.IsEnabled;
+
+        // Decode the data section once, for whichever destination is going to receive it.
+        var info = hasMsdpPlugin || _onGMCPReceived != null
+#if NET5_0_OR_GREATER
+            ? context.CurrentEncoding.GetString(gmcpSpan[dataStart..])
+#else
+            ? context.CurrentEncoding.GetString(gmcpBytes.Skip(dataStart).ToArray())
+#endif
+            : string.Empty;
+
         // Release the payload before handing control to consumer code: a large message should not
-        // keep its buffer alive for the duration of the callback.
+        // keep its buffer alive for the duration of the callback. Everything above still reads the
+        // buffer - gmcpSpan aliases it - so this is the first point at which it can be let go.
         _gmcpBytes.Reset();
 
-        if (isMsdp)
+        if (hasMsdpPlugin)
         {
-            // Call MSDP plugin if available
-            var msdpPlugin = context.GetPlugin<MSDPProtocol>();
-            if (msdpPlugin != null && msdpPlugin.IsEnabled)
-            {
-                await msdpPlugin.OnMSDPMessageAsync(context.Interpreter, JsonSerializer.Serialize(Functional.MSDPLibrary.MSDPScan(packageBytes, context.CurrentEncoding)));
-            }
+            // The data section of a MoG message is already JSON - "The data field must use the JSON
+            // data syntax with keywords being case sensitive using UTF-8 encoding" - which is the
+            // shape the MSDP callback takes, so it is forwarded rather than re-parsed.
+            await DeliverMSDPOverGMCPAsync(info, msdpPlugin!, context);
+            return;
         }
-        else if (_onGMCPReceived != null)
+
+        if (isMsdpOverGmcp)
         {
-            // Call GMCP plugin callback. A bodyless message delivers an empty Info rather than a
-            // fabricated "{}": the tuple reports what was on the wire, and the consumer decides.
+            // No MSDP plugin to hand it to. It is still a GMCP message, so deliver it as one
+            // instead of dropping it on the floor.
+            context.Logger.LogDebug(
+                "Received an MSDP-over-GMCP message with no MSDP plugin registered; delivering it as a GMCP message.");
+        }
+
+        // Call GMCP plugin callback. A bodyless message delivers an empty Info rather than a
+        // fabricated "{}": the tuple reports what was on the wire, and the consumer decides.
+        if (_onGMCPReceived != null)
+        {
             await _onGMCPReceived((Package: package, Info: info));
+        }
+    }
+
+    /// <summary>
+    /// Delivers the data section of an MSDP-over-GMCP (MoG) message to the MSDP plugin.
+    /// </summary>
+    /// <remarks>
+    /// The GMCP specification carries MSDP as JSON rather than as MSDP's own byte encoding: "The
+    /// data field must use the JSON data syntax with keywords being case sensitive using UTF-8
+    /// encoding", with its worked example being
+    /// <c>IAC SB GMCP 'MSDP {"LIST" : "COMMANDS"}' IAC SE</c>. MSDP tables are JSON objects and
+    /// MSDP arrays are JSON arrays, which is the same shape the MSDP callback receives from a
+    /// native <c>IAC SB MSDP</c> subnegotiation, so the body is forwarded as-is.
+    /// </remarks>
+    private static async ValueTask DeliverMSDPOverGMCPAsync(string json, MSDPProtocol msdpPlugin, IProtocolContext context)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            context.Logger.LogWarning(
+                "Discarded an MSDP-over-GMCP message with no data section: MoG carries its variables in the data field.");
+            return;
+        }
+
+        if (!IsWellFormedJson(json))
+        {
+            // Never hand the consumer something that is not the JSON the contract promises, and
+            // never let a malformed payload escape onto the read loop as an exception.
+            context.Logger.LogError(
+                "Discarded an MSDP-over-GMCP message whose data section is not valid JSON: {Payload}",
+                Preview(json));
+            return;
+        }
+
+        await msdpPlugin.OnMSDPMessageAsync(context.Interpreter, json);
+    }
+
+    /// <summary>
+    /// True when <paramref name="json"/> parses as JSON. Parsing is the only way to know, and a
+    /// peer's malformed payload must not surface as an exception on the read loop.
+    /// </summary>
+    private static bool IsWellFormedJson(string json)
+    {
+        try
+        {
+            using var _ = JsonDocument.Parse(json);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 
@@ -386,12 +461,17 @@ public class GMCPProtocol : TelnetProtocolPluginBase
           || b == (byte)'_');
 
     /// <summary>
+    /// A bounded, loggable rendering of text that is being discarded.
+    /// </summary>
+    private static string Preview(string text) =>
+        text.Length > MaxPreviewLength ? text.Substring(0, MaxPreviewLength) + "..." : text;
+
+    /// <summary>
     /// A bounded, loggable rendering of a payload that is being discarded.
     /// </summary>
     private static string Preview(List<byte> payload, System.Text.Encoding encoding)
     {
-        const int maxPreviewLength = 64;
-        var length = Math.Min(payload.Count, maxPreviewLength);
+        var length = Math.Min(payload.Count, MaxPreviewLength);
 
 #if NET5_0_OR_GREATER
         var text = encoding.GetString(CollectionsMarshal.AsSpan(payload)[..length]);
@@ -399,7 +479,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         var text = encoding.GetString(payload.Take(length).ToArray());
 #endif
 
-        return payload.Count > maxPreviewLength ? text + "..." : text;
+        return payload.Count > MaxPreviewLength ? text + "..." : text;
     }
 
     private async ValueTask WillGMCPAsync(IProtocolContext context)

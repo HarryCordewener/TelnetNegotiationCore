@@ -545,4 +545,273 @@ public class MSDPTests : BaseTest
 
 		await telnet.DisposeAsync();
 	}
+
+	#region MSDP over GMCP (MoG)
+
+	/// <summary>
+	/// Wraps a GMCP subnegotiation around a payload: IAC SB GMCP payload IAC SE.
+	/// </summary>
+	private static byte[] GMCPFrame(string payload)
+	{
+		var frame = new List<byte>(payload.Length + 5)
+		{
+			(byte)Trigger.IAC,
+			(byte)Trigger.SB,
+			(byte)Trigger.GMCP
+		};
+		frame.AddRange(Encoding.GetBytes(payload));
+		frame.Add((byte)Trigger.IAC);
+		frame.Add((byte)Trigger.SE);
+		return frame.ToArray();
+	}
+
+	/// <summary>
+	/// Builds a client-mode interpreter with GMCP negotiated, and with the MSDP plugin registered
+	/// unless <paramref name="withMSDPPlugin"/> says otherwise.
+	/// </summary>
+	private static async Task<Interpreters.TelnetInterpreter> BuildMoGClientAsync(
+		List<string> msdpMessages,
+		List<(string Package, string Info)> gmcpMessages,
+		bool withMSDPPlugin = true)
+	{
+		var builder = new Builders.TelnetInterpreterBuilder()
+			.UseMode(Interpreters.TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit((data, encoding, telnet) => ValueTask.CompletedTask)
+			.OnNegotiation((data) => ValueTask.CompletedTask)
+			.AddPlugin<Protocols.GMCPProtocol>()
+				.OnGMCPMessage(message =>
+				{
+					gmcpMessages.Add(message);
+					return ValueTask.CompletedTask;
+				});
+
+		var telnet = withMSDPPlugin
+			? await builder
+				.AddPlugin<Protocols.MSDPProtocol>()
+					.OnMSDPMessage((t, message) =>
+					{
+						msdpMessages.Add(message);
+						return ValueTask.CompletedTask;
+					})
+				.BuildAsync()
+			: await builder.BuildAsync();
+
+		await telnet.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP });
+		await telnet.WaitForProcessingAsync();
+		msdpMessages.Clear();
+		gmcpMessages.Clear();
+
+		return telnet;
+	}
+
+	/// <summary>
+	/// The GMCP specification's own MoG handshake:
+	/// <c>client - IAC SB GMCP 'MSDP {"LIST" : "COMMANDS"}' IAC SE</c>. The data field "must use the
+	/// JSON data syntax", so the body is what the MSDP callback is owed - not the package name.
+	/// </summary>
+	[Test]
+	public async Task MSDPOverGMCPDeliversTheJsonBody()
+	{
+		var msdpMessages = new List<string>();
+		var gmcpMessages = new List<(string Package, string Info)>();
+		var telnet = await BuildMoGClientAsync(msdpMessages, gmcpMessages);
+
+		await telnet.InterpretByteArrayAsync(GMCPFrame("MSDP {\"LIST\" : \"COMMANDS\"}"));
+		await telnet.WaitForProcessingAsync();
+
+		var gotMessage = await PollUntilAsync(() => msdpMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for the MSDP callback. Count: {msdpMessages.Count}");
+		}
+
+		await Assert.That(msdpMessages.Count).IsEqualTo(1);
+		var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(msdpMessages[0]);
+		await Assert.That(parsed!["LIST"]).IsEqualTo("COMMANDS");
+
+		// A MoG message belongs to MSDP, not to the general GMCP callback.
+		await Assert.That(gmcpMessages.Count).IsEqualTo(0);
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// The server half of the same handshake, which carries an MSDP array - "MSDP_ARRAY_OPEN and
+	/// MSDP_ARRAY_CLOSE" over the wire, a JSON array over GMCP.
+	/// </summary>
+	[Test]
+	public async Task MSDPOverGMCPDeliversAJsonArray()
+	{
+		var msdpMessages = new List<string>();
+		var gmcpMessages = new List<(string Package, string Info)>();
+		var telnet = await BuildMoGClientAsync(msdpMessages, gmcpMessages);
+
+		await telnet.InterpretByteArrayAsync(
+			GMCPFrame("MSDP {\"COMMANDS\" : [\"LIST\", \"REPORT\", \"RESET\", \"SEND\", \"UNREPORT\"]}"));
+		await telnet.WaitForProcessingAsync();
+
+		var gotMessage = await PollUntilAsync(() => msdpMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for the MSDP callback. Count: {msdpMessages.Count}");
+		}
+
+		var parsed = JsonSerializer.Deserialize<Dictionary<string, string[]>>(msdpMessages[0]);
+		await Assert.That(parsed!["COMMANDS"].Length).IsEqualTo(5);
+		await Assert.That(parsed!["COMMANDS"][0]).IsEqualTo("LIST");
+		await Assert.That(parsed!["COMMANDS"][4]).IsEqualTo("UNREPORT");
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// Every JSON shape the data field can take arrives verbatim: a scalar, an object (an MSDP
+	/// table - "Tables are called objects in the JSON standard"), and an array.
+	/// </summary>
+	[Test]
+	[Arguments("\"PONG\"")]
+	[Arguments("100")]
+	[Arguments("{\"HEALTH\" : 100, \"MAX_HEALTH\" : 150}")]
+	[Arguments("{\"ROOM\" : {\"VNUM\" : 6008, \"NAME\" : \"The Forest clearing\"}}")]
+	[Arguments("[\"LIST\", \"REPORT\"]")]
+	public async Task MSDPOverGMCPDeliversEveryJsonShapeVerbatim(string body)
+	{
+		var msdpMessages = new List<string>();
+		var gmcpMessages = new List<(string Package, string Info)>();
+		var telnet = await BuildMoGClientAsync(msdpMessages, gmcpMessages);
+
+		await telnet.InterpretByteArrayAsync(GMCPFrame("MSDP " + body));
+		await telnet.WaitForProcessingAsync();
+
+		var gotMessage = await PollUntilAsync(() => msdpMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for the MSDP callback for body {body}.");
+		}
+
+		await Assert.That(msdpMessages[0]).IsEqualTo(body);
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A malformed data section is not JSON, so it is not the contract the MSDP callback is
+	/// promised. It must be discarded rather than forwarded, and it must not throw onto the read
+	/// loop or wedge the connection: the next message still arrives.
+	/// </summary>
+	[Test]
+	public async Task MSDPOverGMCPWithMalformedJsonIsDroppedAndTheConnectionSurvives()
+	{
+		var msdpMessages = new List<string>();
+		var gmcpMessages = new List<(string Package, string Info)>();
+		var telnet = await BuildMoGClientAsync(msdpMessages, gmcpMessages);
+
+		await telnet.InterpretByteArrayAsync(GMCPFrame("MSDP {\"LIST\" : "));
+		await telnet.WaitForProcessingAsync();
+
+		await Assert.That(msdpMessages.Count).IsEqualTo(0);
+		await Assert.That(gmcpMessages.Count).IsEqualTo(0);
+
+		// The connection keeps working.
+		await telnet.InterpretByteArrayAsync(GMCPFrame("MSDP {\"LIST\" : \"COMMANDS\"}"));
+		await telnet.WaitForProcessingAsync();
+
+		var gotMessage = await PollUntilAsync(() => msdpMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception("Timeout waiting for the MSDP message following a malformed one.");
+		}
+
+		var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(msdpMessages[0]);
+		await Assert.That(parsed!["LIST"]).IsEqualTo("COMMANDS");
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// With no MSDP plugin registered there is nobody to route MoG to - but it is still a GMCP
+	/// message, and a consumer that asked for GMCP messages should get it rather than lose it.
+	/// </summary>
+	[Test]
+	public async Task MSDPOverGMCPWithoutTheMSDPPluginIsDeliveredAsAGMCPMessage()
+	{
+		var msdpMessages = new List<string>();
+		var gmcpMessages = new List<(string Package, string Info)>();
+		var telnet = await BuildMoGClientAsync(msdpMessages, gmcpMessages, withMSDPPlugin: false);
+
+		await telnet.InterpretByteArrayAsync(GMCPFrame("MSDP {\"LIST\" : \"COMMANDS\"}"));
+		await telnet.WaitForProcessingAsync();
+
+		var gotMessage = await PollUntilAsync(() => gmcpMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for the GMCP callback. Count: {gmcpMessages.Count}");
+		}
+
+		await Assert.That(gmcpMessages[0].Package).IsEqualTo("MSDP");
+		await Assert.That(gmcpMessages[0].Info).IsEqualTo("{\"LIST\" : \"COMMANDS\"}");
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// "When using MoG (MSDP over GMCP) the package name is considered case sensitive and MSDP must
+	/// be fully capitalized." A lowercase msdp package is an ordinary GMCP package.
+	/// </summary>
+	[Test]
+	public async Task LowercaseMsdpPackageIsNotMSDPOverGMCP()
+	{
+		var msdpMessages = new List<string>();
+		var gmcpMessages = new List<(string Package, string Info)>();
+		var telnet = await BuildMoGClientAsync(msdpMessages, gmcpMessages);
+
+		await telnet.InterpretByteArrayAsync(GMCPFrame("msdp {\"LIST\" : \"COMMANDS\"}"));
+		await telnet.WaitForProcessingAsync();
+
+		var gotMessage = await PollUntilAsync(() => gmcpMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for the GMCP callback. Count: {gmcpMessages.Count}");
+		}
+
+		await Assert.That(gmcpMessages[0].Package).IsEqualTo("msdp");
+		await Assert.That(msdpMessages.Count).IsEqualTo(0);
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// Only the exact package <c>MSDP</c> is MoG. An ordinary GMCP package must never reach the MSDP
+	/// callback, and neither must a package that merely contains or extends the name - the
+	/// specification names one package, not a family.
+	/// </summary>
+	[Test]
+	[Arguments("Char.Vitals {\"hp\" : 100}")]
+	[Arguments("Core.Ping")]
+	[Arguments("Room.Info {\"num\" : 6008}")]
+	[Arguments("MSDPX {\"LIST\" : \"COMMANDS\"}")]
+	[Arguments("MSDP.Sub {\"LIST\" : \"COMMANDS\"}")]
+	[Arguments("Char.MSDP {\"LIST\" : \"COMMANDS\"}")]
+	public async Task AnOrdinaryGMCPPackageNeverReachesTheMSDPCallback(string payload)
+	{
+		var msdpMessages = new List<string>();
+		var gmcpMessages = new List<(string Package, string Info)>();
+		var telnet = await BuildMoGClientAsync(msdpMessages, gmcpMessages);
+
+		await telnet.InterpretByteArrayAsync(GMCPFrame(payload));
+		await telnet.WaitForProcessingAsync();
+
+		var gotMessage = await PollUntilAsync(() => gmcpMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for the GMCP callback for {payload}.");
+		}
+
+		await Assert.That(msdpMessages.Count).IsEqualTo(0);
+
+		await telnet.DisposeAsync();
+	}
+
+	#endregion
 }

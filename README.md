@@ -355,6 +355,30 @@ split at the first character that cannot belong to a package name — and logged
 the package. A payload with no package name at all is discarded, also with a warning that quotes
 what was thrown away.
 
+#### MSDP over GMCP (MoG)
+
+GMCP can carry MSDP. The specification: *"When using MoG (MSDP over GMCP) the package name is
+considered case sensitive and MSDP must be fully capitalized"*, and *"the data field must use the
+JSON data syntax with keywords being case sensitive using UTF-8 encoding"* — so MoG is JSON, not
+MSDP's own byte encoding:
+
+```
+client - IAC SB GMCP 'MSDP {"LIST" : "COMMANDS"}' IAC SE
+server - IAC SB GMCP 'MSDP {"COMMANDS" : ["LIST", "REPORT", "RESET", "SEND", "UNREPORT"]}' IAC SE
+```
+
+A message whose package is exactly `MSDP` is routed to `OnMSDPMessage` with its data section
+forwarded verbatim, which is the same JSON shape a native `IAC SB MSDP` subnegotiation produces
+(MSDP tables are JSON objects, MSDP arrays are JSON arrays). Consequences worth knowing:
+
+- The package name is matched **case sensitively**. A `msdp` package is an ordinary GMCP package
+  and goes to `OnGMCPMessage`.
+- A data section that is not valid JSON is **discarded with an `Error` log** rather than forwarded:
+  the callback's contract is JSON. Nothing is thrown onto the read loop, and the connection carries
+  on with the next message.
+- If no `MSDPProtocol` plugin is registered, a MoG message is delivered to `OnGMCPMessage` with
+  `Package = "MSDP"` instead of being dropped.
+
 ### Using ENVIRON Protocol
 The ENVIRON protocol (RFC 1408) is the original environment variable negotiation protocol. It's simpler than NEW-ENVIRON and supports only basic environment variables (no user variables). This protocol can be activated in isolation.
 
