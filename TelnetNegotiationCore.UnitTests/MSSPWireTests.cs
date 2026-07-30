@@ -418,7 +418,8 @@ public class MSSPWireTests : BaseTest
 				return ValueTask.CompletedTask;
 			}));
 
-		// 300 variables of 8 payload bytes each ("VAR" + 3-digit index, then "1") == 2100 bytes.
+		// 300 variables of 7 payload bytes each -- "VAR" + a 3-digit index, then a one-byte value;
+		// the two markers are framing and are not counted -- so 2100 bytes against a 1024 byte ceiling.
 		var payload = new List<byte>();
 		for (var i = 0; i < 300; i++)
 		{
