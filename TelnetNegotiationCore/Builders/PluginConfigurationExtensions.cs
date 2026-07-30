@@ -127,6 +127,36 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets the maximum MSSP report size in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="maxMessageSize">The maximum payload size in bytes (default 1 MiB), counted over
+    /// the whole subnegotiation. Reports larger than this are dropped and reported, never truncated.</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MSSPProtocol> WithMaxMessageSize(
+        this PluginConfigurationContext<MSSPProtocol> context,
+        int maxMessageSize)
+    {
+        context.Plugin.WithMaxMessageSize(maxMessageSize);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback invoked when an MSSP report is dropped for exceeding the maximum message
+    /// size, in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle oversized MSSP reports</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MSSPProtocol> OnMSSPMessageTooLarge(
+        this PluginConfigurationContext<MSSPProtocol> context,
+        Func<(long ReceivedBytes, int MaxMessageSize), ValueTask>? callback)
+    {
+        context.Plugin.OnMSSPMessageTooLarge(callback);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the EOR prompt callback in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>

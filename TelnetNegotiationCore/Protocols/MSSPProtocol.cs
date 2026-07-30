@@ -4,11 +4,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Attributes;
+using TelnetNegotiationCore.Helpers;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 using TelnetNegotiationCore.Generated;
@@ -32,6 +34,8 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 
     private Func<MSSPConfig, ValueTask>? _onMSSPRequest;
 
+    private Func<(long ReceivedBytes, int MaxMessageSize), ValueTask>? _onMSSPMessageTooLarge;
+
     /// <summary>
     /// Sets the callback that is invoked when an MSSP request is received.
     /// </summary>
@@ -43,21 +47,73 @@ public class MSSPProtocol : TelnetProtocolPluginBase
         return this;
     }
 
+    /// <summary>
+    /// The largest MSSP report this connection will accept, in bytes, counted over the whole
+    /// subnegotiation payload -- every variable name and every value together, markers excluded.
+    /// Defaults to 1 MiB.
+    /// </summary>
+    /// <remarks>
+    /// The MSSP specification defines no maximum report size, so this is a defence against a hostile
+    /// or broken peer rather than a protocol limit. It matters most for a crawler, which connects to
+    /// servers it does not trust by definition and would otherwise let each one decide how much the
+    /// client allocates. A report larger than this is <em>dropped</em>, never truncated: it is logged
+    /// at Error level and reported to the <see cref="OnMSSPMessageTooLarge"/> callback, because a
+    /// report missing an unknown number of its variables is not a smaller report, it is a wrong one.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not positive.</exception>
+    public int MaxMessageSize
+    {
+        get => _msspBytes.MaxMessageSize;
+        set => _msspBytes.MaxMessageSize = value;
+    }
 
+    /// <summary>
+    /// Sets the maximum MSSP report size in a fluent manner.
+    /// </summary>
+    /// <param name="maxMessageSize">The maximum payload size in bytes</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public MSSPProtocol WithMaxMessageSize(int maxMessageSize)
+    {
+        MaxMessageSize = maxMessageSize;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the callback that is invoked when an MSSP report is dropped for exceeding
+    /// <see cref="MaxMessageSize"/>. This is the observable counterpart of the Error level log: it
+    /// lets a consumer distinguish "the server reported nothing" from "the server reported too much".
+    /// </summary>
+    /// <param name="callback">The callback to handle oversized MSSP reports. Receives the number of
+    /// payload bytes the peer sent and the configured limit.</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public MSSPProtocol OnMSSPMessageTooLarge(Func<(long ReceivedBytes, int MaxMessageSize), ValueTask>? callback)
+    {
+        _onMSSPMessageTooLarge = callback;
+        return this;
+    }
 
     private Func<MSSPConfig> _msspConfig = () => new MSSPConfig();
 
     /// <summary>
-    /// The field currently being accumulated -- a variable name or one of its values, depending on
-    /// which marker byte opened it.
+    /// The whole subnegotiation payload, accumulated field by field and bounded.
     /// </summary>
     /// <remarks>
     /// One buffer, not two, and a flag rather than a pair of parallel lists. MSSP delimits fields
     /// with <c>MSSP_VAR</c> and <c>MSSP_VAL</c> markers, and a variable may carry several values;
-    /// parallel name/value lists cannot express that, and the previous implementation silently ran
-    /// consecutive values together into one buffer.
+    /// parallel name/value lists cannot express that, and the implementation before that silently ran
+    /// consecutive values together into one buffer. The field currently being accumulated is the tail
+    /// of this buffer, from <see cref="_fieldStart"/> onwards.
+    /// <para>
+    /// It is the <em>payload</em> that is bounded rather than the field, because a report of a
+    /// hundred thousand tiny variables costs the same memory as one enormous value.
+    /// </para>
     /// </remarks>
-    private readonly List<byte> _currentField = [];
+    private readonly SubnegotiationBuffer _msspBytes = new();
+
+    /// <summary>
+    /// Where the field currently being accumulated starts within <see cref="_msspBytes"/>.
+    /// </summary>
+    private int _fieldStart;
 
     private bool _currentFieldIsValue;
     private string? _currentVariable;
@@ -140,7 +196,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
             stateMachine.Configure(State.EvaluatingMSSPVar)
                 .Permit(Trigger.MSSP_VAL, State.EvaluatingMSSPVal)
                 .Permit(Trigger.IAC, State.EscapingMSSPVar)
-                .OnEntryFrom(Trigger.MSSP_VAR, OnMSSPVariableMarker);
+                .OnEntryFrom(Trigger.MSSP_VAR, () => OnMSSPVariableMarker(context));
 
             // SE is permitted here as well as after a value: a payload whose last field is a variable
             // name (IAC SB MSSP MSSP_VAR "FOO" IAC SE) is malformed but real, and without this the
@@ -152,7 +208,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
             stateMachine.Configure(State.EvaluatingMSSPVal)
                 .Permit(Trigger.MSSP_VAR, State.EvaluatingMSSPVar)
                 .Permit(Trigger.IAC, State.EscapingMSSPVal)
-                .OnEntryFrom(Trigger.MSSP_VAL, OnMSSPValueMarker);
+                .OnEntryFrom(Trigger.MSSP_VAL, () => OnMSSPValueMarker(context));
 
             stateMachine.Configure(State.EscapingMSSPVal)
                 .Permit(Trigger.IAC, State.EvaluatingMSSPVal)
@@ -163,10 +219,20 @@ public class MSSPProtocol : TelnetProtocolPluginBase
                 .OnEntryAsync(async () => await ReadMSSPValues(context));
 
             var interpreter = context.Interpreter;
-            TriggerHelper.ForAllTriggersExcept([Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC], 
-                t => stateMachine.Configure(State.EvaluatingMSSPVal).OnEntryFrom(interpreter.ParameterizedTrigger(t), CaptureMSSPValue));
-            TriggerHelper.ForAllTriggersExcept([Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC], 
-                t => stateMachine.Configure(State.EvaluatingMSSPVar).OnEntryFrom(interpreter.ParameterizedTrigger(t), CaptureMSSPVariable));
+            TriggerHelper.ForAllTriggersExcept([Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC],
+                t => stateMachine.Configure(State.EvaluatingMSSPVal).OnEntryFrom(interpreter.ParameterizedTrigger(t), CaptureMSSPFieldByte));
+            TriggerHelper.ForAllTriggersExcept([Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC],
+                t => stateMachine.Configure(State.EvaluatingMSSPVar).OnEntryFrom(interpreter.ParameterizedTrigger(t), CaptureMSSPFieldByte));
+
+            // The only way back into a field on IAC is the un-escape from Escaping*: IAC IAC is one
+            // literal 0xFF data byte (RFC 854, "the IAC need be doubled to be sent as data"), and both
+            // transitions above dropped it because the capture handlers are registered for every
+            // trigger *except* IAC. Registering it here rather than widening those loops keeps the
+            // opening IAC of IAC SE out of the field.
+            stateMachine.Configure(State.EvaluatingMSSPVal)
+                .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.IAC), CaptureMSSPFieldByte);
+            stateMachine.Configure(State.EvaluatingMSSPVar)
+                .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.IAC), CaptureMSSPFieldByte);
 
             TriggerHelper.ForAllTriggersExcept([Trigger.IAC, Trigger.MSSP_VAR],
                 t => stateMachine.Configure(State.EvaluatingMSSPVal).PermitReentry(t));
@@ -205,9 +271,9 @@ public class MSSPProtocol : TelnetProtocolPluginBase
         if (!IsEnabled)
             return;
 
-        if (_currentFieldIsValue) FlushField();
+        if (_currentFieldIsValue) FlushField(Context.CurrentEncoding);
         _currentFieldIsValue = false;
-        _currentField.Add(value);
+        _msspBytes.Add(value);
     }
 
     /// <summary>
@@ -218,9 +284,9 @@ public class MSSPProtocol : TelnetProtocolPluginBase
         if (!IsEnabled)
             return;
 
-        if (!_currentFieldIsValue) FlushField();
+        if (!_currentFieldIsValue) FlushField(Context.CurrentEncoding);
         _currentFieldIsValue = true;
-        _currentField.Add(value);
+        _msspBytes.Add(value);
     }
 
     /// <summary>
@@ -232,7 +298,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
             return;
 
         _currentFieldIsValue = false;
-        FlushField();
+        FlushField(Context.CurrentEncoding);
     }
 
     /// <summary>
@@ -244,7 +310,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
             return;
 
         _currentFieldIsValue = true;
-        FlushField();
+        FlushField(Context.CurrentEncoding);
     }
 
     /// <summary>
@@ -257,7 +323,12 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 
         try
         {
-            var config = BuildReceivedConfig(Context.Logger);
+            if (await ReportOversizedAsync(Context))
+            {
+                return;
+            }
+
+            var config = BuildReceivedConfig(Context);
 
             // Trigger callback if registered
             if (Context.TryGetSharedState<Func<MSSPConfig, ValueTask>>("MSSP_Callback", out var callback) && callback != null)
@@ -273,10 +344,42 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 
     private void ClearMSSPState()
     {
-        _currentField.Clear();
+        _msspBytes.Reset();
+        _fieldStart = 0;
         _currentFieldIsValue = false;
         _currentVariable = null;
         _received.Clear();
+    }
+
+    /// <summary>
+    /// Drops an over-large report and says so, returning true when there is nothing left to deliver.
+    /// </summary>
+    /// <remarks>
+    /// Dropped rather than truncated, for the same reason GMCP and MSDP drop theirs: a report that
+    /// has lost an unknown number of its variables cannot be told apart from a server that never sent
+    /// them, and MSSP exists to be believed.
+    /// </remarks>
+    private async ValueTask<bool> ReportOversizedAsync(IProtocolContext context)
+    {
+        if (!_msspBytes.Overflowed)
+        {
+            return false;
+        }
+
+        var receivedBytes = _msspBytes.ReceivedBytes;
+        var maxMessageSize = _msspBytes.MaxMessageSize;
+        ClearMSSPState();
+
+        context.Logger.LogError(
+            "MSSP report exceeded the maximum message size of {MaxMessageSize} bytes ({ReceivedBytes} bytes received) and was dropped. Raise MSSPProtocol.MaxMessageSize if this is legitimate traffic.",
+            maxMessageSize, receivedBytes);
+
+        if (_onMSSPMessageTooLarge != null)
+        {
+            await _onMSSPMessageTooLarge((ReceivedBytes: receivedBytes, MaxMessageSize: maxMessageSize));
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -287,20 +390,37 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// markers append rather than run together. An empty value is legitimate -- the specification
     /// says "The value can be an empty string" -- while an empty name is not, so only the latter is
     /// dropped.
+    /// <para>
+    /// The bytes are decoded with the connection's encoding, not a fixed one. MSSP mandates no
+    /// character set: its only byte-level rule is that "variables and values cannot contain the
+    /// MSSP_VAL, MSSP_VAR, IAC, or NUL byte", and its own CHARSET variable is documented as reporting
+    /// "ASCII, BIG5, CP437, CP949, CP1251, EUC-KR, GB18030, ISO-8859-1, ISO-8859-2, KOI8-R, UTF-8" --
+    /// so a protocol whose vocabulary includes saying "I am GB18030" cannot be read as ASCII.
+    /// </para>
     /// </remarks>
-    private void FlushField()
+    /// <param name="encoding">The connection's current encoding.</param>
+    private void FlushField(Encoding encoding)
     {
-        if (_currentField.Count == 0 && !_currentFieldIsValue)
+        // Nothing left to attribute once the payload has blown its ceiling: the report is going to be
+        // dropped whole, and the bytes after the ceiling were never stored.
+        if (_msspBytes.Overflowed)
+        {
+            return;
+        }
+
+        var fieldLength = _msspBytes.Count - _fieldStart;
+
+        if (fieldLength == 0 && !_currentFieldIsValue)
         {
             return;
         }
 
 #if NET5_0_OR_GREATER
-        var text = System.Text.Encoding.ASCII.GetString(CollectionsMarshal.AsSpan(_currentField));
+        var text = encoding.GetString(CollectionsMarshal.AsSpan(_msspBytes.Bytes).Slice(_fieldStart, fieldLength));
 #else
-        var text = System.Text.Encoding.ASCII.GetString(_currentField.ToArray());
+        var text = encoding.GetString(_msspBytes.Bytes.Skip(_fieldStart).Take(fieldLength).ToArray());
 #endif
-        _currentField.Clear();
+        _fieldStart = _msspBytes.Count;
 
         if (_currentFieldIsValue)
         {
@@ -328,9 +448,11 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// Projects everything received into an <see cref="MSSPConfig"/>: the lossless variable map, the
     /// strongly typed properties it can fill, and <see cref="MSSPConfig.Extended"/> for the rest.
     /// </summary>
-    private MSSPConfig BuildReceivedConfig(ILogger logger)
+    private MSSPConfig BuildReceivedConfig(IProtocolContext context)
     {
-        FlushField();
+        var logger = context.Logger;
+
+        FlushField(context.CurrentEncoding);
 
         var config = new MSSPConfig();
 
@@ -423,10 +545,12 @@ public class MSSPProtocol : TelnetProtocolPluginBase
         // A configuration built by hand has an empty map, and nothing below changes for it.
         var written = new HashSet<string>(StringComparer.Ordinal);
 
+        var encoding = context.CurrentEncoding;
+
         foreach (var variable in config.Variables)
         {
             written.Add(variable.Key);
-            bytes.AddRange(ConvertToMSSP(variable.Key, variable.Value));
+            bytes.AddRange(ConvertToMSSP(variable.Key, variable.Value, encoding));
         }
 
         // Serialize MSSP configuration using reflection
@@ -443,7 +567,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 
             if (!written.Add(MSSPVariables.Canonicalize(attr.Name))) continue;
 
-            bytes.AddRange(ConvertToMSSP(attr.Name, value));
+            bytes.AddRange(ConvertToMSSP(attr.Name, value, encoding));
         }
 
         foreach (var item in config.Extended ?? new Dictionary<string, dynamic>())
@@ -451,7 +575,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
             if (item.Value == null) continue;
             if (!written.Add(MSSPVariables.Canonicalize(item.Key))) continue;
 
-            bytes.AddRange(ConvertToMSSP(item.Key, item.Value));
+            bytes.AddRange(ConvertToMSSP(item.Key, item.Value, encoding));
         }
 
         bytes.Add((byte)Trigger.IAC);
@@ -460,30 +584,39 @@ public class MSSPProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(bytes.ToArray());
     }
 
-    private byte[] ConvertToMSSP(string name, dynamic val)
+    /// <summary>
+    /// Writes one variable and its value(s) as <c>MSSP_VAR name MSSP_VAL value ...</c>.
+    /// </summary>
+    /// <remarks>
+    /// Encoded with the connection's encoding for the same reason a received report is decoded with
+    /// it: MSSP fixes no character set. Writing ASCII while reading anything else would also mean a
+    /// report received from a peer and sent back on could not round-trip, which
+    /// <see cref="SendMSSPDataAsync"/> otherwise guarantees.
+    /// </remarks>
+    private static byte[] ConvertToMSSP(string name, dynamic val, Encoding encoding)
     {
         var bt = new List<byte> { (byte)Trigger.MSSP_VAR };
-        bt.AddRange(System.Text.Encoding.ASCII.GetBytes(name));
+        AppendEscaped(bt, name, encoding);
 
         switch (val)
         {
             case string s:
                 bt.Add((byte)Trigger.MSSP_VAL);
-                bt.AddRange(System.Text.Encoding.ASCII.GetBytes(s));
+                AppendEscaped(bt, s, encoding);
                 break;
             case int i:
                 bt.Add((byte)Trigger.MSSP_VAL);
-                bt.AddRange(System.Text.Encoding.ASCII.GetBytes(i.ToString()));
+                AppendEscaped(bt, i.ToString(), encoding);
                 break;
             case bool b:
                 bt.Add((byte)Trigger.MSSP_VAL);
-                bt.AddRange(System.Text.Encoding.ASCII.GetBytes(b ? "1" : "0"));
+                AppendEscaped(bt, b ? "1" : "0", encoding);
                 break;
             case System.Collections.IEnumerable enumerable:
                 foreach (var item in enumerable)
                 {
                     bt.Add((byte)Trigger.MSSP_VAL);
-                    bt.AddRange(System.Text.Encoding.ASCII.GetBytes(item?.ToString() ?? string.Empty));
+                    AppendEscaped(bt, item?.ToString() ?? string.Empty, encoding);
                 }
                 break;
         }
@@ -492,12 +625,35 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
+    /// Appends the encoded bytes of <paramref name="text"/>, doubling any <c>IAC</c> among them.
+    /// </summary>
+    /// <remarks>
+    /// RFC 854: "the IAC need be doubled to be sent as data". MSSP itself says a variable or value
+    /// "cannot contain the MSSP_VAL, MSSP_VAR, IAC, or NUL byte", so this should never fire on a
+    /// well-behaved configuration -- but with a non-ASCII encoding a single character can now encode
+    /// to 0xFF (ISO-8859-1 'ÿ'), and an unescaped one would end the subnegotiation early and desync
+    /// the peer's parser. Doubling it costs nothing when it never happens.
+    /// </remarks>
+    private static void AppendEscaped(List<byte> destination, string text, Encoding encoding)
+    {
+        foreach (var b in encoding.GetBytes(text))
+        {
+            destination.Add(b);
+
+            if (b == (byte)Trigger.IAC)
+            {
+                destination.Add((byte)Trigger.IAC);
+            }
+        }
+    }
+
+    /// <summary>
     /// An <c>MSSP_VAR</c> marker: whatever was being accumulated is finished, and a variable name
     /// starts. Fires on re-entry too, so a repeated variable is a new entry rather than a no-op.
     /// </summary>
-    private void OnMSSPVariableMarker()
+    private void OnMSSPVariableMarker(IProtocolContext context)
     {
-        FlushField();
+        FlushField(context.CurrentEncoding);
         _currentFieldIsValue = false;
     }
 
@@ -505,33 +661,42 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// An <c>MSSP_VAL</c> marker: whatever was being accumulated is finished, and a value starts.
     /// Fires on re-entry, which is what keeps consecutive values of one variable separate.
     /// </summary>
-    private void OnMSSPValueMarker()
+    private void OnMSSPValueMarker(IProtocolContext context)
     {
-        FlushField();
+        FlushField(context.CurrentEncoding);
         _currentFieldIsValue = true;
     }
 
-    private void CaptureMSSPValue(OneOf<byte, Trigger> b)
+    /// <summary>
+    /// One payload byte of the field being accumulated, whether it is a variable name or a value:
+    /// the two differ only in what <see cref="FlushField"/> does with them at the next marker.
+    /// </summary>
+    private void CaptureMSSPFieldByte(OneOf<byte, Trigger> b)
     {
-        _currentField.Add(b.AsT0);
-    }
-
-    private void CaptureMSSPVariable(OneOf<byte, Trigger> b)
-    {
-        _currentField.Add(b.AsT0);
+        _msspBytes.Add(b.AsT0);
     }
 
     private async ValueTask ReadMSSPValues(IProtocolContext context)
     {
-        var config = BuildReceivedConfig(context.Logger);
-
-        // Call user callback
-        if (_onMSSPRequest != null)
+        try
         {
-            await _onMSSPRequest(config);
-        }
+            if (await ReportOversizedAsync(context))
+            {
+                return;
+            }
 
-        ClearMSSPState();
+            var config = BuildReceivedConfig(context);
+
+            // Call user callback
+            if (_onMSSPRequest != null)
+            {
+                await _onMSSPRequest(config);
+            }
+        }
+        finally
+        {
+            ClearMSSPState();
+        }
     }
 
     #endregion
