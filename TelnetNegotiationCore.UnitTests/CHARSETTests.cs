@@ -126,7 +126,7 @@ namespace TelnetNegotiationCore.UnitTests
 				},
 				new[] // Registered CHARSET List After Negotiation
 				{
-					Encoding.ASCII,
+					Encoding.UTF8,
 				});
 			yield return (
 				new byte[][]
@@ -152,8 +152,8 @@ namespace TelnetNegotiationCore.UnitTests
 				},
 				new[] // Registered CHARSET List After Negotiation
 				{
-					Encoding.ASCII,
-					Encoding.ASCII,
+					Encoding.UTF8,
+					Encoding.UTF8,
 					Encoding.UTF8
 				});
 		}
@@ -169,7 +169,7 @@ namespace TelnetNegotiationCore.UnitTests
 				},
 				new[] // Registered CHARSET List After Negotiation
 				{
-					Encoding.ASCII
+					Encoding.UTF8
 				});
 			yield return (
 				new byte[][] { // Client Sends
@@ -192,7 +192,7 @@ namespace TelnetNegotiationCore.UnitTests
 				},
 				new[] // Registered CHARSET List After Negotiation
 				{
-					Encoding.ASCII,
+					Encoding.UTF8,
 					Encoding.GetEncoding("UTF-16")
 				});
 			yield return (
@@ -211,7 +211,7 @@ namespace TelnetNegotiationCore.UnitTests
 				},
 				new[] // Registered CHARSET List After Negotiation
 				{
-					Encoding.ASCII,
+					Encoding.UTF8,
 					Encoding.UTF8
 				});
 		}
@@ -1033,6 +1033,72 @@ namespace TelnetNegotiationCore.UnitTests
 			await AssertByteArraysEqual(negotiationOutput, expectedRejection);
 
 			await server_ti.DisposeAsync();
+		}
+
+		/// <summary>
+		/// A line of non-ASCII text that arrives <em>before</em> CHARSET has been agreed must still reach
+		/// the application recoverably.
+		/// <para>
+		/// This is the ordinary case rather than a corner one. CHARSET (RFC 2066) takes several round
+		/// trips — WILL/DO, the offered list, the agreement — and a MU* server greets the moment the
+		/// socket opens, so its banner is on the wire while negotiation is still in flight. Plenty of
+		/// servers never implement RFC 2066 at all and simply send UTF-8 regardless, in which case
+		/// "before negotiation completes" means "for the whole session".
+		/// </para>
+		/// <para>
+		/// The assertion is deliberately a property rather than a named encoding, so it does not
+		/// over-specify the fix: whatever <see cref="TelnetInterpreter.CurrentEncoding"/> starts as, it
+		/// must not <em>destroy</em> the bytes handed alongside it. UTF-8 passes because it is correct;
+		/// ISO-8859-1 passes because it is byte-preserving, so a caller that later learns the real
+		/// charset can still re-decode. <c>Encoding.ASCII</c> — the previous default — fails, because it maps
+		/// every byte above 127 to '?', and no later knowledge can undo that.
+		/// </para>
+		/// </summary>
+		[Test]
+		public async Task NonAsciiBeforeCharsetIsNegotiated_IsHandedOverRecoverably()
+		{
+			var received = new List<(byte[] Data, Encoding Encoding)>();
+
+			ValueTask Capture(byte[] data, Encoding encoding, TelnetInterpreter t)
+			{
+				received.Add((data, encoding));
+				return ValueTask.CompletedTask;
+			}
+
+			var client = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(Capture)
+				.OnNegotiation(_ => ValueTask.CompletedTask)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			// No NegotiateCharset call: this is the banner landing first.
+			var text = "Caf\u00e9 \u65e5\u672c";
+			var line = Encoding.UTF8.GetBytes(text + "\n");
+			await client.InterpretByteArrayAsync(line);
+			await client.WaitForProcessingAsync();
+
+			await Assert.That(received.Count).IsEqualTo(1);
+			var (data, encoding) = received[0];
+
+			// The raw bytes reach the application unchanged — that part already works.
+			await AssertByteArraysEqual(data, Encoding.UTF8.GetBytes(text));
+
+			// ...but the encoding handed over with them has to be able to carry them. Round-tripping is
+			// the test: an encoding that cannot reproduce what it was just given has destroyed it, and
+			// no later knowledge of the real charset can undo that.
+			var decoded = encoding.GetString(data);
+			var roundTripped = encoding.GetBytes(decoded);
+			await Assert.That(Convert.ToHexString(roundTripped))
+				.IsEqualTo(Convert.ToHexString(data))
+				.Because(
+					$"CurrentEncoding was '{encoding.WebName}' for bytes that arrived before CHARSET was "
+					+ $"agreed, which decodes them to \"{decoded}\" — the original is unrecoverable. A "
+					+ "byte-preserving default (iso-8859-1) or an optimistic one (utf-8) would both keep "
+					+ "them.");
+
+			await client.DisposeAsync();
 		}
 	}
 }
