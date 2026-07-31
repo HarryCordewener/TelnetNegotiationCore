@@ -2,10 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using OneOf;
-using Stateless;
 using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.Interpreters;
@@ -17,36 +13,10 @@ namespace TelnetNegotiationCore.Interpreters;
 /// </summary>
 public partial class TelnetInterpreter
 {
-#pragma warning disable CS0414 // Field is assigned but never used in this partial - used in CharsetProtocol
-	/// <summary>
-	/// Internal Charset Byte State
-	/// </summary>
-	private byte[] _charsetByteState = [];
-
-	/// <summary>
-	/// Internal Charset Byte Index Value
-	/// </summary>
-	private int _charsetByteIndex = 0;
-
-	/// <summary>
-	/// Internal Accepted Charset Byte State
-	/// </summary>
-	private byte[] _acceptedCharsetByteState = [];
-
-	/// <summary>
-	/// Internal Accepted Charset Byte Index Value
-	/// </summary>
-	private int _acceptedCharsetByteIndex = 0;
-
-	private bool _charsetOffered = false;
-#pragma warning restore CS0414
-
 	private Func<IEnumerable<EncodingInfo>> AllowedEncodings { get; set; } = Encoding.GetEncodings;
 
-	private Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetOrder = x 
+	private Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetOrder = x
 		=> x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
-
-	private Func<Encoding, ValueTask>? SignalCharsetChangeAsync { get; set; }
 
 	private Lazy<byte[]> SupportedCharacterSets { get; }
 
