@@ -53,6 +53,68 @@ public class NAWSProtocol : TelnetProtocolPluginBase
 
 
     /// <summary>
+    /// The largest window dimension RFC 1073 can carry: both fields are 16-bit unsigned, which is
+    /// the option's entire reason for existing — <i>"the 253 character height and width limitation
+    /// is too low so the new option has a limit of 65535 characters"</i>.
+    /// </summary>
+    public const int MaxWindowDimension = ushort.MaxValue;
+
+    /// <summary>
+    /// Reports this side's window size to the peer as <c>IAC SB NAWS WIDTH[1] WIDTH[0] HEIGHT[1]
+    /// HEIGHT[0] IAC SE</c> (RFC 1073). Does nothing until the peer has enabled NAWS — see
+    /// <see cref="WindowSizeReportingEnabled"/>.
+    /// </summary>
+    /// <param name="width">Window width, 0 to <see cref="MaxWindowDimension"/></param>
+    /// <param name="height">Window height, 0 to <see cref="MaxWindowDimension"/></param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// A dimension is outside 0 to <see cref="MaxWindowDimension"/>. Truncating it into the two
+    /// bytes the wire has would report a size that was never asked for: 65536 would go out as 0.
+    /// </exception>
+    public async ValueTask SendWindowSizeAsync(int width, int height)
+    {
+        ThrowIfNotAWindowDimension(width, nameof(width));
+        ThrowIfNotAWindowDimension(height, nameof(height));
+
+        // A client must not emit SB NAWS until the server has enabled it with DO NAWS; sending one
+        // unsolicited desyncs a strict server's telnet parser and can make it swallow the following
+        // line (RFC 1073).
+        if (!IsEnabled || !_willingToDoNAWS)
+        {
+            return;
+        }
+
+        // High byte first (network byte order). Shifting explicitly is endian-independent, so this
+        // is one code path on every target framework.
+        //
+        // RFC 1073: "As required by the Telnet protocol, any occurrence of 255 in the subnegotiation
+        // must be doubled to distinguish it from the IAC character (which has a value of 255)."
+        // A dimension byte of 255 is an ordinary terminal size, not a corner case - a 255-column
+        // window, or any height/width whose high or low byte happens to be 255. Sent raw, the peer
+        // reads that byte as the IAC that ends the subnegotiation and the rest of the stream desyncs.
+        var dimensions = Context.Interpreter.TelnetSafeBytes(new byte[]
+        {
+            (byte)(width >> 8), (byte)width,
+            (byte)(height >> 8), (byte)height
+        });
+
+        await Context.SendNegotiationAsync((byte[])
+        [
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS,
+            .. dimensions,
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        ]);
+    }
+
+    private static void ThrowIfNotAWindowDimension(int value, string parameterName)
+    {
+        if (value is < 0 or > MaxWindowDimension)
+        {
+            throw new ArgumentOutOfRangeException(parameterName, value,
+                $"RFC 1073 window dimensions are 16-bit unsigned: must be between 0 and {MaxWindowDimension}.");
+        }
+    }
+
+    /// <summary>
     /// Currently known Client Height (defaults to 24)
     /// </summary>
     public int ClientHeight { get; private set; } = 24;
@@ -250,24 +312,6 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         _nawsByteState = [];
         _nawsIndex = 0;
         return default(ValueTask);
-    }
-
-    /// <summary>
-    /// Called by the interpreter when NAWS negotiation is complete.
-    /// Internal method that invokes the callback.
-    /// </summary>
-    internal async ValueTask OnNAWSNegotiatedAsync(int height, int width)
-    {
-        if (!IsEnabled)
-            return;
-
-        ClientWidth = width;
-        ClientHeight = height;
-
-        Context.Logger.LogInformation("NAWS negotiation complete: Width={Width}, Height={Height}", width, height);
-        
-        if (_onNAWSNegotiated != null)
-            await _onNAWSNegotiated(height, width).ConfigureAwait(false);
     }
 
     #region State Machine Handlers

@@ -206,11 +206,8 @@ public class NAWSTests : BaseTest
 		await client.WaitForProcessingAsync();
 		negotiationOutput = null;
 
-		short width = 100;
-		short height = 40;
-
 		// Act
-		await client.SendNAWS(width, height);
+		await client.PluginManager!.GetPlugin<NAWSProtocol>()!.SendWindowSizeAsync(100, 40);
 
 		// Assert
 		await Assert.That(negotiationOutput).IsNotNull();
@@ -568,12 +565,73 @@ public class NAWSTests : BaseTest
 
 		// No DO NAWS received yet.
 		negotiationOutput = null;
-		await client.SendNAWS(100, 40);
+		await client.PluginManager!.GetPlugin<NAWSProtocol>()!.SendWindowSizeAsync(100, 40);
 		await client.WaitForProcessingAsync();
 
 		// Nothing should have gone out — the server never enabled NAWS.
 		await Assert.That(negotiationOutput).IsNull();
 
 		await client.DisposeAsync();
+	}
+
+	/// <summary>
+	/// Builds a client whose NAWS is already enabled by the server, recording everything it negotiates.
+	/// </summary>
+	private static async Task<TelnetInterpreter> BuildNawsEnabledClientAsync(Action<byte[]> onNegotiation)
+	{
+		ValueTask Capture(ReadOnlyMemory<byte> data) { onNegotiation(data.ToArray()); return ValueTask.CompletedTask; }
+		ValueTask Sub(byte[] a, Encoding e, TelnetInterpreter t) => ValueTask.CompletedTask;
+
+		var client = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(Sub)
+			.OnNegotiation(Capture)
+			.AddPlugin<NAWSProtocol>()
+			.BuildAsync();
+
+		await InterpretAndWaitAsync(client, [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS]);
+		return client;
+	}
+
+	/// <summary>
+	/// Reporting a window size is the plugin's job, and it spans RFC 1073's whole unsigned range.
+	/// </summary>
+	[Test]
+	public async Task NAWSPluginSendsAWindowSizeOverTheFullUnsignedRange()
+	{
+		byte[] negotiationOutput = null;
+		await using var client = await BuildNawsEnabledClientAsync(data => negotiationOutput = data);
+		negotiationOutput = null;
+
+		var naws = client.PluginManager!.GetPlugin<NAWSProtocol>()!;
+		await naws.SendWindowSizeAsync(65535, 40);
+
+		await AssertByteArraysEqual(negotiationOutput,
+		[
+			(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS,
+			0xFF, 0xFF, 0xFF, 0xFF,   // width  = 65535, both bytes doubled
+			0x00, 0x28,               // height = 40
+			(byte)Trigger.IAC, (byte)Trigger.SE
+		]);
+	}
+
+	[Test]
+	[Arguments(-1, 24, "width")]
+	[Arguments(65536, 24, "width")]
+	[Arguments(80, -1, "height")]
+	[Arguments(80, 65536, "height")]
+	public async Task NAWSPluginRejectsDimensionsOutsideTheUnsignedRange(int width, int height, string parameterName)
+	{
+		byte[] negotiationOutput = null;
+		await using var client = await BuildNawsEnabledClientAsync(data => negotiationOutput = data);
+		negotiationOutput = null;
+
+		var naws = client.PluginManager!.GetPlugin<NAWSProtocol>()!;
+		var ex = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(async () =>
+			await naws.SendWindowSizeAsync(width, height));
+
+		await Assert.That(ex!.ParamName).IsEqualTo(parameterName);
+		await Assert.That(negotiationOutput).IsNull();
 	}
 }
