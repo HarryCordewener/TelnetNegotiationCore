@@ -132,23 +132,6 @@ public class EORProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// Sends an EOR marker to indicate end of prompt/record
-    /// </summary>
-    public async ValueTask SendEORMarkerAsync()
-    {
-        if (!IsEnabled || !IsEOREnabled)
-            return;
-
-        Context.Logger.LogDebug("Sending EOR marker");
-
-        // Trigger prompting callback if registered
-        if (Context.TryGetSharedState<Func<ValueTask>>("Prompting_Callback", out var callback) && callback != null)
-        {
-            await callback();
-        }
-    }
-
-    /// <summary>
     /// Enables EOR for the connection
     /// </summary>
     public ValueTask EnableEORAsync()
