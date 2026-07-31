@@ -495,13 +495,13 @@ public partial class TelnetInterpreter
             return;
         }
 
-        if (_bufferPosition == 0)
-        {
-            return;
-        }
-
-        // Create array for callback - always allocate exact size needed
-        var cp = _buffer!.AsSpan()[.._bufferPosition].ToArray();
+        // A NEWLINE reaches here only from State.Act, which only a NEWLINE trigger enters — so every
+        // call is a genuine line submission, including one with nothing buffered since the last: the
+        // second CRLF of a "paragraph break" double newline is exactly that; MUD/MUSH output leans on
+        // it for blank lines. Skipping the callback here silently drops those lines before any caller
+        // ever sees them. _buffer stays null until something is written to it, so the empty case can't
+        // reuse it.
+        var cp = _bufferPosition == 0 ? [] : _buffer!.AsSpan()[.._bufferPosition].ToArray();
         _bufferPosition = 0;
         ReleaseLineBufferIfLarge();
 
