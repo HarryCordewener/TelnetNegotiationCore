@@ -1,128 +1,19 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.Interpreters;
 
 public partial class TelnetInterpreter
 {
-	private bool? _doEOR = null;
-
-	// Cached negotiation byte arrays to avoid repeated allocations
-	private static readonly byte[] s_willEOR = [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR];
-	private static readonly byte[] s_doEOR = [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR];
-
-	/// <summary>
-	/// Character set Negotiation will set the Character Set and Character Page Server & Client have agreed to.
-	/// </summary>
-	/// <param name="tsm">The state machine.</param>
-	/// <returns>Itself</returns>
-	private StateMachine<State, Trigger> SetupEORNegotiation(StateMachine<State, Trigger> tsm)
-	{
-		if (Mode == TelnetMode.Server)
-		{
-			tsm.Configure(State.Do)
-				.Permit(Trigger.TELOPT_EOR, State.DoEOR);
-
-			tsm.Configure(State.Dont)
-				.Permit(Trigger.TELOPT_EOR, State.DontEOR);
-
-			tsm.Configure(State.DoEOR)
-				.SubstateOf(State.Accepting)
-				.OnEntryAsync(async x => await OnDoEORAsync(x));
-
-			tsm.Configure(State.DontEOR)
-				.SubstateOf(State.Accepting)
-				.OnEntryAsync(async () => await OnDontEORAsync());
-
-			RegisterInitialWilling(async () => await WillingEORAsync());
-		}
-		else
-		{
-			tsm.Configure(State.Willing)
-				.Permit(Trigger.TELOPT_EOR, State.WillEOR);
-
-			tsm.Configure(State.Refusing)
-				.Permit(Trigger.TELOPT_EOR, State.WontEOR);
-
-			tsm.Configure(State.WontEOR)
-				.SubstateOf(State.Accepting)
-				.OnEntryAsync(async () => await WontEORAsync());
-
-			tsm.Configure(State.WillEOR)
-				.SubstateOf(State.Accepting)
-				.OnEntryAsync(async x => await OnWillEORAsync(x));
-		}
-
-		tsm.Configure(State.StartNegotiation)
-			.Permit(Trigger.EOR, State.Prompting);
-
-		tsm.Configure(State.Prompting)
-			.SubstateOf(State.Accepting)
-			.OnEntryAsync(async () => await OnEORPrompt());
-
-		return tsm;
-	}
-
-	private async ValueTask OnEORPrompt()
-	{
-		_logger.LogDebug("Connection: {ConnectionState}", "Server is prompting EOR");
-		
-		// Call EOR plugin if available
-		var eorPlugin = PluginManager?.GetPlugin<Protocols.EORProtocol>();
-		if (eorPlugin != null && eorPlugin.IsEnabled)
-		{
-			await eorPlugin.OnPromptAsync();
-		}
-	}
-
-	private ValueTask OnDontEORAsync()
-	{
-		_logger.LogDebug("Connection: {ConnectionState}", "Client won't do EOR - do nothing");
-		_doEOR = false;
-		return default(ValueTask);
-	}
-
-	private ValueTask WontEORAsync()
-	{
-		_logger.LogDebug("Connection: {ConnectionState}", "Server  won't do EOR - do nothing");
-		_doEOR = false;
-		return default(ValueTask);
-	}
+	// Cached prompt terminators, to avoid allocating one per prompt.
+	private static readonly byte[] s_endOfRecord = [(byte)Trigger.IAC, (byte)Trigger.EOR];
+	private static readonly byte[] s_goAhead = [(byte)Trigger.IAC, (byte)Trigger.GA];
+	private static readonly byte[] s_carriageReturnLineFeed = [(byte)'\r', (byte)'\n'];
 
 	/// <summary>
-	/// Announce we do EOR negotiation to the client.
-	/// </summary>
-	private async ValueTask WillingEORAsync()
-	{
-		_logger.LogDebug("Connection: {ConnectionState}", "Announcing willingness to EOR!");
-		await WriteToNetworkAsync(s_willEOR);
-	}
-
-	/// <summary>
-	/// Store that we are now in EOR mode.
-	/// </summary>
-	private ValueTask OnDoEORAsync(StateMachine<State, Trigger>.Transition _)
-	{
-		_logger.LogDebug("Connection: {ConnectionState}", "Client supports End of Record.");
-		_doEOR = true;
-		return default(ValueTask);
-	}
-
-	/// <summary>
-	/// Store that we are now in EOR mode.
-	/// </summary>
-	private async ValueTask OnWillEORAsync(StateMachine<State, Trigger>.Transition _)
-	{
-		_logger.LogDebug("Connection: {ConnectionState}", "Server supports End of Record.");
-		_doEOR = true;
-		await WriteToNetworkAsync(s_doEOR);
-	}
-
-	/// <summary>
-	/// Sends a byte message as a Prompt, if supported, by not sending an EOR at the end.
+	/// Sends a byte message as a Prompt: it is marked as the end of a prompt rather than ended with a
+	/// newline, so the client can keep it on the input line.
 	/// IAC bytes (255) in <paramref name="send"/> are automatically escaped.
 	/// </summary>
 	/// <param name="send">Byte array</param>
@@ -130,33 +21,36 @@ public partial class TelnetInterpreter
 	public async ValueTask SendPromptAsync(byte[] send)
 	{
 		var safeSend = TelnetSafeBytesInternal(send);
-		if (_doEOR is null or false)
-		{
-			// Pre-allocate exact-size buffer: safeSend + CR LF
-			var output = new byte[safeSend.Length + 2];
-			safeSend.AsSpan().CopyTo(output);
-			output[safeSend.Length] = (byte)'\r';
-			output[safeSend.Length + 1] = (byte)'\n';
-			await WriteToNetworkAsync(output);
-		}
-		else if(_doEOR is true)
-		{
-			// Pre-allocate exact-size buffer: safeSend + IAC EOR
-			var output = new byte[safeSend.Length + 2];
-			safeSend.AsSpan().CopyTo(output);
-			output[safeSend.Length] = (byte)Trigger.IAC;
-			output[safeSend.Length + 1] = (byte)Trigger.EOR;
-			await WriteToNetworkAsync(output);
-		}
-		else if (_doGA is not null)
-		{
-			// Pre-allocate exact-size buffer: safeSend + IAC GA
-			var output = new byte[safeSend.Length + 2];
-			safeSend.AsSpan().CopyTo(output);
-			output[safeSend.Length] = (byte)Trigger.IAC;
-			output[safeSend.Length + 1] = (byte)Trigger.GA;
-			await WriteToNetworkAsync(output);
-		}
+		var terminator = PromptTerminator();
+
+		// Pre-allocate exact-size buffer: safeSend + the two terminator bytes
+		var output = new byte[safeSend.Length + terminator.Length];
+		safeSend.AsSpan().CopyTo(output);
+		terminator.CopyTo(output.AsSpan(safeSend.Length));
+		await WriteToNetworkAsync(output);
+	}
+
+	/// <summary>
+	/// The bytes that mark the end of a prompt, given what the peer negotiated.
+	/// </summary>
+	/// <remarks>
+	/// RFC 885 End of Record is the precise marker, so it wins wherever it was negotiated. Failing that,
+	/// RFC 854's Go-Ahead marks the turn, unless the peer negotiated RFC 858 SUPPRESS-GO-AHEAD - which
+	/// is a promise not to send it. With neither marker available a prompt cannot be distinguished from
+	/// a line, so it ends as a line does, with CR LF.
+	///
+	/// The negotiated state belongs to the protocol plugins; the interpreter asks them for it rather
+	/// than keeping a second copy that nothing updates.
+	/// </remarks>
+	private ReadOnlySpan<byte> PromptTerminator()
+	{
+		if (PluginManager?.GetPlugin<Protocols.EORProtocol>() is { IsEnabled: true, IsEOREnabled: true })
+			return s_endOfRecord;
+
+		if (PluginManager?.GetPlugin<Protocols.SuppressGoAheadProtocol>() is { IsEnabled: true, IsGoAheadSuppressed: true })
+			return s_carriageReturnLineFeed;
+
+		return s_goAhead;
 	}
 
 	/// <summary>

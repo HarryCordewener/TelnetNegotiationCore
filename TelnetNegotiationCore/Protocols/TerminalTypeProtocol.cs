@@ -262,7 +262,6 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
             context.Logger.LogDebug("Connection: {ConnectionState}: {@TerminalTypes}",
                 "Completing Terminal Type negotiation. List as follows", _terminalTypes);
                 
-            // Update interpreter properties for backward compatibility
             UpdateInterpreterProperties(context);
         }
         else
@@ -272,7 +271,6 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
             _terminalTypes = _terminalTypes.Add(TType);
             _currentTerminalType++;
             
-            // Update interpreter properties for backward compatibility
             UpdateInterpreterProperties(context);
             
             await RequestTerminalTypeAsync(context);
@@ -304,26 +302,19 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
 
         await context.SendNegotiationAsync(terminalType);
         
-        // Update interpreter properties for backward compatibility
         UpdateInterpreterProperties(context);
     }
     
+    /// <summary>
+    /// The interpreter carries the same list and selection for consumers reading
+    /// <see cref="Interpreters.TelnetInterpreter.TerminalTypes"/> and
+    /// <see cref="Interpreters.TelnetInterpreter.CurrentTerminalType"/>, the latter of which it derives
+    /// from the selected index.
+    /// </summary>
     private void UpdateInterpreterProperties(IProtocolContext context)
     {
-        var interpreter = context.Interpreter;
-        var terminalTypesProp = interpreter.GetType().GetProperty("TerminalTypes");
-        var currentTerminalTypeProp = interpreter.GetType().GetProperty("CurrentTerminalType");
-        
-        if (terminalTypesProp != null && terminalTypesProp.CanWrite)
-            terminalTypesProp.SetValue(interpreter, _terminalTypes);
-        if (currentTerminalTypeProp != null && currentTerminalTypeProp.CanWrite)
-            currentTerminalTypeProp.SetValue(interpreter, CurrentTerminalType);
-            
-        // Also update the internal field _CurrentTerminalType
-        var currentTerminalTypeField = interpreter.GetType().GetField("_CurrentTerminalType", 
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        if (currentTerminalTypeField != null)
-            currentTerminalTypeField.SetValue(interpreter, _currentTerminalType);
+        context.Interpreter.TerminalTypes = _terminalTypes;
+        context.Interpreter.CurrentTerminalTypeIndex = _currentTerminalType;
     }
 
     #endregion
