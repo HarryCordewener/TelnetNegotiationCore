@@ -69,9 +69,12 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     /// </summary>
     /// <remarks>
     /// <para>
-    /// MNES — the MUD profile of NEW-ENVIRON — defines the names a MUD client would want here:
-    /// <c>CLIENT_NAME</c>, <c>CLIENT_VERSION</c>, <c>TERMINAL_TYPE</c>, <c>MTTS</c>, <c>CHARSET</c>
-    /// and <c>IPADDRESS</c>. The first four are better set once through
+    /// MNES — the MUD profile of NEW-ENVIRON — defines the names a MUD client would want here, and
+    /// <see cref="MnesVariables"/> spells them once: <c>CLIENT_NAME</c>, <c>CLIENT_VERSION</c>,
+    /// <c>TERMINAL_TYPE</c>, <c>MTTS</c>, <c>CHARSET</c> and <c>IPADDRESS</c>. It also carries
+    /// <see cref="MnesVariables.IsLegalName"/> and <see cref="MnesVariables.IsLegalValue"/>, for an
+    /// application that wants to check itself against the profile before configuring anything.
+    /// The first four are better set once through
     /// <see cref="Builders.TelnetInterpreterBuilder.WithClientIdentity(Models.ClientIdentity)"/>,
     /// which also feeds the TTYPE responses; a variable set here overrides the identity-derived one
     /// of the same name.
@@ -534,7 +537,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
         if (context.TryGetSharedState<ClientIdentity>(ClientIdentity.SharedStateKey, out var identity) && identity != null)
         {
-            foreach (var (name, value) in MnesVariables(identity, context))
+            foreach (var (name, value) in IdentityVariables(identity, context))
             {
                 variables.Add(new KeyValuePair<string, string>(
                     name, configured.TryGetValue(name, out var overridden) ? overridden : value));
@@ -553,22 +556,23 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// The MNES variables an identity supplies, in the order the specification lists them. The MTTS
-    /// bitvector is the one the Terminal Type plugin reports, so that the two channels a client
-    /// introduces itself through cannot disagree.
+    /// The MNES variables an identity supplies, in the order the specification lists them, named
+    /// from <see cref="MnesVariables"/> rather than by literal. The MTTS bitvector is the one the
+    /// Terminal Type plugin reports, so that the two channels a client introduces itself through
+    /// cannot disagree.
     /// </summary>
-    private static IEnumerable<KeyValuePair<string, string>> MnesVariables(ClientIdentity identity, IProtocolContext context)
+    private static IEnumerable<KeyValuePair<string, string>> IdentityVariables(ClientIdentity identity, IProtocolContext context)
     {
-        yield return new KeyValuePair<string, string>("CLIENT_NAME", identity.Name);
+        yield return new KeyValuePair<string, string>(MnesVariables.ClientName, identity.Name);
 
         if (!string.IsNullOrWhiteSpace(identity.Version))
         {
-            yield return new KeyValuePair<string, string>("CLIENT_VERSION", identity.Version!.Trim());
+            yield return new KeyValuePair<string, string>(MnesVariables.ClientVersion, identity.Version!.Trim());
         }
 
         if (!string.IsNullOrWhiteSpace(identity.TerminalType))
         {
-            yield return new KeyValuePair<string, string>("TERMINAL_TYPE", identity.TerminalType!.Trim());
+            yield return new KeyValuePair<string, string>(MnesVariables.TerminalType, identity.TerminalType!.Trim());
         }
 
         var capabilities = context.GetPlugin<TerminalTypeProtocol>()?.ClientCapabilities
@@ -577,7 +581,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         if (capabilities != MttsCapabilities.None)
         {
             yield return new KeyValuePair<string, string>(
-                "MTTS", ((int)capabilities).ToString(CultureInfo.InvariantCulture));
+                MnesVariables.Mtts, ((int)capabilities).ToString(CultureInfo.InvariantCulture));
         }
     }
 
