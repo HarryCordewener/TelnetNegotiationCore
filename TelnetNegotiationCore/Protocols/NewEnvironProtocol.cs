@@ -41,6 +41,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
     private readonly List<byte> _currentVar = [];
     private readonly List<byte> _currentValue = [];
+    private readonly List<(bool IsUserVar, string? Name)> _requestedVariables = [];
     private readonly Dictionary<string, string> _environmentVariables = new();
     private readonly Dictionary<string, string> _userVariables = new();
     private IReadOnlyDictionary<string, string> _clientEnvironmentVariables = new Dictionary<string, string>();
@@ -69,9 +70,12 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     /// </summary>
     /// <remarks>
     /// <para>
-    /// MNES — the MUD profile of NEW-ENVIRON — defines the names a MUD client would want here:
-    /// <c>CLIENT_NAME</c>, <c>CLIENT_VERSION</c>, <c>TERMINAL_TYPE</c>, <c>MTTS</c>, <c>CHARSET</c>
-    /// and <c>IPADDRESS</c>. The first four are better set once through
+    /// MNES — the MUD profile of NEW-ENVIRON — defines the names a MUD client would want here, and
+    /// <see cref="MnesVariables"/> spells them once: <c>CLIENT_NAME</c>, <c>CLIENT_VERSION</c>,
+    /// <c>TERMINAL_TYPE</c>, <c>MTTS</c>, <c>CHARSET</c> and <c>IPADDRESS</c>. It also carries
+    /// <see cref="MnesVariables.IsLegalName"/> and <see cref="MnesVariables.IsLegalValue"/>, for an
+    /// application that wants to check itself against the profile before configuring anything.
+    /// The first four are better set once through
     /// <see cref="Builders.TelnetInterpreterBuilder.WithClientIdentity(Models.ClientIdentity)"/>,
     /// which also feeds the TTYPE responses; a variable set here overrides the identity-derived one
     /// of the same name.
@@ -258,6 +262,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
             {
                 _currentVar.Clear();
                 _currentValue.Clear();
+                _requestedVariables.Clear();
                 _collectingVar = false;
                 _collectingValue = false;
                 _isUserVar = false;
@@ -320,6 +325,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     {
         _currentVar.Clear();
         _currentValue.Clear();
+        _requestedVariables.Clear();
         _environmentVariables.Clear();
         _userVariables.Clear();
         _collectingVar = false;
@@ -362,6 +368,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
     private void StartRequestedVar(OneOf<byte, Trigger> _)
     {
+        FlushRequestedVariable();
         _collectingVar = true;
         _collectingValue = false;
         _isUserVar = false;
@@ -370,10 +377,31 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
     private void StartRequestedUserVar(OneOf<byte, Trigger> _)
     {
+        FlushRequestedVariable();
         _collectingVar = true;
         _collectingValue = false;
         _isUserVar = true;
         _currentVar.Clear();
+    }
+
+    /// <summary>
+    /// Records the variable a server has just finished naming in its SEND. A type marker carrying no
+    /// name at all is RFC 1572's request for every variable of that type, and is recorded as such
+    /// rather than as a variable called "".
+    /// </summary>
+    private void FlushRequestedVariable()
+    {
+        if (!_collectingVar)
+        {
+            return;
+        }
+
+        _requestedVariables.Add((
+            _isUserVar,
+            _currentVar.Count > 0 ? Encoding.ASCII.GetString(_currentVar.ToArray()) : null));
+
+        _currentVar.Clear();
+        _collectingVar = false;
     }
 
     private void CaptureVarByte(OneOf<byte, Trigger> b)
@@ -496,23 +524,80 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
             (byte)Trigger.IS
         };
 
-        foreach (var (name, value) in ResolveClientVariables(context))
-        {
-            if (string.IsNullOrEmpty(value))
-            {
-                continue;
-            }
+        FlushRequestedVariable();
 
-            response.Add((byte)Trigger.NEWENVIRON_VAR);
+        foreach (var (isUserVar, name, value) in ResolveRequestedVariables(context))
+        {
+            response.Add(isUserVar ? (byte)Trigger.NEWENVIRON_USERVAR : (byte)Trigger.NEWENVIRON_VAR);
             AppendEscaped(response, name);
-            response.Add((byte)Trigger.NEWENVIRON_VALUE);
-            AppendEscaped(response, value);
+
+            // A name with no VALUE at all is RFC 1572's "I do not have that one". A name with an
+            // empty VALUE is a variable that is defined and empty, which is a different answer.
+            if (value != null)
+            {
+                response.Add((byte)Trigger.NEWENVIRON_VALUE);
+                AppendEscaped(response, value);
+            }
         }
+
+        _requestedVariables.Clear();
 
         response.Add((byte)Trigger.IAC);
         response.Add((byte)Trigger.SE);
 
         await context.SendNegotiationAsync(response.ToArray());
+    }
+
+    /// <summary>
+    /// Answers the SEND the server actually sent. RFC 1572: <i>"If a list of variables is specified,
+    /// then only those variables should be sent"</i>, and the reply owes <i>"a response for each
+    /// 'type ...' explicitly requested"</i> in the order it was requested — a variable this client
+    /// does not have among them, answered by its name carrying no value.
+    /// </summary>
+    /// <remarks>
+    /// Being asked for a variable is not consent to go and find one: a requested name that the
+    /// application did not configure is undefined, including <c>USER</c>.
+    /// </remarks>
+    private List<(bool IsUserVar, string Name, string? Value)> ResolveRequestedVariables(IProtocolContext context)
+    {
+        var available = ResolveClientVariables(context);
+        var response = new List<(bool IsUserVar, string Name, string? Value)>();
+
+        if (_requestedVariables.Count == 0)
+        {
+            foreach (var (name, value) in available)
+            {
+                response.Add((false, name, value));
+            }
+
+            return response;
+        }
+
+        foreach (var (isUserVar, requested) in _requestedVariables)
+        {
+            if (requested == null)
+            {
+                // Every variable of that type. Everything this library sends is a well-known VAR —
+                // MNES's own names included — so "every USERVAR" is an empty answer.
+                if (!isUserVar)
+                {
+                    foreach (var (name, value) in available)
+                    {
+                        response.Add((false, name, value));
+                    }
+                }
+
+                continue;
+            }
+
+            var match = isUserVar
+                ? default
+                : available.FirstOrDefault(x => string.Equals(x.Key, requested, StringComparison.Ordinal));
+
+            response.Add((isUserVar, requested, match.Key != null ? match.Value : null));
+        }
+
+        return response;
     }
 
     /// <summary>
@@ -534,7 +619,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
         if (context.TryGetSharedState<ClientIdentity>(ClientIdentity.SharedStateKey, out var identity) && identity != null)
         {
-            foreach (var (name, value) in MnesVariables(identity, context))
+            foreach (var (name, value) in IdentityVariables(identity, context))
             {
                 variables.Add(new KeyValuePair<string, string>(
                     name, configured.TryGetValue(name, out var overridden) ? overridden : value));
@@ -553,22 +638,23 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// The MNES variables an identity supplies, in the order the specification lists them. The MTTS
-    /// bitvector is the one the Terminal Type plugin reports, so that the two channels a client
-    /// introduces itself through cannot disagree.
+    /// The MNES variables an identity supplies, in the order the specification lists them, named
+    /// from <see cref="MnesVariables"/> rather than by literal. The MTTS bitvector is the one the
+    /// Terminal Type plugin reports, so that the two channels a client introduces itself through
+    /// cannot disagree.
     /// </summary>
-    private static IEnumerable<KeyValuePair<string, string>> MnesVariables(ClientIdentity identity, IProtocolContext context)
+    private static IEnumerable<KeyValuePair<string, string>> IdentityVariables(ClientIdentity identity, IProtocolContext context)
     {
-        yield return new KeyValuePair<string, string>("CLIENT_NAME", identity.Name);
+        yield return new KeyValuePair<string, string>(MnesVariables.ClientName, identity.Name);
 
         if (!string.IsNullOrWhiteSpace(identity.Version))
         {
-            yield return new KeyValuePair<string, string>("CLIENT_VERSION", identity.Version!.Trim());
+            yield return new KeyValuePair<string, string>(MnesVariables.ClientVersion, identity.Version!.Trim());
         }
 
         if (!string.IsNullOrWhiteSpace(identity.TerminalType))
         {
-            yield return new KeyValuePair<string, string>("TERMINAL_TYPE", identity.TerminalType!.Trim());
+            yield return new KeyValuePair<string, string>(MnesVariables.TerminalType, identity.TerminalType!.Trim());
         }
 
         var capabilities = context.GetPlugin<TerminalTypeProtocol>()?.ClientCapabilities
@@ -577,7 +663,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         if (capabilities != MttsCapabilities.None)
         {
             yield return new KeyValuePair<string, string>(
-                "MTTS", ((int)capabilities).ToString(CultureInfo.InvariantCulture));
+                MnesVariables.Mtts, ((int)capabilities).ToString(CultureInfo.InvariantCulture));
         }
     }
 
