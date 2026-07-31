@@ -31,6 +31,12 @@ public class IACEscapingTests : BaseTest
 		public int NawsWidth = int.MinValue;
 		public int NawsHeight = int.MinValue;
 
+		/// <summary>
+		/// Reports the client's window size the way a consumer does: through the NAWS plugin.
+		/// </summary>
+		public ValueTask SendNawsAsync(int width, int height) =>
+			Client.PluginManager!.GetPlugin<NAWSProtocol>()!.SendWindowSizeAsync(width, height);
+
 		public byte[] TakeClientWire()
 		{
 			lock (ClientWire)
@@ -98,34 +104,34 @@ public class IACEscapingTests : BaseTest
 	// ---------------------------------------------------------------------------------------------
 
 	[Test]
-	[Arguments((short)255, (short)62)]
-	[Arguments((short)80, (short)255)]
-	[Arguments((short)255, (short)255)]
-	[Arguments((short)80, (short)24)]
-	public async Task SendNAWSRoundTripsThroughAServersReader(short width, short height)
+	[Arguments(255, 62)]
+	[Arguments(80, 255)]
+	[Arguments(255, 255)]
+	[Arguments(80, 24)]
+	public async Task SendNAWSRoundTripsThroughAServersReader(int width, int height)
 	{
 		await using var pair = await BuildNawsPairAsync();
 
-		await pair.Client.SendNAWS(width, height);
+		await pair.SendNawsAsync(width, height);
 		var wire = pair.TakeClientWire();
 
 		await InterpretAndWaitAsync(pair.Server, wire);
 
-		await Assert.That(pair.NawsWidth).IsEqualTo((int)width);
-		await Assert.That(pair.NawsHeight).IsEqualTo((int)height);
-		await Assert.That(pair.Server.ClientWidth).IsEqualTo((int)width);
-		await Assert.That(pair.Server.ClientHeight).IsEqualTo((int)height);
+		await Assert.That(pair.NawsWidth).IsEqualTo(width);
+		await Assert.That(pair.NawsHeight).IsEqualTo(height);
+		await Assert.That(pair.Server.ClientWidth).IsEqualTo(width);
+		await Assert.That(pair.Server.ClientHeight).IsEqualTo(height);
 	}
 
 	[Test]
-	[Arguments((short)255, (short)62)]
-	[Arguments((short)80, (short)255)]
-	[Arguments((short)255, (short)255)]
-	public async Task SendNAWSDoesNotCorruptTheFollowingLine(short width, short height)
+	[Arguments(255, 62)]
+	[Arguments(80, 255)]
+	[Arguments(255, 255)]
+	public async Task SendNAWSDoesNotCorruptTheFollowingLine(int width, int height)
 	{
 		await using var pair = await BuildNawsPairAsync();
 
-		await pair.Client.SendNAWS(width, height);
+		await pair.SendNawsAsync(width, height);
 		var wire = pair.TakeClientWire();
 
 		await InterpretAndWaitAsync(pair.Server, wire);
@@ -141,7 +147,7 @@ public class IACEscapingTests : BaseTest
 	{
 		await using var pair = await BuildNawsPairAsync();
 
-		await pair.Client.SendNAWS(255, 62);
+		await pair.SendNawsAsync(255, 62);
 
 		await AssertByteArraysEqual(pair.TakeClientWire(),
 		[
@@ -150,6 +156,71 @@ public class IACEscapingTests : BaseTest
 			0x00, 0x3E,         // height = 62
 			(byte)Trigger.IAC, (byte)Trigger.SE
 		]);
+	}
+
+	// ---------------------------------------------------------------------------------------------
+	// RFC 1073 exists for range: "the new option has a limit of 65535 characters". The sender took
+	// `short`, so the top half of that range was only reachable by passing a negative two's-complement
+	// value. It takes `int` now, and the widened range has to compose with the escaping above —
+	// 65535 is 0xFF 0xFF, every byte of which the same RFC requires to be doubled.
+	// ---------------------------------------------------------------------------------------------
+
+	[Test]
+	[Arguments(0, 0)]
+	[Arguments(80, 24)]
+	[Arguments(32767, 32768)]
+	[Arguments(40000, 50000)]
+	[Arguments(65534, 65535)]
+	[Arguments(65535, 1)]
+	public async Task SendNAWSRoundTripsTheFullUnsignedRange(int width, int height)
+	{
+		await using var pair = await BuildNawsPairAsync();
+
+		await pair.SendNawsAsync(width, height);
+		await InterpretAndWaitAsync(pair.Server, pair.TakeClientWire());
+
+		await Assert.That(pair.NawsWidth).IsEqualTo(width);
+		await Assert.That(pair.NawsHeight).IsEqualTo(height);
+		await Assert.That(pair.Server.ClientWidth).IsEqualTo(width);
+		await Assert.That(pair.Server.ClientHeight).IsEqualTo(height);
+	}
+
+	[Test]
+	public async Task SendNAWSPutsADimensionAboveShortMaxOnTheWireUnsigned()
+	{
+		await using var pair = await BuildNawsPairAsync();
+
+		await pair.SendNawsAsync(40000, 50000);
+
+		await AssertByteArraysEqual(pair.TakeClientWire(),
+		[
+			(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS,
+			0x9C, 0x40,         // width  = 40000
+			0xC3, 0x50,         // height = 50000
+			(byte)Trigger.IAC, (byte)Trigger.SE
+		]);
+	}
+
+	[Test]
+	public async Task SendNAWSDoublesEveryByteOfAMaximumDimension()
+	{
+		await using var pair = await BuildNawsPairAsync();
+
+		await pair.SendNawsAsync(65535, 65535);
+		var wire = pair.TakeClientWire();
+
+		await AssertByteArraysEqual(wire,
+		[
+			(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS,
+			0xFF, 0xFF, 0xFF, 0xFF,   // width  = 65535, both bytes doubled
+			0xFF, 0xFF, 0xFF, 0xFF,   // height = 65535, both bytes doubled
+			(byte)Trigger.IAC, (byte)Trigger.SE
+		]);
+
+		// Eight consecutive 0xFF are only readable as four escaped data bytes if both halves agree.
+		await InterpretAndWaitAsync(pair.Server, wire);
+		await Assert.That(pair.NawsWidth).IsEqualTo(65535);
+		await Assert.That(pair.NawsHeight).IsEqualTo(65535);
 	}
 
 	// ---------------------------------------------------------------------------------------------

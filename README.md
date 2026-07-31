@@ -233,6 +233,27 @@ When **sending**, a `MSSPConfig` you build by hand behaves exactly as before —
 
 MSSP mandates no character set — its only byte-level rule is that *"variables and values cannot contain the MSSP_VAL, MSSP_VAR, IAC, or NUL byte"*, and its own `CHARSET` variable reports *"ASCII, BIG5, CP437, CP949, CP1251, EUC-KR, GB18030, ISO-8859-1, ISO-8859-2, KOI8-R, UTF-8"* — so a report is read and written with `TelnetInterpreter.CurrentEncoding`, whatever RFC 2066 CHARSET negotiation has settled on (UTF-8 until it settles on something else).
 
+### Window Size (NAWS)
+
+A server learns the client's window through `.OnNAWS((height, width) => ...)`, and reads the latest
+values back from `telnet.ClientWidth` / `telnet.ClientHeight`.
+
+A client **reports** its window with `NAWSProtocol.SendWindowSizeAsync`, including whenever the
+terminal is resized:
+
+```csharp
+var naws = telnet.PluginManager!.GetPlugin<NAWSProtocol>();
+await naws!.SendWindowSizeAsync(width: 132, height: 43);
+```
+
+Nothing goes out until the server has enabled NAWS with `DO NAWS` (RFC 1073 — an unsolicited
+`SB NAWS` desyncs a strict server's parser); `NAWSProtocol.WindowSizeReportingEnabled` says whether
+it has. Both dimensions are 16-bit **unsigned**, which is the option's whole reason for existing —
+*"the 253 character height and width limitation is too low so the new option has a limit of 65535
+characters"* — so anything from `0` to `NAWSProtocol.MaxWindowDimension` (65535) can be reported.
+A value outside that range throws `ArgumentOutOfRangeException` rather than being truncated into
+the two bytes the wire has.
+
 ### Plaintext MSSP (`MSSP-REQUEST`)
 
 A sizeable population of servers answers MSSP as **plain text** at the login screen as well as over
