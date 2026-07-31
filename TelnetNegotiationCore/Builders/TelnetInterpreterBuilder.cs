@@ -26,6 +26,7 @@ public class TelnetInterpreterBuilder
     private Func<TelnetInterpreter, CancellationToken, ValueTask>? _keepAliveAsync;
     private readonly List<ITelnetProtocolPlugin> _plugins = new();
     private ProtocolPluginManager? _pluginManager;
+    private Models.ClientIdentity? _clientIdentity;
 
     public TelnetInterpreterBuilder()
     {
@@ -74,6 +75,40 @@ public class TelnetInterpreterBuilder
         _onNegotiation = callback;
         return this;
     }
+
+    /// <summary>
+    /// Says who this application is, for every protocol that has to name the client (client mode).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is one fact reported down two channels, because they are the same fact: TTYPE answers
+    /// with the client name first (MTTS defines the first response that way), and MNES sends
+    /// <c>CLIENT_NAME</c>. Set it once here rather than configuring each protocol separately.
+    /// </para>
+    /// <para>
+    /// Without it the library names nobody: TTYPE answers <c>UNKNOWN</c> and NEW-ENVIRON sends no
+    /// variables. It will not introduce an application under this library's name.
+    /// </para>
+    /// </remarks>
+    /// <param name="identity">The identity to report</param>
+    /// <returns>This builder for chaining</returns>
+    /// <exception cref="ArgumentNullException">The identity is null.</exception>
+    public TelnetInterpreterBuilder WithClientIdentity(Models.ClientIdentity identity)
+    {
+        _clientIdentity = identity ?? throw new ArgumentNullException(nameof(identity));
+        return this;
+    }
+
+    /// <summary>
+    /// Says who this application is, by name and optionally version.
+    /// See <see cref="WithClientIdentity(Models.ClientIdentity)"/>.
+    /// </summary>
+    /// <param name="name">The name of the application — not of the library it is built on</param>
+    /// <param name="version">The version of the application, if it wants to report one</param>
+    /// <returns>This builder for chaining</returns>
+    /// <exception cref="ArgumentException">The name is null, empty or whitespace.</exception>
+    public TelnetInterpreterBuilder WithClientIdentity(string name, string? version = null)
+        => WithClientIdentity(new Models.ClientIdentity(name) { Version = version });
 
     /// <summary>
     /// Sets the longest line of ordinary input the interpreter will assemble, in bytes.
@@ -372,6 +407,13 @@ public class TelnetInterpreterBuilder
 
         // Create protocol context
         var context = new ProtocolContext(interpreter, _pluginManager, _logger);
+
+        // Publish the client identity before any plugin configures itself, so that the protocols
+        // that report it — TTYPE and NEW-ENVIRON — read the same one.
+        if (_clientIdentity != null)
+        {
+            context.SetSharedState(Models.ClientIdentity.SharedStateKey, _clientIdentity);
+        }
 
         // Configure state machines for all plugins BEFORE initialization
         // This matches the existing pattern where Setup* methods configure the state machine

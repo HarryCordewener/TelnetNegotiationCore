@@ -32,7 +32,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     private readonly List<byte> _currentVar = [];
     private readonly List<byte> _currentValue = [];
     private readonly Dictionary<string, string> _environmentVariables = new();
-    private Dictionary<string, string>? _clientEnvironmentVariables = null;
+    private IReadOnlyDictionary<string, string> _clientEnvironmentVariables = new Dictionary<string, string>();
     private bool _collectingVar = false;
     private bool _collectingValue = false;
     private byte _commandType = 0; // IS or SEND
@@ -52,15 +52,22 @@ public class EnvironProtocol : TelnetProtocolPluginBase
 
     /// <summary>
     /// Sets the environment variables to send to the server when requested (client mode only).
-    /// If not set, the client will send default environment variables (USER, LANG).
+    /// Defaults to <b>none</b>: nothing is sent that the application did not supply, and in
+    /// particular <c>USER</c> is never filled in from the environment of the process.
     /// </summary>
     /// <param name="environmentVariables">The environment variables to send</param>
     /// <returns>This instance for fluent chaining</returns>
-    public EnvironProtocol WithClientEnvironmentVariables(Dictionary<string, string> environmentVariables)
+    public EnvironProtocol WithClientEnvironmentVariables(IReadOnlyDictionary<string, string>? environmentVariables)
     {
-        _clientEnvironmentVariables = environmentVariables;
+        _clientEnvironmentVariables = environmentVariables ?? new Dictionary<string, string>();
         return this;
     }
+
+    /// <summary>
+    /// The variables this client sends when a server asks for them, as set by
+    /// <see cref="WithClientEnvironmentVariables"/>. Empty unless the application set some.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> ClientEnvironmentVariables => _clientEnvironmentVariables;
 
     /// <summary>
     /// The environment variables received from the remote party
@@ -398,40 +405,18 @@ public class EnvironProtocol : TelnetProtocolPluginBase
             (byte)Trigger.IS
         };
 
-        // Use configured environment variables, or fall back to defaults
-        Dictionary<string, string> envVars;
-        if (_clientEnvironmentVariables != null && _clientEnvironmentVariables.Count > 0)
+        // Only what the application supplied reaches the wire. See WithClientEnvironmentVariables.
+        foreach (var (name, value) in _clientEnvironmentVariables)
         {
-            envVars = _clientEnvironmentVariables;
-        }
-        else
-        {
-            // Default environment variables
-            // Use system locale with UTF-8 encoding (common for modern systems)
-            // Users can override via WithClientEnvironmentVariables() if needed
-            var locale = System.Globalization.CultureInfo.CurrentCulture.Name.Replace('-', '_');
-            if (!locale.Contains('.'))
+            if (string.IsNullOrEmpty(value))
             {
-                // Default to UTF-8 for modern systems; users should configure if different encoding needed
-                locale += ".UTF-8";
+                continue;
             }
 
-            envVars = new Dictionary<string, string>
-            {
-                { "USER", Environment.GetEnvironmentVariable("USER") ?? Environment.UserName ?? "unknown" },
-                { "LANG", locale }
-            };
-        }
-
-        foreach (var (name, value) in envVars)
-        {
-            if (!string.IsNullOrEmpty(value))
-            {
-                response.Add((byte)Trigger.NEWENVIRON_VAR);
-                response.AddRange(Encoding.ASCII.GetBytes(name));
-                response.Add((byte)Trigger.NEWENVIRON_VALUE);
-                response.AddRange(Encoding.ASCII.GetBytes(value));
-            }
+            response.Add((byte)Trigger.NEWENVIRON_VAR);
+            NewEnvironProtocol.AppendEscaped(response, name);
+            response.Add((byte)Trigger.NEWENVIRON_VALUE);
+            NewEnvironProtocol.AppendEscaped(response, value);
         }
 
         response.Add((byte)Trigger.IAC);
