@@ -41,6 +41,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
     private readonly List<byte> _currentVar = [];
     private readonly List<byte> _currentValue = [];
+    private readonly List<(bool IsUserVar, string? Name)> _requestedVariables = [];
     private readonly Dictionary<string, string> _environmentVariables = new();
     private readonly Dictionary<string, string> _userVariables = new();
     private IReadOnlyDictionary<string, string> _clientEnvironmentVariables = new Dictionary<string, string>();
@@ -258,6 +259,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
             {
                 _currentVar.Clear();
                 _currentValue.Clear();
+                _requestedVariables.Clear();
                 _collectingVar = false;
                 _collectingValue = false;
                 _isUserVar = false;
@@ -320,6 +322,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     {
         _currentVar.Clear();
         _currentValue.Clear();
+        _requestedVariables.Clear();
         _environmentVariables.Clear();
         _userVariables.Clear();
         _collectingVar = false;
@@ -362,6 +365,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
     private void StartRequestedVar(OneOf<byte, Trigger> _)
     {
+        FlushRequestedVariable();
         _collectingVar = true;
         _collectingValue = false;
         _isUserVar = false;
@@ -370,10 +374,31 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
     private void StartRequestedUserVar(OneOf<byte, Trigger> _)
     {
+        FlushRequestedVariable();
         _collectingVar = true;
         _collectingValue = false;
         _isUserVar = true;
         _currentVar.Clear();
+    }
+
+    /// <summary>
+    /// Records the variable a server has just finished naming in its SEND. A type marker carrying no
+    /// name at all is RFC 1572's request for every variable of that type, and is recorded as such
+    /// rather than as a variable called "".
+    /// </summary>
+    private void FlushRequestedVariable()
+    {
+        if (!_collectingVar)
+        {
+            return;
+        }
+
+        _requestedVariables.Add((
+            _isUserVar,
+            _currentVar.Count > 0 ? Encoding.ASCII.GetString(_currentVar.ToArray()) : null));
+
+        _currentVar.Clear();
+        _collectingVar = false;
     }
 
     private void CaptureVarByte(OneOf<byte, Trigger> b)
@@ -496,23 +521,80 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
             (byte)Trigger.IS
         };
 
-        foreach (var (name, value) in ResolveClientVariables(context))
-        {
-            if (string.IsNullOrEmpty(value))
-            {
-                continue;
-            }
+        FlushRequestedVariable();
 
-            response.Add((byte)Trigger.NEWENVIRON_VAR);
+        foreach (var (isUserVar, name, value) in ResolveRequestedVariables(context))
+        {
+            response.Add(isUserVar ? (byte)Trigger.NEWENVIRON_USERVAR : (byte)Trigger.NEWENVIRON_VAR);
             AppendEscaped(response, name);
-            response.Add((byte)Trigger.NEWENVIRON_VALUE);
-            AppendEscaped(response, value);
+
+            // A name with no VALUE at all is RFC 1572's "I do not have that one". A name with an
+            // empty VALUE is a variable that is defined and empty, which is a different answer.
+            if (value != null)
+            {
+                response.Add((byte)Trigger.NEWENVIRON_VALUE);
+                AppendEscaped(response, value);
+            }
         }
+
+        _requestedVariables.Clear();
 
         response.Add((byte)Trigger.IAC);
         response.Add((byte)Trigger.SE);
 
         await context.SendNegotiationAsync(response.ToArray());
+    }
+
+    /// <summary>
+    /// Answers the SEND the server actually sent. RFC 1572: <i>"If a list of variables is specified,
+    /// then only those variables should be sent"</i>, and the reply owes <i>"a response for each
+    /// 'type ...' explicitly requested"</i> in the order it was requested — a variable this client
+    /// does not have among them, answered by its name carrying no value.
+    /// </summary>
+    /// <remarks>
+    /// Being asked for a variable is not consent to go and find one: a requested name that the
+    /// application did not configure is undefined, including <c>USER</c>.
+    /// </remarks>
+    private List<(bool IsUserVar, string Name, string? Value)> ResolveRequestedVariables(IProtocolContext context)
+    {
+        var available = ResolveClientVariables(context);
+        var response = new List<(bool IsUserVar, string Name, string? Value)>();
+
+        if (_requestedVariables.Count == 0)
+        {
+            foreach (var (name, value) in available)
+            {
+                response.Add((false, name, value));
+            }
+
+            return response;
+        }
+
+        foreach (var (isUserVar, requested) in _requestedVariables)
+        {
+            if (requested == null)
+            {
+                // Every variable of that type. Everything this library sends is a well-known VAR —
+                // MNES's own names included — so "every USERVAR" is an empty answer.
+                if (!isUserVar)
+                {
+                    foreach (var (name, value) in available)
+                    {
+                        response.Add((false, name, value));
+                    }
+                }
+
+                continue;
+            }
+
+            var match = isUserVar
+                ? default
+                : available.FirstOrDefault(x => string.Equals(x.Key, requested, StringComparison.Ordinal));
+
+            response.Add((isUserVar, requested, match.Key != null ? match.Value : null));
+        }
+
+        return response;
     }
 
     /// <summary>

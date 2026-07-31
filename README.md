@@ -763,6 +763,13 @@ variable map, where an entry overrides the identity-derived one of the same name
 Configure neither and a `SEND` is answered with an empty `IS`, which leaves the server in the same
 position as one talking to a client that never negotiated NEW-ENVIRON at all.
 
+A server may ask for particular variables rather than all of them, and the reply answers the request
+that was made: only the variables it named, in the order it named them. A name you did not configure
+comes back *undefined* — the name with no value, which is RFC 1572's way of saying "I have none" —
+so a server that asks for `USER` is told there isn't one rather than being handed the account name
+of whoever is running the client. A variable you configured with an empty string is a different
+answer: it is defined, and empty.
+
 #### MNES Support
 MNES (Mud New Environment Standard) defines the variable names above — `CLIENT_NAME`,
 `CLIENT_VERSION`, `TERMINAL_TYPE`, `MTTS`, `CHARSET`, `IPADDRESS` — and is advertised with MTTS flag

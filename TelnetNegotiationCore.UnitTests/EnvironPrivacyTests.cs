@@ -156,6 +156,71 @@ public class EnvironPrivacyTests : BaseTest
 	}
 
 	/// <summary>
+	/// A server that asks for <c>USER</c> by name is told the client has none — not who is logged
+	/// into the machine. RFC 1572's answer for a variable the responder does not have is its name
+	/// with no value, and being asked is not consent to look one up.
+	/// </summary>
+	[Test]
+	[NotInParallel]
+	public async Task AskingForUserByNameStillDoesNotGetTheAccountName()
+	{
+		const string sentinel = "REAL-PERSONS-NAME-SENTINEL";
+		var previousUser = Environment.GetEnvironmentVariable("USER");
+		var previousLogname = Environment.GetEnvironmentVariable("LOGNAME");
+
+		try
+		{
+			Environment.SetEnvironmentVariable("USER", sentinel);
+			Environment.SetEnvironmentVariable("LOGNAME", sentinel);
+
+			byte[] negotiation = null;
+
+			var client = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(data => { negotiation = data.ToArray(); return ValueTask.CompletedTask; })
+				.WithClientIdentity(new ClientIdentity("MUINDEX-CRAWLER"))
+				.AddPlugin<NewEnvironProtocol>()
+				.BuildAsync();
+
+			await InterpretAndWaitAsync(client, [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NEWENVIRON]);
+			negotiation = null;
+
+			var request = new List<byte>
+			{
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NEWENVIRON, (byte)Trigger.SEND,
+				(byte)Trigger.NEWENVIRON_VAR
+			};
+			request.AddRange(Encoding.ASCII.GetBytes("USER"));
+			request.Add((byte)Trigger.IAC);
+			request.Add((byte)Trigger.SE);
+
+			await InterpretAndWaitAsync(client, request.ToArray());
+
+			// VAR USER, and no VALUE: "I do not have one."
+			var expected = new List<byte>
+			{
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NEWENVIRON, (byte)Trigger.IS,
+				(byte)Trigger.NEWENVIRON_VAR
+			};
+			expected.AddRange(Encoding.ASCII.GetBytes("USER"));
+			expected.Add((byte)Trigger.IAC);
+			expected.Add((byte)Trigger.SE);
+
+			await AssertByteArraysEqual(negotiation, expected.ToArray());
+			await Assert.That(Encoding.ASCII.GetString(negotiation)).DoesNotContain(sentinel);
+
+			await client.DisposeAsync();
+		}
+		finally
+		{
+			Environment.SetEnvironmentVariable("USER", previousUser);
+			Environment.SetEnvironmentVariable("LOGNAME", previousLogname);
+		}
+	}
+
+	/// <summary>
 	/// A source-level guard on the same invariant, so that reintroducing the leak in any protocol —
 	/// not only the two this file drives — fails a test rather than shipping.
 	/// </summary>
