@@ -118,6 +118,99 @@ public class RFC1950ComplianceTests : BaseTest
 		await Assert.That(compressionRatio).IsLessThan(50.0, "Compression should reduce repetitive data by at least 50%");
 	}
 
+	/// <summary>
+	/// MCCP's inflater feeds <see cref="ZLibStream"/> from a stream it pushes bytes into, and reads
+	/// until <c>Read</c> returns 0. That only works because a base stream with nothing left is not
+	/// treated as the end of the deflate stream. Nothing documents that, so it is pinned here.
+	/// </summary>
+	[Test]
+	public async Task ZLibStreamResumesAfterTheBaseStreamRunsDry()
+	{
+		var sink = new MemoryStream();
+		using var deflater = new ZLibStream(sink, CompressionLevel.Optimal, leaveOpen: true);
+
+		byte[] Emit(string text)
+		{
+			var bytes = Encoding.ASCII.GetBytes(text);
+			deflater.Write(bytes, 0, bytes.Length);
+			deflater.Flush();
+			var produced = sink.ToArray();
+			sink.SetLength(0);
+			return produced;
+		}
+
+		var first = Emit("first chunk");
+		var second = Emit("second chunk");
+
+		var feed = new DrainableStream();
+		using var inflater = new ZLibStream(feed, CompressionMode.Decompress);
+		var decoded = new StringBuilder();
+		var buffer = new byte[256];
+
+		foreach (var chunk in new[] { first, second })
+		{
+			foreach (var b in chunk)
+			{
+				feed.Push(b);
+				int n;
+				while ((n = inflater.Read(buffer, 0, buffer.Length)) > 0)
+				{
+					decoded.Append(Encoding.ASCII.GetString(buffer, 0, n));
+				}
+			}
+		}
+
+		// One byte at a time means the base stream ran dry on almost every read, and the inflater
+		// carried on across every one of them.
+		await Assert.That(feed.EmptyReads).IsGreaterThan(first.Length);
+		await Assert.That(decoded.ToString()).IsEqualTo("first chunksecond chunk");
+	}
+
+	/// <summary>A stream that hands back whatever has been pushed, and 0 when there is nothing.</summary>
+	private sealed class DrainableStream : Stream
+	{
+		private readonly System.Collections.Generic.Queue<byte> _pending = new();
+
+		public int EmptyReads { get; private set; }
+
+		public void Push(byte value) => _pending.Enqueue(value);
+
+		public override int Read(byte[] buffer, int offset, int count)
+		{
+			var taken = 0;
+			while (taken < count && _pending.Count > 0)
+			{
+				buffer[offset + taken++] = _pending.Dequeue();
+			}
+
+			if (taken == 0)
+			{
+				EmptyReads++;
+			}
+
+			return taken;
+		}
+
+		public override bool CanRead => true;
+		public override bool CanSeek => false;
+		public override bool CanWrite => false;
+		public override long Length => throw new NotSupportedException();
+
+		public override long Position
+		{
+			get => throw new NotSupportedException();
+			set => throw new NotSupportedException();
+		}
+
+		public override void Flush()
+		{
+		}
+
+		public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+		public override void SetLength(long value) => throw new NotSupportedException();
+		public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+	}
+
 	[Test]
 	public async Task ZLibStreamIncludesADLER32Checksum()
 	{

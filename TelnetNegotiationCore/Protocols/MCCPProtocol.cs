@@ -1,16 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.IO.Compression;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
-#if NETSTANDARD2_0
-using ICSharpCode.SharpZipLib.Zip.Compression.Streams;
-#endif
 
 namespace TelnetNegotiationCore.Protocols;
 
@@ -20,24 +15,25 @@ namespace TelnetNegotiationCore.Protocols;
 /// Uses zlib compression (RFC 1950) via System.IO.Compression.ZLibStream
 /// </summary>
 /// <remarks>
-/// MCCP2 provides server-to-client compression, reducing bandwidth by 75-90%.
-/// MCCP3 provides client-to-server compression for security and bandwidth reduction.
-/// This protocol optionally accepts configuration via callbacks.
-/// 
+/// MCCP2 compresses server-to-client, MCCP3 compresses client-to-server. Both work the same way:
+/// the side that is going to compress announces it with <c>IAC SB MCCPn IAC SE</c>, and from the
+/// byte after that <c>SE</c> the rest of the connection in that direction is a single zlib stream —
+/// text and telnet negotiation alike. Nothing marks the end of a message and nothing goes back to
+/// plain telnet.
+///
+/// So both directions are handled with a stream transform installed on the interpreter rather than
+/// with per-message calls: <see cref="MCCPInflateTransform"/> on the way in, ahead of the telnet
+/// state machine, and <see cref="MCCPDeflateTransform"/> on the way out, behind everything else.
+///
 /// RFC 1950 Compliance:
 /// - Uses DEFLATE compression algorithm (compression method 8)
 /// - Includes standard zlib header with checksum validation
 /// - Includes ADLER-32 checksum for data integrity
-/// - Full compliance verified via System.IO.Compression.ZLibStream
 /// - See https://tintin.mudhalla.net/rfc/rfc1950 for specification
 /// </remarks>
 [RequiredMethod("OnCompressionEnabled", Description = "Configure the callback to handle compression state changes (optional)")]
 public class MCCPProtocol : TelnetProtocolPluginBase
 {
-    private static readonly byte[] s_wontMccp2 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.MCCP2 };
-    private static readonly byte[] s_wontMccp3 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.MCCP3 };
-    private static readonly byte[] s_dontMccp2 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP2 };
-    private static readonly byte[] s_dontMccp3 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP3 };
     private static readonly byte[] s_willMccp2 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP2 };
     private static readonly byte[] s_willMccp3 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP3 };
     private static readonly byte[] s_doMccp2 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2 };
@@ -45,14 +41,8 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private static readonly byte[] s_sbMccp2 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP2, (byte)Trigger.IAC, (byte)Trigger.SE };
     private static readonly byte[] s_sbMccp3 = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP3, (byte)Trigger.IAC, (byte)Trigger.SE };
 
-    private bool _mccp2Enabled = false;
-    private bool _mccp3Enabled = false;
-#if NETSTANDARD2_0
-    private Stream? _compressionStream;
-#else
-    private ZLibStream? _compressionStream;
-#endif
-    private MemoryStream? _compressionBuffer;
+    private bool _mccp2Enabled;
+    private bool _mccp3Enabled;
 
     private Func<int, bool, ValueTask>? _onCompressionEnabled;
 
@@ -68,12 +58,14 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// Indicates whether MCCP2 (server-to-client) compression is enabled
+    /// Indicates whether MCCP2 (server-to-client) compression is running: this side is deflating
+    /// its output (server) or inflating its input (client).
     /// </summary>
     public bool IsMCCP2Enabled => _mccp2Enabled;
 
     /// <summary>
-    /// Indicates whether MCCP3 (client-to-server) compression is enabled
+    /// Indicates whether MCCP3 (client-to-server) compression is running: this side is deflating
+    /// its output (client) or inflating its input (server).
     /// </summary>
     public bool IsMCCP3Enabled => _mccp3Enabled;
 
@@ -91,13 +83,9 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogInformation("Configuring MCCP state machine");
 
-        // Register MCCP protocol handlers with the context
-        context.SetSharedState("MCCP_Protocol", this);
-
-        // Configure state machine transitions for MCCP protocol
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            // Server mode: Handle MCCP2 (server compresses output to client)
+            // MCCP2: the server compresses its output once the client says DO.
             stateMachine.Configure(State.Do)
                 .Permit(Trigger.MCCP2, State.DoMCCP2);
 
@@ -112,7 +100,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
                 .SubstateOf(State.Accepting)
                 .OnEntryAsync(async () => await OnDontMCCP2Async(context));
 
-            // Server mode: Handle MCCP3 (client compresses input to server)
+            // MCCP3: the client compresses its output; the server inflates what it receives.
             stateMachine.Configure(State.Do)
                 .Permit(Trigger.MCCP3, State.DoMCCP3);
 
@@ -121,18 +109,23 @@ public class MCCPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.DoMCCP3)
                 .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDoMCCP3Async(context));
+                .OnEntry(() => context.Logger.LogDebug(
+                    "Client will use MCCP3 - awaiting IAC SB MCCP3 IAC SE before inflating"));
 
             stateMachine.Configure(State.DontMCCP3)
                 .SubstateOf(State.Accepting)
                 .OnEntryAsync(async () => await OnDontMCCP3Async(context));
+
+            // Only the client sends IAC SB MCCP3 IAC SE, so only the server listens for it.
+            ConfigureCompressionMarker(stateMachine, context, version: 3,
+                Trigger.MCCP3, State.NegotiatingMCCP3, State.CompletingMCCP3);
 
             // Server initiates MCCP on connection
             context.RegisterInitialNegotiation(async () => await InitiateMCCPServerAsync(context));
         }
         else
         {
-            // Client mode: Handle MCCP2 (receive compressed data from server)
+            // MCCP2: the server compresses its output; the client inflates what it receives.
             stateMachine.Configure(State.Willing)
                 .Permit(Trigger.MCCP2, State.WillMCCP2);
 
@@ -147,7 +140,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
                 .SubstateOf(State.Accepting)
                 .OnEntryAsync(async () => await OnWontMCCP2Async(context));
 
-            // Client mode: Handle MCCP3 (compress output to server)
+            // MCCP3: the client compresses its output once the server offers it.
             stateMachine.Configure(State.Willing)
                 .Permit(Trigger.MCCP3, State.WillMCCP3);
 
@@ -161,29 +154,48 @@ public class MCCPProtocol : TelnetProtocolPluginBase
             stateMachine.Configure(State.WontMCCP3)
                 .SubstateOf(State.Accepting)
                 .OnEntryAsync(async () => await OnWontMCCP3Async(context));
+
+            // Only the server sends IAC SB MCCP2 IAC SE, so only the client listens for it.
+            ConfigureCompressionMarker(stateMachine, context, version: 2,
+                Trigger.MCCP2, State.NegotiatingMCCP2, State.CompletingMCCP2);
         }
+    }
 
-        // Sub-negotiation for MCCP2
+    /// <summary>
+    /// Wires up <c>IAC SB MCCPn IAC SE</c>, the marker after which everything the peer sends is
+    /// compressed.
+    /// </summary>
+    /// <remarks>
+    /// The completing state is entered on the marker's <b>second IAC</b> — the <c>SE</c> has not
+    /// been read yet — so the inflater goes in on the way <i>out</i> of that state, which is the
+    /// moment the <c>SE</c> is consumed and the compressed stream begins. Installing it on entry
+    /// instead would feed the <c>SE</c> itself to zlib.
+    /// </remarks>
+    private void ConfigureCompressionMarker(
+        StateMachine<State, Trigger> stateMachine,
+        IProtocolContext context,
+        int version,
+        Trigger option,
+        State negotiating,
+        State completing)
+    {
         stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.MCCP2, State.NegotiatingMCCP2);
+            .Permit(option, negotiating);
 
-        stateMachine.Configure(State.NegotiatingMCCP2)
-            .Permit(Trigger.IAC, State.CompletingMCCP2);
+        stateMachine.Configure(negotiating)
+            .Permit(Trigger.IAC, completing);
 
-        stateMachine.Configure(State.CompletingMCCP2)
+        stateMachine.Configure(completing)
             .SubstateOf(State.EndSubNegotiation)
-            .OnEntryAsync(async () => await CompleteMCCP2NegotiationAsync(context));
-
-        // Sub-negotiation for MCCP3
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.MCCP3, State.NegotiatingMCCP3);
-
-        stateMachine.Configure(State.NegotiatingMCCP3)
-            .Permit(Trigger.IAC, State.CompletingMCCP3);
-
-        stateMachine.Configure(State.CompletingMCCP3)
-            .SubstateOf(State.EndSubNegotiation)
-            .OnEntryAsync(async () => await CompleteMCCP3NegotiationAsync(context));
+            .OnExitAsync(async transition =>
+            {
+                // Any other trigger out of here is the safety net recovering from a malformed
+                // marker, not the peer starting to compress.
+                if (transition.Trigger == Trigger.SE)
+                {
+                    await StartInflatingAsync(context, version);
+                }
+            });
     }
 
     /// <inheritdoc />
@@ -201,121 +213,111 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
-    protected override ValueTask OnProtocolDisabledAsync()
+    protected override async ValueTask OnProtocolDisabledAsync()
     {
         Context.Logger.LogInformation("MCCP Protocol disabled");
-        DisableCompression();
-        return default(ValueTask);
+        await DisableCompressionAsync();
     }
 
     /// <inheritdoc />
-    protected override ValueTask OnDisposeAsync()
+    protected override async ValueTask OnDisposeAsync() => await DisableCompressionAsync();
+
+    /// <summary>
+    /// Starts inflating everything the peer sends from here on, using one zlib stream for the rest
+    /// of the connection.
+    /// </summary>
+    /// <remarks>
+    /// A peer chooses when markers arrive and can send a second one. Replacing a running inflater
+    /// would throw away the deflate window the rest of its stream is encoded against, so a repeat
+    /// is ignored rather than obeyed.
+    /// </remarks>
+    private async ValueTask StartInflatingAsync(IProtocolContext context, int version)
     {
-        DisableCompression();
-        return default(ValueTask);
+        if (IsCompressionRunning(version))
+        {
+            context.Logger.LogDebug(
+                "MCCP{Version}: already inflating, ignoring a repeated compression marker", version);
+            return;
+        }
+
+        context.Logger.LogInformation("MCCP{Version}: inbound stream is compressed from here on", version);
+
+        context.SetInboundByteTransform(
+            new MCCPInflateTransform(context.Logger, () => OnInboundStreamFailedAsync(version)));
+        SetEnabled(version, true);
+
+        if (_onCompressionEnabled != null)
+            await _onCompressionEnabled(version, true);
     }
 
     /// <summary>
-    /// Compresses data using the active compression stream (MCCP2 for server, MCCP3 for client)
-    /// Uses RFC 1950 compliant zlib compression via System.IO.Compression.ZLibStream
+    /// Announces that this side is about to start compressing, and starts, as one step: the marker
+    /// is the last thing that goes out in the clear and nothing can be written between the two.
     /// </summary>
-    /// <param name="data">The data to compress</param>
-    /// <returns>The compressed data, or original data if compression is not active</returns>
-    public byte[] CompressData(byte[] data)
+    private async ValueTask StartDeflatingAsync(IProtocolContext context, int version, byte[] marker)
     {
-        if (_compressionStream == null || _compressionBuffer == null)
-            return data;
+        if (IsCompressionRunning(version))
+        {
+            context.Logger.LogDebug(
+                "MCCP{Version}: already deflating, ignoring a repeated request to start", version);
+            return;
+        }
 
-        try
-        {
-            _compressionBuffer.SetLength(0);
-            _compressionStream.Write(data, 0, data.Length);
-            _compressionStream.Flush();
-            return _compressionBuffer.ToArray();
-        }
-        catch (Exception ex)
-        {
-            Context.Logger.LogError(ex, "Error compressing data, sending uncompressed");
-            return data;
-        }
+        context.Logger.LogInformation("MCCP{Version}: outbound stream is compressed from here on", version);
+
+        await context.SetOutboundByteTransformAsync(new MCCPDeflateTransform(), marker);
+        SetEnabled(version, true);
+
+        if (_onCompressionEnabled != null)
+            await _onCompressionEnabled(version, true);
     }
 
     /// <summary>
-    /// Decompresses data using RFC 1950 compliant zlib decompression
-    /// Creates a new ZLibStream for each decompression operation to handle stream-based data correctly
+    /// Stops compressing in one direction, and says so.
     /// </summary>
-    /// <param name="data">The compressed data</param>
-    /// <returns>The decompressed data</returns>
-    public byte[] DecompressData(byte[] data)
+    private async ValueTask StopCompressionAsync(IProtocolContext context, int version, bool inbound)
     {
-        if (data == null || data.Length == 0)
-            return Array.Empty<byte>();
+        if (inbound)
+            context.SetInboundByteTransform(null);
+        else
+            await context.SetOutboundByteTransformAsync(null);
 
-        try
-        {
-#if NETSTANDARD2_0
-            // Use SharpZipLib for .NET Standard 2.0
-            using var compressedStream = new MemoryStream(data);
-            using var zlibStream = new InflaterInputStream(compressedStream);
-            using var outputStream = new MemoryStream();
-            
-            zlibStream.CopyTo(outputStream);
-            return outputStream.ToArray();
-#else
-            // Use native ZLibStream for .NET 6+
-            using var compressedStream = new MemoryStream(data);
-            using var zlibStream = new ZLibStream(compressedStream, CompressionMode.Decompress);
-            using var outputStream = new MemoryStream();
-            
-            zlibStream.CopyTo(outputStream);
-            return outputStream.ToArray();
-#endif
-        }
-        catch (Exception ex)
-        {
-            Context.Logger.LogError(ex, "Error decompressing data");
-            // Signal decompression error - fire and forget with error handling
-            Task.Run(async () =>
-            {
-                try
-                {
-                    await DisableCompressionWithErrorAsync();
-                }
-                catch (Exception disableEx)
-                {
-                    Context.Logger.LogError(disableEx, "Error disabling compression after decompression failure");
-                }
-            });
-            return Array.Empty<byte>();
-        }
+        SetEnabled(version, false);
+
+        if (_onCompressionEnabled != null)
+            await _onCompressionEnabled(version, false);
     }
 
-    private void DisableCompression()
+    /// <summary>
+    /// A deflate stream that has gone wrong cannot be resynchronized, so the inflater stops for
+    /// good and the connection carries on receiving nothing rather than receiving garbage. The
+    /// consumer is told, because otherwise it would go on believing compression was live.
+    /// </summary>
+    private async ValueTask OnInboundStreamFailedAsync(int version)
     {
-        _compressionStream?.Dispose();
-        _compressionStream = null;
-        _compressionBuffer?.Dispose();
-        _compressionBuffer = null;
+        Context.Logger.LogError("MCCP{Version}: decompression failed, no further input can be decoded", version);
+        SetEnabled(version, false);
+
+        if (_onCompressionEnabled != null)
+            await _onCompressionEnabled(version, false);
+    }
+
+    private bool IsCompressionRunning(int version) => version == 2 ? _mccp2Enabled : _mccp3Enabled;
+
+    private void SetEnabled(int version, bool enabled)
+    {
+        if (version == 2)
+            _mccp2Enabled = enabled;
+        else
+            _mccp3Enabled = enabled;
+    }
+
+    private async ValueTask DisableCompressionAsync()
+    {
+        Context.SetInboundByteTransform(null);
+        await Context.SetOutboundByteTransformAsync(null);
         _mccp2Enabled = false;
         _mccp3Enabled = false;
-    }
-
-    private async ValueTask DisableCompressionWithErrorAsync()
-    {
-        Context.Logger.LogWarning("Disabling compression due to error");
-        DisableCompression();
-
-        // Send DONT MCCP to remote party
-        if (Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
-        {
-            await Context.SendNegotiationAsync(s_wontMccp2);
-            await Context.SendNegotiationAsync(s_wontMccp3);
-        }
-        else
-        {
-            await Context.SendNegotiationAsync(s_dontMccp2);
-            await Context.SendNegotiationAsync(s_dontMccp3);
-        }
     }
 
     #region State Machine Handlers
@@ -330,103 +332,45 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnDoMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Client supports MCCP2 - will start compression");
-        // Send sub-negotiation to start compression: IAC SB MCCP2 IAC SE
-        await context.SendNegotiationAsync(s_sbMccp2);
-        // Compression will be enabled in CompleteMCCP2NegotiationAsync
+        await StartDeflatingAsync(context, version: 2, s_sbMccp2);
     }
 
-    private ValueTask OnDontMCCP2Async(IProtocolContext context)
+    private async ValueTask OnDontMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Client doesn't support MCCP2");
-        _mccp2Enabled = false;
-        return default(ValueTask);
+        await StopCompressionAsync(context, version: 2, inbound: false);
     }
 
-    private async ValueTask OnDoMCCP3Async(IProtocolContext context)
-    {
-        context.Logger.LogDebug("Client will use MCCP3 compression");
-        // Client will send IAC SB MCCP3 IAC SE and start compressing
-        // Server is ready to decompress (done per-message in DecompressData)
-        _mccp3Enabled = true;
-
-        if (_onCompressionEnabled != null)
-            await _onCompressionEnabled(3, true);
-    }
-
-    private ValueTask OnDontMCCP3Async(IProtocolContext context)
+    private async ValueTask OnDontMCCP3Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Client doesn't support MCCP3");
-        _mccp3Enabled = false;
-        return default(ValueTask);
+        await StopCompressionAsync(context, version: 3, inbound: true);
     }
 
     private async ValueTask OnWillMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server supports MCCP2 - accepting");
+        // Compression starts at IAC SB MCCP2 IAC SE, not here.
         await context.SendNegotiationAsync(s_doMccp2);
     }
 
     private async ValueTask OnWontMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server doesn't support MCCP2");
-        _mccp2Enabled = false;
-        if (_onCompressionEnabled != null)
-            await _onCompressionEnabled(2, false);
+        await StopCompressionAsync(context, version: 2, inbound: true);
     }
 
     private async ValueTask OnWillMCCP3Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server supports MCCP3 - will start compressing output");
         await context.SendNegotiationAsync(s_doMccp3);
-        // Send sub-negotiation: IAC SB MCCP3 IAC SE
-        await context.SendNegotiationAsync(s_sbMccp3);
-        // Start compression
-        _compressionBuffer = new MemoryStream();
-#if NETSTANDARD2_0
-        _compressionStream = new DeflaterOutputStream(_compressionBuffer);
-#else
-        _compressionStream = new ZLibStream(_compressionBuffer, CompressionMode.Compress);
-#endif
-        _mccp3Enabled = true;
-
-        if (_onCompressionEnabled != null)
-            await _onCompressionEnabled(3, true);
+        await StartDeflatingAsync(context, version: 3, s_sbMccp3);
     }
 
     private async ValueTask OnWontMCCP3Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server doesn't support MCCP3");
-        _mccp3Enabled = false;
-        if (_onCompressionEnabled != null)
-            await _onCompressionEnabled(3, false);
-    }
-
-    private async ValueTask CompleteMCCP2NegotiationAsync(IProtocolContext context)
-    {
-        context.Logger.LogInformation("MCCP2 compression starting");
-        
-        // Initialize compression stream for server-to-client compression
-        _compressionBuffer = new MemoryStream();
-#if NETSTANDARD2_0
-        _compressionStream = new DeflaterOutputStream(_compressionBuffer);
-#else
-        _compressionStream = new ZLibStream(_compressionBuffer, CompressionMode.Compress);
-#endif
-        _mccp2Enabled = true;
-
-        if (_onCompressionEnabled != null)
-            await _onCompressionEnabled(2, true);
-    }
-
-    private async ValueTask CompleteMCCP3NegotiationAsync(IProtocolContext context)
-    {
-        context.Logger.LogInformation("MCCP3 decompression ready");
-        
-        // Server is ready to decompress client data (done per-message in DecompressData)
-        _mccp3Enabled = true;
-
-        if (_onCompressionEnabled != null)
-            await _onCompressionEnabled(3, true);
+        await StopCompressionAsync(context, version: 3, inbound: false);
     }
 
     #endregion

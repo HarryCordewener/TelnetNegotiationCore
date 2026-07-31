@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
@@ -91,6 +92,40 @@ public partial class TelnetInterpreter
     /// Background processing task.
     /// </summary>
     private Task? _processingTask;
+
+    /// <summary>
+    /// Optional decoder sitting between the network and the state machine. Only the byte-processing
+    /// loop ever calls it, so the reference just needs publishing, not locking.
+    /// </summary>
+    private IInboundByteTransform? _inboundTransform;
+
+    /// <summary>
+    /// Decoders that have been swapped out and are waiting to be disposed by the byte-processing
+    /// loop.
+    /// </summary>
+    /// <remarks>
+    /// Whoever swaps one out cannot dispose it: the loop may be inside
+    /// <see cref="IInboundByteTransform.DecodeAsync"/>, and a decoder is typically a zlib inflater,
+    /// where disposing under a thread that is reading from it is a native use-after-free rather
+    /// than a tidy <see cref="ObjectDisposedException"/>. The loop disposes them itself, between
+    /// bytes, which is the one place it is provably not inside one.
+    /// </remarks>
+    private readonly ConcurrentQueue<IInboundByteTransform> _retiredInboundTransforms = new();
+
+    /// <summary>
+    /// Set when something is waiting in <see cref="_retiredInboundTransforms"/>. Read once per
+    /// received byte, so it is a plain volatile bool rather than a queue probe: retirement happens
+    /// at most a couple of times in a connection's life, and the per-byte path should not pay for
+    /// it.
+    /// </summary>
+    private volatile bool _hasRetiredInboundTransforms;
+
+    /// <summary>
+    /// Optional encoder sitting between the library and the network. Both its use and its
+    /// replacement happen under <see cref="_writeLock"/>, which is what keeps a write from being
+    /// inside an encoder that is being disposed.
+    /// </summary>
+    private IOutboundByteTransform? _outboundTransform;
 
     /// <summary>
     /// Helper function for Byte parameterized triggers.
@@ -356,6 +391,110 @@ public partial class TelnetInterpreter
     }
 
     /// <summary>
+    /// Installs (or, with null, removes) the decoder every inbound byte passes through before the
+    /// telnet state machine sees it. Any transform already installed is retired, and disposed by
+    /// the byte-processing loop once it is out of it.
+    /// </summary>
+    /// <remarks>
+    /// It takes effect from the next byte read off the channel. A plugin installing one from a
+    /// state machine handler is running on the byte-processing loop itself, so "the next byte" is
+    /// the next byte after the one being processed — which is what a protocol that starts decoding
+    /// immediately after a marker needs.
+    /// <para>
+    /// Safe to call from any thread, which matters because
+    /// <see cref="Plugins.ProtocolPluginManager.DisablePluginAsync{T}"/> is public and reaches here
+    /// from wherever a consumer calls it. The swap itself is atomic and disposal is deferred, so a
+    /// decoder is never disposed while the loop is inside it. What is <i>not</i> supported is
+    /// installing the same instance twice with a retirement in between — a stateful decoder cannot
+    /// be reused that way regardless.
+    /// </para>
+    /// </remarks>
+    /// <param name="transform">The transform to install, or null to go back to raw telnet.</param>
+    internal void SetInboundByteTransform(IInboundByteTransform? transform)
+    {
+        var previous = Interlocked.Exchange(ref _inboundTransform, transform);
+        if (previous is null)
+        {
+            return;
+        }
+
+        _retiredInboundTransforms.Enqueue(previous);
+        _hasRetiredInboundTransforms = true;
+    }
+
+    /// <summary>
+    /// Disposes decoders that have been swapped out. Only ever called where the caller is provably
+    /// not inside one: between bytes on the processing loop, or after it has stopped.
+    /// </summary>
+    private void DisposeRetiredInboundTransforms()
+    {
+        // Cleared before draining, so a retirement that races this drain leaves the flag set and is
+        // picked up next time round rather than being stranded.
+        _hasRetiredInboundTransforms = false;
+
+        while (_retiredInboundTransforms.TryDequeue(out var retired))
+        {
+            retired.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Installs (or, with null, removes) the encoder every outbound write passes through on its way
+    /// to the network, optionally writing one last thing in the clear first. Any transform already
+    /// installed is disposed once no write is inside it.
+    /// </summary>
+    /// <remarks>
+    /// Both halves matter and both need <see cref="_writeLock"/>:
+    /// <list type="bullet">
+    /// <item>A write captures the encoder and uses it under that lock, so swapping without it can
+    /// dispose an encoder a write is currently inside.</item>
+    /// <item><paramref name="sendFirst"/> exists because a protocol that announces its switch-over
+    /// with a marker needs the marker and the switch to be one step. Sending the marker and then
+    /// installing as two operations lets another thread's write land in between, going out in the
+    /// clear after the peer has already started decoding it as compressed.</item>
+    /// </list>
+    /// Callers are state machine handlers on the byte-processing loop, which never holds the write
+    /// lock across a call back into the state machine, so this cannot deadlock against them.
+    /// </remarks>
+    /// <param name="transform">The transform to install, or null to go back to raw telnet.</param>
+    /// <param name="sendFirst">A final write to make in the clear, before the transform takes over.</param>
+    /// <param name="cancellationToken">Token to cancel the wait for the write lock.</param>
+    internal async ValueTask SetOutboundByteTransformAsync(
+        IOutboundByteTransform? transform,
+        ReadOnlyMemory<byte> sendFirst = default,
+        CancellationToken cancellationToken = default)
+    {
+        IOutboundByteTransform? previous;
+        var wrote = false;
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (!sendFirst.IsEmpty && CallbackNegotiationAsync is not null)
+            {
+                var current = _outboundTransform;
+                await CallbackNegotiationAsync(current is null ? sendFirst : current.Encode(sendFirst));
+                wrote = true;
+            }
+
+            previous = _outboundTransform;
+            _outboundTransform = transform;
+        }
+        finally
+        {
+            _writeLock.Release();
+
+            if (wrote)
+            {
+                MarkNetworkWrite();
+            }
+        }
+
+        // Safe now: no write can reach it again, and any write that was inside it has left.
+        previous?.Dispose();
+    }
+
+    /// <summary>
     /// Writes data to the output stream in a thread-safe manner using an internal write lock.
     /// All outgoing telnet data (negotiation, user data, prompts) should go through this method
     /// to prevent concurrent write conflicts on the dual-channel telnet pipe.
@@ -370,7 +509,11 @@ public partial class TelnetInterpreter
         await _writeLock.WaitAsync(cancellationToken);
         try
         {
-            await CallbackNegotiationAsync(data);
+            // Encoding happens under the write lock so a stateful encoder (a zlib deflater, say)
+            // sees writes in the same order the network will, and so it cannot be swapped out and
+            // disposed while this write is inside it.
+            var transform = _outboundTransform;
+            await CallbackNegotiationAsync(transform is null ? data : transform.Encode(data));
         }
         finally
         {
@@ -439,35 +582,37 @@ public partial class TelnetInterpreter
         try
         {
             int byteCount = 0;
-            await foreach (var bt in _byteChannel.Reader.ReadAllAsync(cancellationToken))
+            await foreach (var raw in _byteChannel.Reader.ReadAllAsync(cancellationToken))
             {
-                byteCount++;
-                if (!_isDefinedDictionary.TryGetValue(bt, out var triggerOrByte))
+                // Between bytes: the one point where this loop is provably not inside a decoder.
+                if (_hasRetiredInboundTransforms)
                 {
-                    // Use generated IsDefined method instead of reflection
-                    triggerOrByte = TriggerExtensions.IsDefined((short)bt)
-                        ? (Trigger)bt
-                        : Trigger.ReadNextCharacter;
-                    _isDefinedDictionary.Add(bt, triggerOrByte);
+                    DisposeRetiredInboundTransforms();
                 }
 
-                _logger.LogTrace("Processing byte #{ByteNum}: {Byte:X2} (trigger: {Trigger}), current state: {State}",
-                    byteCount, bt, triggerOrByte, TelnetStateMachine.State);
-                try
+                var transform = _inboundTransform;
+                if (transform is null)
                 {
-                    await TelnetStateMachine.FireAsync(ParameterizedTrigger(triggerOrByte), bt);
+                    await FireByteAsync(raw, ++byteCount);
+                    continue;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+
+                // A transform is installed (MCCP, in practice), so this wire byte is not a telnet
+                // byte. Only what comes back out of it is, and one wire byte can decode to none or
+                // to many. A decode failure is terminal for the stream and has its own path inside
+                // the transform, so it deliberately is not caught the way a bad telnet byte is.
+                //
+                // Feeding ONE byte per call is load-bearing, not incidental: it is what bounds a
+                // decoder's output buffer. DEFLATE expands at most 1032:1 from a single input byte,
+                // so an inflater's buffer plateaus at 2 KiB no matter what the peer sends — a 16 MiB
+                // zip bomb arrives as 1032 bytes per call, 16,315 times. Batch the feed and that
+                // ceiling becomes 1032 x batch size, which a hostile peer chooses. See
+                // MCCPCompressedStreamTests.AHighRatioPayloadDoesNotGrowTheDecodersBuffer.
+                var decoded = await transform.DecodeAsync(raw);
+                for (var i = 0; i < decoded.Length; i++)
                 {
-                    // One malformed byte must not end the connection. Before this, any throw out of
-                    // the state machine escaped the whole loop and every subsequent byte on the
-                    // socket was silently discarded for the life of the connection.
-                    _logger.LogError(ex,
-                        "Dropping byte #{ByteNum} ({Byte:X2}, trigger {Trigger}) that could not be processed in state {State}. Connection continues.",
-                        byteCount, bt, triggerOrByte, TelnetStateMachine.State);
+                    await FireByteAsync(decoded.Span[i], ++byteCount);
                 }
-                _logger.LogTrace("After byte #{ByteNum}, new state: {State}, buffer position: {BufferPos}",
-                    byteCount, TelnetStateMachine.State, _bufferPosition);
             }
             _logger.LogDebug("Byte processing completed. Total bytes processed: {ByteCount}", byteCount);
         }
@@ -480,6 +625,41 @@ public partial class TelnetInterpreter
         {
             _logger.LogError(ex, "Error in byte processing pipeline at byte position");
         }
+    }
+
+    /// <summary>
+    /// Fires a single telnet byte into the state machine.
+    /// </summary>
+    /// <param name="bt">The telnet byte, after any inbound transform has decoded it.</param>
+    /// <param name="byteCount">Its position in the decoded stream, for tracing.</param>
+    private async ValueTask FireByteAsync(byte bt, int byteCount)
+    {
+        if (!_isDefinedDictionary.TryGetValue(bt, out var triggerOrByte))
+        {
+            // Use generated IsDefined method instead of reflection
+            triggerOrByte = TriggerExtensions.IsDefined((short)bt)
+                ? (Trigger)bt
+                : Trigger.ReadNextCharacter;
+            _isDefinedDictionary.Add(bt, triggerOrByte);
+        }
+
+        _logger.LogTrace("Processing byte #{ByteNum}: {Byte:X2} (trigger: {Trigger}), current state: {State}",
+            byteCount, bt, triggerOrByte, TelnetStateMachine.State);
+        try
+        {
+            await TelnetStateMachine.FireAsync(ParameterizedTrigger(triggerOrByte), bt);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // One malformed byte must not end the connection. Before this, any throw out of
+            // the state machine escaped the whole loop and every subsequent byte on the
+            // socket was silently discarded for the life of the connection.
+            _logger.LogError(ex,
+                "Dropping byte #{ByteNum} ({Byte:X2}, trigger {Trigger}) that could not be processed in state {State}. Connection continues.",
+                byteCount, bt, triggerOrByte, TelnetStateMachine.State);
+        }
+        _logger.LogTrace("After byte #{ByteNum}, new state: {State}, buffer position: {BufferPos}",
+            byteCount, TelnetStateMachine.State, _bufferPosition);
     }
 
     /// <summary>
@@ -511,6 +691,19 @@ public partial class TelnetInterpreter
             }
         }
         
+        // Plugins own unmanaged-ish state (MCCP's zlib streams, for one) and were never disposed.
+        if (PluginManager is not null)
+        {
+            await PluginManager.DisposeAllAsync();
+        }
+
+        // The processing loop has stopped, so nothing can be inside a decoder any more, and
+        // whatever it never got round to retiring is disposed here instead.
+        SetInboundByteTransform(null);
+        DisposeRetiredInboundTransforms();
+
+        await SetOutboundByteTransformAsync(null);
+
         _processingCts.Dispose();
         _writeLock.Dispose();
     }
