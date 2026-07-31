@@ -273,56 +273,6 @@ public class MSSPProtocol : TelnetProtocolPluginBase
         return default(ValueTask);
     }
 
-    /// <summary>
-    /// Adds a variable byte to the current MSSP variable
-    /// </summary>
-    public void AddMSSPVariableByte(byte value)
-    {
-        if (!IsEnabled)
-            return;
-
-        if (_currentFieldIsValue) FlushField(Context.CurrentEncoding);
-        _currentFieldIsValue = false;
-        _msspBytes.Add(value);
-    }
-
-    /// <summary>
-    /// Adds a value byte to the current MSSP value
-    /// </summary>
-    public void AddMSSPValueByte(byte value)
-    {
-        if (!IsEnabled)
-            return;
-
-        if (!_currentFieldIsValue) FlushField(Context.CurrentEncoding);
-        _currentFieldIsValue = true;
-        _msspBytes.Add(value);
-    }
-
-    /// <summary>
-    /// Completes the current MSSP variable
-    /// </summary>
-    public void CompleteMSSPVariable()
-    {
-        if (!IsEnabled)
-            return;
-
-        _currentFieldIsValue = false;
-        FlushField(Context.CurrentEncoding);
-    }
-
-    /// <summary>
-    /// Completes the current MSSP value
-    /// </summary>
-    public void CompleteMSSPValue()
-    {
-        if (!IsEnabled)
-            return;
-
-        _currentFieldIsValue = true;
-        FlushField(Context.CurrentEncoding);
-    }
-
     private void ClearMSSPState()
     {
         _msspBytes.Reset();
