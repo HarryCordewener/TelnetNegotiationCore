@@ -1,10 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
-using OneOf;
-using Stateless;
 using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Linq;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Models;
 
@@ -37,36 +33,6 @@ public partial class TelnetInterpreter
     /// selected yet. The Terminal Type protocol plugin negotiates it and publishes it here.
     /// </summary>
     internal int CurrentTerminalTypeIndex { get; set; } = -1;
-
-#pragma warning disable CS0414 // Field is assigned but never used in this partial - used in TerminalTypeProtocol
-    /// <summary>
-    /// Internal Terminal Type Byte State
-    /// </summary>
-    private byte[] _ttypeByteState = [];
-
-    /// <summary>
-    /// Internal Terminal Type Byte Index
-    /// </summary>
-    private int _ttypeIndex = 0;
-#pragma warning restore CS0414
-
-    /// <summary>
-    /// A dictionary for MTTS support.
-    /// </summary>
-    private readonly Dictionary<int, string> _MTTS = new()
-    {
-        { 1, "ANSI" },
-        { 2, "VT100" },
-        { 4, "UTF8" },
-        { 8, "256 COLORS" },
-        { 16, "MOUSE_TRACKING" },
-        { 32, "OSC_COLOR_PALETTE" },
-        { 64, "SCREEN_READER" },
-        { 128, "PROXY" },
-        { 256, "TRUECOLOR" },
-        { 512, "MNES" },
-        { 1024, "MSLP" }
-    };
 
     // Cached negotiation byte array to avoid repeated allocations
     private static readonly byte[] s_requestTerminalType = [
