@@ -1017,7 +1017,12 @@ public class MSSPPlaintextTests : BaseTest
 
 		await Assert.That(peer.Submitted).Contains("Welcome to Some MUD!");
 		await Assert.That(peer.Submitted).Contains("By what name do you wish to be known?");
-		await Assert.That(peer.Submitted.Count).IsEqualTo(2);
+
+		// Reply() frames the block with a leading blank line ("\r\n" before MSSP-REPLY-START), exactly
+		// as a real server does. That line precedes the marker the plaintext observer watches for, so
+		// it is ordinary output too and reaches the host application like the banner around it.
+		await Assert.That(peer.Submitted).Contains("");
+		await Assert.That(peer.Submitted.Count).IsEqualTo(3);
 
 		await peer.Interpreter.DisposeAsync();
 	}
