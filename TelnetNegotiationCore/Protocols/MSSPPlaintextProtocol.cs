@@ -241,13 +241,31 @@ public class MSSPPlaintextProtocol : TelnetProtocolPluginBase
 				$"{nameof(MSSPPlaintextProtocol)} is disabled on this connection, so it will not send MSSP-REQUEST.");
 		}
 
+		// A cancelled call is not an ask, and the request is a side effect on someone else's login
+		// prompt. Observed here rather than only inside the wait, which is where it used to be: the
+		// text had already gone out by then.
+		cancellationToken.ThrowIfCancellationRequested();
+
+		var connectionToken = Context.Interpreter.ProcessingToken;
+
+		// Before the dependency is consulted, because disposal clears the plugin registry: on a
+		// disposed interpreter the lookup below would throw "requires MSSPProtocol", which is a
+		// confusing way to say the connection is gone. Not an exception either way, because this is
+		// the documented no-report shape -- a dead connection is an answer about the peer, not a
+		// mistake by the caller.
+		if (connectionToken.IsCancellationRequested)
+		{
+			Context.Logger.LogDebug("Not requesting MSSP as plaintext: the connection is closing");
+			return null;
+		}
+
 		if (!Mssp.IsEnabled)
 		{
 			throw new InvalidOperationException(
 				$"{nameof(MSSPProtocol)} is disabled on this connection, so {nameof(MSSPPlaintextProtocol)} will not ask for a report on its behalf.");
 		}
 
-		var exchange = new Exchange(ReplyTimeout, cancellationToken, Context.Interpreter.ProcessingToken);
+		var exchange = new Exchange(ReplyTimeout, cancellationToken, connectionToken);
 
 		lock (_gate)
 		{
@@ -362,7 +380,11 @@ public class MSSPPlaintextProtocol : TelnetProtocolPluginBase
 		Exchange? exchange;
 		lock (_gate) exchange = _exchange;
 
-		if (exchange is null) return false;
+		// Finished counts as no request outstanding. An exchange stays published until the awaiting
+		// caller reaches its finally, so between the timeout firing and that continuation running
+		// there is a window where a late MSSP-REPLY-START would start a collection that can never
+		// produce a report -- and quietly eat the host application's output until the window closed.
+		if (exchange is null || exchange.Finished) return false;
 
 		if (!exchange.Collecting)
 		{
@@ -542,6 +564,16 @@ public class MSSPPlaintextProtocol : TelnetProtocolPluginBase
 
 		/// <summary>True between the start marker and the end of the exchange.</summary>
 		public bool Collecting { get; private set; }
+
+		/// <summary>
+		/// True once the outcome is decided, by a reply, by the ceiling or by the connection going
+		/// away. The exchange stays published to the line observer a little longer than that, so the
+		/// observer asks.
+		/// </summary>
+		public bool Finished
+		{
+			get { lock (_lock) return _finished; }
+		}
 
 		public void Begin() => Collecting = true;
 

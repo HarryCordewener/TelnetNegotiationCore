@@ -439,6 +439,47 @@ public class MSSPPlaintextTests : BaseTest
 	}
 
 	/// <summary>
+	/// A cancelled call is not an ask. The token was only observed after the request had already gone
+	/// out, so a caller handing in an already-cancelled token got the side effect it was cancelling —
+	/// text at a stranger's login prompt — and then the exception.
+	/// </summary>
+	[Test]
+	public async Task APreCancelledTokenSendsNothing()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		using var cts = new CancellationTokenSource();
+		cts.Cancel();
+
+		await Assert.ThrowsAsync<OperationCanceledException>(async () =>
+			await peer.Plaintext.RequestReportAsync(cts.Token));
+
+		await Assert.That(peer.Wired.Contains("MSSP-REQUEST", StringComparison.OrdinalIgnoreCase)).IsFalse();
+
+		await peer.Interpreter.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A connection that is already gone gets the documented no-report answer rather than a request it
+	/// cannot carry: "a dead connection returns null, because that is an answer about the peer".
+	/// </summary>
+	[Test]
+	public async Task AClosedConnectionReturnsNoReportWithoutSending()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		// Held from before the connection went away, which is what a crawler does: it keeps the plugin
+		// and asks. Disposal clears the plugin registry, so re-resolving it afterwards is not the
+		// scenario -- and would say nothing about what a live reference does.
+		var plaintext = peer.Plaintext;
+
+		await peer.Interpreter.DisposeAsync();
+
+		await Assert.That(await plaintext.RequestReportAsync()).IsNull();
+		await Assert.That(peer.Wired.Contains("MSSP-REQUEST", StringComparison.OrdinalIgnoreCase)).IsFalse();
+	}
+
+	/// <summary>
 	/// The dependency is what keeps the two plugins' lifetimes in step: MSSP cannot be turned off
 	/// underneath the transport that speaks for it. This is the guarantee that makes "MSSP disabled,
 	/// plaintext still answering" unreachable rather than merely unlikely.
@@ -520,6 +561,47 @@ public class MSSPPlaintextTests : BaseTest
 		// The request is consumed: it is not a login name.
 		await Assert.That(peer.Submitted.Count).IsEqualTo(0);
 
+		await peer.Interpreter.DisposeAsync();
+	}
+
+	/// <summary>
+	/// The framing here is the line itself, so it has no escape for a tab or a line ending inside a
+	/// name or a value: one stray tab moves a field boundary, one stray CRLF turns a field into two.
+	/// They become spaces on the way out, and the peer still parses exactly one field per line.
+	/// </summary>
+	[Test]
+	public async Task AValueCarryingTheFramingCharactersIsSanitized()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server, configureMssp: mssp => mssp
+			.WithMSSPConfig(() => new MSSPConfig
+			{
+				Name = "Tab\there",
+				Website = "https://example.org\r\nPLAYERS\t9999",
+				Players = 4
+			}));
+
+		await peer.FeedAsync("MSSP-REQUEST\r\n");
+		await PollUntilAsync(() => peer.Wired.Contains("MSSP-REPLY-END"), timeoutMs: 10000);
+
+		var reply = peer.Wired;
+		await Assert.That(reply).Contains("NAME\tTab here\r\n");
+		await Assert.That(reply).Contains("WEBSITE\thttps://example.org  PLAYERS 9999\r\n");
+
+		// The smuggled field never became one: PLAYERS is reported once, with its real value.
+		var body = reply.Substring(reply.IndexOf("MSSP-REPLY-START", StringComparison.Ordinal));
+		await Assert.That(body.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries)
+			.Count(line => line.StartsWith("PLAYERS\t", StringComparison.Ordinal))).IsEqualTo(1);
+		await Assert.That(reply).Contains("PLAYERS\t4\r\n");
+
+		// And it round-trips: every line still carries exactly one tab-separated field.
+		var client = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		var config = await ExchangeAsync(client, reply);
+
+		await Assert.That(config).IsNotNull();
+		await Assert.That(config.Name).IsEqualTo("Tab here");
+		await Assert.That(config.Players).IsEqualTo(4);
+
+		await client.Interpreter.DisposeAsync();
 		await peer.Interpreter.DisposeAsync();
 	}
 

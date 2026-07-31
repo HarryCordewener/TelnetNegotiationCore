@@ -153,8 +153,14 @@ public class InputLineBufferTests : BaseTest
 	/// connection sitting mid-line is what actually holds the allocation, and is the ordinary state of
 	/// a connection parked at a prompt.
 	/// </para>
+	/// <para>
+	/// Serialized, because <see cref="GC.GetTotalMemory"/> measures the whole process and TUnit runs
+	/// tests in parallel by default: another test allocating inside the measured window would be
+	/// counted against these connections.
+	/// </para>
 	/// </remarks>
 	[Test]
+	[NotInParallel]
 	public async Task ManyConnectionsDoNotEachPayTheCeiling()
 	{
 		const int connections = 100;

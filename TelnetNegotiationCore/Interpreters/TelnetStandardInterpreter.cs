@@ -142,7 +142,25 @@ public partial class TelnetInterpreter
     /// Cancelled when the interpreter is disposed. Protocols that run their own background timers
     /// link to this so that nothing outlives the connection it belongs to.
     /// </summary>
-    internal CancellationToken ProcessingToken => _processingCts.Token;
+    /// <remarks>
+    /// Reads as already-cancelled once disposal has run to completion, rather than throwing: a
+    /// disposed interpreter <em>is</em> a cancelled connection, and a caller asking "is this
+    /// connection still alive" should get that answer rather than an exception.
+    /// </remarks>
+    internal CancellationToken ProcessingToken
+    {
+        get
+        {
+            try
+            {
+                return _processingCts.Token;
+            }
+            catch (ObjectDisposedException)
+            {
+                return new CancellationToken(canceled: true);
+            }
+        }
+    }
 
     /// <summary>
     /// Background processing task.

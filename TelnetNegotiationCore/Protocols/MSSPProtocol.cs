@@ -535,12 +535,12 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// MSSP is one protocol with two transports, so it has one callback. <see cref="MSSPPlaintextProtocol"/>
     /// delivers through this rather than owning a second callback a consumer would have to wire
     /// separately; <see cref="MSSPConfig.Source"/> is what tells the two apart.
-    /// </remarks>
-    /// <remarks>
+    /// <para>
     /// Gated on <see cref="TelnetProtocolPluginBase.IsEnabled"/> for the same reason
     /// <see cref="OnMSSPRequestAsync"/> is: <c>ProtocolPluginManager.DisablePluginAsync&lt;MSSPProtocol&gt;()</c>
     /// is public, and a consumer who turns MSSP off should not keep receiving reports through the
     /// other transport.
+    /// </para>
     /// </remarks>
     internal ValueTask DeliverReportAsync(MSSPConfig config)
         => IsEnabled ? _onMSSPRequest?.Invoke(config) ?? default(ValueTask) : default(ValueTask);
