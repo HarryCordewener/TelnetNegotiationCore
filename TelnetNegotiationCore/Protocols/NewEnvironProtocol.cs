@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -19,9 +20,18 @@ namespace TelnetNegotiationCore.Protocols;
 /// https://tintin.mudhalla.net/protocols/mnes/
 /// </summary>
 /// <remarks>
+/// <para>
 /// This protocol supports optional configuration. Call <see cref="OnEnvironmentVariables"/> to set up
-/// the callback that will handle environment variable requests.
+/// the callback that will handle environment variables a peer sends.
 /// MNES (Mud New Environment Standard) is an extension indicated by MTTS flag 512.
+/// </para>
+/// <para>
+/// In client mode, <b>nothing is sent that the application did not supply</b>: the variables a
+/// server receives are the ones set through
+/// <see cref="Builders.TelnetInterpreterBuilder.WithClientIdentity(Models.ClientIdentity)"/> and
+/// <see cref="WithClientEnvironmentVariables"/>, and nothing else. Configure neither and a server's
+/// SEND is answered with an empty IS.
+/// </para>
 /// </remarks>
 [RequiredMethod("OnEnvironmentVariables", Description = "Configure the callback to handle environment variable updates (optional but recommended)")]
 public class NewEnvironProtocol : TelnetProtocolPluginBase
@@ -33,6 +43,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     private readonly List<byte> _currentValue = [];
     private readonly Dictionary<string, string> _environmentVariables = new();
     private readonly Dictionary<string, string> _userVariables = new();
+    private IReadOnlyDictionary<string, string> _clientEnvironmentVariables = new Dictionary<string, string>();
     private bool _isUserVar = false;
     private bool _collectingVar = false;
     private bool _collectingValue = false;
@@ -50,6 +61,40 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         _onEnvironmentVariables = callback;
         return this;
     }
+
+    /// <summary>
+    /// Sets the variables this client sends when a server asks for them (client mode only).
+    /// Defaults to <b>none</b>: a server is told nothing about the machine the client runs on unless
+    /// the application decided to tell it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// MNES — the MUD profile of NEW-ENVIRON — defines the names a MUD client would want here:
+    /// <c>CLIENT_NAME</c>, <c>CLIENT_VERSION</c>, <c>TERMINAL_TYPE</c>, <c>MTTS</c>, <c>CHARSET</c>
+    /// and <c>IPADDRESS</c>. The first four are better set once through
+    /// <see cref="Builders.TelnetInterpreterBuilder.WithClientIdentity(Models.ClientIdentity)"/>,
+    /// which also feeds the TTYPE responses; a variable set here overrides the identity-derived one
+    /// of the same name.
+    /// </para>
+    /// <para>
+    /// RFC 1572's <c>USER</c> is the account to log in <i>as</i>, not the operating-system account
+    /// the client runs under. This library never fills it in from the environment; an application
+    /// that genuinely has a login name to send can set it here, having decided that itself.
+    /// </para>
+    /// </remarks>
+    /// <param name="environmentVariables">The variables to send, in the order to send them</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public NewEnvironProtocol WithClientEnvironmentVariables(IReadOnlyDictionary<string, string>? environmentVariables)
+    {
+        _clientEnvironmentVariables = environmentVariables ?? new Dictionary<string, string>();
+        return this;
+    }
+
+    /// <summary>
+    /// The variables this client sends when a server asks for them, as set by
+    /// <see cref="WithClientEnvironmentVariables"/>. Empty unless the application set some.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> ClientEnvironmentVariables => _clientEnvironmentVariables;
 
     /// <summary>
     /// The environment variables received from the remote party
@@ -451,29 +496,115 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
             (byte)Trigger.IS
         };
 
-        // For now, send common environment variables if available
-        // In a real implementation, this would be configurable
-        var envVars = new Dictionary<string, string>
+        foreach (var (name, value) in ResolveClientVariables(context))
         {
-            { "USER", Environment.GetEnvironmentVariable("USER") ?? Environment.UserName },
-            { "LANG", "en_US.UTF-8" }
-        };
-
-        foreach (var (name, value) in envVars)
-        {
-            if (!string.IsNullOrEmpty(value))
+            if (string.IsNullOrEmpty(value))
             {
-                response.Add((byte)Trigger.NEWENVIRON_VAR);
-                response.AddRange(Encoding.ASCII.GetBytes(name));
-                response.Add((byte)Trigger.NEWENVIRON_VALUE);
-                response.AddRange(Encoding.ASCII.GetBytes(value));
+                continue;
             }
+
+            response.Add((byte)Trigger.NEWENVIRON_VAR);
+            AppendEscaped(response, name);
+            response.Add((byte)Trigger.NEWENVIRON_VALUE);
+            AppendEscaped(response, value);
         }
 
         response.Add((byte)Trigger.IAC);
         response.Add((byte)Trigger.SE);
 
         await context.SendNegotiationAsync(response.ToArray());
+    }
+
+    /// <summary>
+    /// Everything this client tells a server about itself, in MNES's own order: the identity the
+    /// application set, then whatever else it configured, with a configured variable overriding the
+    /// identity-derived one of the same name.
+    /// </summary>
+    /// <remarks>
+    /// An application that configured neither sends nothing, which leaves the server in the same
+    /// position as one talking to a client that never negotiated NEW-ENVIRON at all. Nothing here
+    /// is read from the environment of the process: RFC 1572's <c>USER</c> is the account to log in
+    /// as, which has nothing to do with the operating-system account the client happens to run
+    /// under, and a server has no business learning the latter.
+    /// </remarks>
+    private List<KeyValuePair<string, string>> ResolveClientVariables(IProtocolContext context)
+    {
+        var configured = _clientEnvironmentVariables;
+        var variables = new List<KeyValuePair<string, string>>();
+
+        if (context.TryGetSharedState<ClientIdentity>(ClientIdentity.SharedStateKey, out var identity) && identity != null)
+        {
+            foreach (var (name, value) in MnesVariables(identity, context))
+            {
+                variables.Add(new KeyValuePair<string, string>(
+                    name, configured.TryGetValue(name, out var overridden) ? overridden : value));
+            }
+        }
+
+        foreach (var (name, value) in configured)
+        {
+            if (!variables.Any(x => x.Key == name))
+            {
+                variables.Add(new KeyValuePair<string, string>(name, value));
+            }
+        }
+
+        return variables;
+    }
+
+    /// <summary>
+    /// The MNES variables an identity supplies, in the order the specification lists them. The MTTS
+    /// bitvector is the one the Terminal Type plugin reports, so that the two channels a client
+    /// introduces itself through cannot disagree.
+    /// </summary>
+    private static IEnumerable<KeyValuePair<string, string>> MnesVariables(ClientIdentity identity, IProtocolContext context)
+    {
+        yield return new KeyValuePair<string, string>("CLIENT_NAME", identity.Name);
+
+        if (!string.IsNullOrWhiteSpace(identity.Version))
+        {
+            yield return new KeyValuePair<string, string>("CLIENT_VERSION", identity.Version!.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.TerminalType))
+        {
+            yield return new KeyValuePair<string, string>("TERMINAL_TYPE", identity.TerminalType!.Trim());
+        }
+
+        var capabilities = context.GetPlugin<TerminalTypeProtocol>()?.ClientCapabilities
+            ?? (identity.Mtts ?? MttsCapabilities.None) | TerminalTypeProtocol.ObservedCapabilities(context);
+
+        if (capabilities != MttsCapabilities.None)
+        {
+            yield return new KeyValuePair<string, string>(
+                "MTTS", ((int)capabilities).ToString(CultureInfo.InvariantCulture));
+        }
+    }
+
+    /// <summary>
+    /// Writes a name or value with RFC 1572's escapes. MNES forbids the VAR, VALUE, ESC, USERVAR and
+    /// IAC bytes inside a value, but an application supplies these strings, so one that carries a
+    /// control byte anyway must not be able to end the subnegotiation early.
+    /// </summary>
+    internal static void AppendEscaped(List<byte> target, string text)
+    {
+        foreach (var b in Encoding.ASCII.GetBytes(text))
+        {
+            switch (b)
+            {
+                case (byte)Trigger.NEWENVIRON_VAR:
+                case (byte)Trigger.NEWENVIRON_VALUE:
+                case (byte)Trigger.NEWENVIRON_ESC:
+                case (byte)Trigger.NEWENVIRON_USERVAR:
+                    target.Add((byte)Trigger.NEWENVIRON_ESC);
+                    break;
+                case (byte)Trigger.IAC:
+                    target.Add((byte)Trigger.IAC);
+                    break;
+            }
+
+            target.Add(b);
+        }
     }
 
     #endregion

@@ -11,6 +11,72 @@ namespace TelnetNegotiationCore.Builders;
 public static class PluginConfigurationExtensions
 {
     /// <summary>
+    /// Says who this application is from inside a plugin configuration chain.
+    /// See <see cref="TelnetInterpreterBuilder.WithClientIdentity(Models.ClientIdentity)"/>.
+    /// </summary>
+    /// <typeparam name="T">The plugin type currently being configured</typeparam>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="identity">The identity to report</param>
+    /// <returns>The builder for continued chaining</returns>
+    public static TelnetInterpreterBuilder WithClientIdentity<T>(
+        this PluginConfigurationContext<T> context,
+        Models.ClientIdentity identity)
+        where T : Plugins.ITelnetProtocolPlugin
+    {
+        TelnetInterpreterBuilder builder = context;
+        return builder.WithClientIdentity(identity);
+    }
+
+    /// <summary>
+    /// Says who this application is from inside a plugin configuration chain.
+    /// See <see cref="TelnetInterpreterBuilder.WithClientIdentity(string, string)"/>.
+    /// </summary>
+    /// <typeparam name="T">The plugin type currently being configured</typeparam>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="name">The name of the application — not of the library it is built on</param>
+    /// <param name="version">The version of the application, if it wants to report one</param>
+    /// <returns>The builder for continued chaining</returns>
+    public static TelnetInterpreterBuilder WithClientIdentity<T>(
+        this PluginConfigurationContext<T> context,
+        string name,
+        string? version = null)
+        where T : Plugins.ITelnetProtocolPlugin
+    {
+        TelnetInterpreterBuilder builder = context;
+        return builder.WithClientIdentity(name, version);
+    }
+
+    /// <summary>
+    /// Replaces the terminal types this client reports, in the order it reports them, in a fluent
+    /// manner. See <see cref="TerminalTypeProtocol.WithTerminalTypes"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="terminalTypes">The terminal types to report, in order</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<TerminalTypeProtocol> WithTerminalTypes(
+        this PluginConfigurationContext<TerminalTypeProtocol> context,
+        params string[] terminalTypes)
+    {
+        context.Plugin.WithTerminalTypes(terminalTypes);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the variables this client sends when a server asks for them (RFC 1572, client mode), in
+    /// a fluent manner. See <see cref="NewEnvironProtocol.WithClientEnvironmentVariables"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="environmentVariables">The variables to send, in the order to send them</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<NewEnvironProtocol> WithClientEnvironmentVariables(
+        this PluginConfigurationContext<NewEnvironProtocol> context,
+        System.Collections.Generic.IReadOnlyDictionary<string, string>? environmentVariables)
+    {
+        context.Plugin.WithClientEnvironmentVariables(environmentVariables);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the NAWS (window size) callback in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
@@ -307,13 +373,14 @@ public static class PluginConfigurationExtensions
 
     /// <summary>
     /// Sets the environment variables to send when requested by server (RFC 1408, client mode).
+    /// Defaults to none. See <see cref="EnvironProtocol.WithClientEnvironmentVariables"/>.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
     /// <param name="environmentVariables">The environment variables to send</param>
     /// <returns>The configuration context for continued chaining</returns>
     public static PluginConfigurationContext<EnvironProtocol> WithClientEnvironmentVariables(
         this PluginConfigurationContext<EnvironProtocol> context,
-        System.Collections.Generic.Dictionary<string, string> environmentVariables)
+        System.Collections.Generic.IReadOnlyDictionary<string, string>? environmentVariables)
     {
         context.Plugin.WithClientEnvironmentVariables(environmentVariables);
         return context;

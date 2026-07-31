@@ -434,6 +434,12 @@ var (telnet, readTask) = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Client)
     .UseLogger(logger)
     .OnSubmit(WriteBackAsync)
+    .WithClientIdentity(new ClientIdentity("MY-CLIENT")
+    {
+        Version = "1.0.0",
+        TerminalType = "XTERM",
+        Mtts = MttsCapabilities.Ansi | MttsCapabilities.Colors256
+    })
     .AddPlugin<NAWSProtocol>()
     .AddPlugin<GMCPProtocol>()
         .OnGMCPMessage(SignalGMCPAsync)
@@ -449,6 +455,45 @@ var (telnet, readTask) = await new TelnetInterpreterBuilder()
 
 // readTask completes when the server closes the connection
 await readTask;
+```
+
+### Saying who your application is
+
+A client introduces itself down two channels — TTYPE (where MTTS defines the first response as the
+*client name*) and MNES `CLIENT_NAME` — and both are the same fact, so you set it once:
+
+```csharp
+.WithClientIdentity(new ClientIdentity("MUINDEX-CRAWLER")
+{
+    Version = "1.2.0",                                     // MNES CLIENT_VERSION
+    TerminalType = "XTERM",                                // 2nd TTYPE response, MNES TERMINAL_TYPE
+    Mtts = MttsCapabilities.Ansi | MttsCapabilities.Truecolor
+})
+```
+
+With that, TTYPE answers `MUINDEX-CRAWLER`, then `XTERM`, then `MTTS <bitvector>`, and a server that
+negotiates NEW-ENVIRON receives `CLIENT_NAME`, `CLIENT_VERSION`, `TERMINAL_TYPE` and `MTTS`.
+
+**Configure nothing and the library names nobody.** TTYPE answers `UNKNOWN` — RFC 1091's own word for
+a terminal that will not name itself — and NEW-ENVIRON sends no variables at all. It will never
+introduce your application as `TNC`, and it will never invent a terminal for it.
+
+**The MTTS bitvector is calculated, not stated.** `Mtts` is only for the claims this library cannot
+check: colour depth, mouse tracking, a screen reader — things it does not render and cannot see. The
+bits it *can* see, it sets for you, and only when they are true:
+
+| Bit | Set when |
+| --- | --- |
+| `Utf8` (4) | the interpreter is decoding UTF-8 (the default, until RFC 2066 CHARSET says otherwise) |
+| `Mnes` (512) | a `NewEnvironProtocol` plugin is registered, so this connection really will answer MNES |
+
+Your claim and the observed bits are OR-ed together, so a client that renders ANSI and truecolour and
+has NEW-ENVIRON registered reports `MTTS 773`. An application that would rather state the whole TTYPE
+list itself can bypass all of this:
+
+```csharp
+.AddPlugin<TerminalTypeProtocol>()
+    .WithTerminalTypes("MUINDEX-CRAWLER", "MUINDEX", "MTTS 9")   // sent verbatim, in this order
 ```
 
 ### Sending GMCP Messages
@@ -541,10 +586,12 @@ var telnet = await new TelnetInterpreterBuilder()
 ```
 
 #### Client Side
-The client automatically responds to server requests for environment variables. You can customize which variables to send:
+The client answers a server's request for environment variables with **exactly what you configured,
+and nothing else**. Configure nothing and it answers with an empty list — no `USER`, no `LANG`, and
+in particular nothing read out of the environment of the process:
 
 ```csharp
-// Option 1: Use defaults (USER and LANG from system)
+// Option 1: send nothing (the default)
 var telnet = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Client)
     .UseLogger(logger)
@@ -680,7 +727,13 @@ var telnet = await new TelnetInterpreterBuilder()
 ```
 
 #### Client Side
-The client automatically responds to server requests for environment variables. Common variables like USER and LANG are sent automatically.
+The client answers a server's `SEND` with **exactly what you configured, and nothing else**. Nothing
+is read from the environment of the process: RFC 1572's `USER` means *the account to log in as*, not
+the operating-system account the client happens to run under, and a server has no business learning
+the latter.
+
+Most of what a MUD client wants to send here is its identity, so set that once and it feeds both
+NEW-ENVIRON and TTYPE:
 
 ```csharp
 var telnet = await new TelnetInterpreterBuilder()
@@ -688,14 +741,34 @@ var telnet = await new TelnetInterpreterBuilder()
     .UseLogger(logger)
     .OnSubmit((data, encoding, telnet) => HandleSubmitAsync(data, encoding, telnet))
     .OnNegotiation((data) => WriteToNetworkAsync(data))
+    .WithClientIdentity(new ClientIdentity("MY-CLIENT") { Version = "1.0.0" })
     .AddPlugin<NewEnvironProtocol>()
     .BuildAsync();
 
-// Environment variables are automatically sent when the server requests them
+// The server receives CLIENT_NAME, CLIENT_VERSION and the calculated MTTS when it asks.
 ```
 
+Anything else — including a `USER` your application has genuinely decided to send — goes in the
+variable map, where an entry overrides the identity-derived one of the same name:
+
+```csharp
+    .AddPlugin<NewEnvironProtocol>()
+        .WithClientEnvironmentVariables(new Dictionary<string, string>
+        {
+            { "CHARSET", "UTF-8" },
+            { "WORD_WRAP", "OFF" }
+        })
+```
+
+Configure neither and a `SEND` is answered with an empty `IS`, which leaves the server in the same
+position as one talking to a client that never negotiated NEW-ENVIRON at all.
+
 #### MNES Support
-MNES (Mud New Environment Standard) support is automatically indicated via the MTTS flag 512 when both Terminal Type and NEW-ENVIRON protocols are enabled. No additional configuration is needed.
+MNES (Mud New Environment Standard) defines the variable names above — `CLIENT_NAME`,
+`CLIENT_VERSION`, `TERMINAL_TYPE`, `MTTS`, `CHARSET`, `IPADDRESS` — and is advertised with MTTS flag
+512. That flag is set for you, and only when it is true: registering a `NewEnvironProtocol` plugin is
+what makes this connection able to answer MNES, so that is exactly when the bit goes out. See
+[Saying who your application is](#saying-who-your-application-is).
 
 ### Using MCCP Protocol
 The MCCP (Mud Client Compression Protocol) provides bandwidth reduction through zlib compression. MCCP2 compresses server-to-client data, while MCCP3 compresses client-to-server data.
