@@ -14,7 +14,7 @@ public partial class TelnetInterpreter
 	/// <remarks>
 	/// Defaults to 24
 	/// </remarks>
-	public int ClientHeight { get; private set; } = 24;
+	public int ClientHeight { get; internal set; } = 24;
 
 	/// <summary>
 	/// Currently known Client Width.
@@ -22,5 +22,5 @@ public partial class TelnetInterpreter
 	/// <remarks>
 	/// Defaults to 78
 	/// </remarks>
-	public int ClientWidth { get; private set; } = 78;
+	public int ClientWidth { get; internal set; } = 78;
 }

@@ -314,16 +314,12 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         ClientHeight = (_nawsByteState[2] << 8) | _nawsByteState[3];
 
         context.Logger.LogDebug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
-        
-        // Update interpreter properties for backward compatibility
-        var interpreter = context.Interpreter;
-        var widthProp = interpreter.GetType().GetProperty("ClientWidth");
-        var heightProp = interpreter.GetType().GetProperty("ClientHeight");
-        if (widthProp != null && widthProp.CanWrite)
-            widthProp.SetValue(interpreter, ClientWidth);
-        if (heightProp != null && heightProp.CanWrite)
-            heightProp.SetValue(interpreter, ClientHeight);
-        
+
+        // The interpreter carries the same pair for consumers reading TelnetInterpreter.ClientWidth
+        // and ClientHeight.
+        context.Interpreter.ClientWidth = ClientWidth;
+        context.Interpreter.ClientHeight = ClientHeight;
+
         // Call the user callback if registered
         if (_onNAWSNegotiated != null)
         {
