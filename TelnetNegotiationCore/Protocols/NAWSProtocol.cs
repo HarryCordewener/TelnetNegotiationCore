@@ -296,24 +296,23 @@ public class NAWSProtocol : TelnetProtocolPluginBase
 
     private void CaptureNAWS(OneOf.OneOf<byte, Trigger> b)
     {
-        if (_nawsIndex > _nawsByteState.Length) return;
+        // ">" let _nawsIndex == _nawsByteState.Length through and indexed one past the end. A peer
+        // sending a five-byte NAWS payload therefore threw IndexOutOfRangeException out of the
+        // state machine. RFC 1073 defines exactly four payload bytes; anything beyond them is
+        // surplus and is dropped.
+        if (_nawsIndex >= _nawsByteState.Length) return;
         _nawsByteState[_nawsIndex] = b.AsT0;
         _nawsIndex++;
     }
 
     private async ValueTask CompleteNAWSAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
-        byte[] width = [_nawsByteState[0], _nawsByteState[1]];
-        byte[] height = [_nawsByteState[2], _nawsByteState[3]];
-
-        if (BitConverter.IsLittleEndian)
-        {
-            Array.Reverse(width);
-            Array.Reverse(height);
-        }
-
-        ClientWidth = BitConverter.ToInt16(width, 0);
-        ClientHeight = BitConverter.ToInt16(height, 0);
+        // RFC 1073 sends WIDTH[1] WIDTH[0] HEIGHT[1] HEIGHT[0], high byte first, and gives the option
+        // "a limit of 65535 characters". Reading the pair with BitConverter.ToInt16 made every value
+        // above 32767 arrive negative (0xFFFF came back as -1). Assembling the bytes directly is both
+        // unsigned and endian-independent.
+        ClientWidth = (_nawsByteState[0] << 8) | _nawsByteState[1];
+        ClientHeight = (_nawsByteState[2] << 8) | _nawsByteState[3];
 
         context.Logger.LogDebug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
         
