@@ -418,4 +418,198 @@ public class EORTests : BaseTest
 		// Dispose
 		await client_ti.DisposeAsync();
 	}
+
+	/// <summary>
+	/// RFC 858: a prompt is terminated with IAC EOR when End of Record is negotiated, with IAC GA when
+	/// it is not and Go-Ahead is not suppressed, and with a bare CR LF when Go-Ahead is suppressed and
+	/// there is no EOR to fall back on. These assert the bytes, because the terminator is the entire
+	/// observable difference.
+	/// </summary>
+	[Test]
+	public async Task PromptEndsWithEndOfRecordWhenEorIsNegotiated()
+	{
+		byte[] output = null;
+
+		ValueTask Capture(ReadOnlyMemory<byte> data)
+		{
+			output = data.ToArray();
+			return ValueTask.CompletedTask;
+		}
+
+		var server_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(Capture)
+				.AddPlugin<EORProtocol>()
+		);
+
+		await InterpretAndWaitAsync(server_ti, [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR]);
+
+		var prompt = Encoding.ASCII.GetBytes("HP: 100/100> ");
+		output = null;
+		await server_ti.SendPromptAsync(prompt);
+
+		await AssertByteArraysEqual(output, [.. prompt, (byte)Trigger.IAC, (byte)Trigger.EOR]);
+
+		await server_ti.DisposeAsync();
+	}
+
+	[Test]
+	public async Task PromptEndsWithGoAheadWhenNothingIsNegotiated()
+	{
+		byte[] output = null;
+
+		ValueTask Capture(ReadOnlyMemory<byte> data)
+		{
+			output = data.ToArray();
+			return ValueTask.CompletedTask;
+		}
+
+		var server_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(Capture)
+		);
+
+		var prompt = Encoding.ASCII.GetBytes("HP: 100/100> ");
+		output = null;
+		await server_ti.SendPromptAsync(prompt);
+
+		await AssertByteArraysEqual(output, [.. prompt, (byte)Trigger.IAC, (byte)Trigger.GA]);
+
+		await server_ti.DisposeAsync();
+	}
+
+	[Test]
+	public async Task PromptEndsWithGoAheadWhenEorIsRefused()
+	{
+		byte[] output = null;
+
+		ValueTask Capture(ReadOnlyMemory<byte> data)
+		{
+			output = data.ToArray();
+			return ValueTask.CompletedTask;
+		}
+
+		var server_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(Capture)
+				.AddPlugin<EORProtocol>()
+		);
+
+		await InterpretAndWaitAsync(server_ti, [(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.TELOPT_EOR]);
+
+		var prompt = Encoding.ASCII.GetBytes("HP: 100/100> ");
+		output = null;
+		await server_ti.SendPromptAsync(prompt);
+
+		await AssertByteArraysEqual(output, [.. prompt, (byte)Trigger.IAC, (byte)Trigger.GA]);
+
+		await server_ti.DisposeAsync();
+	}
+
+	[Test]
+	public async Task PromptEndsWithGoAheadWhenSuppressionIsRefused()
+	{
+		byte[] output = null;
+
+		ValueTask Capture(ReadOnlyMemory<byte> data)
+		{
+			output = data.ToArray();
+			return ValueTask.CompletedTask;
+		}
+
+		var server_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(Capture)
+				.AddPlugin<SuppressGoAheadProtocol>()
+		);
+
+		await InterpretAndWaitAsync(server_ti, [(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD]);
+
+		var prompt = Encoding.ASCII.GetBytes("HP: 100/100> ");
+		output = null;
+		await server_ti.SendPromptAsync(prompt);
+
+		await AssertByteArraysEqual(output, [.. prompt, (byte)Trigger.IAC, (byte)Trigger.GA]);
+
+		await server_ti.DisposeAsync();
+	}
+
+	[Test]
+	public async Task PromptEndsWithCarriageReturnLineFeedWhenGoAheadIsSuppressed()
+	{
+		byte[] output = null;
+
+		ValueTask Capture(ReadOnlyMemory<byte> data)
+		{
+			output = data.ToArray();
+			return ValueTask.CompletedTask;
+		}
+
+		var server_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(Capture)
+				.AddPlugin<SuppressGoAheadProtocol>()
+		);
+
+		await InterpretAndWaitAsync(server_ti, [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD]);
+
+		var prompt = Encoding.ASCII.GetBytes("HP: 100/100> ");
+		output = null;
+		await server_ti.SendPromptAsync(prompt);
+
+		await AssertByteArraysEqual(output, [.. prompt, (byte)'\r', (byte)'\n']);
+
+		await server_ti.DisposeAsync();
+	}
+
+	/// <summary>
+	/// EOR wins over Go-Ahead suppression: both negotiated means the prompt still ends with IAC EOR.
+	/// </summary>
+	[Test]
+	public async Task PromptPrefersEndOfRecordOverGoAheadSuppression()
+	{
+		byte[] output = null;
+
+		ValueTask Capture(ReadOnlyMemory<byte> data)
+		{
+			output = data.ToArray();
+			return ValueTask.CompletedTask;
+		}
+
+		var server_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(Capture)
+				.AddPlugin<EORProtocol>()
+				.AddPlugin<SuppressGoAheadProtocol>()
+		);
+
+		await InterpretAndWaitAsync(server_ti, [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR]);
+		await InterpretAndWaitAsync(server_ti, [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD]);
+
+		var prompt = Encoding.ASCII.GetBytes("HP: 100/100> ");
+		output = null;
+		await server_ti.SendPromptAsync(prompt);
+
+		await AssertByteArraysEqual(output, [.. prompt, (byte)Trigger.IAC, (byte)Trigger.EOR]);
+
+		await server_ti.DisposeAsync();
+	}
 }

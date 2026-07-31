@@ -1,10 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
-using OneOf;
-using Stateless;
 using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Linq;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Models;
 
@@ -23,49 +19,20 @@ public partial class TelnetInterpreter
     /// <summary>
     /// A list of terminal types for this connection.
     /// </summary>
-    public ImmutableList<string> TerminalTypes { get; private set; } = [];
+    public ImmutableList<string> TerminalTypes { get; internal set; } = [];
 
     /// <summary>
     /// The current selected Terminal Type. Use RequestTerminalTypeAsync if you want the client to switch to the next mode.
     /// </summary>
-    public string CurrentTerminalType => _CurrentTerminalType == -1
+    public string CurrentTerminalType => CurrentTerminalTypeIndex == -1
         ? "unknown"
-        : TerminalTypes[Math.Min(_CurrentTerminalType, TerminalTypes.Count - 1)];
+        : TerminalTypes[Math.Min(CurrentTerminalTypeIndex, TerminalTypes.Count - 1)];
 
     /// <summary>
-    /// Currently selected Terminal Type index.
+    /// Index into <see cref="TerminalTypes"/> of the selected Terminal Type, or -1 when none has been
+    /// selected yet. The Terminal Type protocol plugin negotiates it and publishes it here.
     /// </summary>
-    private int _CurrentTerminalType = -1;
-
-#pragma warning disable CS0414 // Field is assigned but never used in this partial - used in TerminalTypeProtocol
-    /// <summary>
-    /// Internal Terminal Type Byte State
-    /// </summary>
-    private byte[] _ttypeByteState = [];
-
-    /// <summary>
-    /// Internal Terminal Type Byte Index
-    /// </summary>
-    private int _ttypeIndex = 0;
-#pragma warning restore CS0414
-
-    /// <summary>
-    /// A dictionary for MTTS support.
-    /// </summary>
-    private readonly Dictionary<int, string> _MTTS = new()
-    {
-        { 1, "ANSI" },
-        { 2, "VT100" },
-        { 4, "UTF8" },
-        { 8, "256 COLORS" },
-        { 16, "MOUSE_TRACKING" },
-        { 32, "OSC_COLOR_PALETTE" },
-        { 64, "SCREEN_READER" },
-        { 128, "PROXY" },
-        { 256, "TRUECOLOR" },
-        { 512, "MNES" },
-        { 1024, "MSLP" }
-    };
+    internal int CurrentTerminalTypeIndex { get; set; } = -1;
 
     // Cached negotiation byte array to avoid repeated allocations
     private static readonly byte[] s_requestTerminalType = [

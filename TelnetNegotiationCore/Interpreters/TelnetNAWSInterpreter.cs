@@ -1,40 +1,20 @@
-﻿using System;
-using System.Net.NetworkInformation;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using OneOf;
-using Stateless;
-using TelnetNegotiationCore.Models;
-
-namespace TelnetNegotiationCore.Interpreters;
+﻿namespace TelnetNegotiationCore.Interpreters;
 
 /// <summary>
-/// Implements http://www.faqs.org/rfcs/rfc1073.html
+/// The interpreter's half of http://www.faqs.org/rfcs/rfc1073.html: the window size a peer last
+/// reported. Everything else about NAWS — the negotiation, the capture, the callback and
+/// <see cref="Protocols.NAWSProtocol.SendWindowSizeAsync"/> — lives on the plugin, which writes
+/// these two properties as each subnegotiation completes.
 /// </summary>
-/// <remarks>
-/// TODO: Implement Client Side
-/// </remarks>
 public partial class TelnetInterpreter
 {
-#pragma warning disable CS0414 // Field is assigned but never used in this partial - used in NAWSProtocol
-	/// <summary>
-	/// Internal NAWS Byte State
-	/// </summary>
-	private byte[] _nawsByteState = [];
-
-	/// <summary>
-	/// Internal NAWS Byte Index Value
-	/// </summary>
-	private int _nawsIndex = 0;
-#pragma warning restore CS0414
-
 	/// <summary>
 	/// Currently known Client Height
 	/// </summary>
 	/// <remarks>
 	/// Defaults to 24
 	/// </remarks>
-	public int ClientHeight { get; private set; } = 24;
+	public int ClientHeight { get; internal set; } = 24;
 
 	/// <summary>
 	/// Currently known Client Width.
@@ -42,92 +22,5 @@ public partial class TelnetInterpreter
 	/// <remarks>
 	/// Defaults to 78
 	/// </remarks>
-	public int ClientWidth { get; private set; } = 78;
-
-	/// <summary>
-	/// NAWS Callback function to alert server of Width & Height negotiation
-	/// </summary>
-	private bool _WillingToDoNAWS = false;
-
-	// Cached negotiation byte array to avoid repeated allocations
-	private static readonly byte[] s_doNAWS = [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS];
-
-	public async ValueTask SendNAWS(short width, short height)
-	{
-		// Only report window size once NAWS is actually enabled with the peer. When the plugin is
-		// in use it owns that state (for a client, set when the server sends DO NAWS); otherwise
-		// fall back to the legacy interpreter flag. Sending an SB NAWS unsolicited desyncs a strict
-		// server's telnet parser and can make it swallow the following line (RFC 1073).
-		var nawsPlugin = PluginManager?.GetPlugin<Protocols.NAWSProtocol>();
-		var enabled = nawsPlugin is { IsEnabled: true }
-			? nawsPlugin.WindowSizeReportingEnabled
-			: _WillingToDoNAWS;
-		if (!enabled)
-		{
-			return;
-		}
-
-#if NET5_0_OR_GREATER
-		// Use BinaryPrimitives for explicit big-endian encoding (network byte order per RFC 1073)
-		// Note: We use stackalloc for the working buffer then ToArray() for ReadOnlyMemory<byte>.
-		// Although ReadOnlyMemory<byte> can wrap stack memory via MemoryMarshal, this method is async
-		// so the stackalloc'd buffer cannot safely escape the current stack frame via an async state machine.
-		Span<byte> buffer = stackalloc byte[9];
-		buffer[0] = (byte)Trigger.IAC;
-		buffer[1] = (byte)Trigger.SB;
-		buffer[2] = (byte)Trigger.NAWS;
-		System.Buffers.Binary.BinaryPrimitives.WriteInt16BigEndian(buffer[3..], width);
-		System.Buffers.Binary.BinaryPrimitives.WriteInt16BigEndian(buffer[5..], height);
-		buffer[7] = (byte)Trigger.IAC;
-		buffer[8] = (byte)Trigger.SE;
-		
-		await WriteToNetworkAsync(buffer.ToArray());
-#else
-		// NOTE: BitConverter.GetBytes() uses system endianness (typically little-endian on modern systems).
-		// This may produce incorrect byte order on big-endian systems, but those are extremely rare.
-		// NAWS protocol requires network byte order (big-endian per RFC 1073).
-		// For proper big-endian support on all platforms, upgrade to .NET 5+ which uses BinaryPrimitives.
-		await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NAWS, 
-			.. BitConverter.GetBytes(width), .. BitConverter.GetBytes(height), 
-			(byte)Trigger.IAC, (byte)Trigger.SE]);
-#endif
-	}
-
-	/// <summary>
-	/// Request NAWS from a client
-	/// </summary>
-	public async ValueTask RequestNAWSAsync(StateMachine<State, Trigger>.Transition? _ = null)
-	{
-		if (!_WillingToDoNAWS)
-		{
-			_logger.LogDebug("Connection: {ConnectionState}", "Requesting NAWS details from Client");
-
-			await WriteToNetworkAsync(s_doNAWS);
-			_WillingToDoNAWS = true;
-		}
-	}
-
-	private async ValueTask CompleteNAWSAsync(StateMachine<State, Trigger>.Transition _)
-	{
-		byte[] width = [_nawsByteState[0], _nawsByteState[1]];
-		byte[] height = [_nawsByteState[2], _nawsByteState[3]];
-
-		if (BitConverter.IsLittleEndian)
-		{
-			Array.Reverse(width);
-			Array.Reverse(height);
-		}
-
-		ClientWidth = BitConverter.ToInt16(width, 0);
-		ClientHeight = BitConverter.ToInt16(height, 0);
-
-		_logger.LogDebug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
-		
-		// Call NAWS plugin if available
-		var nawsPlugin = PluginManager?.GetPlugin<Protocols.NAWSProtocol>();
-		if (nawsPlugin != null && nawsPlugin.IsEnabled)
-		{
-			await nawsPlugin.OnNAWSNegotiatedAsync(ClientHeight, ClientWidth);
-		}
-	}
+	public int ClientWidth { get; internal set; } = 78;
 }

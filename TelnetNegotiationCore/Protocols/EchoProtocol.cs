@@ -203,7 +203,13 @@ public class EchoProtocol : TelnetProtocolPluginBase
             return default(ValueTask);
 
         Context.Logger.LogTrace("Echoing byte: {Byte}", b);
-        return Context.SendNegotiationAsync(new byte[] { b });
+
+        // The byte handed to us has already been un-escaped by the interpreter, so a peer's
+        // correctly-doubled IAC IAC arrives here as a single 0xFF. RFC 854: "only the IAC need be
+        // doubled to be sent as data". Echoing it raw put a bare IAC back on the wire and desynced
+        // the peer's parser - reachable from one ordinary keypress (U+00FF in ISO-8859-1, я in
+        // CP1251, Ъ in KOI8-R). Reuse the same escaping SendAsync applies rather than a second copy.
+        return Context.SendNegotiationAsync(Context.Interpreter.TelnetSafeBytes([b]));
     }
 
     /// <summary>

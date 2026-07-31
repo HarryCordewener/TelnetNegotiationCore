@@ -160,12 +160,14 @@ All plugin callbacks and settings are set inline on the builder:
 - `.WithTTableSupport(true)` / `.OnTTableReceived(...)` / `.OnTTableRequested(...)` — TTABLE support (RFC 2066)
 - `.OnMXPEnabled(() => ...)` — MXP negotiation success
 - `.WithKeepAlive()` — idle keep-alive (off by default, see below)
-- `.WithMaxMessageSize(bytes)` / `.OnGMCPMessageTooLarge(...)` / `.OnMSDPMessageTooLarge(...)` — subnegotiation size limits (see below)
+- `.WithMaxMessageSize(bytes)` / `.OnGMCPMessageTooLarge(...)` / `.OnMSDPMessageTooLarge(...)` / `.OnMSSPMessageTooLarge(...)` — subnegotiation size limits (see below)
 - `.WithMaxTTableSize(bytes)` — TTABLE size limit (RFC 2066)
+- `.WithReplyTimeout(...)` — plaintext MSSP reply ceiling (`MSSPPlaintextProtocol`, see below)
+- `.WithMaxBufferSize(bytes)` — longest line of ordinary input the interpreter will assemble (default 5 MiB; a longer line is dropped, not truncated)
 
 ### Subnegotiation Size Limits
 
-GMCP, MSDP and CHARSET TTABLE payloads arrive from an untrusted peer, so each is bounded. The
+GMCP, MSDP, MSSP and CHARSET TTABLE payloads arrive from an untrusted peer, so each is bounded. The
 default is **1 MiB per message**, configurable per protocol:
 
 ```csharp
@@ -175,7 +177,7 @@ default is **1 MiB per message**, configurable per protocol:
     .OnGMCPMessageTooLarge(x => LogDroppedAsync(x)) // (Package, ReceivedBytes, MaxMessageSize)
 ```
 
-Neither the GMCP nor the MSDP specification defines a maximum message size, so the limit is a
+None of the GMCP, MSDP or MSSP specifications defines a maximum message size, so the limit is a
 library policy, not a protocol constant. Messages that exceed it are **dropped, never truncated** —
 half a JSON document is invalid JSON, and a consumer cannot tell it apart from a malformed server.
 Reaching the limit is never silent, but what is reported differs per protocol:
@@ -184,9 +186,15 @@ Reaching the limit is never silent, but what is reported differs per protocol:
 | --- | --- |
 | GMCP | `Error` log naming the package, the bytes received and the limit; `OnGMCPMessageTooLarge((Package, ReceivedBytes, MaxMessageSize))` |
 | MSDP | `Error` log with the bytes received and the limit; `OnMSDPMessageTooLarge((ReceivedBytes, MaxMessageSize))` — MSDP messages have no package name |
+| MSSP | `Error` log with the bytes received and the limit; `OnMSSPMessageTooLarge((ReceivedBytes, MaxMessageSize))`. The count is over the whole report — every variable name and value together — because a report of a hundred thousand tiny variables costs the same memory as one enormous value |
 | CHARSET TTABLE | `Error` log with the bytes received and the limit, plus a `TTABLE-REJECTED` reply to the peer, which is what RFC 2066 provides for this case. No callback: the `OnTTableReceived` callback is never handed a partial table |
 
 The connection is unaffected in every case; the next message is processed normally.
+
+Ordinary (non-negotiation) input is bounded too. A peer decides when to send a newline, so the line
+the interpreter assembles is the one accumulator a peer can grow simply by never terminating a line;
+`.WithMaxBufferSize(bytes)` sets that ceiling (default 5 MiB). A line past it is dropped whole, with
+an `Error` log, and the connection carries on with the next.
 
 ### Reading MSSP
 
@@ -222,6 +230,135 @@ ValueTask HandleMSSPAsync(MSSPConfig config)
 Variable names are canonicalized to the specification's spaced, upper-case spelling, so the recommended underscore substitution reads back the same: `config.Variables["CRAWL_DELAY"]`, `config.Variables["CRAWL DELAY"]` and `config.Variables["crawl delay"]` are one variable.
 
 When **sending**, a `MSSPConfig` you build by hand behaves exactly as before — set the properties, or add to `Extended`. A config you received from a peer round-trips verbatim, arrays and unknown variables included.
+
+MSSP mandates no character set — its only byte-level rule is that *"variables and values cannot contain the MSSP_VAL, MSSP_VAR, IAC, or NUL byte"*, and its own `CHARSET` variable reports *"ASCII, BIG5, CP437, CP949, CP1251, EUC-KR, GB18030, ISO-8859-1, ISO-8859-2, KOI8-R, UTF-8"* — so a report is read and written with `TelnetInterpreter.CurrentEncoding`, whatever RFC 2066 CHARSET negotiation has settled on (UTF-8 until it settles on something else).
+
+### Window Size (NAWS)
+
+A server learns the client's window through `.OnNAWS((height, width) => ...)`, and reads the latest
+values back from `telnet.ClientWidth` / `telnet.ClientHeight`.
+
+A client **reports** its window with `NAWSProtocol.SendWindowSizeAsync`, including whenever the
+terminal is resized:
+
+```csharp
+var naws = telnet.PluginManager!.GetPlugin<NAWSProtocol>();
+await naws!.SendWindowSizeAsync(width: 132, height: 43);
+```
+
+Nothing goes out until the server has enabled NAWS with `DO NAWS` (RFC 1073 — an unsolicited
+`SB NAWS` desyncs a strict server's parser); `NAWSProtocol.WindowSizeReportingEnabled` says whether
+it has. Both dimensions are 16-bit **unsigned**, which is the option's whole reason for existing —
+*"the 253 character height and width limitation is too low so the new option has a limit of 65535
+characters"* — so anything from `0` to `NAWSProtocol.MaxWindowDimension` (65535) can be reported.
+A value outside that range throws `ArgumentOutOfRangeException` rather than being truncated into
+the two bytes the wire has.
+
+### Plaintext MSSP (`MSSP-REQUEST`)
+
+A sizeable population of servers answers MSSP as **plain text** at the login screen as well as over
+telnet option 70. The client sends the literal line `MSSP-REQUEST`; the server answers with a leading
+CRLF, a start marker, tab-separated `name<TAB>value` lines, and an end marker:
+
+```text
+\r\nMSSP-REPLY-START\r\n
+NAME<TAB>Some MUD\r\n
+PLAYERS<TAB>4\r\n
+MSSP-REPLY-END\r\n
+```
+
+The vocabulary is the same one — multi-word official names included — so it lands in the same
+`MSSPConfig` and arrives through the same `OnMSSP` callback. It lives in its own plugin, and
+**adding that plugin is the entire opt-in**:
+
+```csharp
+.AddPlugin<MSSPProtocol>()
+    .OnMSSP(HandleMSSPAsync)
+    .WithMSSPConfig(() => new MSSPConfig { Name = "My Server" })
+.AddPlugin<MSSPPlaintextProtocol>()          // ← the opt-in; nothing else to switch on
+    .WithReplyTimeout(TimeSpan.FromSeconds(10))
+```
+
+`MSSPPlaintextProtocol` depends on `MSSPProtocol` — it borrows that plugin's `OnMSSP` callback, its
+`MaxMessageSize` and its `WithMSSPConfig` provider rather than duplicating them — so adding it alone
+throws at `BuildAsync()` rather than going quiet on the wire.
+
+**As a server, it is automatic.** An incoming `MSSP-REQUEST` line (matched case-insensitively, as
+SMAUG's `str_cmp` does) is answered from your `WithMSSPConfig` and **consumed**, which means
+`MSSP-REQUEST` stops being usable as a character name on your server. That is the whole consequence
+of adding the plugin, and adding it is the consent to it.
+
+**As a client, nothing is sent until you ask.** Unlike `IAC DO 70`, which is pure negotiation that a
+non-supporting server ignores, this puts real text at a stranger's login prompt — two hosts probed
+while this was written replied `Illegal name, try another.` and re-prompted:
+
+```csharp
+var plaintext = telnet.PluginManager!.GetPlugin<MSSPPlaintextProtocol>()!;
+
+MSSPConfig? report = await plaintext.RequestReportAsync(cancellationToken);
+
+if (report is null)
+{
+    // No answer: no plaintext MSSP, or it never finished, or it was over the ceiling.
+}
+```
+
+The report is returned to the caller *and* delivered to `OnMSSP`, so a consumer already wired for
+option 70 needs no new plumbing, while a crawler gets the value at the call site where it knows which
+host it just asked.
+
+**There is deliberately no timer.** No version of the MSSP specification gives timing for this
+exchange — the only timing concept MSSP has is `CRAWL DELAY`, which is *hours between crawls*, not
+when to speak within a connection. Grapevine's crawler asks 10 seconds after connecting and gives up
+at 20, but that is [one crawler's published policy](https://grapevine.haus/mssp), and a library that
+baked it in would be choosing, for every consumer, the moment to put text on a stranger's login
+prompt — by which time an interactive client may already have sent a character name. Rebuilding that
+exact policy on top of the explicit call is three lines, and all of it stays yours:
+
+```csharp
+// The telnet option may already have answered through OnMSSP by now.
+MSSPConfig? report = null;
+
+await Task.Delay(TimeSpan.FromSeconds(10), token);
+if (report is null)
+    report = await plaintext.RequestReportAsync(token);   // ReplyTimeout bounds the wait
+```
+
+Behaviour once the plugin is added:
+
+| | |
+| --- | --- |
+| Client sends | `MSSP-REQUEST\r\n`, only from `RequestReportAsync`, once per call |
+| Returns | the `MSSPConfig`, or `null` whenever the peer produced no report: never answered, reply never ended, reply over the ceiling, connection gone. Not an error — a server without the form is the ordinary case. Caller-side faults (already-cancelled token, disabled plugin) throw rather than returning `null` |
+| Telnet option | untouched. This is a second transport, not a replacement; both can answer on one connection and each report says which it came from |
+| Markers | matched as **whole lines**, not as substrings, so a MUD that merely says the words in output does not trip the parser |
+| Field split | on the **first tab** only, so `MINIMUM AGE`, `PAY TO PLAY` and `XTERM 256 COLORS` survive, and so do values containing spaces |
+| Size ceiling | `MSSPProtocol.MaxMessageSize`, counted over the reply's field lines. Over it the reply is **dropped, never truncated**, with an `Error` log and `OnMSSPMessageTooLarge((ReceivedBytes, MaxMessageSize))`; the call returns `null` |
+| Reply ceiling | `ReplyTimeout` (default 10 s) bounds a caller that passes `CancellationToken.None`. Cancelling your own token throws `OperationCanceledException`; the ceiling and a dead connection return `null`, because those are answers about the peer |
+| Encoding | `TelnetInterpreter.CurrentEncoding`, as on the subnegotiation path. `IAC` among the encoded bytes is doubled (RFC 854); a tab or line ending inside a name or value is replaced with a space, because this framing has no escape for one |
+| Lines consumed | everything from the start marker to the end marker, so the reply never reaches your `OnSubmit` as if a user had typed it |
+
+Which transport answered is part of the value, since the two can disagree:
+
+```csharp
+ValueTask HandleMSSPAsync(MSSPConfig config)
+{
+    // MSSPSource.TelnetOption, MSSPSource.Plaintext, or MSSPSource.Unspecified
+    // for a config you built by hand rather than received.
+    Console.WriteLine(config.Source);
+    return ValueTask.CompletedTask;
+}
+```
+
+**Specification status, stated plainly.** The plaintext form is *not* described on the current
+[specification page](https://tintin.mudhalla.net/protocols/mssp/), nor on the mudstandards mirror.
+That page's own [changelog](https://tintin.mudhalla.net/protocols/mssp/news.php) records *"Mar 20,
+2009 - Plaintext version of MSSP finalized and added to specification"*, and the implementation ships
+in the SMAUG family (`Arthmoor/SmaugFUSS` `src/mssp.c`, and the codebases derived from it) and is
+read by Grapevine's crawler. So: it was specified, the specification page no longer carries it, and
+it is deployed anyway — more widely implemented than it is currently documented. This library's
+framing is matched against SmaugFUSS and exercised against a scripted peer; **no live host was
+contacted to confirm it.**
 
 ### Keep-Alive
 
@@ -563,6 +700,8 @@ MNES (Mud New Environment Standard) support is automatically indicated via the M
 ### Using MCCP Protocol
 The MCCP (Mud Client Compression Protocol) provides bandwidth reduction through zlib compression. MCCP2 compresses server-to-client data, while MCCP3 compresses client-to-server data.
 
+Both work the same way: the side that is about to compress sends `IAC SB MCCPn IAC SE`, and from the byte after that `SE` everything it sends in that direction — text *and* telnet negotiation — is one continuous zlib stream that never returns to plain telnet. This library handles that with a stream transform installed on the interpreter: inbound bytes are inflated before the telnet state machine sees them, and outbound writes are deflated after everything else in the library has had its say. There is no per-message compression call, because MCCP has no messages.
+
 #### Server Side
 ```csharp
 var telnet = await new TelnetInterpreterBuilder()
@@ -580,10 +719,10 @@ var telnet = await new TelnetInterpreterBuilder()
     .BuildAsync();
 ```
 
-The server automatically announces MCCP2 and MCCP3 support. When the client accepts, compression is enabled transparently.
+The server automatically announces MCCP2 and MCCP3 support. When the client answers `DO MCCP2` the server sends the marker and compresses everything it writes from then on; when the client sends its own `IAC SB MCCP3 IAC SE` the server starts inflating everything it reads.
 
 #### Client Side
-The client automatically responds to server MCCP offers. MCCP2 decompresses server data, and MCCP3 compresses client data when supported.
+The client automatically responds to server MCCP offers. On `IAC SB MCCP2 IAC SE` it starts inflating everything the server sends; when the server offers MCCP3 it starts compressing everything it writes.
 
 ```csharp
 var telnet = await new TelnetInterpreterBuilder()
@@ -600,14 +739,19 @@ var telnet = await new TelnetInterpreterBuilder()
         })
     .BuildAsync();
 
-// Compression is handled automatically - no manual intervention needed
+// Compression is handled automatically - no manual intervention needed.
+// OnSubmit still receives plain text, and OnNegotiation is still given plain
+// telnet: the compression happens on the far side of both callbacks.
 ```
 
 #### Benefits
 - **MCCP2**: Reduces server-to-client bandwidth by 75-90%
 - **MCCP3**: Reduces client-to-server bandwidth and provides security through obscurity
-- **Automatic**: Compression/decompression is transparent once negotiated
-- **Standards-compliant**: Uses zlib (RFC 1950) compression via System.IO.Compression
+- **Automatic**: Compression/decompression is transparent once negotiated, including for telnet negotiation that arrives inside the compressed stream
+- **Standards-compliant**: Uses zlib (RFC 1950) compression via `System.IO.Compression.ZLibStream` (SharpZipLib on `netstandard2.0`), as one stream per connection per direction
+
+#### Failure handling
+A deflate stream that goes wrong cannot be resynchronized, so if the peer's compressed stream turns out not to be valid zlib the inflater stops for good: the error is logged, `IsMCCP2Enabled` / `IsMCCP3Enabled` goes back to `false`, and nothing further is delivered from that direction rather than garbage being delivered.
 
 ### Using Terminal Speed Protocol
 The Terminal Speed protocol (RFC 1079) allows clients and servers to exchange terminal speed information (transmit and receive speeds in bits per second).
