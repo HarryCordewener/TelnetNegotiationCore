@@ -76,7 +76,8 @@ public class TelnetInterpreterBuilder
     }
 
     /// <summary>
-    /// Sets the maximum buffer size.
+    /// Sets the longest line of ordinary input the interpreter will assemble, in bytes.
+    /// See <see cref="TelnetInterpreter.MaxBufferSize"/>. Defaults to 5 MiB.
     /// </summary>
     /// <param name="size">The maximum buffer size in bytes</param>
     /// <returns>This builder for chaining</returns>
@@ -356,7 +357,8 @@ public class TelnetInterpreterBuilder
             }
         }
 
-        // Create the interpreter instance
+        // Create the interpreter instance. MaxBufferSize is an init property, so it is assigned here
+        // rather than passed to the constructor; the line buffer is allocated from it lazily.
         var interpreter = new TelnetInterpreter(_mode, _logger)
         {
             CallbackOnSubmitAsync = _onSubmit,
@@ -364,17 +366,9 @@ public class TelnetInterpreterBuilder
             CallbackOnByteAsync = byteCallback,
             PluginManager = _pluginManager,
             KeepAliveInterval = _keepAliveInterval,
-            KeepAliveAsync = _keepAliveAsync
+            KeepAliveAsync = _keepAliveAsync,
+            MaxBufferSize = _maxBufferSize ?? TelnetInterpreter.DefaultMaxBufferSize
         };
-
-        // Set max buffer size if specified
-        if (_maxBufferSize.HasValue)
-        {
-            // Note: MaxBufferSize is init-only, so this needs to be set during construction
-            // For now, we'll log a warning. In a real implementation, we'd need to refactor
-            // the constructor to accept this parameter.
-            _logger.LogWarning("MaxBufferSize cannot be set after construction. Using default.");
-        }
 
         // Create protocol context
         var context = new ProtocolContext(interpreter, _pluginManager, _logger);

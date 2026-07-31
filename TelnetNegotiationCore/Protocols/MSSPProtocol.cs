@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -25,6 +26,11 @@ namespace TelnetNegotiationCore.Protocols;
 /// This protocol requires configuration before use. Call <see cref="OnMSSP"/> to set up
 /// the callback that will handle MSSP requests and provide server information. Without
 /// this configuration, the protocol will not be able to respond to client MSSP queries.
+/// </remarks>
+/// <remarks>
+/// This covers telnet option 70. The plaintext <c>MSSP-REQUEST</c> exchange is a separate transport
+/// for the same report, in the separate <see cref="MSSPPlaintextProtocol"/> plugin; adding that
+/// plugin is what opts into it, and it borrows this one's callback, configuration and ceiling.
 /// </remarks>
 [RequiredMethod("OnMSSP", Description = "Configure the callback to handle MSSP requests and provide server information")]
 public class MSSPProtocol : TelnetProtocolPluginBase
@@ -59,6 +65,10 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// client allocates. A report larger than this is <em>dropped</em>, never truncated: it is logged
     /// at Error level and reported to the <see cref="OnMSSPMessageTooLarge"/> callback, because a
     /// report missing an unknown number of its variables is not a smaller report, it is a wrong one.
+    /// <para>
+    /// One ceiling covers both transports: <see cref="MSSPPlaintextProtocol"/> bounds a plaintext
+    /// reply against this same value, because they carry the same report.
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">The value is not positive.</exception>
     public int MaxMessageSize
@@ -450,13 +460,21 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// </summary>
     private MSSPConfig BuildReceivedConfig(IProtocolContext context)
     {
-        var logger = context.Logger;
-
         FlushField(context.CurrentEncoding);
 
-        var config = new MSSPConfig();
+        return ProjectConfig(_received, MSSPSource.TelnetOption, context.Logger);
+    }
 
-        foreach (var entry in _received)
+    /// <summary>
+    /// Turns a collection of received variables into an <see cref="MSSPConfig"/>, tagged with the
+    /// transport that delivered it. Shared by both transports: the vocabulary and the projection are
+    /// identical, only the framing differs.
+    /// </summary>
+    internal static MSSPConfig ProjectConfig(MSSPVariableCollection received, MSSPSource source, ILogger logger)
+    {
+        var config = new MSSPConfig { Source = source };
+
+        foreach (var entry in received)
         {
             var variableName = entry.Key;
             var values = entry.Value;
@@ -504,10 +522,39 @@ public class MSSPProtocol : TelnetProtocolPluginBase
             return;
 
         Context.Logger.LogDebug("Received MSSP request");
-        
+
         if (_onMSSPRequest != null)
             await _onMSSPRequest(config).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Hands a received report to the consumer's <see cref="OnMSSP"/> callback, whichever transport
+    /// carried it.
+    /// </summary>
+    /// <remarks>
+    /// MSSP is one protocol with two transports, so it has one callback. <see cref="MSSPPlaintextProtocol"/>
+    /// delivers through this rather than owning a second callback a consumer would have to wire
+    /// separately; <see cref="MSSPConfig.Source"/> is what tells the two apart.
+    /// <para>
+    /// Gated on <see cref="TelnetProtocolPluginBase.IsEnabled"/> for the same reason
+    /// <see cref="OnMSSPRequestAsync"/> is: <c>ProtocolPluginManager.DisablePluginAsync&lt;MSSPProtocol&gt;()</c>
+    /// is public, and a consumer who turns MSSP off should not keep receiving reports through the
+    /// other transport.
+    /// </para>
+    /// </remarks>
+    internal ValueTask DeliverReportAsync(MSSPConfig config)
+        => IsEnabled ? _onMSSPRequest?.Invoke(config) ?? default(ValueTask) : default(ValueTask);
+
+    /// <summary>
+    /// Reports a reply dropped for exceeding <see cref="MaxMessageSize"/> to the consumer's
+    /// <see cref="OnMSSPMessageTooLarge"/> callback. Shared with <see cref="MSSPPlaintextProtocol"/>
+    /// for the same reason the callback is: one ceiling, one notification, either transport.
+    /// </summary>
+    internal ValueTask ReportTooLargeAsync(long receivedBytes)
+        => IsEnabled
+            ? _onMSSPMessageTooLarge?.Invoke((ReceivedBytes: receivedBytes, MaxMessageSize: MaxMessageSize))
+              ?? default(ValueTask)
+            : default(ValueTask);
 
     #region State Machine Handlers
 
@@ -540,34 +587,53 @@ public class MSSPProtocol : TelnetProtocolPluginBase
             (byte)Trigger.MSSP
         };
 
-        // A configuration that carries a verbatim variable map -- one received from a peer -- is
-        // written from it, so a report round-trips with its arrays and its unknown variables intact.
-        // A configuration built by hand has an empty map, and nothing below changes for it.
-        var written = new HashSet<string>(StringComparer.Ordinal);
-
         var encoding = context.CurrentEncoding;
+
+        foreach (var (name, value) in ReportFields(config))
+        {
+            bytes.AddRange(ConvertToMSSP(name, value, encoding));
+        }
+
+        bytes.Add((byte)Trigger.IAC);
+        bytes.Add((byte)Trigger.SE);
+
+        await context.SendNegotiationAsync(bytes.ToArray());
+    }
+
+    /// <summary>
+    /// Every variable a configuration has to report, once each, in the order the transports send them.
+    /// </summary>
+    /// <remarks>
+    /// A configuration that carries a verbatim variable map -- one received from a peer -- is written
+    /// from it, so a report round-trips with its arrays and its unknown variables intact. A
+    /// configuration built by hand has an empty map, and only the typed properties and
+    /// <see cref="MSSPConfig.Extended"/> contribute. Shared by both transports so that a server
+    /// answering <c>MSSP-REQUEST</c> reports exactly what it reports over option 70.
+    /// </remarks>
+    internal static IEnumerable<(string Name, object Value)> ReportFields(MSSPConfig config)
+    {
+        var written = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var variable in config.Variables)
         {
             written.Add(variable.Key);
-            bytes.AddRange(ConvertToMSSP(variable.Key, variable.Value, encoding));
+            yield return (variable.Key, variable.Value);
         }
 
         // Serialize MSSP configuration using reflection
-        var fields = typeof(MSSPConfig).GetProperties();
-        var knownFields = fields.Where(field => Attribute.IsDefined(field, typeof(NameAttribute)));
+        var knownFields = typeof(MSSPConfig).GetProperties()
+            .Where(field => Attribute.IsDefined(field, typeof(NameAttribute)));
 
         foreach (var field in knownFields)
         {
             var value = field.GetValue(config);
             if (value == null) continue;
 
-            var attr = Attribute.GetCustomAttribute(field, typeof(NameAttribute)) as NameAttribute;
-            if (attr == null) continue;
+            if (Attribute.GetCustomAttribute(field, typeof(NameAttribute)) is not NameAttribute attr) continue;
 
             if (!written.Add(MSSPVariables.Canonicalize(attr.Name))) continue;
 
-            bytes.AddRange(ConvertToMSSP(attr.Name, value, encoding));
+            yield return (attr.Name, value);
         }
 
         foreach (var item in config.Extended ?? new Dictionary<string, dynamic>())
@@ -575,13 +641,8 @@ public class MSSPProtocol : TelnetProtocolPluginBase
             if (item.Value == null) continue;
             if (!written.Add(MSSPVariables.Canonicalize(item.Key))) continue;
 
-            bytes.AddRange(ConvertToMSSP(item.Key, item.Value, encoding));
+            yield return (item.Key, item.Value);
         }
-
-        bytes.Add((byte)Trigger.IAC);
-        bytes.Add((byte)Trigger.SE);
-
-        await context.SendNegotiationAsync(bytes.ToArray());
     }
 
     /// <summary>
@@ -606,7 +667,9 @@ public class MSSPProtocol : TelnetProtocolPluginBase
                 break;
             case int i:
                 bt.Add((byte)Trigger.MSSP_VAL);
-                AppendEscaped(bt, i.ToString(), encoding);
+                // Invariant, not current-culture: a culture whose NegativeSign is not '-' would put a
+                // U+2212 on the wire for CRAWL DELAY's -1, which no peer parses as a number.
+                AppendEscaped(bt, i.ToString(CultureInfo.InvariantCulture), encoding);
                 break;
             case bool b:
                 bt.Add((byte)Trigger.MSSP_VAL);
@@ -634,7 +697,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// to 0xFF (ISO-8859-1 'ÿ'), and an unescaped one would end the subnegotiation early and desync
     /// the peer's parser. Doubling it costs nothing when it never happens.
     /// </remarks>
-    private static void AppendEscaped(List<byte> destination, string text, Encoding encoding)
+    internal static void AppendEscaped(List<byte> destination, string text, Encoding encoding)
     {
         foreach (var b in encoding.GetBytes(text))
         {

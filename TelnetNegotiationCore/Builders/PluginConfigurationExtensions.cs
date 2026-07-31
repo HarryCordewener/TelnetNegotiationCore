@@ -157,6 +157,25 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets how long a plaintext MSSP request waits for the end of a reply, in a fluent manner.
+    /// See <see cref="MSSPPlaintextProtocol.ReplyTimeout"/>.
+    /// </summary>
+    /// <remarks>
+    /// This is the ceiling on an unanswered request, not protocol timing: MSSP gives none for this
+    /// exchange, and nothing is sent at all until <c>RequestReportAsync</c> is called.
+    /// </remarks>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="timeout">How long to wait for the end of a reply (default 10 seconds)</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MSSPPlaintextProtocol> WithReplyTimeout(
+        this PluginConfigurationContext<MSSPPlaintextProtocol> context,
+        TimeSpan timeout)
+    {
+        context.Plugin.WithReplyTimeout(timeout);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the EOR prompt callback in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
