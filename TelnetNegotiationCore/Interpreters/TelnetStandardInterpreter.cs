@@ -265,8 +265,6 @@ public partial class TelnetInterpreter
             SingleWriter = false   // Multiple threads may write
         });
 
-        SupportedCharacterSets = new Lazy<byte[]>(CharacterSets, true);
-
         new List<Func<StateMachine<State, Trigger>, StateMachine<State, Trigger>>>
         {
             // NOTE: SetupSafeNegotiation must run AFTER protocol ConfigureStateMachine calls
