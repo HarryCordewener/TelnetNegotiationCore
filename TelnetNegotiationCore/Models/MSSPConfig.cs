@@ -22,10 +22,47 @@ public class OfficialAttribute(bool official) : Attribute
 }
 
 /// <summary>
+/// Which transport carried an MSSP report.
+/// </summary>
+/// <remarks>
+/// MSSP has two of them — telnet option 70, and the plaintext <c>MSSP-REQUEST</c> exchange — and a
+/// server that implements both is not obliged to make them agree. Which one answered is therefore
+/// part of the value rather than of the callback: it rides on the report, so it survives being
+/// queued, stored, or handed on to something that never saw the connection.
+/// </remarks>
+public enum MSSPSource
+{
+	/// <summary>
+	/// This configuration was not received from a peer: it was built by hand, typically to be
+	/// advertised by a server.
+	/// </summary>
+	Unspecified = 0,
+
+	/// <summary>Received as an <c>IAC SB MSSP … IAC SE</c> subnegotiation (telnet option 70).</summary>
+	TelnetOption = 1,
+
+	/// <summary>
+	/// Received as a plaintext <c>MSSP-REPLY-START</c> … <c>MSSP-REPLY-END</c> block, in answer to a
+	/// plaintext <c>MSSP-REQUEST</c>.
+	/// </summary>
+	Plaintext = 2
+}
+
+/// <summary>
 /// The MSSP Configuration. Takes Functions for its inputs for the purpose of re-evaluation.
 /// </summary>
 public class MSSPConfig
 {
+	/// <summary>
+	/// Which transport delivered this report, or <see cref="MSSPSource.Unspecified"/> for a
+	/// configuration built by hand rather than received from a peer.
+	/// </summary>
+	/// <remarks>
+	/// This is not an MSSP variable and is never sent: it carries no <see cref="NameAttribute"/>, so
+	/// the send path does not see it.
+	/// </remarks>
+	public MSSPSource Source { get; set; } = MSSPSource.Unspecified;
+
 	/// <summary>NAME: Name of the MUD.</summary>
 	[Name("NAME"), Official(true)]
 	public string? Name { get; set; }

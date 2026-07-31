@@ -49,19 +49,45 @@ public partial class TelnetInterpreter
     private readonly ParameterizedTriggers _parameterizedTriggers;
 
     /// <summary>
-    /// Maximum buffer size for telnet messages (default 5MB).
+    /// The longest line of ordinary (non-negotiation) input this connection will assemble, in bytes.
+    /// Defaults to 5 MiB.
     /// </summary>
-    public int MaxBufferSize { get; init; } = 5242880;
+    /// <remarks>
+    /// A peer decides when to send a newline, so this is the one accumulator an untrusted peer can
+    /// grow simply by never terminating a line. A line that passes this is <em>dropped</em>, never
+    /// truncated — a line cut at an arbitrary point is a different line, not a shorter one — and the
+    /// connection carries on with the next.
+    /// </remarks>
+    public int MaxBufferSize { get; init; } = DefaultMaxBufferSize;
 
     /// <summary>
-    /// Local buffer for accumulating line data.
+    /// The default value of <see cref="MaxBufferSize"/>: 5 MiB.
     /// </summary>
-    private readonly byte[] _buffer;
+    public const int DefaultMaxBufferSize = 5242880;
+
+    /// <summary>
+    /// Local buffer for accumulating line data. Allocated on the first byte of input rather than in
+    /// the constructor, so that <see cref="MaxBufferSize"/> (an init property, assigned after the
+    /// constructor has run) is honoured and a negotiation-only connection allocates nothing.
+    /// </summary>
+    private byte[]? _buffer;
 
     /// <summary>
     /// Buffer position where we are writing.
     /// </summary>
     private int _bufferPosition;
+
+    /// <summary>
+    /// Whether the line currently being assembled has already passed <see cref="MaxBufferSize"/>,
+    /// and so is going to be discarded whole when its newline finally arrives.
+    /// </summary>
+    private bool _bufferOverflowed;
+
+    /// <summary>
+    /// Observers that see each assembled line before <see cref="CallbackOnSubmitAsync"/> does, and
+    /// may consume it. See <see cref="RegisterInputLineObserver"/>.
+    /// </summary>
+    private readonly List<Func<byte[], Encoding, ValueTask<bool>>> _inputLineObservers = [];
 
     /// <summary>
     /// Channel for byte processing pipeline with backpressure.
@@ -87,6 +113,12 @@ public partial class TelnetInterpreter
     /// Cancellation token source for graceful shutdown.
     /// </summary>
     private readonly CancellationTokenSource _processingCts = new();
+
+    /// <summary>
+    /// Cancelled when the interpreter is disposed. Protocols that run their own background timers
+    /// link to this so that nothing outlives the connection it belongs to.
+    /// </summary>
+    internal CancellationToken ProcessingToken => _processingCts.Token;
 
     /// <summary>
     /// Background processing task.
@@ -182,9 +214,6 @@ public partial class TelnetInterpreter
         _initialCall = [];
         TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
         _parameterizedTriggers = new ParameterizedTriggers();
-
-        // Initialize buffer with configurable size
-        _buffer = new byte[MaxBufferSize];
 
         // Create bounded channel with backpressure (max 10,000 bytes buffered)
         _byteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(10000)
@@ -327,6 +356,25 @@ public partial class TelnetInterpreter
     }
 
     /// <summary>
+    /// Registers an observer that sees each assembled line of ordinary input before
+    /// <see cref="CallbackOnSubmitAsync"/> does, and returns true to consume it.
+    /// </summary>
+    /// <remarks>
+    /// This exists for protocols that are carried as text rather than as negotiation — the plaintext
+    /// MSSP exchange is the only one today — where the protocol's own lines must not be handed to the
+    /// host application as if a user had typed them. Observers run in registration order and the
+    /// first one to return true stops the line there.
+    /// </remarks>
+    /// <param name="observer">Receives the line's bytes and the connection's encoding; returns true
+    /// if the line belongs to it and must not be delivered.</param>
+    internal void RegisterInputLineObserver(Func<byte[], Encoding, ValueTask<bool>> observer)
+    {
+        if (observer == null) throw new ArgumentNullException(nameof(observer));
+
+        _inputLineObservers.Add(observer);
+    }
+
+    /// <summary>
     /// Write the character into a buffer.
     /// </summary>
     /// <param name="b">A useful byte for the Client/Server</param>
@@ -334,8 +382,21 @@ public partial class TelnetInterpreter
     {
         if (b.AsT0 == (byte)Trigger.CARRIAGERETURN) return;
         _logger.LogTrace("Debug: Writing into buffer: {Byte}", b.AsT0);
-        _buffer[_bufferPosition] = b.AsT0;
-        _bufferPosition++;
+
+        if (_bufferPosition >= MaxBufferSize)
+        {
+            // Past the ceiling: stop storing, but keep consuming the line so that the connection
+            // stays in sync and the next newline still ends it. Writing anyway indexed past the end
+            // of the array, which threw out of the state machine and killed byte processing for the
+            // rest of the connection.
+            _bufferOverflowed = true;
+        }
+        else
+        {
+            (_buffer ??= new byte[MaxBufferSize])[_bufferPosition] = b.AsT0;
+            _bufferPosition++;
+        }
+
         await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? default(ValueTask));
     }
 
@@ -344,14 +405,33 @@ public partial class TelnetInterpreter
     /// </summary>
     private async ValueTask WriteToOutput()
     {
+        if (_bufferOverflowed)
+        {
+            _logger.LogError(
+                "A line of input exceeded the maximum buffer size of {MaxBufferSize} bytes and was dropped. Raise TelnetInterpreter.MaxBufferSize if this is legitimate traffic.",
+                MaxBufferSize);
+
+            _bufferOverflowed = false;
+            _bufferPosition = 0;
+            return;
+        }
+
         if (_bufferPosition == 0)
         {
             return;
         }
 
         // Create array for callback - always allocate exact size needed
-        var cp = _buffer.AsSpan()[.._bufferPosition].ToArray();
+        var cp = _buffer!.AsSpan()[.._bufferPosition].ToArray();
         _bufferPosition = 0;
+
+        foreach (var observer in _inputLineObservers)
+        {
+            if (await observer(cp, CurrentEncoding))
+            {
+                return;
+            }
+        }
 
         if (CallbackOnSubmitAsync is not null)
         {
@@ -373,6 +453,14 @@ public partial class TelnetInterpreter
         if (CallbackNegotiationAsync == null)
         {
             throw new ApplicationException($"{CallbackNegotiationAsync} is null and has not been registered.");
+        }
+
+        // Also checked by TelnetInterpreterBuilder.WithMaxBufferSize; repeated here because
+        // MaxBufferSize is a public init property that can be assigned without the builder.
+        if (MaxBufferSize <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaxBufferSize), MaxBufferSize,
+                "Maximum buffer size must be positive.");
         }
 
         // Also checked by TelnetInterpreterBuilder.WithKeepAlive; repeated here because

@@ -162,6 +162,8 @@ All plugin callbacks and settings are set inline on the builder:
 - `.WithKeepAlive()` — idle keep-alive (off by default, see below)
 - `.WithMaxMessageSize(bytes)` / `.OnGMCPMessageTooLarge(...)` / `.OnMSDPMessageTooLarge(...)` / `.OnMSSPMessageTooLarge(...)` — subnegotiation size limits (see below)
 - `.WithMaxTTableSize(bytes)` — TTABLE size limit (RFC 2066)
+- `.WithPlaintextFallback()` / `.WithPlaintextRequestDelay(...)` / `.WithPlaintextReplyTimeout(...)` / `.OnPlaintextMSSPTimeout(...)` — plaintext MSSP (off by default, see below)
+- `.WithMaxBufferSize(bytes)` — longest line of ordinary input the interpreter will assemble (default 5 MiB; a longer line is dropped, not truncated)
 
 ### Subnegotiation Size Limits
 
@@ -188,6 +190,11 @@ Reaching the limit is never silent, but what is reported differs per protocol:
 | CHARSET TTABLE | `Error` log with the bytes received and the limit, plus a `TTABLE-REJECTED` reply to the peer, which is what RFC 2066 provides for this case. No callback: the `OnTTableReceived` callback is never handed a partial table |
 
 The connection is unaffected in every case; the next message is processed normally.
+
+Ordinary (non-negotiation) input is bounded too. A peer decides when to send a newline, so the line
+the interpreter assembles is the one accumulator a peer can grow simply by never terminating a line;
+`.WithMaxBufferSize(bytes)` sets that ceiling (default 5 MiB). A line past it is dropped whole, with
+an `Error` log, and the connection carries on with the next.
 
 ### Reading MSSP
 
@@ -225,6 +232,76 @@ Variable names are canonicalized to the specification's spaced, upper-case spell
 When **sending**, a `MSSPConfig` you build by hand behaves exactly as before — set the properties, or add to `Extended`. A config you received from a peer round-trips verbatim, arrays and unknown variables included.
 
 MSSP mandates no character set — its only byte-level rule is that *"variables and values cannot contain the MSSP_VAL, MSSP_VAR, IAC, or NUL byte"*, and its own `CHARSET` variable reports *"ASCII, BIG5, CP437, CP949, CP1251, EUC-KR, GB18030, ISO-8859-1, ISO-8859-2, KOI8-R, UTF-8"* — so a report is read and written with `TelnetInterpreter.CurrentEncoding`, whatever RFC 2066 CHARSET negotiation has settled on (UTF-8 until it settles on something else).
+
+### Plaintext MSSP (`MSSP-REQUEST`)
+
+A sizeable population of servers answers MSSP as **plain text** at the login screen as well as over
+telnet option 70. The client sends the literal line `MSSP-REQUEST`; the server answers with a leading
+CRLF, a start marker, tab-separated `name<TAB>value` lines, and an end marker:
+
+```
+\r\nMSSP-REPLY-START\r\n
+NAME<TAB>Some MUD\r\n
+PLAYERS<TAB>4\r\n
+MSSP-REPLY-END\r\n
+```
+
+The vocabulary is the same one — multi-word official names included — so it lands in the same
+`MSSPConfig`, through the same `OnMSSP` callback. **It is off unless you ask for it:**
+
+```csharp
+.AddPlugin<MSSPProtocol>()
+    .OnMSSP(HandleMSSPAsync)
+    .WithPlaintextFallback()                                       // default: false
+    .WithPlaintextRequestDelay(TimeSpan.FromSeconds(10))           // wait before asking
+    .WithPlaintextReplyTimeout(TimeSpan.FromSeconds(10))           // then give up
+    .OnPlaintextMSSPTimeout(() => GaveUpAsync())
+```
+
+**Why it is opt-in.** Unlike `IAC DO 70`, which is pure negotiation that a non-supporting server
+ignores, this puts real text on the wire. A server that does not implement the plaintext form treats
+`MSSP-REQUEST` as input at its login prompt and answers accordingly — two hosts probed while this was
+written replied `Illegal name, try another.` and re-prompted. That is harmless, but it is a real side
+effect on a connection an interactive client intends to log in on, so a crawler turns this on and a
+client does not unless its user asks. On the **server** side the same switch makes the interpreter
+answer an incoming `MSSP-REQUEST` line (case-insensitively, as SMAUG's `str_cmp` does) and consume
+it, which means `MSSP-REQUEST` stops being usable as a login name — also a reason not to make it the
+default.
+
+Behaviour, once enabled:
+
+| | |
+| --- | --- |
+| Client sends | `MSSP-REQUEST\r\n`, **once**, after `PlaintextRequestDelay` — and only if the telnet option has not already answered |
+| Telnet option | always wins: an option-70 report cancels the plaintext request, or stops it being waited for |
+| Markers | matched as **whole lines**, not as substrings, so a MUD that merely says the words in output does not trip the parser |
+| Field split | on the **first tab** only, so `MINIMUM AGE`, `PAY TO PLAY` and `XTERM 256 COLORS` survive, and so do values containing spaces |
+| Size ceiling | the same `MaxMessageSize` as the subnegotiation path, counted over the reply's field lines. Over it the reply is **dropped, never truncated**, with an `Error` log and `OnMSSPMessageTooLarge((ReceivedBytes, MaxMessageSize))` |
+| Timeout | a reply that never ends is given up on after `PlaintextReplyTimeout`: the buffer is released, `OnPlaintextMSSPTimeout` fires, and the half-collected report is never delivered |
+| Encoding | `TelnetInterpreter.CurrentEncoding`, as on the subnegotiation path. `IAC` among the encoded bytes is doubled (RFC 854); a tab or line ending inside a name or value is replaced with a space, because this framing has no escape for one |
+| Lines consumed | everything from the start marker to the end marker, so the reply never reaches your `OnSubmit` as if a user had typed it |
+
+Which transport answered is part of the value, since the two can disagree:
+
+```csharp
+ValueTask HandleMSSPAsync(MSSPConfig config)
+{
+    // MSSPSource.TelnetOption, MSSPSource.Plaintext, or MSSPSource.Unspecified
+    // for a config you built by hand rather than received.
+    Console.WriteLine(config.Source);
+    return ValueTask.CompletedTask;
+}
+```
+
+**Specification status, stated plainly.** The plaintext form is *not* described on the current
+[specification page](https://tintin.mudhalla.net/protocols/mssp/). That page's own
+[changelog](https://tintin.mudhalla.net/protocols/mssp/news.php) records *"Mar 20, 2009 - Plaintext
+version of MSSP finalized and added to specification"*, and the implementation ships in the SMAUG
+family (`Arthmoor/SmaugFUSS` `src/mssp.c`, and the codebases derived from it) and is read by
+Grapevine's crawler. So: it was specified, the specification page no longer carries it, and it is
+deployed anyway — more widely implemented than it is currently documented. This library's framing is
+matched against SmaugFUSS and exercised against a scripted peer; **no live host was contacted to
+confirm it.**
 
 ### Keep-Alive
 

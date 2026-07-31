@@ -157,6 +157,70 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Enables the plaintext MSSP transport in a fluent manner. Off by default.
+    /// See <see cref="MSSPProtocol.PlaintextFallback"/>.
+    /// </summary>
+    /// <remarks>
+    /// This is observable on the wire, which is why it is opt-in: a client sends the literal line
+    /// <c>MSSP-REQUEST</c>, and a server that does not implement the form treats it as input at its
+    /// login prompt. A crawler wants that trade; an interactive client should not make it by accident.
+    /// </remarks>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="enabled">Whether to speak plaintext MSSP</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MSSPProtocol> WithPlaintextFallback(
+        this PluginConfigurationContext<MSSPProtocol> context,
+        bool enabled = true)
+    {
+        context.Plugin.WithPlaintextFallback(enabled);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets how long a client waits before sending the plaintext <c>MSSP-REQUEST</c>, in a fluent
+    /// manner. See <see cref="MSSPProtocol.PlaintextRequestDelay"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="delay">The delay after the connection is built (default 10 seconds)</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MSSPProtocol> WithPlaintextRequestDelay(
+        this PluginConfigurationContext<MSSPProtocol> context,
+        TimeSpan delay)
+    {
+        context.Plugin.WithPlaintextRequestDelay(delay);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets how long a client waits for the end of a plaintext reply before giving up, in a fluent
+    /// manner. See <see cref="MSSPProtocol.PlaintextReplyTimeout"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="timeout">The timeout after the request is sent (default 10 seconds)</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MSSPProtocol> WithPlaintextReplyTimeout(
+        this PluginConfigurationContext<MSSPProtocol> context,
+        TimeSpan timeout)
+    {
+        context.Plugin.WithPlaintextReplyTimeout(timeout);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback invoked when a plaintext MSSP request goes unanswered, in a fluent manner.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to invoke when the attempt is given up on</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MSSPProtocol> OnPlaintextMSSPTimeout(
+        this PluginConfigurationContext<MSSPProtocol> context,
+        Func<ValueTask>? callback)
+    {
+        context.Plugin.OnPlaintextMSSPTimeout(callback);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the EOR prompt callback in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
