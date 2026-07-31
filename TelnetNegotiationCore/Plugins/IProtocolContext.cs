@@ -109,6 +109,25 @@ public interface IProtocolContext
     bool TryGetSharedState<T>(string key, out T? value);
 
     /// <summary>
+    /// Installs the decoder every inbound byte passes through before the telnet state machine sees
+    /// it, or removes it with null. Any transform already installed is disposed.
+    /// </summary>
+    /// <remarks>
+    /// This is the seam for protocols that change what the bytes after their negotiation *mean* —
+    /// MCCP being the one in this library. Installing from a state machine handler takes effect
+    /// from the next byte, because handlers run on the byte-processing loop itself.
+    /// </remarks>
+    /// <param name="transform">The transform to install, or null to go back to raw telnet</param>
+    void SetInboundByteTransform(Interpreters.IInboundByteTransform? transform);
+
+    /// <summary>
+    /// Installs the encoder every outbound write passes through on its way to the network, or
+    /// removes it with null. Any transform already installed is disposed.
+    /// </summary>
+    /// <param name="transform">The transform to install, or null to go back to raw telnet</param>
+    void SetOutboundByteTransform(Interpreters.IOutboundByteTransform? transform);
+
+    /// <summary>
     /// Registers a function to be called during initial negotiation (after BuildAsync).
     /// This is used by protocols to announce their willingness to negotiate.
     /// </summary>

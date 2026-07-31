@@ -119,6 +119,14 @@ internal class ProtocolContext : IProtocolContext
     }
 
     /// <inheritdoc />
+    public void SetInboundByteTransform(IInboundByteTransform? transform)
+        => _interpreter.SetInboundByteTransform(transform);
+
+    /// <inheritdoc />
+    public void SetOutboundByteTransform(IOutboundByteTransform? transform)
+        => _interpreter.SetOutboundByteTransform(transform);
+
+    /// <inheritdoc />
     public void RegisterInitialNegotiation(Func<ValueTask> negotiationFunc)
     {
         if (negotiationFunc == null)
