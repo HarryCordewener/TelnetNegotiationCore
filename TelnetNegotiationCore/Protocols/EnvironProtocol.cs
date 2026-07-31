@@ -31,6 +31,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
 
     private readonly List<byte> _currentVar = [];
     private readonly List<byte> _currentValue = [];
+    private readonly List<string?> _requestedVariables = [];
     private readonly Dictionary<string, string> _environmentVariables = new();
     private IReadOnlyDictionary<string, string> _clientEnvironmentVariables = new Dictionary<string, string>();
     private bool _collectingVar = false;
@@ -219,6 +220,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
             {
                 _currentVar.Clear();
                 _currentValue.Clear();
+                _requestedVariables.Clear();
                 _collectingVar = false;
                 _collectingValue = false;
             });
@@ -277,6 +279,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     {
         _currentVar.Clear();
         _currentValue.Clear();
+        _requestedVariables.Clear();
         _environmentVariables.Clear();
         _collectingVar = false;
         _collectingValue = false;
@@ -307,9 +310,26 @@ public class EnvironProtocol : TelnetProtocolPluginBase
 
     private void StartRequestedVar(OneOf<byte, Trigger> _)
     {
+        FlushRequestedVariable();
         _collectingVar = true;
         _collectingValue = false;
         _currentVar.Clear();
+    }
+
+    /// <summary>
+    /// Records the variable a server has just finished naming in its SEND. A VAR carrying no name at
+    /// all requests every variable, and is recorded as such rather than as a variable called "".
+    /// </summary>
+    private void FlushRequestedVariable()
+    {
+        if (!_collectingVar)
+        {
+            return;
+        }
+
+        _requestedVariables.Add(_currentVar.Count > 0 ? Encoding.ASCII.GetString(_currentVar.ToArray()) : null);
+        _currentVar.Clear();
+        _collectingVar = false;
     }
 
     private void CaptureVarByte(OneOf<byte, Trigger> b)
@@ -405,24 +425,72 @@ public class EnvironProtocol : TelnetProtocolPluginBase
             (byte)Trigger.IS
         };
 
-        // Only what the application supplied reaches the wire. See WithClientEnvironmentVariables.
-        foreach (var (name, value) in _clientEnvironmentVariables)
-        {
-            if (string.IsNullOrEmpty(value))
-            {
-                continue;
-            }
+        FlushRequestedVariable();
 
+        // Only what the application supplied reaches the wire. See WithClientEnvironmentVariables.
+        foreach (var (name, value) in ResolveRequestedVariables())
+        {
             response.Add((byte)Trigger.NEWENVIRON_VAR);
             NewEnvironProtocol.AppendEscaped(response, name);
-            response.Add((byte)Trigger.NEWENVIRON_VALUE);
-            NewEnvironProtocol.AppendEscaped(response, value);
+
+            // A name with no VALUE at all says this client does not have that variable; a name with
+            // an empty VALUE says it has one and it is empty.
+            if (value != null)
+            {
+                response.Add((byte)Trigger.NEWENVIRON_VALUE);
+                NewEnvironProtocol.AppendEscaped(response, value);
+            }
         }
+
+        _requestedVariables.Clear();
 
         response.Add((byte)Trigger.IAC);
         response.Add((byte)Trigger.SE);
 
         await context.SendNegotiationAsync(response.ToArray());
+    }
+
+    /// <summary>
+    /// Answers the SEND the server actually sent: only the variables it named, in the order it named
+    /// them, with a name this client does not have answered by that name carrying no value. A SEND
+    /// with no list, or a VAR with no name, asks for everything.
+    /// </summary>
+    /// <remarks>
+    /// Being asked for a variable is not consent to go and find one: a requested name the
+    /// application did not configure is undefined, including <c>USER</c>.
+    /// </remarks>
+    private List<KeyValuePair<string, string?>> ResolveRequestedVariables()
+    {
+        var response = new List<KeyValuePair<string, string?>>();
+
+        if (_requestedVariables.Count == 0)
+        {
+            foreach (var (name, value) in _clientEnvironmentVariables)
+            {
+                response.Add(new KeyValuePair<string, string?>(name, value));
+            }
+
+            return response;
+        }
+
+        foreach (var requested in _requestedVariables)
+        {
+            if (requested == null)
+            {
+                foreach (var (name, value) in _clientEnvironmentVariables)
+                {
+                    response.Add(new KeyValuePair<string, string?>(name, value));
+                }
+
+                continue;
+            }
+
+            response.Add(new KeyValuePair<string, string?>(
+                requested,
+                _clientEnvironmentVariables.TryGetValue(requested, out var configured) ? configured : null));
+        }
+
+        return response;
     }
 
     #endregion
