@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
@@ -97,6 +98,27 @@ public partial class TelnetInterpreter
     /// loop ever calls it, so the reference just needs publishing, not locking.
     /// </summary>
     private IInboundByteTransform? _inboundTransform;
+
+    /// <summary>
+    /// Decoders that have been swapped out and are waiting to be disposed by the byte-processing
+    /// loop.
+    /// </summary>
+    /// <remarks>
+    /// Whoever swaps one out cannot dispose it: the loop may be inside
+    /// <see cref="IInboundByteTransform.DecodeAsync"/>, and a decoder is typically a zlib inflater,
+    /// where disposing under a thread that is reading from it is a native use-after-free rather
+    /// than a tidy <see cref="ObjectDisposedException"/>. The loop disposes them itself, between
+    /// bytes, which is the one place it is provably not inside one.
+    /// </remarks>
+    private readonly ConcurrentQueue<IInboundByteTransform> _retiredInboundTransforms = new();
+
+    /// <summary>
+    /// Set when something is waiting in <see cref="_retiredInboundTransforms"/>. Read once per
+    /// received byte, so it is a plain volatile bool rather than a queue probe: retirement happens
+    /// at most a couple of times in a connection's life, and the per-byte path should not pay for
+    /// it.
+    /// </summary>
+    private volatile bool _hasRetiredInboundTransforms;
 
     /// <summary>
     /// Optional encoder sitting between the library and the network. Both its use and its
@@ -370,7 +392,8 @@ public partial class TelnetInterpreter
 
     /// <summary>
     /// Installs (or, with null, removes) the decoder every inbound byte passes through before the
-    /// telnet state machine sees it. Any transform already installed is disposed.
+    /// telnet state machine sees it. Any transform already installed is retired, and disposed by
+    /// the byte-processing loop once it is out of it.
     /// </summary>
     /// <remarks>
     /// It takes effect from the next byte read off the channel. A plugin installing one from a
@@ -378,18 +401,42 @@ public partial class TelnetInterpreter
     /// the next byte after the one being processed — which is what a protocol that starts decoding
     /// immediately after a marker needs.
     /// <para>
-    /// <b>Contract:</b> call this from the byte-processing loop — that is, from a state machine
-    /// handler — or after processing has stopped. The loop is the only caller of
-    /// <see cref="IInboundByteTransform.DecodeAsync"/>, and there is no lock around it, so
-    /// swapping from another thread can dispose a decoder the loop is inside. Every call site in
-    /// this library satisfies that: MCCP installs and removes from its own state machine handlers,
-    /// and <see cref="DisposeAsync"/> runs after the loop has ended. The outbound side has no such
-    /// restriction; see <see cref="SetOutboundByteTransformAsync"/>.
+    /// Safe to call from any thread, which matters because
+    /// <see cref="Plugins.ProtocolPluginManager.DisablePluginAsync{T}"/> is public and reaches here
+    /// from wherever a consumer calls it. The swap itself is atomic and disposal is deferred, so a
+    /// decoder is never disposed while the loop is inside it. What is <i>not</i> supported is
+    /// installing the same instance twice with a retirement in between — a stateful decoder cannot
+    /// be reused that way regardless.
     /// </para>
     /// </remarks>
     /// <param name="transform">The transform to install, or null to go back to raw telnet.</param>
     internal void SetInboundByteTransform(IInboundByteTransform? transform)
-        => Interlocked.Exchange(ref _inboundTransform, transform)?.Dispose();
+    {
+        var previous = Interlocked.Exchange(ref _inboundTransform, transform);
+        if (previous is null)
+        {
+            return;
+        }
+
+        _retiredInboundTransforms.Enqueue(previous);
+        _hasRetiredInboundTransforms = true;
+    }
+
+    /// <summary>
+    /// Disposes decoders that have been swapped out. Only ever called where the caller is provably
+    /// not inside one: between bytes on the processing loop, or after it has stopped.
+    /// </summary>
+    private void DisposeRetiredInboundTransforms()
+    {
+        // Cleared before draining, so a retirement that races this drain leaves the flag set and is
+        // picked up next time round rather than being stranded.
+        _hasRetiredInboundTransforms = false;
+
+        while (_retiredInboundTransforms.TryDequeue(out var retired))
+        {
+            retired.Dispose();
+        }
+    }
 
     /// <summary>
     /// Installs (or, with null, removes) the encoder every outbound write passes through on its way
@@ -537,6 +584,12 @@ public partial class TelnetInterpreter
             int byteCount = 0;
             await foreach (var raw in _byteChannel.Reader.ReadAllAsync(cancellationToken))
             {
+                // Between bytes: the one point where this loop is provably not inside a decoder.
+                if (_hasRetiredInboundTransforms)
+                {
+                    DisposeRetiredInboundTransforms();
+                }
+
                 var transform = _inboundTransform;
                 if (transform is null)
                 {
@@ -644,8 +697,11 @@ public partial class TelnetInterpreter
             await PluginManager.DisposeAllAsync();
         }
 
-        // The processing loop has stopped, so nothing can be inside a decoder any more.
+        // The processing loop has stopped, so nothing can be inside a decoder any more, and
+        // whatever it never got round to retiring is disposed here instead.
         SetInboundByteTransform(null);
+        DisposeRetiredInboundTransforms();
+
         await SetOutboundByteTransformAsync(null);
 
         _processingCts.Dispose();

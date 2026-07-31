@@ -200,6 +200,105 @@ public class ByteStreamTransformTests : BaseTest
 		public void Dispose() => Disposals++;
 	}
 
+	/// <summary>
+	/// An inbound transform that parks inside <see cref="DecodeAsync"/> until the test lets it out,
+	/// and remembers whether it was disposed while it was in there.
+	/// </summary>
+	private sealed class GatedInboundTransform : IInboundByteTransform
+	{
+		private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		private readonly ManualResetEventSlim _release = new(false);
+		private readonly byte[] _one = new byte[1];
+		private volatile bool _decoding;
+
+		public Task Entered => _entered.Task;
+		public bool DisposedWhileDecoding { get; private set; }
+		public int Disposals { get; private set; }
+
+		public void Release() => _release.Set();
+
+		public ValueTask<ReadOnlyMemory<byte>> DecodeAsync(byte raw)
+		{
+			_decoding = true;
+			_entered.TrySetResult();
+			_release.Wait();
+			_decoding = false;
+
+			_one[0] = raw;
+			return new ValueTask<ReadOnlyMemory<byte>>(_one.AsMemory());
+		}
+
+		public void Dispose()
+		{
+			// A real decoder here is a zlib inflater. Disposing one while the byte loop is reading
+			// from it is a native use-after-free, not merely an ObjectDisposedException.
+			if (_decoding)
+			{
+				DisposedWhileDecoding = true;
+			}
+
+			Disposals++;
+		}
+	}
+
+	[Test]
+	public async Task SwappingTheInboundTransformFromAnotherThreadDoesNotDisposeItMidDecode()
+	{
+		// PluginManager.DisablePluginAsync<T>() is public and reaches this from any thread, so the
+		// byte loop can be inside DecodeAsync when a transform is swapped out.
+		var (interpreter, probe) = await BuildProbeAsync(_ => ValueTask.CompletedTask);
+		var gate = new GatedInboundTransform();
+		probe.ProbeContext.SetInboundByteTransform(gate);
+
+		await interpreter.InterpretByteArrayAsync(new byte[] { (byte)'x' });
+		await gate.Entered.WaitAsync(TimeSpan.FromSeconds(5));
+
+		// The byte loop is parked inside the transform. Retire it from this thread.
+		probe.ProbeContext.SetInboundByteTransform(null);
+		await Assert.That(gate.Disposals).IsEqualTo(0);
+
+		gate.Release();
+		await interpreter.WaitForProcessingAsync();
+		await Assert.That(gate.DisposedWhileDecoding).IsFalse();
+
+		// It is still disposed — by the loop, once it is provably out of the transform.
+		await interpreter.InterpretByteArrayAsync(new byte[] { (byte)'y' });
+		await PollUntilAsync(() => gate.Disposals == 1);
+		await Assert.That(gate.Disposals).IsEqualTo(1);
+		await Assert.That(gate.DisposedWhileDecoding).IsFalse();
+
+		await interpreter.DisposeAsync();
+		await Assert.That(gate.Disposals).IsEqualTo(1);
+	}
+
+	[Test]
+	public async Task ARetiredInboundTransformIsDisposedAtTeardownIfNoMoreBytesArrive()
+	{
+		var (interpreter, probe) = await BuildProbeAsync(_ => ValueTask.CompletedTask);
+		var retired = new CountingInboundTransform();
+		probe.ProbeContext.SetInboundByteTransform(retired);
+		probe.ProbeContext.SetInboundByteTransform(null);
+
+		await interpreter.DisposeAsync();
+
+		await Assert.That(retired.Disposals).IsEqualTo(1);
+	}
+
+	private sealed class CountingInboundTransform : IInboundByteTransform
+	{
+		private readonly byte[] _one = new byte[1];
+
+		public int Disposals { get; private set; }
+
+		public ValueTask<ReadOnlyMemory<byte>> DecodeAsync(byte raw)
+		{
+			_one[0] = raw;
+			return new ValueTask<ReadOnlyMemory<byte>>(_one.AsMemory());
+		}
+
+		public void Dispose() => Disposals++;
+	}
+
 	/// <summary>Passes bytes straight through, recording how it was fed.</summary>
 	private sealed class FeedRecordingInboundTransform : IInboundByteTransform
 	{
