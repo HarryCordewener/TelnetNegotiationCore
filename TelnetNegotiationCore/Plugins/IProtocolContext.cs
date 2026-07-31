@@ -122,10 +122,22 @@ public interface IProtocolContext
 
     /// <summary>
     /// Installs the encoder every outbound write passes through on its way to the network, or
-    /// removes it with null. Any transform already installed is disposed.
+    /// removes it with null, optionally writing one last thing in the clear first. Any transform
+    /// already installed is disposed once no write is inside it.
     /// </summary>
+    /// <remarks>
+    /// This is serialized against outbound writes, which is what makes both halves safe: a write
+    /// cannot be inside an encoder being disposed, and nothing can be written between
+    /// <paramref name="sendFirst"/> and the switch-over. A protocol that announces its switch-over
+    /// with a marker — MCCP's <c>IAC SB MCCPn IAC SE</c> — must pass that marker here rather than
+    /// sending it separately, or another thread's write can land after the peer has already started
+    /// decoding.
+    /// </remarks>
     /// <param name="transform">The transform to install, or null to go back to raw telnet</param>
-    void SetOutboundByteTransform(Interpreters.IOutboundByteTransform? transform);
+    /// <param name="sendFirst">A final write to make in the clear before the transform takes over</param>
+    ValueTask SetOutboundByteTransformAsync(
+        Interpreters.IOutboundByteTransform? transform,
+        ReadOnlyMemory<byte> sendFirst = default);
 
     /// <summary>
     /// Registers a function to be called during initial negotiation (after BuildAsync).

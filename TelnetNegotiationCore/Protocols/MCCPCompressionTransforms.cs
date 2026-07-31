@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Interpreters;
 #if NETSTANDARD2_0
@@ -25,7 +26,7 @@ namespace TelnetNegotiationCore.Protocols;
 internal sealed class MCCPInflateTransform : IInboundByteTransform
 {
 	private readonly ILogger _logger;
-	private readonly Action _onFailure;
+	private readonly Func<ValueTask> _onFailureAsync;
 	private byte[] _output = new byte[1024];
 	private bool _failed;
 
@@ -38,27 +39,30 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 #endif
 
 	/// <param name="logger">Where a corrupt stream is reported.</param>
-	/// <param name="onFailure">
+	/// <param name="onFailureAsync">
 	/// Called once, if the peer's stream turns out not to be valid zlib. There is no recovering a
 	/// deflate stream that has gone wrong, so after this the transform decodes nothing.
 	/// </param>
-	public MCCPInflateTransform(ILogger logger, Action onFailure)
+	public MCCPInflateTransform(ILogger logger, Func<ValueTask> onFailureAsync)
 	{
 		_logger = logger;
-		_onFailure = onFailure;
+		_onFailureAsync = onFailureAsync;
 #if !NETSTANDARD2_0
 		_inflater = new ZLibStream(_input, CompressionMode.Decompress);
 #endif
 	}
 
 	/// <inheritdoc />
-	public ReadOnlyMemory<byte> Decode(byte raw)
+	public ValueTask<ReadOnlyMemory<byte>> DecodeAsync(byte raw)
 	{
 		if (_failed)
 		{
-			return ReadOnlyMemory<byte>.Empty;
+			return new ValueTask<ReadOnlyMemory<byte>>(ReadOnlyMemory<byte>.Empty);
 		}
 
+		// `written` resets every call, and the interpreter feeds exactly one byte per call, so the
+		// most this can produce is DEFLATE's maximum expansion from one input byte: 1032. _output
+		// therefore plateaus at 2 KiB for the life of the connection however hostile the peer is.
 		var written = 0;
 		try
 		{
@@ -76,15 +80,39 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 			{
 			}
 		}
+#if !NETSTANDARD2_0
+		catch (InvalidDataException) when (_input.RanDryDuringLastRead)
+		{
+			// A host that switches on System.IO.Compression.UseStrictValidation makes ZLibStream
+			// report a base stream that has run out of bytes as truncated data instead of returning
+			// 0, which without this would end every MCCP connection in that process with "the
+			// peer's stream is not valid zlib" on the first partial read. For MCCP a dry base
+			// stream is never truncation — the peer has simply not sent the rest of the symbol yet
+			// — so it means here exactly what a 0-byte read means: stop, resume when more arrives.
+			// The `when` clause is what keeps this from swallowing genuine corruption, which is
+			// always detected on bytes the inflater already has, never on a read that came back
+			// empty.
+			//
+			// Not covered by a unit test: the switch is captured the first time the decompression
+			// path is used in a process, so a test can only observe it if it is the first thing to
+			// decompress anything, which is not something a shared test host can guarantee.
+			// Verified out of process instead, on net8.0 and net10.0.
+		}
+#endif
 		catch (Exception ex)
 		{
 			_failed = true;
 			_logger.LogError(ex, "MCCP: the peer's compressed stream is not valid zlib. Decompression stopped");
-			_onFailure();
-			return ReadOnlyMemory<byte>.Empty;
+			return FailAsync();
 		}
 
-		return _output.AsMemory(0, written);
+		return new ValueTask<ReadOnlyMemory<byte>>(_output.AsMemory(0, written));
+	}
+
+	private async ValueTask<ReadOnlyMemory<byte>> FailAsync()
+	{
+		await _onFailureAsync();
+		return ReadOnlyMemory<byte>.Empty;
 	}
 
 	/// <summary>
@@ -132,8 +160,17 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 		private int _start;
 		private int _end;
 
+		/// <summary>
+		/// Whether the most recent <see cref="Read"/> found nothing left. This distinguishes
+		/// "the peer has not sent the rest yet" from "what the peer sent is corrupt", which
+		/// <see cref="ZLibStream"/> reports as the same exception under strict validation.
+		/// </summary>
+		public bool RanDryDuringLastRead { get; private set; }
+
 		public void Push(byte value)
 		{
+			RanDryDuringLastRead = false;
+
 			if (_end == _buffer.Length)
 			{
 				Compact();
@@ -158,6 +195,7 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 		public override int Read(byte[] buffer, int offset, int count)
 		{
 			var taken = Math.Min(count, _end - _start);
+			RanDryDuringLastRead = taken == 0;
 			Buffer.BlockCopy(_buffer, _start, buffer, offset, taken);
 			_start += taken;
 

@@ -213,30 +213,37 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
-    protected override ValueTask OnProtocolDisabledAsync()
+    protected override async ValueTask OnProtocolDisabledAsync()
     {
         Context.Logger.LogInformation("MCCP Protocol disabled");
-        DisableCompression();
-        return default(ValueTask);
+        await DisableCompressionAsync();
     }
 
     /// <inheritdoc />
-    protected override ValueTask OnDisposeAsync()
-    {
-        DisableCompression();
-        return default(ValueTask);
-    }
+    protected override async ValueTask OnDisposeAsync() => await DisableCompressionAsync();
 
     /// <summary>
     /// Starts inflating everything the peer sends from here on, using one zlib stream for the rest
     /// of the connection.
     /// </summary>
+    /// <remarks>
+    /// A peer chooses when markers arrive and can send a second one. Replacing a running inflater
+    /// would throw away the deflate window the rest of its stream is encoded against, so a repeat
+    /// is ignored rather than obeyed.
+    /// </remarks>
     private async ValueTask StartInflatingAsync(IProtocolContext context, int version)
     {
+        if (IsCompressionRunning(version))
+        {
+            context.Logger.LogDebug(
+                "MCCP{Version}: already inflating, ignoring a repeated compression marker", version);
+            return;
+        }
+
         context.Logger.LogInformation("MCCP{Version}: inbound stream is compressed from here on", version);
 
         context.SetInboundByteTransform(
-            new MCCPInflateTransform(context.Logger, () => OnInboundStreamFailed(version)));
+            new MCCPInflateTransform(context.Logger, () => OnInboundStreamFailedAsync(version)));
         SetEnabled(version, true);
 
         if (_onCompressionEnabled != null)
@@ -244,30 +251,58 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// Announces that this side is about to start compressing, then starts. The marker is the last
-    /// thing that goes out in the clear.
+    /// Announces that this side is about to start compressing, and starts, as one step: the marker
+    /// is the last thing that goes out in the clear and nothing can be written between the two.
     /// </summary>
     private async ValueTask StartDeflatingAsync(IProtocolContext context, int version, byte[] marker)
     {
-        await context.SendNegotiationAsync(marker);
+        if (IsCompressionRunning(version))
+        {
+            context.Logger.LogDebug(
+                "MCCP{Version}: already deflating, ignoring a repeated request to start", version);
+            return;
+        }
+
         context.Logger.LogInformation("MCCP{Version}: outbound stream is compressed from here on", version);
 
-        context.SetOutboundByteTransform(new MCCPDeflateTransform());
+        await context.SetOutboundByteTransformAsync(new MCCPDeflateTransform(), marker);
         SetEnabled(version, true);
 
         if (_onCompressionEnabled != null)
             await _onCompressionEnabled(version, true);
+    }
+
+    /// <summary>
+    /// Stops compressing in one direction, and says so.
+    /// </summary>
+    private async ValueTask StopCompressionAsync(IProtocolContext context, int version, bool inbound)
+    {
+        if (inbound)
+            context.SetInboundByteTransform(null);
+        else
+            await context.SetOutboundByteTransformAsync(null);
+
+        SetEnabled(version, false);
+
+        if (_onCompressionEnabled != null)
+            await _onCompressionEnabled(version, false);
     }
 
     /// <summary>
     /// A deflate stream that has gone wrong cannot be resynchronized, so the inflater stops for
-    /// good and the connection carries on receiving nothing rather than receiving garbage.
+    /// good and the connection carries on receiving nothing rather than receiving garbage. The
+    /// consumer is told, because otherwise it would go on believing compression was live.
     /// </summary>
-    private void OnInboundStreamFailed(int version)
+    private async ValueTask OnInboundStreamFailedAsync(int version)
     {
         Context.Logger.LogError("MCCP{Version}: decompression failed, no further input can be decoded", version);
         SetEnabled(version, false);
+
+        if (_onCompressionEnabled != null)
+            await _onCompressionEnabled(version, false);
     }
+
+    private bool IsCompressionRunning(int version) => version == 2 ? _mccp2Enabled : _mccp3Enabled;
 
     private void SetEnabled(int version, bool enabled)
     {
@@ -277,10 +312,10 @@ public class MCCPProtocol : TelnetProtocolPluginBase
             _mccp3Enabled = enabled;
     }
 
-    private void DisableCompression()
+    private async ValueTask DisableCompressionAsync()
     {
         Context.SetInboundByteTransform(null);
-        Context.SetOutboundByteTransform(null);
+        await Context.SetOutboundByteTransformAsync(null);
         _mccp2Enabled = false;
         _mccp3Enabled = false;
     }
@@ -303,21 +338,13 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnDontMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Client doesn't support MCCP2");
-        context.SetOutboundByteTransform(null);
-        _mccp2Enabled = false;
-
-        if (_onCompressionEnabled != null)
-            await _onCompressionEnabled(2, false);
+        await StopCompressionAsync(context, version: 2, inbound: false);
     }
 
     private async ValueTask OnDontMCCP3Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Client doesn't support MCCP3");
-        context.SetInboundByteTransform(null);
-        _mccp3Enabled = false;
-
-        if (_onCompressionEnabled != null)
-            await _onCompressionEnabled(3, false);
+        await StopCompressionAsync(context, version: 3, inbound: true);
     }
 
     private async ValueTask OnWillMCCP2Async(IProtocolContext context)
@@ -330,11 +357,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWontMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server doesn't support MCCP2");
-        context.SetInboundByteTransform(null);
-        _mccp2Enabled = false;
-
-        if (_onCompressionEnabled != null)
-            await _onCompressionEnabled(2, false);
+        await StopCompressionAsync(context, version: 2, inbound: true);
     }
 
     private async ValueTask OnWillMCCP3Async(IProtocolContext context)
@@ -347,11 +370,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWontMCCP3Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server doesn't support MCCP3");
-        context.SetOutboundByteTransform(null);
-        _mccp3Enabled = false;
-
-        if (_onCompressionEnabled != null)
-            await _onCompressionEnabled(3, false);
+        await StopCompressionAsync(context, version: 3, inbound: false);
     }
 
     #endregion

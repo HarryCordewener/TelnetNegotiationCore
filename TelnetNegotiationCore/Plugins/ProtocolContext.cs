@@ -123,8 +123,8 @@ internal class ProtocolContext : IProtocolContext
         => _interpreter.SetInboundByteTransform(transform);
 
     /// <inheritdoc />
-    public void SetOutboundByteTransform(IOutboundByteTransform? transform)
-        => _interpreter.SetOutboundByteTransform(transform);
+    public ValueTask SetOutboundByteTransformAsync(IOutboundByteTransform? transform, ReadOnlyMemory<byte> sendFirst = default)
+        => _interpreter.SetOutboundByteTransformAsync(transform, sendFirst);
 
     /// <inheritdoc />
     public void RegisterInitialNegotiation(Func<ValueTask> negotiationFunc)

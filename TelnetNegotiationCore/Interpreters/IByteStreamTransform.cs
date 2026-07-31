@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 
 namespace TelnetNegotiationCore.Interpreters;
 
@@ -26,7 +27,13 @@ public interface IInboundByteTransform : IDisposable
 	/// accumulating, one or many once it can decode. The returned memory is owned by the transform
 	/// and is only valid until the next call, so callers must consume it before decoding again.
 	/// </returns>
-	ReadOnlyMemory<byte> Decode(byte raw);
+	/// <remarks>
+	/// Asynchronous only so that a transform which fails terminally can tell someone before it
+	/// returns — decoding itself is pure computation, and an implementation that has nothing to
+	/// report should return an already-completed <see cref="ValueTask{TResult}"/> rather than
+	/// being an <c>async</c> method, so the per-byte path stays allocation free.
+	/// </remarks>
+	ValueTask<ReadOnlyMemory<byte>> DecodeAsync(byte raw);
 }
 
 /// <summary>
@@ -34,9 +41,11 @@ public interface IInboundByteTransform : IDisposable
 /// had its say.
 /// </summary>
 /// <remarks>
-/// Installed through <see cref="Plugins.IProtocolContext.SetOutboundByteTransform"/>. The
+/// Installed through <see cref="Plugins.IProtocolContext.SetOutboundByteTransformAsync"/>. The
 /// interpreter calls this inside its write lock, so calls are serialized and arrive in the order
-/// they will be written — which is what a stateful encoder such as a zlib deflater requires.
+/// they will be written — which is what a stateful encoder such as a zlib deflater requires. The
+/// same lock is taken to install and remove one, so <see cref="IDisposable.Dispose"/> is never
+/// called while a write is inside <see cref="Encode"/>.
 /// </remarks>
 public interface IOutboundByteTransform : IDisposable
 {

@@ -59,6 +59,20 @@ public class MCCPCompressedStreamTests : BaseTest
 		}
 	}
 
+	private static int CountOccurrences(byte[] haystack, byte[] needle)
+	{
+		var found = 0;
+		for (var i = 0; i + needle.Length <= haystack.Length; i++)
+		{
+			if (haystack.AsSpan(i, needle.Length).SequenceEqual(needle))
+			{
+				found++;
+			}
+		}
+
+		return found;
+	}
+
 	private static byte[] Concat(params byte[][] parts)
 	{
 		var result = new byte[parts.Sum(p => p.Length)];
@@ -296,9 +310,145 @@ public class MCCPCompressedStreamTests : BaseTest
 		await Assert.That(plugin.IsMCCP2Enabled).IsFalse();
 		await Assert.That(submitted).IsEmpty();
 
+		// The consumer has to be told, or it goes on believing compression is live while the
+		// library has quietly given up on the connection's input.
+		await Assert.That(compressionEvents).IsEquivalentTo(new[] { (2, true), (2, false) });
+
 		// And it stays stopped rather than throwing on every subsequent byte.
 		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("still not compressed\n"));
 		await Assert.That(submitted).IsEmpty();
+
+		await client.DisposeAsync();
+	}
+
+	[Test]
+	public async Task ASecondCompressionMarkerDoesNotResetTheInflater()
+	{
+		// A peer chooses when markers arrive. Obeying a second one would throw away the deflate
+		// window the rest of its stream is encoded against, and every byte after it would be lost.
+		var submitted = new List<string>();
+		var compressionEvents = new List<(int Version, bool Enabled)>();
+		var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit((data, encoding, _) =>
+			{
+				submitted.Add(encoding.GetString(data));
+				return ValueTask.CompletedTask;
+			})
+			.OnNegotiation(_ => ValueTask.CompletedTask)
+			.AddPlugin<MCCPProtocol>()
+				.OnCompressionEnabled((version, enabled) =>
+				{
+					compressionEvents.Add((version, enabled));
+					return ValueTask.CompletedTask;
+				}));
+
+		await InterpretAndWaitAsync(client, s_willMccp2);
+
+		using var server = new MccpStreamWriter();
+		await InterpretAndWaitAsync(client, Concat(s_startMccp2, server.Send("before the repeat\n")));
+		await PollUntilAsync(() => submitted.Count > 0);
+
+		// The marker again, mid-stream. It is compressed now, like everything else the server sends.
+		await InterpretAndWaitAsync(client, server.Send(s_startMccp2));
+		await InterpretAndWaitAsync(client, server.Send("after the repeat\n"));
+		await PollUntilAsync(() => submitted.Count > 1);
+
+		await Assert.That(submitted).IsEquivalentTo(new[] { "before the repeat", "after the repeat" });
+		await Assert.That(compressionEvents).IsEquivalentTo(new[] { (2, true) });
+
+		await client.DisposeAsync();
+	}
+
+	[Test]
+	public async Task ARepeatedDoMCCP2DoesNotResendTheMarkerOrResetTheDeflater()
+	{
+		var fromServer = new List<byte>();
+		var compressionEvents = new List<(int Version, bool Enabled)>();
+		var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(data =>
+			{
+				fromServer.AddRange(data.ToArray());
+				return ValueTask.CompletedTask;
+			})
+			.AddPlugin<MCCPProtocol>()
+				.OnCompressionEnabled((version, enabled) =>
+				{
+					compressionEvents.Add((version, enabled));
+					return ValueTask.CompletedTask;
+				}));
+
+		fromServer.Clear();
+		await InterpretAndWaitAsync(server, [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2]);
+		await PollUntilAsync(() => fromServer.Count >= s_startMccp2.Length);
+		await server.WriteToNetworkAsync(Encoding.ASCII.GetBytes("first line\n"));
+		await PollUntilAsync(() => fromServer.Count > s_startMccp2.Length);
+
+		// A second DO for an option already in effect must be ignored (RFC 854 loop avoidance),
+		// and must certainly not restart the deflater the client is decoding against.
+		await InterpretAndWaitAsync(server, [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2]);
+		await server.WriteToNetworkAsync(Encoding.ASCII.GetBytes("second line\n"));
+
+		var onTheWire = fromServer.ToArray();
+		await Assert.That(compressionEvents).IsEquivalentTo(new[] { (2, true) });
+
+		// One marker, at the front, and everything after it is one continuous zlib stream.
+		await AssertByteArraysEqual(onTheWire.Take(s_startMccp2.Length).ToArray(), s_startMccp2);
+		await Assert.That(CountOccurrences(onTheWire, s_startMccp2)).IsEqualTo(1);
+
+		var submitted = new List<string>();
+		var client = await BuildClientAsync(submitted, _ => ValueTask.CompletedTask);
+		await InterpretAndWaitAsync(client, s_willMccp2);
+		await InterpretAndWaitAsync(client, onTheWire);
+		await PollUntilAsync(() => submitted.Count > 1);
+
+		await Assert.That(submitted).IsEquivalentTo(new[] { "first line", "second line" });
+
+		await client.DisposeAsync();
+		await server.DisposeAsync();
+	}
+
+	[Test]
+	public async Task AHighRatioPayloadDoesNotGrowTheDecodersBuffer()
+	{
+		// The inflater's output buffer is bounded only because the interpreter feeds it one byte
+		// per call: DEFLATE expands at most 1032:1 from a single input byte, so the buffer plateaus
+		// at 2 KiB however compressible the payload is. Batch the feed and that ceiling becomes
+		// 1032 x batch size, chosen by the peer. This test fails if anyone batches it.
+		var submitted = new List<byte[]>();
+		var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit((data, _, _) =>
+			{
+				submitted.Add(data);
+				return ValueTask.CompletedTask;
+			})
+			.OnNegotiation(_ => ValueTask.CompletedTask)
+			.AddPlugin<MCCPProtocol>());
+
+		await InterpretAndWaitAsync(client, s_willMccp2);
+
+		const int payloadSize = 256 * 1024;
+		var payload = new byte[payloadSize + 1];
+		Array.Fill(payload, (byte)'a', 0, payloadSize);
+		payload[payloadSize] = (byte)'\n';
+
+		using var server = new MccpStreamWriter();
+		var compressed = server.Send(payload);
+
+		// A ratio this high is exactly the shape of a decompression bomb.
+		await Assert.That(compressed.Length).IsLessThan(2048);
+
+		await InterpretAndWaitAsync(client, Concat(s_startMccp2, compressed));
+		await PollUntilAsync(() => submitted.Count > 0, timeoutMs: 60000);
+
+		await Assert.That(submitted.Count).IsEqualTo(1);
+		await Assert.That(submitted[0].Length).IsEqualTo(payloadSize);
 
 		await client.DisposeAsync();
 	}
