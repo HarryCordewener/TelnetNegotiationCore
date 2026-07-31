@@ -34,6 +34,12 @@ public class MockPipelineClient(ILogger<MockPipelineClient> logger, ITelnetInter
 
 		var (telnet, readTask) = await telnetFactory.CreateBuilder()
 			.OnSubmit(WriteBackAsync)
+			.WithClientIdentity(new ClientIdentity("TNC-TESTCLIENT")
+			{
+				Version = "2.9.0",
+				TerminalType = "XTERM",
+				Mtts = MttsCapabilities.Ansi | MttsCapabilities.Colors256
+			})
 			.AddPlugin<NAWSProtocol>()
 			.AddPlugin<GMCPProtocol>()
 				.OnGMCPMessage(SignalGMCPAsync)

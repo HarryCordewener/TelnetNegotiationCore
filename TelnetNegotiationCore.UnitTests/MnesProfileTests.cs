@@ -14,135 +14,17 @@ using TelnetNegotiationCore.Protocols;
 namespace TelnetNegotiationCore.UnitTests;
 
 /// <summary>
-/// What a client says about itself over NEW-ENVIRON, and — first — what it must not say.
+/// The MNES profile's vocabulary: the variable names a MUD client reports, spelled once, and the two
+/// rules the standard states about them.
 /// </summary>
+/// <remarks>
+/// What a client reports, and the guarantee that it reports nothing it was not given, is covered by
+/// <see cref="EnvironPrivacyTests"/> and <see cref="ClientIdentityTests"/>. This file is about the
+/// names themselves.
+/// </remarks>
 public class MnesProfileTests : BaseTest
 {
-    /// <summary>
-    /// A client that was told nothing reports nothing, and above all not the machine's login account.
-    /// </summary>
-    /// <remarks>
-    /// This is the regression that matters. The previous implementation answered every SEND with
-    /// <c>USER=$USER</c> and <c>LANG=en_US.UTF-8</c>, taken from the environment of whoever was
-    /// running the client — so any MUD server that negotiated NEW-ENVIRON learned the operating-system
-    /// account name of a player who had never been asked. There was no way for a consumer to turn it
-    /// off; the dictionary was a local in a private method.
-    /// </remarks>
-    [Test]
-    public async Task AClientToldNothingSendsNothingAndNeverTheOsUsername()
-    {
-        var (client, sent) = await ClientAsync(configure: null);
-
-        await RequestAsync(client, variables: Array.Empty<string>());
-
-        var answer = LastIs(sent);
-
-        await Assert.That(answer).IsNotNull();
-        await Assert.That(Ascii(answer!)).DoesNotContain("USER");
-        await Assert.That(Ascii(answer!)).DoesNotContain(Environment.UserName);
-        await Assert.That(Ascii(answer!)).DoesNotContain("LANG");
-
-        // An empty IS rather than silence: a well-formed "none of those", so a server is not left
-        // waiting on a reply that is never coming.
-        await Assert.That(answer!).IsEquivalentTo(new byte[]
-        {
-            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NEWENVIRON, (byte)Trigger.IS,
-            (byte)Trigger.IAC, (byte)Trigger.SE,
-        });
-
-        await client.DisposeAsync();
-    }
-
-    /// <summary>An application's own name reaches the wire, which is the whole point of MNES.</summary>
-    [Test]
-    public async Task AConfiguredProfileIsWhatGetsReported()
-    {
-        var (client, sent) = await ClientAsync(p => p.ReportVariables(new Dictionary<string, string>
-        {
-            [MnesVariables.ClientName] = "MUINDEX-CRAWLER",
-            [MnesVariables.ClientVersion] = "0.1",
-        }));
-
-        await RequestAsync(client, variables: Array.Empty<string>());
-
-        var answer = Ascii(LastIs(sent)!);
-
-        await Assert.That(answer).Contains("CLIENT_NAME");
-        await Assert.That(answer).Contains("MUINDEX-CRAWLER");
-        await Assert.That(answer).Contains("CLIENT_VERSION");
-
-        await client.DisposeAsync();
-    }
-
-    /// <summary>
-    /// A SEND naming several variables gets several answers, and only the ones it named.
-    /// </summary>
-    /// <remarks>
-    /// The requested names were parsed and then discarded: each <c>VAR</c> cleared the buffer the
-    /// previous name was in, so a server asking for three variables left only the third — and the
-    /// send path ignored even that, answering with its own fixed pair regardless.
-    /// </remarks>
-    [Test]
-    public async Task EveryRequestedVariableIsAnsweredAndNothingElseIs()
-    {
-        var (client, sent) = await ClientAsync(p => p.ReportVariables(new Dictionary<string, string>
-        {
-            [MnesVariables.ClientName] = "TESTCLIENT",
-            [MnesVariables.ClientVersion] = "9.9",
-            [MnesVariables.Charset] = "UTF-8",
-        }));
-
-        await RequestAsync(client, new[] { MnesVariables.ClientName, MnesVariables.Charset });
-
-        var answer = Ascii(LastIs(sent)!);
-
-        await Assert.That(answer).Contains("CLIENT_NAME");
-        await Assert.That(answer).Contains("TESTCLIENT");
-        await Assert.That(answer).Contains("CHARSET");
-        await Assert.That(answer).Contains("UTF-8");
-
-        // Held but not asked for, so not volunteered.
-        await Assert.That(answer).DoesNotContain("CLIENT_VERSION");
-
-        await client.DisposeAsync();
-    }
-
-    /// <summary>A variable we do not hold is omitted rather than answered with a blank.</summary>
-    [Test]
-    public async Task AVariableWeDoNotHoldIsOmitted()
-    {
-        var (client, sent) = await ClientAsync(p =>
-            p.ReportVariable(MnesVariables.ClientName, "TESTCLIENT"));
-
-        await RequestAsync(client, new[] { MnesVariables.ClientName, MnesVariables.IpAddress });
-
-        var answer = Ascii(LastIs(sent)!);
-
-        await Assert.That(answer).Contains("CLIENT_NAME");
-        await Assert.That(answer).DoesNotContain("IPADDRESS");
-
-        await client.DisposeAsync();
-    }
-
-    /// <summary>
-    /// A value carrying a framing byte is refused by the caller rather than sent as a broken stream.
-    /// </summary>
-    [Test]
-    public async Task AValueThatWouldCorruptTheSubnegotiationIsRefused()
-    {
-        var protocol = new NewEnvironProtocol();
-
-        await Assert.That(() => protocol.ReportVariable(MnesVariables.ClientName, "bad" + (char)255 + "value"))
-            .Throws<ArgumentException>();
-        await Assert.That(() => protocol.ReportVariable(MnesVariables.ClientName, "bad" + (char)1 + "value"))
-            .Throws<ArgumentException>();
-        await Assert.That(() => protocol.ReportVariable("client name", "fine"))
-            .Throws<ArgumentException>();
-        await Assert.That(() => protocol.ReportVariable("CLIENT_NAME", "fine"))
-            .ThrowsNothing();
-    }
-
-    /// <summary>The vocabulary is the standard's, spelled once.</summary>
+    /// <summary>The vocabulary is the standard's, and every name in it satisfies its own rule.</summary>
     [Test]
     public async Task TheStandardVariableNamesAreAllLegalNames()
     {
@@ -151,66 +33,118 @@ public class MnesProfileTests : BaseTest
             await Assert.That(MnesVariables.IsLegalName(name)).IsTrue();
         }
 
-        await Assert.That(MnesVariables.All).Contains("CLIENT_NAME");
-        await Assert.That(MnesVariables.All).Contains("MTTS");
+        await Assert.That(MnesVariables.All).IsEquivalentTo(
+        [
+            "CHARSET", "CLIENT_NAME", "CLIENT_VERSION", "IPADDRESS", "MTTS", "TERMINAL_TYPE"
+        ]);
     }
 
-    private async Task<(TelnetInterpreter Client, List<byte[]> Sent)> ClientAsync(
-        Action<NewEnvironProtocol>? configure)
+    /// <summary>
+    /// MNES: <i>"Variables should solely exist of upper case letters and underscores."</i>
+    /// </summary>
+    [Test]
+    public async Task ANameIsUpperCaseLettersAndUnderscores()
     {
-        var sent = new List<byte[]>();
-        var protocol = new NewEnvironProtocol();
+        await Assert.That(MnesVariables.IsLegalName("CLIENT_NAME")).IsTrue();
+        await Assert.That(MnesVariables.IsLegalName("client_name")).IsFalse();
+        await Assert.That(MnesVariables.IsLegalName("CLIENT NAME")).IsFalse();
+        await Assert.That(MnesVariables.IsLegalName("CLIENT-NAME")).IsFalse();
+        await Assert.That(MnesVariables.IsLegalName("CLIENT_NAME_2")).IsFalse();
+        await Assert.That(MnesVariables.IsLegalName(string.Empty)).IsFalse();
+        await Assert.That(MnesVariables.IsLegalName(null)).IsFalse();
+    }
 
-        configure?.Invoke(protocol);
+    /// <summary>
+    /// MNES: <i>"Values cannot contain the VAR, VAL, ESC, USERVAR, or IAC byte."</i>
+    /// </summary>
+    /// <remarks>
+    /// This is a question an application can ask about a value it is about to configure. It is not a
+    /// gate on the send path: NEW-ENVIRON is RFC 1572 first and MNES second, and RFC 1572 defines an
+    /// ESC escape precisely so those bytes can be carried, so the writer escapes rather than refuses.
+    /// A value that fails this predicate is one an MNES peer is entitled to reject, which is worth
+    /// knowing before the connection rather than after.
+    /// </remarks>
+    [Test]
+    public async Task AValueMayNotCarryAFramingByte()
+    {
+        await Assert.That(MnesVariables.IsLegalValue("MUINDEX-CRAWLER")).IsTrue();
+        await Assert.That(MnesVariables.IsLegalValue(string.Empty)).IsTrue();
+        await Assert.That(MnesVariables.IsLegalValue(null)).IsFalse();
+
+        foreach (var framing in new[] { (char)0, (char)1, (char)2, (char)3, (char)255 })
+        {
+            await Assert.That(MnesVariables.IsLegalValue("bad" + framing + "value")).IsFalse();
+        }
+    }
+
+    /// <summary>
+    /// The names the library sends for a configured identity are the ones in the vocabulary, so the
+    /// constants and the wire cannot drift apart.
+    /// </summary>
+    [Test]
+    public async Task AnIdentityIsReportedUnderTheStandardNames()
+    {
+        byte[]? negotiation = null;
 
         var client = await new TelnetInterpreterBuilder()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
-            .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
-            .OnNegotiation(bytes =>
+            .OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(data => { negotiation = data.ToArray(); return ValueTask.CompletedTask; })
+            .WithClientIdentity(new ClientIdentity("MUINDEX-CRAWLER")
             {
-                sent.Add(bytes.ToArray());
-                return ValueTask.CompletedTask;
+                Version = "0.1",
+                TerminalType = "XTERM"
             })
-            .AddPlugin(protocol)
+            .AddPlugin<NewEnvironProtocol>()
+                .WithClientEnvironmentVariables(new Dictionary<string, string>
+                {
+                    { MnesVariables.Charset, "UTF-8" },
+                    { MnesVariables.IpAddress, "203.0.113.7" }
+                })
             .BuildAsync();
 
-        await client.InterpretByteArrayAsync(
-            new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NEWENVIRON });
-        await client.WaitForProcessingAsync();
+        await InterpretAndWaitAsync(client, [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NEWENVIRON]);
+        negotiation = null;
 
-        return (client, sent);
+        await InterpretAndWaitAsync(client,
+        [
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NEWENVIRON, (byte)Trigger.SEND,
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        ]);
+
+        var expected = new List<byte>
+        {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NEWENVIRON, (byte)Trigger.IS
+        };
+        ClientIdentityTests.AppendVariable(expected, MnesVariables.ClientName, "MUINDEX-CRAWLER");
+        ClientIdentityTests.AppendVariable(expected, MnesVariables.ClientVersion, "0.1");
+        ClientIdentityTests.AppendVariable(expected, MnesVariables.TerminalType, "XTERM");
+        ClientIdentityTests.AppendVariable(expected, MnesVariables.Mtts, "516");
+        ClientIdentityTests.AppendVariable(expected, MnesVariables.Charset, "UTF-8");
+        ClientIdentityTests.AppendVariable(expected, MnesVariables.IpAddress, "203.0.113.7");
+        expected.Add((byte)Trigger.IAC);
+        expected.Add((byte)Trigger.SE);
+
+        await AssertByteArraysEqual(negotiation!, expected.ToArray());
+
+        await client.DisposeAsync();
     }
 
-    /// <summary>Sends the server half: <c>IAC SB NEW-ENVIRON SEND [VAR name]... IAC SE</c>.</summary>
-    private static async Task RequestAsync(TelnetInterpreter client, IReadOnlyList<string> variables)
+    /// <summary>
+    /// Every name this library puts on the wire for an identity is one the profile allows, checked
+    /// through the predicate rather than by eye.
+    /// </summary>
+    [Test]
+    public async Task EveryNameTheLibrarySendsIsLegal()
     {
-        var request = new List<byte>
+        var names = new[]
         {
-            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NEWENVIRON, (byte)Trigger.SEND,
+            MnesVariables.ClientName, MnesVariables.ClientVersion, MnesVariables.TerminalType,
+            MnesVariables.Mtts
         };
 
-        foreach (var name in variables)
-        {
-            request.Add((byte)Trigger.NEWENVIRON_VAR);
-            request.AddRange(Encoding.ASCII.GetBytes(name));
-        }
-
-        request.Add((byte)Trigger.IAC);
-        request.Add((byte)Trigger.SE);
-
-        await client.InterpretByteArrayAsync(request.ToArray());
-        await client.WaitForProcessingAsync();
+        await Assert.That(names.All(MnesVariables.IsLegalName)).IsTrue();
+        await Assert.That(names.All(MnesVariables.All.Contains)).IsTrue();
     }
-
-    /// <summary>The last NEW-ENVIRON IS subnegotiation the client wrote, or null.</summary>
-    private static byte[]? LastIs(List<byte[]> sent) =>
-        sent.LastOrDefault(b =>
-            b.Length >= 4
-            && b[0] == (byte)Trigger.IAC
-            && b[1] == (byte)Trigger.SB
-            && b[2] == (byte)Trigger.NEWENVIRON
-            && b[3] == (byte)Trigger.IS);
-
-    private static string Ascii(byte[] bytes) => Encoding.ASCII.GetString(bytes);
 }
