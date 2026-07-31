@@ -261,51 +261,6 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         return default(ValueTask);
     }
 
-    /// <summary>
-    /// Processes a NAWS byte from the client
-    /// </summary>
-    public void ProcessNAWSByte(byte value)
-    {
-        if (!IsEnabled)
-            return;
-
-        if (_nawsIndex >= _nawsByteState.Length)
-        {
-            Array.Resize(ref _nawsByteState, _nawsIndex + 1);
-        }
-
-        _nawsByteState[_nawsIndex++] = value;
-    }
-
-    /// <summary>
-    /// Completes NAWS negotiation and updates width/height
-    /// </summary>
-    public async ValueTask CompleteNAWSNegotiationAsync()
-    {
-        if (!IsEnabled || _nawsByteState.Length < 4)
-            return;
-
-        try
-        {
-            ClientWidth = (_nawsByteState[0] << 8) + _nawsByteState[1];
-            ClientHeight = (_nawsByteState[2] << 8) + _nawsByteState[3];
-
-            Context.Logger.LogInformation("NAWS negotiation complete: Width={Width}, Height={Height}", 
-                ClientWidth, ClientHeight);
-
-            // Trigger callback if registered
-            if (Context.TryGetSharedState<Func<int, int, ValueTask>>("NAWS_Callback", out var callback) && callback != null)
-            {
-                await callback(ClientWidth, ClientHeight);
-            }
-        }
-        finally
-        {
-            _nawsByteState = [];
-            _nawsIndex = 0;
-        }
-    }
-
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
