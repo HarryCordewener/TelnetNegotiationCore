@@ -591,12 +591,27 @@ public class MSSPPlaintextProtocol : TelnetProtocolPluginBase
 		}
 
 		/// <summary>The ceiling elapsed, or the connection went away. Either way: no report.</summary>
+		/// <remarks>
+		/// The overflow is carried across, because the two ceilings can both apply to one reply: a peer
+		/// that overruns the byte cap and then never sends an end marker ends the wait here rather than
+		/// in <see cref="Complete"/>, and "the peer sent too much" is what happened -- reporting it as
+		/// "the peer did not answer" would lose the only fact the caller can act on.
+		/// </remarks>
 		private void Expire()
 		{
 			lock (_lock)
 			{
+				// Complete already decided the outcome; it wins, and has already published it.
+				if (_finished) return;
+
 				_finished = true;
 				Collecting = false;
+
+				if (_overflowed)
+				{
+					OversizedBytes = _bytes;
+				}
+
 				_received.Clear();
 			}
 

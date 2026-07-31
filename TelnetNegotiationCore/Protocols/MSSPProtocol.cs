@@ -536,8 +536,14 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// delivers through this rather than owning a second callback a consumer would have to wire
     /// separately; <see cref="MSSPConfig.Source"/> is what tells the two apart.
     /// </remarks>
+    /// <remarks>
+    /// Gated on <see cref="TelnetProtocolPluginBase.IsEnabled"/> for the same reason
+    /// <see cref="OnMSSPRequestAsync"/> is: <c>ProtocolPluginManager.DisablePluginAsync&lt;MSSPProtocol&gt;()</c>
+    /// is public, and a consumer who turns MSSP off should not keep receiving reports through the
+    /// other transport.
+    /// </remarks>
     internal ValueTask DeliverReportAsync(MSSPConfig config)
-        => _onMSSPRequest?.Invoke(config) ?? default(ValueTask);
+        => IsEnabled ? _onMSSPRequest?.Invoke(config) ?? default(ValueTask) : default(ValueTask);
 
     /// <summary>
     /// Reports a reply dropped for exceeding <see cref="MaxMessageSize"/> to the consumer's
@@ -545,8 +551,10 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// for the same reason the callback is: one ceiling, one notification, either transport.
     /// </summary>
     internal ValueTask ReportTooLargeAsync(long receivedBytes)
-        => _onMSSPMessageTooLarge?.Invoke((ReceivedBytes: receivedBytes, MaxMessageSize: MaxMessageSize))
-           ?? default(ValueTask);
+        => IsEnabled
+            ? _onMSSPMessageTooLarge?.Invoke((ReceivedBytes: receivedBytes, MaxMessageSize: MaxMessageSize))
+              ?? default(ValueTask)
+            : default(ValueTask);
 
     #region State Machine Handlers
 

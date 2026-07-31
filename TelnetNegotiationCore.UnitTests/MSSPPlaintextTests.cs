@@ -605,6 +605,45 @@ public class MSSPPlaintextTests : BaseTest
 	}
 
 	/// <summary>
+	/// The case the ceiling exists for: a peer that starts a reply, overruns the ceiling, and then
+	/// never terminates it. The size cap and the time cap both apply, and the one that ends the wait
+	/// must not lose what the other found out — "too large" and "no answer" are different facts about
+	/// the peer, and only one of them is true here.
+	/// </summary>
+	[Test]
+	public async Task AnOversizedReplyThatNeverEndsIsStillReportedAsOversized()
+	{
+		(long ReceivedBytes, int MaxMessageSize)? tooLarge = null;
+
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client,
+			configureMssp: mssp => mssp
+				.WithMaxMessageSize(1024)
+				.OnMSSPMessageTooLarge(overflow =>
+				{
+					tooLarge = overflow;
+					return ValueTask.CompletedTask;
+				}),
+			configurePlaintext: plaintext => plaintext.WithReplyTimeout(TimeSpan.FromMilliseconds(300)));
+
+		var request = peer.Plaintext.RequestReportAsync().AsTask();
+		await PollUntilAsync(() => peer.Wired.Contains("MSSP-REQUEST"), timeoutMs: 10000);
+
+		// 2000 bytes of fields against a 1024 byte ceiling, and no end marker, ever.
+		var fields = Enumerable.Range(0, 20).Select(i => $"VAR{i:D2}\t{new string('x', 94)}");
+		await peer.FeedAsync("\r\nMSSP-REPLY-START\r\n" + string.Concat(fields.Select(f => f + "\r\n")));
+
+		await Assert.That(await request).IsNull();
+
+		var reported = await PollUntilAsync(() => tooLarge != null, timeoutMs: 10000);
+		await Assert.That(reported).IsTrue();
+		await Assert.That(tooLarge!.Value.ReceivedBytes).IsEqualTo(2000);
+		await Assert.That(tooLarge!.Value.MaxMessageSize).IsEqualTo(1024);
+		await Assert.That(peer.Received.Count).IsEqualTo(0);
+
+		await peer.Interpreter.DisposeAsync();
+	}
+
+	/// <summary>
 	/// A server that ignores the request entirely is the ordinary case, not an error: the wait ends on
 	/// its own ceiling and says "no answer". This is what the two hosts probed while this was written
 	/// actually did.

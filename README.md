@@ -239,7 +239,7 @@ A sizeable population of servers answers MSSP as **plain text** at the login scr
 telnet option 70. The client sends the literal line `MSSP-REQUEST`; the server answers with a leading
 CRLF, a start marker, tab-separated `name<TAB>value` lines, and an end marker:
 
-```
+```text
 \r\nMSSP-REPLY-START\r\n
 NAME<TAB>Some MUD\r\n
 PLAYERS<TAB>4\r\n
@@ -295,6 +295,9 @@ prompt — by which time an interactive client may already have sent a character
 exact policy on top of the explicit call is three lines, and all of it stays yours:
 
 ```csharp
+// The telnet option may already have answered through OnMSSP by now.
+MSSPConfig? report = null;
+
 await Task.Delay(TimeSpan.FromSeconds(10), token);
 if (report is null)
     report = await plaintext.RequestReportAsync(token);   // ReplyTimeout bounds the wait
