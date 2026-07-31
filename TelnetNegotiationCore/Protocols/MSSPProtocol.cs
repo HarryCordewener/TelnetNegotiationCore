@@ -323,35 +323,6 @@ public class MSSPProtocol : TelnetProtocolPluginBase
         FlushField(Context.CurrentEncoding);
     }
 
-    /// <summary>
-    /// Processes the complete MSSP message
-    /// </summary>
-    public async ValueTask ProcessMSSPMessageAsync()
-    {
-        if (!IsEnabled)
-            return;
-
-        try
-        {
-            if (await ReportOversizedAsync(Context))
-            {
-                return;
-            }
-
-            var config = BuildReceivedConfig(Context);
-
-            // Trigger callback if registered
-            if (Context.TryGetSharedState<Func<MSSPConfig, ValueTask>>("MSSP_Callback", out var callback) && callback != null)
-            {
-                await callback(config);
-            }
-        }
-        finally
-        {
-            ClearMSSPState();
-        }
-    }
-
     private void ClearMSSPState()
     {
         _msspBytes.Reset();
