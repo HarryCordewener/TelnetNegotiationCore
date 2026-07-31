@@ -33,6 +33,12 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     private readonly List<byte> _currentValue = [];
     private readonly Dictionary<string, string> _environmentVariables = new();
     private readonly Dictionary<string, string> _userVariables = new();
+
+    /// <summary>What this client reports about itself when asked. Empty until an application says.</summary>
+    private readonly Dictionary<string, string> _reportedVariables = new(StringComparer.Ordinal);
+
+    /// <summary>The variable names the server's SEND asked for, in the order it asked.</summary>
+    private readonly List<string> _requestedVariables = [];
     private bool _isUserVar = false;
     private bool _collectingVar = false;
     private bool _collectingValue = false;
@@ -50,6 +56,64 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         _onEnvironmentVariables = callback;
         return this;
     }
+
+    /// <summary>
+    /// Sets what this client reports about itself when a server asks (MNES).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Nothing is reported until an application calls this.</b> The library has no business
+    /// inventing an answer on the application's behalf: it does not know the client's name, its
+    /// version, or whether the person running it would want any of it sent to a stranger's server.
+    /// A client that configures nothing answers a SEND with an empty IS, which is exactly what RFC
+    /// 1572 provides for and leaves the server no worse off than talking to the many clients that
+    /// never negotiate NEW-ENVIRON at all.
+    /// </para>
+    /// <para>
+    /// Use <see cref="MnesVariables"/> for the standard names. Names and values are validated here
+    /// rather than at send time, so a value that would corrupt the subnegotiation is refused by the
+    /// caller's own stack trace instead of producing a stream the far end cannot parse.
+    /// </para>
+    /// </remarks>
+    /// <param name="variables">The variables to report. Replaces anything set before.</param>
+    /// <returns>This instance for fluent chaining.</returns>
+    /// <exception cref="ArgumentException">A name or value is not legal MNES.</exception>
+    public NewEnvironProtocol ReportVariables(IReadOnlyDictionary<string, string> variables)
+    {
+        if (variables is null)
+        {
+            // Written out rather than ArgumentNullException.ThrowIfNull, which netstandard2.0 does
+            // not have and this package still targets.
+            throw new ArgumentNullException(nameof(variables));
+        }
+
+        foreach (var (name, value) in variables)
+        {
+            Validate(name, value);
+        }
+
+        _reportedVariables.Clear();
+
+        foreach (var (name, value) in variables)
+        {
+            _reportedVariables[name] = value;
+        }
+
+        return this;
+    }
+
+    /// <summary>Sets or replaces one reported variable.</summary>
+    /// <exception cref="ArgumentException">The name or value is not legal MNES.</exception>
+    public NewEnvironProtocol ReportVariable(string name, string value)
+    {
+        Validate(name, value);
+        _reportedVariables[name] = value;
+
+        return this;
+    }
+
+    /// <summary>What this client reports about itself.</summary>
+    public IReadOnlyDictionary<string, string> ReportedVariables => _reportedVariables;
 
     /// <summary>
     /// The environment variables received from the remote party
@@ -131,6 +195,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
             {
                 _currentVar.Clear();
                 _currentValue.Clear();
+                _requestedVariables.Clear();
                 _collectingVar = false;
                 _collectingValue = false;
                 _isUserVar = false;
@@ -213,6 +278,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
             {
                 _currentVar.Clear();
                 _currentValue.Clear();
+                _requestedVariables.Clear();
                 _collectingVar = false;
                 _collectingValue = false;
                 _isUserVar = false;
@@ -317,6 +383,10 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
     private void StartRequestedVar(OneOf<byte, Trigger> _)
     {
+        // Each VAR closes the previous name. Without this the state machine's PermitReentry meant a
+        // SEND naming three variables left only the third in the buffer, and every earlier one was
+        // silently discarded.
+        FinishRequestedVar();
         _collectingVar = true;
         _collectingValue = false;
         _isUserVar = false;
@@ -325,9 +395,22 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
     private void StartRequestedUserVar(OneOf<byte, Trigger> _)
     {
+        FinishRequestedVar();
         _collectingVar = true;
         _collectingValue = false;
         _isUserVar = true;
+        _currentVar.Clear();
+    }
+
+    /// <summary>Closes off the name being collected, if any, and records it as requested.</summary>
+    private void FinishRequestedVar()
+    {
+        if (_currentVar.Count == 0)
+        {
+            return;
+        }
+
+        _requestedVariables.Add(Encoding.ASCII.GetString(_currentVar.ToArray()));
         _currentVar.Clear();
     }
 
@@ -438,10 +521,21 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         }
     }
 
-    private async ValueTask SendEnvironmentVariablesAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask SendEnvironmentVariablesAsync(
+        StateMachine<State, Trigger>.Transition _,
+        IProtocolContext context)
     {
-        // Client received SEND request from server
-        context.Logger.LogDebug("Server requested environment variables, sending response...");
+        FinishRequestedVar();
+
+        // RFC 1572 and MNES both: a SEND naming no variables asks for everything we have. A SEND
+        // naming some asks for those, and the answer is allowed to omit any we do not hold.
+        var wanted = _requestedVariables.Count == 0
+            ? _reportedVariables.Keys.ToList()
+            : _requestedVariables.Where(_reportedVariables.ContainsKey).ToList();
+
+        context.Logger.LogDebug(
+            "Server requested {Requested} environment variable(s); reporting {Reported}",
+            _requestedVariables.Count, wanted.Count);
 
         var response = new List<byte>
         {
@@ -451,29 +545,39 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
             (byte)Trigger.IS
         };
 
-        // For now, send common environment variables if available
-        // In a real implementation, this would be configurable
-        var envVars = new Dictionary<string, string>
+        foreach (var name in wanted)
         {
-            { "USER", Environment.GetEnvironmentVariable("USER") ?? Environment.UserName },
-            { "LANG", "en_US.UTF-8" }
-        };
-
-        foreach (var (name, value) in envVars)
-        {
-            if (!string.IsNullOrEmpty(value))
-            {
-                response.Add((byte)Trigger.NEWENVIRON_VAR);
-                response.AddRange(Encoding.ASCII.GetBytes(name));
-                response.Add((byte)Trigger.NEWENVIRON_VALUE);
-                response.AddRange(Encoding.ASCII.GetBytes(value));
-            }
+            response.Add((byte)Trigger.NEWENVIRON_VAR);
+            response.AddRange(Encoding.ASCII.GetBytes(name));
+            response.Add((byte)Trigger.NEWENVIRON_VALUE);
+            response.AddRange(Encoding.ASCII.GetBytes(_reportedVariables[name]));
         }
 
         response.Add((byte)Trigger.IAC);
         response.Add((byte)Trigger.SE);
 
+        _requestedVariables.Clear();
+
+        // An empty IS is sent rather than silence. It is a well-formed answer meaning "none of those",
+        // and a server left waiting on a reply it will never get is worse than one told nothing.
         await context.SendNegotiationAsync(response.ToArray());
+    }
+
+    private static void Validate(string name, string value)
+    {
+        if (!MnesVariables.IsLegalName(name))
+        {
+            throw new ArgumentException(
+                $"'{name}' is not a legal variable name: MNES allows upper-case letters and "
+                + "underscores only.", nameof(name));
+        }
+
+        if (!MnesVariables.IsLegalValue(value))
+        {
+            throw new ArgumentException(
+                $"The value for '{name}' contains a byte MNES reserves for framing (VAR, VAL, ESC, "
+                + "USERVAR or IAC), which would corrupt the subnegotiation.", nameof(value));
+        }
     }
 
     #endregion
