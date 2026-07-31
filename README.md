@@ -308,7 +308,7 @@ Behaviour once the plugin is added:
 | | |
 | --- | --- |
 | Client sends | `MSSP-REQUEST\r\n`, only from `RequestReportAsync`, once per call |
-| Returns | the `MSSPConfig`, or `null` for every no-report case: never answered, reply never ended, reply over the ceiling, connection gone. Not an error — a server without the form is the ordinary case |
+| Returns | the `MSSPConfig`, or `null` whenever the peer produced no report: never answered, reply never ended, reply over the ceiling, connection gone. Not an error — a server without the form is the ordinary case. Caller-side faults (already-cancelled token, disabled plugin) throw rather than returning `null` |
 | Telnet option | untouched. This is a second transport, not a replacement; both can answer on one connection and each report says which it came from |
 | Markers | matched as **whole lines**, not as substrings, so a MUD that merely says the words in output does not trip the parser |
 | Field split | on the **first tab** only, so `MINIMUM AGE`, `PAY TO PLAY` and `XTERM 256 COLORS` survive, and so do values containing spaces |
