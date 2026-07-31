@@ -17,18 +17,29 @@ namespace TelnetNegotiationCore.Protocols;
 /// byte at a time.
 /// </summary>
 /// <remarks>
+/// <para>
 /// MCCP is not a sequence of independently compressed messages — the deflate back-reference window
 /// and the Huffman state carry across everything the peer sends after the marker, so a fresh
 /// inflater per network read decodes the first read and then fails on the second. Nor do reads line
 /// up with anything: a read can end in the middle of a symbol, and one byte can complete a match
 /// that expands to hundreds. Hence the incremental interface.
+/// </para>
+/// <para>
+/// One zlib stream, but not necessarily for the whole connection: "the server may terminate
+/// compression at any point by sending an orderly stream end (Z_FINISH). Following this, the
+/// connection continues as a normal telnet connection." So this watches for the end of the stream
+/// and hands the connection back, rather than going on feeding plain telnet to a finished inflater
+/// — which produces nothing, for ever, in silence.
+/// </para>
 /// </remarks>
 internal sealed class MCCPInflateTransform : IInboundByteTransform
 {
 	private readonly ILogger _logger;
 	private readonly Func<ValueTask> _onFailureAsync;
+	private readonly Func<ValueTask> _onStreamEndAsync;
 	private byte[] _output = new byte[1024];
 	private bool _failed;
+	private bool _ended;
 
 #if NETSTANDARD2_0
 	private readonly Inflater _inflater = new Inflater();
@@ -43,10 +54,16 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 	/// Called once, if the peer's stream turns out not to be valid zlib. There is no recovering a
 	/// deflate stream that has gone wrong, so after this the transform decodes nothing.
 	/// </param>
-	public MCCPInflateTransform(ILogger logger, Func<ValueTask> onFailureAsync)
+	/// <param name="onStreamEndAsync">
+	/// Called once, when the peer ends its stream in an orderly way. The connection is plain telnet
+	/// again from that point, so the owner is expected to uninstall this transform; until it does,
+	/// bytes pass through untouched.
+	/// </param>
+	public MCCPInflateTransform(ILogger logger, Func<ValueTask> onFailureAsync, Func<ValueTask> onStreamEndAsync)
 	{
 		_logger = logger;
 		_onFailureAsync = onFailureAsync;
+		_onStreamEndAsync = onStreamEndAsync;
 #if !NETSTANDARD2_0
 		_inflater = new ZLibStream(_input, CompressionMode.Decompress);
 #endif
@@ -58,6 +75,15 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 		if (_failed)
 		{
 			return new ValueTask<ReadOnlyMemory<byte>>(ReadOnlyMemory<byte>.Empty);
+		}
+
+		if (_ended)
+		{
+			// The peer stopped compressing and the owner has not swapped this out yet. These are
+			// telnet bytes, not deflate bytes; passing them through is the only thing that is not
+			// data loss.
+			_output[0] = raw;
+			return new ValueTask<ReadOnlyMemory<byte>>(_output.AsMemory(0, 1));
 		}
 
 		// `written` resets every call, and the interpreter feeds exactly one byte per call, so the
@@ -106,6 +132,19 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 			return FailAsync();
 		}
 
+		if (StreamHasEnded())
+		{
+			_ended = true;
+			_logger.LogInformation(
+				"MCCP: the peer ended its compressed stream; the connection continues in the clear");
+
+			// Whatever the inflater pulled in but did not consume is past the end of the zlib
+			// stream, which makes it the first plain telnet the peer has sent since the marker.
+			// Dropping it would lose the peer's own "I have stopped compressing" negotiation.
+			written += TakeUnconsumedInput(written);
+			return EndAsync(written);
+		}
+
 		return new ValueTask<ReadOnlyMemory<byte>>(_output.AsMemory(0, written));
 	}
 
@@ -113,6 +152,55 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 	{
 		await _onFailureAsync();
 		return ReadOnlyMemory<byte>.Empty;
+	}
+
+	private async ValueTask<ReadOnlyMemory<byte>> EndAsync(int written)
+	{
+		await _onStreamEndAsync();
+		return _output.AsMemory(0, written);
+	}
+
+	/// <summary>
+	/// Whether the peer's zlib stream is over. Both implementations say this the same way: the
+	/// inflater stops asking for input, so input the transform has already handed it stays
+	/// unconsumed.
+	/// </summary>
+#if NETSTANDARD2_0
+	private bool StreamHasEnded() => _inflater.IsFinished;
+#else
+	private bool StreamHasEnded() => _input.HasUnconsumedInput;
+#endif
+
+	/// <summary>
+	/// Moves the bytes the inflater declined to consume into the tail of <see cref="_output"/>, and
+	/// returns how many there were.
+	/// </summary>
+	/// <param name="written">How much of <see cref="_output"/> is already in use.</param>
+	private int TakeUnconsumedInput(int written)
+	{
+#if NETSTANDARD2_0
+		// The interpreter feeds exactly one byte per call, so the one still in _input is the only
+		// byte SharpZipLib's inflater can be holding back.
+		if (_inflater.RemainingInput == 0)
+		{
+			return 0;
+		}
+
+		if (written == _output.Length)
+		{
+			Array.Resize(ref _output, _output.Length * 2);
+		}
+
+		_output[written] = _input[0];
+		return 1;
+#else
+		while (_output.Length - written < _input.UnconsumedInputLength)
+		{
+			Array.Resize(ref _output, _output.Length * 2);
+		}
+
+		return _input.TakeUnconsumedInput(_output, written);
+#endif
 	}
 
 	/// <summary>
@@ -166,6 +254,29 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 		/// <see cref="ZLibStream"/> reports as the same exception under strict validation.
 		/// </summary>
 		public bool RanDryDuringLastRead { get; private set; }
+
+		/// <summary>
+		/// How many pushed bytes <see cref="ZLibStream"/> has not taken.
+		/// </summary>
+		/// <remarks>
+		/// A running inflater always empties this — <c>DeflateStream</c> keeps pulling until a read
+		/// comes back empty — so anything left here means it has stopped asking, which for zlib
+		/// means the stream ended. These bytes are therefore past the end of it.
+		/// </remarks>
+		public int UnconsumedInputLength => _end - _start;
+
+		/// <inheritdoc cref="UnconsumedInputLength" />
+		public bool HasUnconsumedInput => _end > _start;
+
+		/// <summary>Moves everything left here into <paramref name="destination"/>.</summary>
+		public int TakeUnconsumedInput(byte[] destination, int offset)
+		{
+			var taken = _end - _start;
+			Buffer.BlockCopy(_buffer, _start, destination, offset, taken);
+			_start = 0;
+			_end = 0;
+			return taken;
+		}
 
 		public void Push(byte value)
 		{

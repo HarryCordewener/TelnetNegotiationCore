@@ -229,7 +229,8 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     /// <remarks>
     /// A peer chooses when markers arrive and can send a second one. Replacing a running inflater
     /// would throw away the deflate window the rest of its stream is encoded against, so a repeat
-    /// is ignored rather than obeyed.
+    /// is ignored rather than obeyed. Once the peer has <i>ended</i> its stream, though, a marker
+    /// is an ordinary fresh start and gets a fresh inflater.
     /// </remarks>
     private async ValueTask StartInflatingAsync(IProtocolContext context, int version)
     {
@@ -242,8 +243,10 @@ public class MCCPProtocol : TelnetProtocolPluginBase
 
         context.Logger.LogInformation("MCCP{Version}: inbound stream is compressed from here on", version);
 
-        context.SetInboundByteTransform(
-            new MCCPInflateTransform(context.Logger, () => OnInboundStreamFailedAsync(version)));
+        context.SetInboundByteTransform(new MCCPInflateTransform(
+            context.Logger,
+            () => OnInboundStreamFailedAsync(version),
+            () => OnInboundStreamEndedAsync(version)));
         SetEnabled(version, true);
 
         if (_onCompressionEnabled != null)
@@ -275,13 +278,62 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     /// <summary>
     /// Stops compressing in one direction, and says so.
     /// </summary>
+    /// <remarks>
+    /// Only what is actually running is stopped. A peer is entitled to refuse an option it was
+    /// never using, and to refuse it twice; announcing a state change that did not happen would
+    /// have consumers tearing down a compression state they never had.
+    /// </remarks>
     private async ValueTask StopCompressionAsync(IProtocolContext context, int version, bool inbound)
     {
+        if (!IsCompressionRunning(version))
+        {
+            return;
+        }
+
         if (inbound)
             context.SetInboundByteTransform(null);
         else
             await context.SetOutboundByteTransformAsync(null);
 
+        SetEnabled(version, false);
+
+        if (_onCompressionEnabled != null)
+            await _onCompressionEnabled(version, false);
+    }
+
+    /// <summary>
+    /// Handles the peer refusing an option whose inbound stream may still be open.
+    /// </summary>
+    /// <remarks>
+    /// An MCCP stream ends when the peer ends it — "an orderly stream end (Z_FINISH)" — and not a
+    /// byte sooner. A refusal that arrives while the stream is still open is the peer saying what
+    /// it is about to do, and the bytes already in flight behind it are still compressed. Taking
+    /// the inflater out here would hand the rest of the zlib stream to the telnet state machine as
+    /// if it were telnet, and leave the plugin believing nothing is running — so the peer's next
+    /// compression marker would install a fresh inflater onto the middle of the old stream, where
+    /// the first thing it reads is not a zlib header. That is the "unsupported compression method"
+    /// in issue #66. <see cref="MCCPInflateTransform"/> reports the real end of the stream instead.
+    /// </remarks>
+    private async ValueTask StopInflatingOnRefusalAsync(IProtocolContext context, int version)
+    {
+        if (IsCompressionRunning(version))
+        {
+            context.Logger.LogDebug(
+                "MCCP{Version}: the peer refused the option while its stream is still open; inflating "
+                + "until it ends the stream", version);
+            return;
+        }
+
+        await StopCompressionAsync(context, version, inbound: true);
+    }
+
+    /// <summary>
+    /// The peer ended its compressed stream in the orderly way the specification describes, so the
+    /// connection is plain telnet again from here and the inflater comes out.
+    /// </summary>
+    private async ValueTask OnInboundStreamEndedAsync(int version)
+    {
+        Context.SetInboundByteTransform(null);
         SetEnabled(version, false);
 
         if (_onCompressionEnabled != null)
@@ -344,7 +396,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnDontMCCP3Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Client doesn't support MCCP3");
-        await StopCompressionAsync(context, version: 3, inbound: true);
+        await StopInflatingOnRefusalAsync(context, version: 3);
     }
 
     private async ValueTask OnWillMCCP2Async(IProtocolContext context)
@@ -357,7 +409,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWontMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server doesn't support MCCP2");
-        await StopCompressionAsync(context, version: 2, inbound: true);
+        await StopInflatingOnRefusalAsync(context, version: 2);
     }
 
     private async ValueTask OnWillMCCP3Async(IProtocolContext context)
