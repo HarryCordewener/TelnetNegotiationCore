@@ -28,12 +28,12 @@ namespace TelnetNegotiationCore.Protocols;
 /// this configuration, the protocol will not be able to respond to client MSSP queries.
 /// </remarks>
 /// <remarks>
-/// The plaintext transport — the <c>MSSP-REQUEST</c> / <c>MSSP-REPLY-START</c> exchange that carries
-/// the same report as ordinary text — lives in <c>MSSPPlaintextProtocol.cs</c>. It is off unless
-/// <see cref="PlaintextFallback"/> is set.
+/// This covers telnet option 70. The plaintext <c>MSSP-REQUEST</c> exchange is a separate transport
+/// for the same report, in the separate <see cref="MSSPPlaintextProtocol"/> plugin; adding that
+/// plugin is what opts into it, and it borrows this one's callback, configuration and ceiling.
 /// </remarks>
 [RequiredMethod("OnMSSP", Description = "Configure the callback to handle MSSP requests and provide server information")]
-public partial class MSSPProtocol : TelnetProtocolPluginBase
+public class MSSPProtocol : TelnetProtocolPluginBase
 {
     private static readonly byte[] s_willMssp = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MSSP };
     private static readonly byte[] s_doMssp = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP };
@@ -66,8 +66,8 @@ public partial class MSSPProtocol : TelnetProtocolPluginBase
     /// at Error level and reported to the <see cref="OnMSSPMessageTooLarge"/> callback, because a
     /// report missing an unknown number of its variables is not a smaller report, it is a wrong one.
     /// <para>
-    /// One ceiling covers both transports: it bounds a plaintext reply exactly as it bounds a
-    /// subnegotiation, because they carry the same report. See <see cref="PlaintextFallback"/>.
+    /// One ceiling covers both transports: <see cref="MSSPPlaintextProtocol"/> bounds a plaintext
+    /// reply against this same value, because they carry the same report.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">The value is not positive.</exception>
@@ -249,10 +249,6 @@ public partial class MSSPProtocol : TelnetProtocolPluginBase
             TriggerHelper.ForAllTriggersExcept([Trigger.IAC, Trigger.MSSP_VAL],
                 t => stateMachine.Configure(State.EvaluatingMSSPVar).PermitReentry(t));
         }
-
-        // The plaintext transport is not a subnegotiation and so has nothing to add to the state
-        // machine; it hooks the assembled-line path instead. Off unless PlaintextFallback is set.
-        ConfigurePlaintextTransport(context);
     }
 
     /// <inheritdoc />
@@ -270,11 +266,11 @@ public partial class MSSPProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
-    protected override async ValueTask OnProtocolDisabledAsync()
+    protected override ValueTask OnProtocolDisabledAsync()
     {
         Context.Logger.LogInformation("MSSP Protocol disabled");
         ClearMSSPState();
-        await StopPlaintextAsync();
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -474,7 +470,7 @@ public partial class MSSPProtocol : TelnetProtocolPluginBase
     /// transport that delivered it. Shared by both transports: the vocabulary and the projection are
     /// identical, only the framing differs.
     /// </summary>
-    private static MSSPConfig ProjectConfig(MSSPVariableCollection received, MSSPSource source, ILogger logger)
+    internal static MSSPConfig ProjectConfig(MSSPVariableCollection received, MSSPSource source, ILogger logger)
     {
         var config = new MSSPConfig { Source = source };
 
@@ -510,10 +506,10 @@ public partial class MSSPProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
-    protected override async ValueTask OnDisposeAsync()
+    protected override ValueTask OnDisposeAsync()
     {
         ClearMSSPState();
-        await StopPlaintextAsync();
+        return default(ValueTask);
     }
 
     /// <summary>
@@ -526,10 +522,31 @@ public partial class MSSPProtocol : TelnetProtocolPluginBase
             return;
 
         Context.Logger.LogDebug("Received MSSP request");
-        
+
         if (_onMSSPRequest != null)
             await _onMSSPRequest(config).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Hands a received report to the consumer's <see cref="OnMSSP"/> callback, whichever transport
+    /// carried it.
+    /// </summary>
+    /// <remarks>
+    /// MSSP is one protocol with two transports, so it has one callback. <see cref="MSSPPlaintextProtocol"/>
+    /// delivers through this rather than owning a second callback a consumer would have to wire
+    /// separately; <see cref="MSSPConfig.Source"/> is what tells the two apart.
+    /// </remarks>
+    internal ValueTask DeliverReportAsync(MSSPConfig config)
+        => _onMSSPRequest?.Invoke(config) ?? default(ValueTask);
+
+    /// <summary>
+    /// Reports a reply dropped for exceeding <see cref="MaxMessageSize"/> to the consumer's
+    /// <see cref="OnMSSPMessageTooLarge"/> callback. Shared with <see cref="MSSPPlaintextProtocol"/>
+    /// for the same reason the callback is: one ceiling, one notification, either transport.
+    /// </summary>
+    internal ValueTask ReportTooLargeAsync(long receivedBytes)
+        => _onMSSPMessageTooLarge?.Invoke((ReceivedBytes: receivedBytes, MaxMessageSize: MaxMessageSize))
+           ?? default(ValueTask);
 
     #region State Machine Handlers
 
@@ -585,7 +602,7 @@ public partial class MSSPProtocol : TelnetProtocolPluginBase
     /// <see cref="MSSPConfig.Extended"/> contribute. Shared by both transports so that a server
     /// answering <c>MSSP-REQUEST</c> reports exactly what it reports over option 70.
     /// </remarks>
-    private static IEnumerable<(string Name, object Value)> ReportFields(MSSPConfig config)
+    internal static IEnumerable<(string Name, object Value)> ReportFields(MSSPConfig config)
     {
         var written = new HashSet<string>(StringComparer.Ordinal);
 
@@ -672,7 +689,7 @@ public partial class MSSPProtocol : TelnetProtocolPluginBase
     /// to 0xFF (ISO-8859-1 'ÿ'), and an unescaped one would end the subnegotiation early and desync
     /// the peer's parser. Doubling it costs nothing when it never happens.
     /// </remarks>
-    private static void AppendEscaped(List<byte> destination, string text, Encoding encoding)
+    internal static void AppendEscaped(List<byte> destination, string text, Encoding encoding)
     {
         foreach (var b in encoding.GetBytes(text))
         {
@@ -718,11 +735,6 @@ public partial class MSSPProtocol : TelnetProtocolPluginBase
     {
         try
         {
-            // The option answered, so the plaintext request is not sent (or, if it already went out,
-            // its reply is no longer waited for). Recorded before the ceiling check: a report that
-            // was too large is still the option answering.
-            TelnetOptionAnswered();
-
             if (await ReportOversizedAsync(context))
             {
                 return;

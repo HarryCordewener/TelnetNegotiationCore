@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
@@ -12,7 +13,7 @@ using TUnit.Core;
 namespace TelnetNegotiationCore.UnitTests;
 
 /// <summary>
-/// MSSP's second transport: the plaintext <c>MSSP-REQUEST</c> a client types at the login screen and
+/// MSSP's second transport: the plaintext <c>MSSP-REQUEST</c> a client sends at the login screen and
 /// the <c>MSSP-REPLY-START</c> / <c>MSSP-REPLY-END</c> block a server answers with.
 /// </summary>
 /// <remarks>
@@ -21,6 +22,11 @@ namespace TelnetNegotiationCore.UnitTests;
 /// the request with <c>str_cmp</c> (case-insensitive) in the login handler, and <c>src/mssp.c</c>
 /// writes <c>"\r\nMSSP-REPLY-START\r\n"</c>, one <c>"%s\t%s\r\n"</c> per field, then
 /// <c>"MSSP-REPLY-END\r\n"</c>.
+/// </para>
+/// <para>
+/// The client half is never automatic: the consumer calls
+/// <see cref="MSSPPlaintextProtocol.RequestReportAsync"/> when it decides to. No specification gives
+/// timing for this exchange, so the library does not invent any.
 /// </para>
 /// <para>
 /// Everything here is driven by a scripted peer rather than a network: no live host is contacted,
@@ -49,11 +55,10 @@ public class MSSPPlaintextTests : BaseTest
 	private sealed class Peer
 	{
 		public TelnetInterpreter Interpreter { get; set; } = null!;
+		public MSSPPlaintextProtocol Plaintext => Interpreter.PluginManager!.GetPlugin<MSSPPlaintextProtocol>()!;
 		public List<MSSPConfig> Received { get; } = [];
 		public List<string> Submitted { get; } = [];
 		private readonly List<byte> _written = [];
-		public (long ReceivedBytes, int MaxMessageSize)? TooLarge { get; set; }
-		public int Timeouts;
 
 		public void Write(ReadOnlyMemory<byte> data)
 		{
@@ -72,9 +77,15 @@ public class MSSPPlaintextTests : BaseTest
 		}
 	}
 
+	/// <summary>
+	/// Builds an interpreter. <paramref name="withPlaintext"/> controls whether the plaintext plugin is
+	/// added at all -- which is the entire opt-in.
+	/// </summary>
 	private static async Task<Peer> PeerAsync(
 		TelnetInterpreter.TelnetMode mode,
-		Action<PluginConfigurationContext<MSSPProtocol>> configure = null)
+		bool withPlaintext = true,
+		Action<PluginConfigurationContext<MSSPProtocol>> configureMssp = null,
+		Action<PluginConfigurationContext<MSSPPlaintextProtocol>> configurePlaintext = null)
 	{
 		var peer = new Peer();
 
@@ -98,29 +109,18 @@ public class MSSPPlaintextTests : BaseTest
 				return ValueTask.CompletedTask;
 			});
 
-		configure?.Invoke(mssp);
+		configureMssp?.Invoke(mssp);
 
-		peer.Interpreter = await ((TelnetInterpreterBuilder)mssp).BuildAsync();
-		return peer;
-	}
+		TelnetInterpreterBuilder builder = mssp;
 
-	/// <summary>
-	/// A client with the fallback on and both timers wound down to test speed, already told that the
-	/// server will do MSSP over the telnet option so that both transports are genuinely in play.
-	/// </summary>
-	private static async Task<Peer> CrawlerAsync(
-		Action<PluginConfigurationContext<MSSPProtocol>> configure = null,
-		int requestDelayMs = 50,
-		int replyTimeoutMs = 5000)
-	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client, mssp =>
+		if (withPlaintext)
 		{
-			mssp.WithPlaintextFallback()
-				.WithPlaintextRequestDelay(TimeSpan.FromMilliseconds(requestDelayMs))
-				.WithPlaintextReplyTimeout(TimeSpan.FromMilliseconds(replyTimeoutMs));
-			configure?.Invoke(mssp);
-		});
+			var plaintext = builder.AddPlugin<MSSPPlaintextProtocol>();
+			configurePlaintext?.Invoke(plaintext);
+			builder = plaintext;
+		}
 
+		peer.Interpreter = await builder.BuildAsync();
 		return peer;
 	}
 
@@ -132,33 +132,50 @@ public class MSSPPlaintextTests : BaseTest
 		(byte)Trigger.IAC, (byte)Trigger.SE
 	];
 
+	/// <summary>
+	/// Starts a request, waits for it to reach the wire, then plays <paramref name="reply"/> back.
+	/// </summary>
+	private static async Task<MSSPConfig> ExchangeAsync(Peer peer, string reply)
+	{
+		var request = peer.Plaintext.RequestReportAsync().AsTask();
+
+		var asked = await PollUntilAsync(() => peer.Wired.Contains("MSSP-REQUEST"), timeoutMs: 10000);
+		await Assert.That(asked).IsTrue();
+
+		await peer.FeedAsync(reply);
+		return await request;
+	}
+
 	#region Parsing a reply
 
 	/// <summary>
 	/// The whole point: a reply framed the way SmaugFUSS frames it becomes the same
-	/// <see cref="MSSPConfig"/> the telnet option would have produced.
+	/// <see cref="MSSPConfig"/> the telnet option would have produced -- returned to the caller that
+	/// asked for it, and delivered to <c>OnMSSP</c> as well.
 	/// </summary>
 	[Test]
 	public async Task AWellFormedReplyIsParsedIntoAConfig()
 	{
-		var peer = await CrawlerAsync();
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
-		await peer.FeedAsync(Reply(
+		var config = await ExchangeAsync(peer, Reply(
 			"NAME\tSome MUD",
 			"PLAYERS\t4",
 			"CODEBASE\tSMAUG 1.8",
 			"PORT\t4000",
 			"CONTACT\tadmin@example.org"));
 
-		await PollUntilAsync(() => peer.Received.Count > 0, timeoutMs: 10000);
-
-		await Assert.That(peer.Received.Count).IsEqualTo(1);
-		var config = peer.Received[0];
+		await Assert.That(config).IsNotNull();
 		await Assert.That(config.Name).IsEqualTo("Some MUD");
 		await Assert.That(config.Players).IsEqualTo(4);
 		await Assert.That(config.Codebase).IsEquivalentTo(new[] { "SMAUG 1.8" });
 		await Assert.That(config.Port).IsEqualTo(4000);
 		await Assert.That(config.Contact).IsEqualTo("admin@example.org");
+
+		// The callback fires too, so a consumer wired for the telnet option needs no new plumbing.
+		await PollUntilAsync(() => peer.Received.Count > 0, timeoutMs: 10000);
+		await Assert.That(peer.Received.Count).IsEqualTo(1);
+		await Assert.That(peer.Received[0].Name).IsEqualTo("Some MUD");
 
 		// The reply is protocol, not output: none of it is handed to the host application.
 		await Assert.That(peer.Submitted.Any(line => line.Contains("MSSP-REPLY"))).IsFalse();
@@ -174,9 +191,11 @@ public class MSSPPlaintextTests : BaseTest
 	[Test]
 	public async Task AReplySplitAcrossReadsIsAssembled()
 	{
-		var peer = await CrawlerAsync();
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
 		var reply = Reply("NAME\tSplit Brain", "PLAYERS\t12", "WEBSITE\thttps://example.org");
+		var request = peer.Plaintext.RequestReportAsync().AsTask();
+		await PollUntilAsync(() => peer.Wired.Contains("MSSP-REQUEST"), timeoutMs: 10000);
 
 		// Deliberately awkward cuts: 7 bytes at a time lands inside the start marker, inside a
 		// variable name and inside a value.
@@ -185,12 +204,12 @@ public class MSSPPlaintextTests : BaseTest
 			await peer.FeedAsync(reply.Substring(i, Math.Min(7, reply.Length - i)));
 		}
 
-		await PollUntilAsync(() => peer.Received.Count > 0, timeoutMs: 10000);
+		var config = await request;
 
-		await Assert.That(peer.Received.Count).IsEqualTo(1);
-		await Assert.That(peer.Received[0].Name).IsEqualTo("Split Brain");
-		await Assert.That(peer.Received[0].Players).IsEqualTo(12);
-		await Assert.That(peer.Received[0].Website).IsEqualTo("https://example.org");
+		await Assert.That(config).IsNotNull();
+		await Assert.That(config.Name).IsEqualTo("Split Brain");
+		await Assert.That(config.Players).IsEqualTo(12);
+		await Assert.That(config.Website).IsEqualTo("https://example.org");
 
 		await peer.Interpreter.DisposeAsync();
 	}
@@ -202,18 +221,16 @@ public class MSSPPlaintextTests : BaseTest
 	[Test]
 	public async Task MultiWordVariableNamesSurviveTheTabSplit()
 	{
-		var peer = await CrawlerAsync();
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
-		await peer.FeedAsync(Reply(
+		var config = await ExchangeAsync(peer, Reply(
 			"MINIMUM AGE\t18",
 			"PAY TO PLAY\t0",
 			"XTERM 256 COLORS\t1",
 			"CRAWL DELAY\t-1",
 			"GENRE\tScience Fiction"));
 
-		await PollUntilAsync(() => peer.Received.Count > 0, timeoutMs: 10000);
-
-		var config = peer.Received[0];
+		await Assert.That(config).IsNotNull();
 		await Assert.That(config.Minimum_Age).IsEqualTo("18");
 		await Assert.That(config.Pay_To_Play).IsFalse();
 		await Assert.That(config.XTerm_256_Colors).IsTrue();
@@ -230,17 +247,15 @@ public class MSSPPlaintextTests : BaseTest
 	[Test]
 	public async Task ARepeatedVariableIsAnArray()
 	{
-		var peer = await CrawlerAsync();
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
-		await peer.FeedAsync(Reply(
+		var config = await ExchangeAsync(peer, Reply(
 			"REFERRAL\tone.example.org 4000",
 			"REFERRAL\ttwo.example.org 4001",
 			"PORT\t23",
 			"PORT\t4000"));
 
-		await PollUntilAsync(() => peer.Received.Count > 0, timeoutMs: 10000);
-
-		var config = peer.Received[0];
+		await Assert.That(config).IsNotNull();
 		await Assert.That(config.Referral).IsEquivalentTo(new[] { "one.example.org 4000", "two.example.org 4001" });
 		await Assert.That(config.Variables["PORT"]).IsEquivalentTo(new[] { "23", "4000" });
 
@@ -257,14 +272,30 @@ public class MSSPPlaintextTests : BaseTest
 	[Test]
 	public async Task AFieldWithAnEmptyValueIsStillReported()
 	{
-		var peer = await CrawlerAsync();
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
-		await peer.FeedAsync(Reply("NAME\tQuiet", "INTERMUD\t"));
+		var config = await ExchangeAsync(peer, Reply("NAME\tQuiet", "INTERMUD\t"));
 
-		await PollUntilAsync(() => peer.Received.Count > 0, timeoutMs: 10000);
+		await Assert.That(config).IsNotNull();
+		await Assert.That(config.Variables.ContainsKey("INTERMUD")).IsTrue();
+		await Assert.That(config.Variables["INTERMUD"]).IsEquivalentTo(new[] { string.Empty });
 
-		await Assert.That(peer.Received[0].Variables.ContainsKey("INTERMUD")).IsTrue();
-		await Assert.That(peer.Received[0].Variables["INTERMUD"]).IsEquivalentTo(new[] { string.Empty });
+		await peer.Interpreter.DisposeAsync();
+	}
+
+	/// <summary>
+	/// The exchange is not one-shot. A crawler that wants to ask twice may.
+	/// </summary>
+	[Test]
+	public async Task ASecondRequestWorks()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		var first = await ExchangeAsync(peer, Reply("NAME\tFirst"));
+		await Assert.That(first.Name).IsEqualTo("First");
+
+		var second = await ExchangeAsync(peer, Reply("NAME\tSecond"));
+		await Assert.That(second.Name).IsEqualTo("Second");
 
 		await peer.Interpreter.DisposeAsync();
 	}
@@ -281,13 +312,12 @@ public class MSSPPlaintextTests : BaseTest
 	[Test]
 	public async Task AReportSaysWhichTransportDeliveredIt()
 	{
-		var plaintext = await CrawlerAsync();
-		await plaintext.FeedAsync(Reply("NAME\tPlaintext"));
-		await PollUntilAsync(() => plaintext.Received.Count > 0, timeoutMs: 10000);
-		await Assert.That(plaintext.Received[0].Source).IsEqualTo(MSSPSource.Plaintext);
+		var plaintext = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		var config = await ExchangeAsync(plaintext, Reply("NAME\tPlaintext"));
+		await Assert.That(config.Source).IsEqualTo(MSSPSource.Plaintext);
 		await plaintext.Interpreter.DisposeAsync();
 
-		var option = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		var option = await PeerAsync(TelnetInterpreter.TelnetMode.Client, withPlaintext: false);
 		await InterpretAndWaitAsync(option.Interpreter, WillMssp);
 		await InterpretAndWaitAsync(option.Interpreter, Subnegotiation("NAME", "Telnet"));
 		await PollUntilAsync(() => option.Received.Count > 0, timeoutMs: 10000);
@@ -309,17 +339,14 @@ public class MSSPPlaintextTests : BaseTest
 	#region Opt-in
 
 	/// <summary>
-	/// Unlike <c>IAC DO 70</c>, which a server that does not implement MSSP ignores, this puts real
-	/// text on the wire: a server without the plaintext form treats <c>MSSP-REQUEST</c> as input at its
-	/// login prompt. So nothing may go out unless the caller asked for it — the timers are wound right
-	/// down here, and the wire still has to stay clean.
+	/// Adding the plugin is the whole opt-in, and it grants nothing on its own. Sending
+	/// <c>MSSP-REQUEST</c> puts real text at a stranger's login prompt, so it happens when — and only
+	/// when — the consumer asks for it.
 	/// </summary>
 	[Test]
-	public async Task NothingIsSentUnlessTheFallbackIsEnabled()
+	public async Task NothingIsSentUntilTheConsumerAsks()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client, mssp => mssp
-			.WithPlaintextRequestDelay(TimeSpan.FromMilliseconds(20))
-			.WithPlaintextReplyTimeout(TimeSpan.FromMilliseconds(20)));
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
 		await InterpretAndWaitAsync(peer.Interpreter, WillMssp);
 		await Task.Delay(500);
@@ -330,13 +357,33 @@ public class MSSPPlaintextTests : BaseTest
 	}
 
 	/// <summary>
-	/// With the fallback off, a client is also not listening: a line that happens to be the start
-	/// marker is ordinary text and reaches the host application untouched.
+	/// The request goes out when asked for, terminated as telnet terminates a line (RFC 854 CR LF).
 	/// </summary>
 	[Test]
-	public async Task WithTheFallbackOffAReplyIsJustText()
+	public async Task TheRequestGoesOutWhenTheConsumerAsks()
 	{
 		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		var request = peer.Plaintext.RequestReportAsync().AsTask();
+
+		var asked = await PollUntilAsync(() => peer.Wired.Contains("MSSP-REQUEST"), timeoutMs: 10000);
+		await Assert.That(asked).IsTrue();
+		await Assert.That(peer.Wired).Contains("MSSP-REQUEST\r\n");
+
+		await peer.FeedAsync(Reply("NAME\tAnswered"));
+		await request;
+
+		await peer.Interpreter.DisposeAsync();
+	}
+
+	/// <summary>
+	/// Without the plugin, a client is not listening: a reply is ordinary text and reaches the host
+	/// application untouched.
+	/// </summary>
+	[Test]
+	public async Task WithoutThePluginAReplyIsJustText()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client, withPlaintext: false);
 
 		await peer.FeedAsync(Reply("NAME\tIgnored"));
 		await Task.Delay(200);
@@ -349,19 +396,26 @@ public class MSSPPlaintextTests : BaseTest
 	}
 
 	/// <summary>
-	/// Once enabled, the request goes out after the configured delay, terminated as telnet terminates
-	/// a line (RFC 854 CR LF).
+	/// The plugin is meaningless without the one whose vocabulary, callback and ceiling it borrows, so
+	/// it says so through the dependency mechanism rather than failing later at a null.
 	/// </summary>
 	[Test]
-	public async Task TheRequestGoesOutAfterTheDelay()
+	public async Task ThePluginRequiresTheMSSPProtocol()
 	{
-		var peer = await CrawlerAsync(requestDelayMs: 50);
+		var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+		{
+			await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(_ => ValueTask.CompletedTask)
+				.AddPlugin<MSSPPlaintextProtocol>()
+				.BuildAsync();
+		});
 
-		var sent = await PollUntilAsync(() => peer.Wired.Contains("MSSP-REQUEST"), timeoutMs: 10000);
-		await Assert.That(sent).IsTrue();
-		await Assert.That(peer.Wired).Contains("MSSP-REQUEST\r\n");
-
-		await peer.Interpreter.DisposeAsync();
+		await Assert.That(ex!.Message).Contains("depends on");
+		await Assert.That(ex.Message).Contains("MSSPProtocol");
+		await Assert.That(ex.Message).Contains("not registered");
 	}
 
 	#endregion
@@ -379,8 +433,7 @@ public class MSSPPlaintextTests : BaseTest
 	[Arguments("Mssp-Request")]
 	public async Task AServerAnswersTheRequestWhateverItsCase(string request)
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server, mssp => mssp
-			.WithPlaintextFallback()
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server, configureMssp: mssp => mssp
 			.WithMSSPConfig(() => new MSSPConfig { Name = "Some MUD", Players = 4, Uptime = 1234567890 }));
 
 		await peer.FeedAsync(request + "\r\n");
@@ -400,14 +453,15 @@ public class MSSPPlaintextTests : BaseTest
 	}
 
 	/// <summary>
-	/// A server that has not opted in treats the word as what it is on that server: input. Answering
-	/// it would silently make <c>MSSP-REQUEST</c> unusable as a login name on every existing consumer.
+	/// A server that has not added the plugin treats the word as what it is on that server: input.
+	/// Answering it would silently make <c>MSSP-REQUEST</c> unusable as a login name on every existing
+	/// consumer.
 	/// </summary>
 	[Test]
-	public async Task AServerDoesNotAnswerUnlessTheFallbackIsEnabled()
+	public async Task AServerDoesNotAnswerUnlessThePluginIsAdded()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server, mssp => mssp
-			.WithMSSPConfig(() => new MSSPConfig { Name = "Some MUD" }));
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server, withPlaintext: false,
+			configureMssp: mssp => mssp.WithMSSPConfig(() => new MSSPConfig { Name = "Some MUD" }));
 
 		await peer.FeedAsync("MSSP-REQUEST\r\n");
 		await Task.Delay(200);
@@ -419,14 +473,13 @@ public class MSSPPlaintextTests : BaseTest
 	}
 
 	/// <summary>
-	/// A round trip through both halves of this file's implementation: the reply one of these servers
-	/// writes is a reply one of these clients reads.
+	/// A round trip through both halves: the reply one of these servers writes is a reply one of these
+	/// clients reads.
 	/// </summary>
 	[Test]
 	public async Task AServersReplyIsReadByAClient()
 	{
-		var server = await PeerAsync(TelnetInterpreter.TelnetMode.Server, mssp => mssp
-			.WithPlaintextFallback()
+		var server = await PeerAsync(TelnetInterpreter.TelnetMode.Server, configureMssp: mssp => mssp
 			.WithMSSPConfig(() => new MSSPConfig
 			{
 				Name = "Round Trip",
@@ -436,18 +489,33 @@ public class MSSPPlaintextTests : BaseTest
 
 		await server.FeedAsync("MSSP-REQUEST\r\n");
 		await PollUntilAsync(() => server.Wired.Contains("MSSP-REPLY-END"), timeoutMs: 10000);
+		var reply = server.Wired;
 		await server.Interpreter.DisposeAsync();
 
-		var client = await CrawlerAsync();
-		await client.FeedAsync(server.Wired);
-		await PollUntilAsync(() => client.Received.Count > 0, timeoutMs: 10000);
+		var client = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		var config = await ExchangeAsync(client, reply);
 
-		var config = client.Received[0];
+		await Assert.That(config).IsNotNull();
 		await Assert.That(config.Name).IsEqualTo("Round Trip");
 		await Assert.That(config.Minimum_Age).IsEqualTo("13");
 		await Assert.That(config.Referral).IsEquivalentTo(new[] { "one.example.org 4000", "two.example.org 4001" });
 
 		await client.Interpreter.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A server does not ask; it answers. Calling the client half on one is a wiring mistake worth
+	/// naming rather than a request that quietly never completes.
+	/// </summary>
+	[Test]
+	public async Task AServerCannotRequestAReport()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+
+		await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+			await peer.Plaintext.RequestReportAsync());
+
+		await peer.Interpreter.DisposeAsync();
 	}
 
 	#endregion
@@ -465,7 +533,7 @@ public class MSSPPlaintextTests : BaseTest
 	{
 		(long ReceivedBytes, int MaxMessageSize)? tooLarge = null;
 
-		var peer = await CrawlerAsync(mssp => mssp
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client, configureMssp: mssp => mssp
 			.WithMaxMessageSize(1024)
 			.OnMSSPMessageTooLarge(overflow =>
 			{
@@ -476,12 +544,14 @@ public class MSSPPlaintextTests : BaseTest
 		// 20 field lines of exactly 100 bytes each: "VARnn" + tab + 94 x's == 2000 bytes against a
 		// 1024 byte ceiling. Markers and line endings are framing and are not counted.
 		var fields = Enumerable.Range(0, 20).Select(i => $"VAR{i:D2}\t{new string('x', 94)}").ToArray();
-		await peer.FeedAsync(Reply(fields));
+		var config = await ExchangeAsync(peer, Reply(fields));
+
+		// Dropped, not truncated: the caller gets nothing rather than a partial report.
+		await Assert.That(config).IsNull();
+		await Assert.That(peer.Received.Count).IsEqualTo(0);
 
 		var reported = await PollUntilAsync(() => tooLarge != null, timeoutMs: 10000);
 		await Assert.That(reported).IsTrue();
-
-		await Assert.That(peer.Received.Count).IsEqualTo(0);
 		await Assert.That(tooLarge!.Value.MaxMessageSize).IsEqualTo(1024);
 		await Assert.That(tooLarge!.Value.ReceivedBytes).IsEqualTo(2000);
 
@@ -494,39 +564,36 @@ public class MSSPPlaintextTests : BaseTest
 	[Test]
 	public async Task AReplyUnderTheCeilingIsDelivered()
 	{
-		var peer = await CrawlerAsync(mssp => mssp.WithMaxMessageSize(1024));
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client,
+			configureMssp: mssp => mssp.WithMaxMessageSize(1024));
 
-		await peer.FeedAsync(Reply($"NAME\t{new string('x', 100)}"));
-		await PollUntilAsync(() => peer.Received.Count > 0, timeoutMs: 10000);
+		var config = await ExchangeAsync(peer, Reply($"NAME\t{new string('x', 100)}"));
 
-		await Assert.That(peer.Received[0].Name!.Length).IsEqualTo(100);
+		await Assert.That(config).IsNotNull();
+		await Assert.That(config.Name!.Length).IsEqualTo(100);
 
 		await peer.Interpreter.DisposeAsync();
 	}
 
 	/// <summary>
 	/// A server that ignores the request never terminates the read, and one that starts a reply is not
-	/// obliged to finish it. The attempt is therefore bounded in time as well as in bytes: the buffer
-	/// is released, the consumer is told, and the half-collected report is never delivered.
+	/// obliged to finish it. The wait is therefore bounded: the call returns the no-answer shape rather
+	/// than hanging, the collected bytes are released, and the half-collected report is never
+	/// delivered.
 	/// </summary>
 	[Test]
 	public async Task AReplyThatNeverEndsTimesOutAndIsDropped()
 	{
-		var peer = await CrawlerAsync(requestDelayMs: 20, replyTimeoutMs: 300);
-		peer.Timeouts = 0;
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client,
+			configurePlaintext: plaintext => plaintext.WithReplyTimeout(TimeSpan.FromMilliseconds(300)));
 
-		var mssp = peer.Interpreter.PluginManager!.GetPlugin<MSSPProtocol>()!;
-		mssp.OnPlaintextMSSPTimeout(() =>
-		{
-			peer.Timeouts++;
-			return ValueTask.CompletedTask;
-		});
+		var request = peer.Plaintext.RequestReportAsync().AsTask();
+		await PollUntilAsync(() => peer.Wired.Contains("MSSP-REQUEST"), timeoutMs: 10000);
 
 		// A reply that starts and then stops: no MSSP-REPLY-END, ever.
 		await peer.FeedAsync("\r\nMSSP-REPLY-START\r\nNAME\tNever Finished\r\nPLAYERS\t3\r\n");
 
-		var timedOut = await PollUntilAsync(() => peer.Timeouts > 0, timeoutMs: 10000);
-		await Assert.That(timedOut).IsTrue();
+		await Assert.That(await request).IsNull();
 		await Assert.That(peer.Received.Count).IsEqualTo(0);
 
 		// The buffer went with it: a late end marker cannot resurrect the partial report.
@@ -538,46 +605,96 @@ public class MSSPPlaintextTests : BaseTest
 	}
 
 	/// <summary>
-	/// A reply that does arrive cancels the give-up timer rather than leaving it to fire behind it.
+	/// A server that ignores the request entirely is the ordinary case, not an error: the wait ends on
+	/// its own ceiling and says "no answer". This is what the two hosts probed while this was written
+	/// actually did.
 	/// </summary>
 	[Test]
-	public async Task ACompletedReplyStopsTheTimeout()
+	public async Task AServerThatNeverAnswersTimesOut()
 	{
-		var peer = await CrawlerAsync(requestDelayMs: 20, replyTimeoutMs: 250);
-		peer.Timeouts = 0;
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client,
+			configurePlaintext: plaintext => plaintext.WithReplyTimeout(TimeSpan.FromMilliseconds(300)));
 
-		var mssp = peer.Interpreter.PluginManager!.GetPlugin<MSSPProtocol>()!;
-		mssp.OnPlaintextMSSPTimeout(() =>
-		{
-			peer.Timeouts++;
-			return ValueTask.CompletedTask;
-		});
+		var request = peer.Plaintext.RequestReportAsync().AsTask();
+		await PollUntilAsync(() => peer.Wired.Contains("MSSP-REQUEST"), timeoutMs: 10000);
 
-		await peer.FeedAsync(Reply("NAME\tPrompt"));
-		await PollUntilAsync(() => peer.Received.Count > 0, timeoutMs: 10000);
+		await peer.FeedAsync("Illegal name, try another.\r\n");
 
-		await Task.Delay(600);
-		await Assert.That(peer.Timeouts).IsEqualTo(0);
+		await Assert.That(await request).IsNull();
+		await Assert.That(peer.Submitted).Contains("Illegal name, try another.");
 
 		await peer.Interpreter.DisposeAsync();
 	}
 
 	/// <summary>
-	/// The timers are durations, so they have to reject values that cannot be one.
+	/// The reply ends the wait; the caller is not held to the ceiling once the answer is in.
 	/// </summary>
 	[Test]
-	public async Task ThePlaintextTimersRejectNonPositiveDurations()
+	public async Task ACompletedReplyReturnsWithoutWaitingOutTheTimeout()
 	{
-		var mssp = new MSSPProtocol();
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client,
+			configurePlaintext: plaintext => plaintext.WithReplyTimeout(TimeSpan.FromSeconds(30)));
 
-		await Assert.That(mssp.PlaintextFallback).IsFalse();
-		await Assert.That(mssp.PlaintextRequestDelay).IsEqualTo(MSSPProtocol.DefaultPlaintextRequestDelay);
-		await Assert.That(mssp.PlaintextReplyTimeout).IsEqualTo(MSSPProtocol.DefaultPlaintextReplyTimeout);
+		var started = DateTime.UtcNow;
+		var config = await ExchangeAsync(peer, Reply("NAME\tPrompt"));
 
-		await Assert.That(() => mssp.WithPlaintextRequestDelay(TimeSpan.Zero)).Throws<ArgumentOutOfRangeException>();
-		await Assert.That(() => mssp.WithPlaintextRequestDelay(TimeSpan.FromSeconds(-1))).Throws<ArgumentOutOfRangeException>();
-		await Assert.That(() => mssp.WithPlaintextReplyTimeout(TimeSpan.Zero)).Throws<ArgumentOutOfRangeException>();
-		await Assert.That(() => mssp.WithPlaintextReplyTimeout(TimeSpan.FromSeconds(-1))).Throws<ArgumentOutOfRangeException>();
+		await Assert.That(config.Name).IsEqualTo("Prompt");
+		await Assert.That(DateTime.UtcNow - started).IsLessThan(TimeSpan.FromSeconds(20));
+
+		await peer.Interpreter.DisposeAsync();
+	}
+
+	/// <summary>
+	/// The caller's own token ends the wait too, and says so the way .NET says it.
+	/// </summary>
+	[Test]
+	public async Task TheCallersCancellationEndsTheWait()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		using var cts = new CancellationTokenSource();
+		var request = peer.Plaintext.RequestReportAsync(cts.Token).AsTask();
+		await PollUntilAsync(() => peer.Wired.Contains("MSSP-REQUEST"), timeoutMs: 10000);
+
+		cts.Cancel();
+
+		await Assert.ThrowsAsync<OperationCanceledException>(async () => await request);
+
+		await peer.Interpreter.DisposeAsync();
+	}
+
+	/// <summary>
+	/// One exchange at a time: two overlapping requests would race for one reply, and silently giving
+	/// both callers the same report — or one of them nothing — is worse than saying so.
+	/// </summary>
+	[Test]
+	public async Task ASecondConcurrentRequestIsRejected()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		var first = peer.Plaintext.RequestReportAsync().AsTask();
+		await PollUntilAsync(() => peer.Wired.Contains("MSSP-REQUEST"), timeoutMs: 10000);
+
+		await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+			await peer.Plaintext.RequestReportAsync());
+
+		await peer.FeedAsync(Reply("NAME\tOnly One"));
+		await Assert.That((await first).Name).IsEqualTo("Only One");
+
+		await peer.Interpreter.DisposeAsync();
+	}
+
+	/// <summary>
+	/// The timeout is a duration, so it must reject a value that cannot be one.
+	/// </summary>
+	[Test]
+	public async Task TheReplyTimeoutRejectsNonPositiveDurations()
+	{
+		var plaintext = new MSSPPlaintextProtocol();
+
+		await Assert.That(plaintext.ReplyTimeout).IsEqualTo(MSSPPlaintextProtocol.DefaultReplyTimeout);
+		await Assert.That(() => plaintext.WithReplyTimeout(TimeSpan.Zero)).Throws<ArgumentOutOfRangeException>();
+		await Assert.That(() => plaintext.WithReplyTimeout(TimeSpan.FromSeconds(-1))).Throws<ArgumentOutOfRangeException>();
 	}
 
 	#endregion
@@ -585,46 +702,49 @@ public class MSSPPlaintextTests : BaseTest
 	#region Living beside the telnet option
 
 	/// <summary>
-	/// Grapevine's shape, and the right one: the request only goes out if the option has not already
-	/// answered. Sending text to a server that has just told us it speaks the real thing would be
-	/// noise at its login prompt for no gain.
+	/// Adding this plugin changes nothing about option 70. It is a second transport, not a
+	/// replacement, and a report that arrives over the option is still an option report.
 	/// </summary>
 	[Test]
-	public async Task TheTelnetOptionWinsWhenItAnswersFirst()
+	public async Task TheTelnetOptionIsUnaffected()
 	{
-		var peer = await CrawlerAsync(requestDelayMs: 400);
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
 		await InterpretAndWaitAsync(peer.Interpreter, WillMssp);
-		await InterpretAndWaitAsync(peer.Interpreter, Subnegotiation("NAME", "Option First"));
+		await InterpretAndWaitAsync(peer.Interpreter, Subnegotiation("NAME", "Option"));
 		await PollUntilAsync(() => peer.Received.Count > 0, timeoutMs: 10000);
 
-		await Assert.That(peer.Received[0].Name).IsEqualTo("Option First");
+		await Assert.That(peer.Received[0].Name).IsEqualTo("Option");
 		await Assert.That(peer.Received[0].Source).IsEqualTo(MSSPSource.TelnetOption);
 
-		// Well past the request delay, and the wire is still free of it.
-		await Task.Delay(800);
+		// And the option answering did not put anything of ours on the wire.
 		await Assert.That(peer.Wired.Contains("MSSP-REQUEST", StringComparison.OrdinalIgnoreCase)).IsFalse();
-		await Assert.That(peer.Received.Count).IsEqualTo(1);
 
 		await peer.Interpreter.DisposeAsync();
 	}
 
 	/// <summary>
-	/// With the fallback enabled, a telnet-option report is still an ordinary telnet-option report.
+	/// Both transports on one connection, which is the case a crawler actually meets. They are
+	/// independent, and each report says which one it came from.
 	/// </summary>
 	[Test]
-	public async Task TheTelnetOptionStillWorksWithTheFallbackEnabled()
+	public async Task BothTransportsCanAnswerOnOneConnection()
 	{
-		var peer = await CrawlerAsync(requestDelayMs: 30);
-
-		await PollUntilAsync(() => peer.Wired.Contains("MSSP-REQUEST"), timeoutMs: 10000);
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
 		await InterpretAndWaitAsync(peer.Interpreter, WillMssp);
-		await InterpretAndWaitAsync(peer.Interpreter, Subnegotiation("NAME", "Both In Play"));
+		await InterpretAndWaitAsync(peer.Interpreter, Subnegotiation("NAME", "From The Option"));
 		await PollUntilAsync(() => peer.Received.Count > 0, timeoutMs: 10000);
 
-		await Assert.That(peer.Received[0].Name).IsEqualTo("Both In Play");
+		var plaintext = await ExchangeAsync(peer, Reply("NAME\tFrom The Text"));
+
+		await Assert.That(plaintext.Name).IsEqualTo("From The Text");
+		await Assert.That(plaintext.Source).IsEqualTo(MSSPSource.Plaintext);
+
+		await PollUntilAsync(() => peer.Received.Count > 1, timeoutMs: 10000);
+		await Assert.That(peer.Received.Count).IsEqualTo(2);
 		await Assert.That(peer.Received[0].Source).IsEqualTo(MSSPSource.TelnetOption);
+		await Assert.That(peer.Received[1].Source).IsEqualTo(MSSPSource.Plaintext);
 
 		await peer.Interpreter.DisposeAsync();
 	}
@@ -641,7 +761,10 @@ public class MSSPPlaintextTests : BaseTest
 	[Test]
 	public async Task TextThatMerelyMentionsTheMarkersIsNotAReply()
 	{
-		var peer = await CrawlerAsync();
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		var request = peer.Plaintext.RequestReportAsync().AsTask();
+		await PollUntilAsync(() => peer.Wired.Contains("MSSP-REQUEST"), timeoutMs: 10000);
 
 		await peer.FeedAsync("The herald cries \"MSSP-REPLY-START\" and everyone laughs.\r\n");
 		await peer.FeedAsync("Nothing here is MSSP-REPLY-END, either.\r\n");
@@ -653,8 +776,7 @@ public class MSSPPlaintextTests : BaseTest
 
 		// And a genuine reply after all that still parses.
 		await peer.FeedAsync(Reply("NAME\tStill Fine"));
-		await PollUntilAsync(() => peer.Received.Count > 0, timeoutMs: 10000);
-		await Assert.That(peer.Received[0].Name).IsEqualTo("Still Fine");
+		await Assert.That((await request).Name).IsEqualTo("Still Fine");
 
 		await peer.Interpreter.DisposeAsync();
 	}
@@ -666,17 +788,16 @@ public class MSSPPlaintextTests : BaseTest
 	[Test]
 	public async Task ALineWithoutATabInsideAReplyIsNotAVariable()
 	{
-		var peer = await CrawlerAsync();
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
-		await peer.FeedAsync("\r\nMSSP-REPLY-START\r\n" +
-		                     "NAME\tTabless\r\n" +
-		                     "---------------\r\n" +
-		                     "PLAYERS\t2\r\n" +
-		                     "MSSP-REPLY-END\r\n");
+		var config = await ExchangeAsync(peer,
+			"\r\nMSSP-REPLY-START\r\n" +
+			"NAME\tTabless\r\n" +
+			"---------------\r\n" +
+			"PLAYERS\t2\r\n" +
+			"MSSP-REPLY-END\r\n");
 
-		await PollUntilAsync(() => peer.Received.Count > 0, timeoutMs: 10000);
-
-		var config = peer.Received[0];
+		await Assert.That(config).IsNotNull();
 		await Assert.That(config.Name).IsEqualTo("Tabless");
 		await Assert.That(config.Players).IsEqualTo(2);
 		await Assert.That(config.Variables.ContainsKey("---------------")).IsFalse();
@@ -691,13 +812,16 @@ public class MSSPPlaintextTests : BaseTest
 	[Test]
 	public async Task TextBeforeTheReplyReachesTheHostApplication()
 	{
-		var peer = await CrawlerAsync();
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		var request = peer.Plaintext.RequestReportAsync().AsTask();
+		await PollUntilAsync(() => peer.Wired.Contains("MSSP-REQUEST"), timeoutMs: 10000);
 
 		await peer.FeedAsync("Welcome to Some MUD!\r\n");
 		await peer.FeedAsync(Reply("NAME\tSome MUD"));
 		await peer.FeedAsync("By what name do you wish to be known?\r\n");
 
-		await PollUntilAsync(() => peer.Received.Count > 0, timeoutMs: 10000);
+		await request;
 
 		await Assert.That(peer.Submitted).Contains("Welcome to Some MUD!");
 		await Assert.That(peer.Submitted).Contains("By what name do you wish to be known?");
