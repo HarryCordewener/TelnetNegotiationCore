@@ -23,19 +23,20 @@ public partial class TelnetInterpreter
     /// <summary>
     /// A list of terminal types for this connection.
     /// </summary>
-    public ImmutableList<string> TerminalTypes { get; private set; } = [];
+    public ImmutableList<string> TerminalTypes { get; internal set; } = [];
 
     /// <summary>
     /// The current selected Terminal Type. Use RequestTerminalTypeAsync if you want the client to switch to the next mode.
     /// </summary>
-    public string CurrentTerminalType => _CurrentTerminalType == -1
+    public string CurrentTerminalType => CurrentTerminalTypeIndex == -1
         ? "unknown"
-        : TerminalTypes[Math.Min(_CurrentTerminalType, TerminalTypes.Count - 1)];
+        : TerminalTypes[Math.Min(CurrentTerminalTypeIndex, TerminalTypes.Count - 1)];
 
     /// <summary>
-    /// Currently selected Terminal Type index.
+    /// Index into <see cref="TerminalTypes"/> of the selected Terminal Type, or -1 when none has been
+    /// selected yet. The Terminal Type protocol plugin negotiates it and publishes it here.
     /// </summary>
-    private int _CurrentTerminalType = -1;
+    internal int CurrentTerminalTypeIndex { get; set; } = -1;
 
 #pragma warning disable CS0414 // Field is assigned but never used in this partial - used in TerminalTypeProtocol
     /// <summary>

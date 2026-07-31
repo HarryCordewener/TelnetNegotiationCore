@@ -97,6 +97,41 @@ public class TTypeTests : BaseTest
 		await client_ti.DisposeAsync();
 	}
 
+	/// <summary>
+	/// The plugin negotiates the terminal type, but consumers read the selection off the interpreter's
+	/// <see cref="TelnetInterpreter.CurrentTerminalType"/>, which derives from an index the interpreter
+	/// never advances on its own.
+	/// </summary>
+	[Test]
+	public async Task ServerPublishesTheSelectedTerminalTypeOnTheInterpreter()
+	{
+		var server_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit((data, enc, ti) => throw new NotImplementedException())
+			.OnNegotiation(_ => ValueTask.CompletedTask)
+			.AddPlugin<TerminalTypeProtocol>()
+			.BuildAsync();
+
+		await InterpretAndWaitAsync(server_ti, [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE]);
+		await Assert.That(server_ti.CurrentTerminalType).IsEqualTo("unknown");
+
+		(string Reported, string Selected)[] exchanges = [("ANSI", "ANSI"), ("VT100", "VT100"), ("VT100", "ANSI")];
+
+		foreach (var (reported, selected) in exchanges)
+		{
+			await InterpretAndWaitAsync(server_ti,
+			[
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS,
+				.. Encoding.ASCII.GetBytes(reported),
+				(byte)Trigger.IAC, (byte)Trigger.SE
+			]);
+			await Assert.That(server_ti.CurrentTerminalType).IsEqualTo(selected);
+		}
+
+		await server_ti.DisposeAsync();
+	}
+
 	public static IEnumerable<(IEnumerable<byte[]>, IEnumerable<byte[]>)> ClientTTypeSequences()
 	{
 		yield return (

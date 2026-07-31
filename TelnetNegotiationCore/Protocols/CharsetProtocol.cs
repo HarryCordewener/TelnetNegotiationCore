@@ -39,8 +39,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         => x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
     private Func<Encoding, ValueTask>? _signalCharsetChangeAsync;
     private Lazy<byte[]>? _supportedCharacterSets;
-    private static System.Reflection.PropertyInfo? _cachedEncodingProperty;
-    
+
     // TTABLE support fields
     private readonly SubnegotiationBuffer _ttableBytes = new();
     private bool _ttableSupportEnabled = false;
@@ -452,17 +451,12 @@ public class CharsetProtocol : TelnetProtocolPluginBase
                         (byte)Trigger.IAC, (byte)Trigger.SE];
     }
     
+    /// <summary>
+    /// The interpreter carries the negotiated encoding for consumers reading
+    /// <see cref="Interpreters.TelnetInterpreter.CurrentEncoding"/>.
+    /// </summary>
     private void UpdateInterpreterEncoding(IProtocolContext context)
-    {
-        var interpreter = context.Interpreter;
-        if (_cachedEncodingProperty == null)
-        {
-            _cachedEncodingProperty = interpreter.GetType().GetProperty("CurrentEncoding");
-        }
-        
-        if (_cachedEncodingProperty != null && _cachedEncodingProperty.CanWrite)
-            _cachedEncodingProperty.SetValue(interpreter, CurrentEncoding);
-    }
+        => context.Interpreter.CurrentEncoding = CurrentEncoding;
 
     // TTABLE state machine handlers
     private void GetTTable(StateMachine<State, Trigger>.Transition _) => _ttableBytes.Reset();
