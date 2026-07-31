@@ -418,6 +418,77 @@ public class MSSPPlaintextTests : BaseTest
 		await Assert.That(ex.Message).Contains("not registered");
 	}
 
+	/// <summary>
+	/// A disabled plugin does not put text on a stranger's login prompt. Without this the request went
+	/// out and nothing collected the reply, because the line observer already checks
+	/// <c>IsEnabled</c> -- so the caller paid the side effect and was guaranteed the timeout.
+	/// </summary>
+	[Test]
+	public async Task ADisabledPluginDoesNotSendARequest()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		await peer.Interpreter.PluginManager!.DisablePluginAsync<MSSPPlaintextProtocol>();
+
+		await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+			await peer.Plaintext.RequestReportAsync());
+
+		await Assert.That(peer.Wired.Contains("MSSP-REQUEST", StringComparison.OrdinalIgnoreCase)).IsFalse();
+
+		await peer.Interpreter.DisposeAsync();
+	}
+
+	/// <summary>
+	/// The dependency is what keeps the two plugins' lifetimes in step: MSSP cannot be turned off
+	/// underneath the transport that speaks for it. This is the guarantee that makes "MSSP disabled,
+	/// plaintext still answering" unreachable rather than merely unlikely.
+	/// </summary>
+	[Test]
+	public async Task TheMSSPProtocolCannotBeDisabledWhileThisPluginIsEnabled()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+
+		var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+			await peer.Interpreter.PluginManager!.DisablePluginAsync<MSSPProtocol>());
+
+		await Assert.That(ex!.Message).Contains("required by");
+
+		// Disabling them in dependency order is allowed, and then nothing answers.
+		await peer.Interpreter.PluginManager!.DisablePluginAsync<MSSPPlaintextProtocol>();
+		await peer.Interpreter.PluginManager!.DisablePluginAsync<MSSPProtocol>();
+
+		await peer.FeedAsync("MSSP-REQUEST\r\n");
+		await Task.Delay(200);
+
+		await Assert.That(peer.Wired.Contains("MSSP-REPLY-START")).IsFalse();
+		await Assert.That(peer.Submitted).Contains("MSSP-REQUEST");
+
+		await peer.Interpreter.DisposeAsync();
+	}
+
+	/// <summary>
+	/// <c>OnDisabledAsync</c> is public on <c>ITelnetProtocolPlugin</c>, so a consumer can reach past
+	/// the manager and disable MSSP without its dependency check ever running. Belt and braces: this
+	/// transport does not answer on behalf of a protocol that has been turned off, however it was
+	/// turned off.
+	/// </summary>
+	[Test]
+	public async Task AServerDoesNotAnswerForADisabledMSSPProtocol()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server, configureMssp: mssp => mssp
+			.WithMSSPConfig(() => new MSSPConfig { Name = "Some MUD" }));
+
+		// Bypasses ProtocolPluginManager, and so bypasses its dependency check.
+		await peer.Interpreter.PluginManager!.GetPlugin<MSSPProtocol>()!.OnDisabledAsync();
+
+		await peer.FeedAsync("MSSP-REQUEST\r\n");
+		await Task.Delay(200);
+
+		await Assert.That(peer.Wired.Contains("MSSP-REPLY-START")).IsFalse();
+
+		await peer.Interpreter.DisposeAsync();
+	}
+
 	#endregion
 
 	#region Answering a request

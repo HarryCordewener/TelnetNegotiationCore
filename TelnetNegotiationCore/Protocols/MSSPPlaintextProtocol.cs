@@ -231,6 +231,22 @@ public class MSSPPlaintextProtocol : TelnetProtocolPluginBase
 				"A server answers MSSP-REQUEST rather than sending one. RequestReportAsync is the client half of the exchange.");
 		}
 
+		// A disabled plugin does not put text on a stranger's login prompt. Checked here rather than
+		// left to fail quietly: the line observer already returns early when disabled, so without this
+		// the request went out, nothing collected the reply, and the caller paid the side effect in
+		// exchange for a guaranteed timeout.
+		if (!IsEnabled)
+		{
+			throw new InvalidOperationException(
+				$"{nameof(MSSPPlaintextProtocol)} is disabled on this connection, so it will not send MSSP-REQUEST.");
+		}
+
+		if (!Mssp.IsEnabled)
+		{
+			throw new InvalidOperationException(
+				$"{nameof(MSSPProtocol)} is disabled on this connection, so {nameof(MSSPPlaintextProtocol)} will not ask for a report on its behalf.");
+		}
+
 		var exchange = new Exchange(ReplyTimeout, cancellationToken, Context.Interpreter.ProcessingToken);
 
 		lock (_gate)
@@ -325,6 +341,18 @@ public class MSSPPlaintextProtocol : TelnetProtocolPluginBase
 		if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
 		{
 			if (!text.Trim().Equals(RequestLine, StringComparison.OrdinalIgnoreCase)) return false;
+
+			// Not on behalf of a protocol that has been turned off -- the report would be built from
+			// the configuration of a plugin the consumer disabled. ProtocolPluginManager refuses to
+			// disable MSSPProtocol while this plugin is enabled (Dependencies is what makes it refuse),
+			// so this is belt and braces against the one route that skips that check: calling
+			// ITelnetProtocolPlugin.OnDisabledAsync directly, which is public.
+			if (!Mssp.IsEnabled)
+			{
+				context.Logger.LogDebug(
+					"Ignoring MSSP-REQUEST: {Protocol} is disabled on this connection", nameof(MSSPProtocol));
+				return false;
+			}
 
 			await SendReportAsync(context);
 			return true;

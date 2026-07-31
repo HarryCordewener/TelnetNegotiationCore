@@ -70,7 +70,31 @@ public partial class TelnetInterpreter
     /// the constructor, so that <see cref="MaxBufferSize"/> (an init property, assigned after the
     /// constructor has run) is honoured and a negotiation-only connection allocates nothing.
     /// </summary>
+    /// <remarks>
+    /// It starts at <see cref="InitialBufferCapacity"/> and doubles towards <see cref="MaxBufferSize"/>
+    /// as a line needs it, rather than allocating the ceiling up front: the ceiling is a bound on what
+    /// a hostile peer may do, not a size any real line reaches, and a server holding thousands of idle
+    /// connections should not pay 5 MiB apiece to hold "look".
+    /// </remarks>
     private byte[]? _buffer;
+
+    /// <summary>
+    /// Capacity of <see cref="_buffer"/>, held separately so the per-byte path is one integer
+    /// comparison that covers "not allocated yet" and "full" together.
+    /// </summary>
+    private int _bufferCapacity;
+
+    /// <summary>
+    /// Starting capacity of the line buffer. Comfortably larger than any line a MUD sends.
+    /// </summary>
+    private const int InitialBufferCapacity = 1024;
+
+    /// <summary>
+    /// Above this, the line buffer is released rather than retained once its line is delivered, so
+    /// that one unusually large line does not hold its allocation for the life of the connection.
+    /// Matches <see cref="Helpers.SubnegotiationBuffer"/>'s policy.
+    /// </summary>
+    private const int RetainedBufferCapacity = 64 * 1024;
 
     /// <summary>
     /// Buffer position where we are writing.
@@ -393,11 +417,49 @@ public partial class TelnetInterpreter
         }
         else
         {
-            (_buffer ??= new byte[MaxBufferSize])[_bufferPosition] = b.AsT0;
+            // One comparison on the hot path: capacity starts at zero, so this covers the first byte
+            // of the connection and a full buffer with the same test, and the growth itself is out of
+            // line because it happens at most log2(MaxBufferSize / 1 KiB) times per line.
+            if (_bufferPosition == _bufferCapacity)
+            {
+                GrowLineBuffer();
+            }
+
+            _buffer![_bufferPosition] = b.AsT0;
             _bufferPosition++;
         }
 
         await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? default(ValueTask));
+    }
+
+    /// <summary>
+    /// Doubles the line buffer, never past <see cref="MaxBufferSize"/>.
+    /// </summary>
+    /// <remarks>
+    /// Only ever called when the buffer is exactly full and the ceiling has not been reached, so the
+    /// new capacity is always strictly larger than the old one and the ceiling still decides where
+    /// storing stops. Nothing here changes what an over-long line does: that is decided before this
+    /// is reached.
+    /// </remarks>
+    private void GrowLineBuffer()
+    {
+        var capacity = _bufferCapacity == 0
+            ? Math.Min(InitialBufferCapacity, MaxBufferSize)
+            : (int)Math.Min((long)_bufferCapacity * 2, MaxBufferSize);
+
+        Array.Resize(ref _buffer, capacity);
+        _bufferCapacity = capacity;
+    }
+
+    /// <summary>
+    /// Releases the line buffer if one large line grew it past <see cref="RetainedBufferCapacity"/>.
+    /// </summary>
+    private void ReleaseLineBufferIfLarge()
+    {
+        if (_bufferCapacity <= RetainedBufferCapacity) return;
+
+        _buffer = null;
+        _bufferCapacity = 0;
     }
 
     /// <summary>
@@ -413,6 +475,7 @@ public partial class TelnetInterpreter
 
             _bufferOverflowed = false;
             _bufferPosition = 0;
+            ReleaseLineBufferIfLarge();
             return;
         }
 
@@ -424,6 +487,7 @@ public partial class TelnetInterpreter
         // Create array for callback - always allocate exact size needed
         var cp = _buffer!.AsSpan()[.._bufferPosition].ToArray();
         _bufferPosition = 0;
+        ReleaseLineBufferIfLarge();
 
         foreach (var observer in _inputLineObservers)
         {
