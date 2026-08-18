@@ -233,7 +233,8 @@ public class EchoProtocol : TelnetProtocolPluginBase
         context.Logger.LogDebug("Client doesn't want server to echo - disabling echo");
         var previousState = _willEcho;
         _willEcho = false;
-        
+        await OnNegotiatedAsync(false);
+
         if (previousState != _willEcho && _onEchoStateChanged != null)
             await _onEchoStateChanged(false);
     }
@@ -243,7 +244,8 @@ public class EchoProtocol : TelnetProtocolPluginBase
         context.Logger.LogDebug("Server won't echo - disabling echo");
         var previousState = _willEcho;
         _willEcho = false;
-        
+        await OnNegotiatedAsync(false);
+
         if (previousState != _willEcho && _onEchoStateChanged != null)
             await _onEchoStateChanged(false);
     }
@@ -259,7 +261,8 @@ public class EchoProtocol : TelnetProtocolPluginBase
         context.Logger.LogDebug("Client requests server to echo - enabling echo");
         var previousState = _willEcho;
         _willEcho = true;
-        
+        await OnNegotiatedAsync(true);
+
         if (previousState != _willEcho && _onEchoStateChanged != null)
             await _onEchoStateChanged(true);
     }
@@ -269,8 +272,9 @@ public class EchoProtocol : TelnetProtocolPluginBase
         context.Logger.LogDebug("Server will echo - client accepting");
         var previousState = _willEcho;
         _willEcho = true;
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doEcho);
-        
+
         if (previousState != _willEcho && _onEchoStateChanged != null)
             await _onEchoStateChanged(true);
     }

@@ -141,11 +141,21 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         // Client also handles WILL/WONT from server (server announcing ability to use LINEMODE)
         stateMachine.Configure(State.WillLINEMODE)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Server is willing to use line mode"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Server is willing to use line mode");
+                await SetLineModeStateAsync(true);
+                await OnNegotiatedAsync(true);
+            });
 
         stateMachine.Configure(State.WontLINEMODE)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Server won't use line mode"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Server won't use line mode");
+                await SetLineModeStateAsync(false);
+                await OnNegotiatedAsync(false);
+            });
 
         // Handle subnegotiations: IAC SB LINEMODE MODE <mode> IAC SE
         stateMachine.Configure(State.SubNegotiation)
@@ -185,11 +195,21 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         // Server handles WILL/WONT from client (client announcing ability to use LINEMODE)
         stateMachine.Configure(State.WillLINEMODE)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client is willing to use line mode"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Client is willing to use line mode");
+                await SetLineModeStateAsync(true);
+                await OnNegotiatedAsync(true);
+            });
 
         stateMachine.Configure(State.WontLINEMODE)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't use line mode"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't use line mode");
+                await SetLineModeStateAsync(false);
+                await OnNegotiatedAsync(false);
+            });
 
         // Server also handles DO/DONT from client (client asking server to use LINEMODE)
         stateMachine.Configure(State.DoLINEMODE)
@@ -374,12 +394,14 @@ public class LineModeProtocol : TelnetProtocolPluginBase
             (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.LINEMODE
         });
         await SetLineModeStateAsync(true);
+        await OnNegotiatedAsync(true);
     }
 
     private async ValueTask OnDontLineModeAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server doesn't want line mode - do nothing");
         await SetLineModeStateAsync(false);
+        await OnNegotiatedAsync(false);
     }
 
     private async ValueTask SendDoLineModeAsync(IProtocolContext context)

@@ -109,7 +109,11 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontXDISPLOC)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to send X Display Location"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to send X Display Location");
+                await OnNegotiatedAsync(false);
+            });
 
         // Client also handles WILL/WONT from server (server announcing ability to request XDISPLOC)
         stateMachine.Configure(State.WillXDISPLOC)
@@ -118,7 +122,11 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontXDISPLOC)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Server won't request X Display Location"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Server won't request X Display Location");
+                await OnNegotiatedAsync(false);
+            });
 
         // Handle subnegotiation: IAC SB XDISPLOC SEND IAC SE
         stateMachine.Configure(State.SubNegotiation)
@@ -144,7 +152,11 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontXDISPLOC)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't send X Display Location"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't send X Display Location");
+                await OnNegotiatedAsync(false);
+            });
 
         // Server also handles DO/DONT from client (client asking server to send XDISPLOC)
         stateMachine.Configure(State.DoXDISPLOC)
@@ -153,7 +165,11 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontXDISPLOC)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client doesn't want X Display Location"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Client doesn't want X Display Location");
+                await OnNegotiatedAsync(false);
+            });
 
         // Handle subnegotiation: IAC SB XDISPLOC IS <display> IAC SE
         stateMachine.Configure(State.SubNegotiation)
@@ -270,6 +286,7 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
     private async ValueTask WillXDisplayAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the server, Willing to send X Display Location.");
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_willXdisploc);
     }
 
@@ -282,6 +299,7 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
     private async ValueTask RequestXDisplayLocationAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Requesting X Display Location from client.");
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(new byte[]
         {
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.XDISPLOC, (byte)Trigger.SEND, (byte)Trigger.IAC,

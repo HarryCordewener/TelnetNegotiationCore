@@ -138,29 +138,31 @@ public class MXPProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogDebug("Client supports MXP.");
         _mxpEnabled = true;
+        await OnNegotiatedAsync(true);
 
         if (_onMXPEnabled != null)
             await _onMXPEnabled().ConfigureAwait(false);
     }
 
-    private ValueTask OnDontMXPAsync(IProtocolContext context)
+    private async ValueTask OnDontMXPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client won't do MXP - do nothing");
         _mxpEnabled = false;
-        return default;
+        await OnNegotiatedAsync(false);
     }
 
-    private ValueTask WontMXPAsync(IProtocolContext context)
+    private async ValueTask WontMXPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server won't do MXP - do nothing");
         _mxpEnabled = false;
-        return default;
+        await OnNegotiatedAsync(false);
     }
 
     private async ValueTask OnWillMXPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server supports MXP.");
         _mxpEnabled = true;
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doMxp);
 
         if (_onMXPEnabled != null)

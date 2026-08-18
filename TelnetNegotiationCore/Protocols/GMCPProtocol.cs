@@ -133,11 +133,19 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.DoGMCP)
                 .SubstateOf(State.Accepting)
-                .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client will do GMCP"));
+                .OnEntryAsync(async () =>
+                {
+                    context.Logger.LogDebug("Connection: {ConnectionState}", "Client will do GMCP");
+                    await OnNegotiatedAsync(true);
+                });
 
             stateMachine.Configure(State.DontGMCP)
                 .SubstateOf(State.Accepting)
-                .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client will not GMCP"));
+                .OnEntryAsync(async () =>
+                {
+                    context.Logger.LogDebug("Connection: {ConnectionState}", "Client will not GMCP");
+                    await OnNegotiatedAsync(false);
+                });
 
             context.RegisterInitialNegotiation(async () => await WillGMCPAsync(context));
         }
@@ -155,7 +163,11 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.WontGMCP)
                 .SubstateOf(State.Accepting)
-                .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client will GMCP"));
+                .OnEntryAsync(async () =>
+                {
+                    context.Logger.LogDebug("Connection: {ConnectionState}", "Client will GMCP");
+                    await OnNegotiatedAsync(false);
+                });
         }
 
         stateMachine.Configure(State.SubNegotiation)
@@ -492,6 +504,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     private async ValueTask DoGMCPAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing the client can do GMCP");
+        await OnNegotiatedAsync(true);
 
         await context.SendNegotiationAsync(s_doGmcp);
     }
@@ -600,11 +613,19 @@ public class MSDPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.DoMSDP)
                 .SubstateOf(State.Accepting)
-                .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client will do MSDP"));
+                .OnEntryAsync(async () =>
+                {
+                    context.Logger.LogDebug("Connection: {ConnectionState}", "Client will do MSDP");
+                    await OnNegotiatedAsync(true);
+                });
 
             stateMachine.Configure(State.DontMSDP)
                 .SubstateOf(State.Accepting)
-                .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client will not MSDP"));
+                .OnEntryAsync(async () =>
+                {
+                    context.Logger.LogDebug("Connection: {ConnectionState}", "Client will not MSDP");
+                    await OnNegotiatedAsync(false);
+                });
 
             context.RegisterInitialNegotiation(async () => await WillMSDPAsync(context));
         }
@@ -623,7 +644,11 @@ public class MSDPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.WontMSDP)
                 .SubstateOf(State.Accepting)
-                .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Server will not MSDP"));
+                .OnEntryAsync(async () =>
+                {
+                    context.Logger.LogDebug("Connection: {ConnectionState}", "Server will not MSDP");
+                    await OnNegotiatedAsync(false);
+                });
         }
 
         // Sub-negotiation states (common to both server and client)
@@ -771,6 +796,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     private async ValueTask DoMSDPAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing the client can do MSDP");
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doMsdp);
     }
 

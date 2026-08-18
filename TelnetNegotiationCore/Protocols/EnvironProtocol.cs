@@ -124,7 +124,11 @@ public class EnvironProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontENVIRON)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Client won't do ENVIRON - do nothing"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Client won't do ENVIRON - do nothing");
+                await OnNegotiatedAsync(false);
+            });
 
         // Server also handles WILL/WONT from client (client announcing ability to do ENVIRON)
         stateMachine.Configure(State.WillENVIRON)
@@ -133,7 +137,11 @@ public class EnvironProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontENVIRON)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Client won't do ENVIRON - do nothing"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Client won't do ENVIRON - do nothing");
+                await OnNegotiatedAsync(false);
+            });
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.ENVIRON, State.AlmostNegotiatingENVIRON);
@@ -200,7 +208,11 @@ public class EnvironProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontENVIRON)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Server won't do ENVIRON - do nothing"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Server won't do ENVIRON - do nothing");
+                await OnNegotiatedAsync(false);
+            });
 
         // Client also handles DO/DONT from server (server asking client to do ENVIRON)
         stateMachine.Configure(State.DoENVIRON)
@@ -209,7 +221,11 @@ public class EnvironProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontENVIRON)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Server telling client not to send ENVIRON"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Server telling client not to send ENVIRON");
+                await OnNegotiatedAsync(false);
+            });
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.ENVIRON, State.AlmostNegotiatingENVIRON);
@@ -380,7 +396,8 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     private async ValueTask OnDoEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Client will do ENVIRON. Requesting environment variables...");
-        
+        await OnNegotiatedAsync(true);
+
         // Send ENVIRON SEND (request all variables)
         await context.SendNegotiationAsync(new byte[]
         {
@@ -396,6 +413,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWillEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Server will do ENVIRON");
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doEnviron);
     }
 

@@ -30,9 +30,22 @@ public interface ITelnetProtocolPlugin
     IReadOnlyCollection<Type> Dependencies { get; }
 
     /// <summary>
-    /// Gets whether this plugin is currently enabled.
+    /// Gets whether this plugin is currently enabled -- attached to the interpreter and processing.
+    /// True from the moment <see cref="InitializeAsync"/> runs, regardless of whether the peer has
+    /// agreed to anything on the wire yet. For "did the peer actually negotiate this option", see
+    /// <see cref="IsNegotiated"/>.
     /// </summary>
     bool IsEnabled { get; }
+
+    /// <summary>
+    /// Gets whether the peer has genuinely negotiated this option: a WILL/DO or DO/WILL exchange
+    /// has completed and the peer agreed. False before that ever happens, and false again if the
+    /// peer later refuses or withdraws the option -- unlike <see cref="IsEnabled"/>, which does not
+    /// move once the plugin is attached. Set only through <see cref="OnNegotiatedAsync"/>, which a
+    /// protocol calls from its own <see cref="ConfigureStateMachine"/> handlers at the point real
+    /// negotiation for its option resolves.
+    /// </summary>
+    bool IsNegotiated { get; }
 
     /// <summary>
     /// Initializes the protocol plugin.
@@ -59,6 +72,17 @@ public interface ITelnetProtocolPlugin
     /// Called when the protocol is disabled at runtime.
     /// </summary>
     ValueTask OnDisabledAsync();
+
+    /// <summary>
+    /// Called the moment real wire negotiation for this plugin's option resolves -- <c>true</c>
+    /// when the peer agreed (a positive WILL/DO exchange completed), <c>false</c> when it refused,
+    /// or when an option it had previously agreed to is later withdrawn. Sets
+    /// <see cref="IsNegotiated"/> and is what a protocol's own <see cref="ConfigureStateMachine"/>
+    /// handlers call; it is public so <see cref="Plugins.ProtocolPluginManager"/> and tests can also
+    /// drive it directly.
+    /// </summary>
+    /// <param name="isNegotiated">True if the peer just agreed, false if it just refused or withdrew.</param>
+    ValueTask OnNegotiatedAsync(bool isNegotiated);
 
     /// <summary>
     /// Disposes resources used by the protocol.

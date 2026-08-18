@@ -401,7 +401,11 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontAuthentication)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Client won't authenticate"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Client won't authenticate");
+                await OnNegotiatedAsync(false);
+            });
 
         // Server handles IS subnegotiation (authentication response from client)
         stateMachine.Configure(State.SubNegotiation)
@@ -452,7 +456,11 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontAuthentication)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Server doesn't want authentication"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Server doesn't want authentication");
+                await OnNegotiatedAsync(false);
+            });
 
         // Client handles SEND subnegotiation
         stateMachine.Configure(State.SubNegotiation)
@@ -528,7 +536,8 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     private async ValueTask OnClientWillAuthenticateAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client willing to authenticate - sending authentication types");
-        
+        await OnNegotiatedAsync(true);
+
         // Get the list of authentication types from the provider (or empty list to reject)
         var authTypes = new List<(byte AuthType, byte Modifiers)>();
         if (_authenticationTypesProvider != null)
@@ -543,7 +552,8 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     private async ValueTask OnServerRequestsAuthenticationAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server requests authentication (DO AUTHENTICATION) - responding with WILL");
-        await context.SendNegotiationAsync(new byte[] 
+        await OnNegotiatedAsync(true);
+        await context.SendNegotiationAsync(new byte[]
         { 
             (byte)Trigger.IAC, 
             (byte)Trigger.WILL, 

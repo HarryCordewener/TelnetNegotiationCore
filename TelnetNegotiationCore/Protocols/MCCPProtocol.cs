@@ -44,7 +44,18 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private bool _mccp2Enabled;
     private bool _mccp3Enabled;
 
+    // Tracked separately from IsNegotiated itself: MCCP2 and MCCP3 negotiate independently, and
+    // reporting either one's own true/false straight to OnNegotiatedAsync would let the second
+    // version to resolve stomp the first -- MCCP3 being refused would clear IsNegotiated even
+    // though MCCP2 compression is genuinely running. The aggregate below is what a consumer of
+    // IsNegotiated actually wants to know: is compression happening in either direction at all.
+    private bool _mccp2Negotiated;
+    private bool _mccp3Negotiated;
+
     private Func<int, bool, ValueTask>? _onCompressionEnabled;
+
+    private ValueTask ReportAggregateNegotiationAsync() =>
+        OnNegotiatedAsync(_mccp2Negotiated || _mccp3Negotiated);
 
     /// <summary>
     /// Sets the callback that is invoked when compression state changes.
@@ -109,8 +120,13 @@ public class MCCPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.DoMCCP3)
                 .SubstateOf(State.Accepting)
-                .OnEntry(() => context.Logger.LogDebug(
-                    "Client will use MCCP3 - awaiting IAC SB MCCP3 IAC SE before inflating"));
+                .OnEntryAsync(async () =>
+                {
+                    context.Logger.LogDebug(
+                        "Client will use MCCP3 - awaiting IAC SB MCCP3 IAC SE before inflating");
+                    _mccp3Negotiated = true;
+                    await ReportAggregateNegotiationAsync();
+                });
 
             stateMachine.Configure(State.DontMCCP3)
                 .SubstateOf(State.Accepting)
@@ -384,24 +400,32 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnDoMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Client supports MCCP2 - will start compression");
+        _mccp2Negotiated = true;
+        await ReportAggregateNegotiationAsync();
         await StartDeflatingAsync(context, version: 2, s_sbMccp2);
     }
 
     private async ValueTask OnDontMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Client doesn't support MCCP2");
+        _mccp2Negotiated = false;
+        await ReportAggregateNegotiationAsync();
         await StopCompressionAsync(context, version: 2, inbound: false);
     }
 
     private async ValueTask OnDontMCCP3Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Client doesn't support MCCP3");
+        _mccp3Negotiated = false;
+        await ReportAggregateNegotiationAsync();
         await StopInflatingOnRefusalAsync(context, version: 3);
     }
 
     private async ValueTask OnWillMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server supports MCCP2 - accepting");
+        _mccp2Negotiated = true;
+        await ReportAggregateNegotiationAsync();
         // Compression starts at IAC SB MCCP2 IAC SE, not here.
         await context.SendNegotiationAsync(s_doMccp2);
     }
@@ -409,12 +433,16 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWontMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server doesn't support MCCP2");
+        _mccp2Negotiated = false;
+        await ReportAggregateNegotiationAsync();
         await StopInflatingOnRefusalAsync(context, version: 2);
     }
 
     private async ValueTask OnWillMCCP3Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server supports MCCP3 - will start compressing output");
+        _mccp3Negotiated = true;
+        await ReportAggregateNegotiationAsync();
         await context.SendNegotiationAsync(s_doMccp3);
         await StartDeflatingAsync(context, version: 3, s_sbMccp3);
     }
@@ -422,6 +450,8 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWontMCCP3Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server doesn't support MCCP3");
+        _mccp3Negotiated = false;
+        await ReportAggregateNegotiationAsync();
         await StopCompressionAsync(context, version: 3, inbound: false);
     }
 

@@ -170,11 +170,19 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
         // Server sends DO FLOWCONTROL to client
         stateMachine.Configure(State.WillFLOWCONTROL)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client is willing to toggle flow control"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Client is willing to toggle flow control");
+                await OnNegotiatedAsync(true);
+            });
 
         stateMachine.Configure(State.WontFLOWCONTROL)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't toggle flow control"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't toggle flow control");
+                await OnNegotiatedAsync(false);
+            });
 
         // Server doesn't typically receive subnegotiations for this protocol
         // but we should handle them gracefully if they arrive
@@ -315,7 +323,8 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the server, Willing to toggle flow control.");
         await context.SendNegotiationAsync(s_willFlowControl);
-        
+        await OnNegotiatedAsync(true);
+
         // Per RFC 1372, flow control should be enabled when WILL is sent
         await SetFlowControlStateAsync(true);
     }
@@ -323,6 +332,7 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
     private async ValueTask OnDontFlowControlAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to toggle flow control");
+        await OnNegotiatedAsync(false);
         await SetFlowControlStateAsync(false);
     }
 

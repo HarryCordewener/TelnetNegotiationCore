@@ -176,7 +176,11 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.DontMSSP)
                 .SubstateOf(State.Accepting)
-                .OnEntry(() => context.Logger.LogDebug("Client won't do MSSP - do nothing"));
+                .OnEntryAsync(async () =>
+                {
+                    context.Logger.LogDebug("Client won't do MSSP - do nothing");
+                    await OnNegotiatedAsync(false);
+                });
 
             context.RegisterInitialNegotiation(async () => await WillingMSSPAsync(context));
         }
@@ -194,7 +198,11 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.WontMSSP)
                 .SubstateOf(State.Accepting)
-                .OnEntry(() => context.Logger.LogDebug("Server won't do MSSP - do nothing"));
+                .OnEntryAsync(async () =>
+                {
+                    context.Logger.LogDebug("Server won't do MSSP - do nothing");
+                    await OnNegotiatedAsync(false);
+                });
 
             stateMachine.Configure(State.SubNegotiation)
                 .Permit(Trigger.MSSP, State.AlmostNegotiatingMSSP)
@@ -538,7 +546,8 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnDoMSSPAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Client wants MSSP data. Sending...");
-        
+        await OnNegotiatedAsync(true);
+
         var config = _msspConfig();
         await SendMSSPDataAsync(config, context);
     }
@@ -546,6 +555,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWillMSSPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server will send MSSP data");
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doMssp);
     }
 
