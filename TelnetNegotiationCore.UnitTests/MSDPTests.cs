@@ -133,6 +133,79 @@ public class MSDPTests : BaseTest
 			(byte)Trigger.MSDP_TABLE_CLOSE]);
 	}
 
+	/// <summary>
+	/// The client half of MSDP's request vocabulary: <c>SendMSDPCommand</c> is what a client calls to
+	/// ask a server to <c>SEND</c>, <c>REPORT</c> or <c>LIST</c> a variable - the half
+	/// <see cref="Handlers.MSDPServerHandler"/> answers but nothing built the asking side of, until now.
+	/// </summary>
+	[Test]
+	public async Task ClientCanSendMSDPCommand()
+	{
+		byte[] negotiationOutput = null;
+
+		ValueTask WriteBackToNegotiate(ReadOnlyMemory<byte> arg1)
+		{
+			negotiationOutput = arg1.ToArray();
+			return ValueTask.CompletedTask;
+		}
+
+		var client_ti = await new Builders.TelnetInterpreterBuilder()
+			.UseMode(Interpreters.TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit((data, encoding, telnet) => ValueTask.CompletedTask)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<Protocols.MSDPProtocol>()
+			.BuildAsync();
+
+		await client_ti.SendMSDPCommand("SEND", "PLAYERS");
+
+		await Assert.That(negotiationOutput).IsNotNull();
+		await AssertByteArraysEqual(negotiationOutput, MSDPFrame("SEND", "PLAYERS"));
+
+		await client_ti.DisposeAsync();
+	}
+
+	/// <summary>
+	/// The request round-trips through a real server-mode interpreter exactly as
+	/// <see cref="Handlers.MSDPServerHandler.HandleAsync"/> expects it: a <c>SEND</c> command naming
+	/// the variable the client wants, delivered to <c>OnMSDPMessage</c> like any other MSDP payload.
+	/// </summary>
+	[Test]
+	public async Task SentMSDPCommandArrivesAsAnOrdinaryMSDPMessage()
+	{
+		var receivedMessages = new List<string>();
+
+		var server_ti = await new Builders.TelnetInterpreterBuilder()
+			.UseMode(Interpreters.TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit((data, encoding, telnet) => ValueTask.CompletedTask)
+			.OnNegotiation((data) => ValueTask.CompletedTask)
+			.AddPlugin<Protocols.MSDPProtocol>()
+				.OnMSDPMessage((telnet, message) =>
+				{
+					receivedMessages.Add(message);
+					return ValueTask.CompletedTask;
+				})
+			.BuildAsync();
+
+		await server_ti.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP });
+
+		await server_ti.InterpretByteArrayAsync(MSDPFrame("SEND", "PLAYERS"));
+		await server_ti.WaitForProcessingAsync();
+
+		var gotMessage = await PollUntilAsync(() => receivedMessages.Count > 0);
+		if (!gotMessage)
+		{
+			throw new Exception($"Timeout waiting for the MSDP message callback. Count: {receivedMessages.Count}");
+		}
+
+		await Assert.That(receivedMessages.Count).IsEqualTo(1);
+		var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(receivedMessages[0]);
+		await Assert.That(parsed!["SEND"]).IsEqualTo("PLAYERS");
+
+		await server_ti.DisposeAsync();
+	}
+
 	[Test]
 	public async Task TestMSDPProtocolServerNegotiation()
 	{
