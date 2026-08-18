@@ -187,18 +187,18 @@ public class EORProtocol : TelnetProtocolPluginBase
         await OnPromptAsync();
     }
 
-    private ValueTask OnDontEORAsync(IProtocolContext context)
+    private async ValueTask OnDontEORAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client won't do EOR - do nothing");
         _doEOR = false;
-        return default(ValueTask);
+        await OnNegotiatedAsync(false);
     }
 
-    private ValueTask WontEORAsync(IProtocolContext context)
+    private async ValueTask WontEORAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server won't do EOR - do nothing");
         _doEOR = false;
-        return default(ValueTask);
+        await OnNegotiatedAsync(false);
     }
 
     private async ValueTask WillingEORAsync(IProtocolContext context)
@@ -207,17 +207,18 @@ public class EORProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_willEor);
     }
 
-    private ValueTask OnDoEORAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask OnDoEORAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Client supports End of Record.");
         _doEOR = true;
-        return default(ValueTask);
+        await OnNegotiatedAsync(true);
     }
 
     private async ValueTask OnWillEORAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Server supports End of Record.");
         _doEOR = true;
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doEor);
     }
 

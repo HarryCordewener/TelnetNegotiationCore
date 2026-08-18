@@ -169,7 +169,11 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontTType)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to Terminal Type"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to Terminal Type");
+                await OnNegotiatedAsync(false);
+            });
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.TTYPE, State.AlmostNegotiatingTerminalType);
@@ -248,7 +252,11 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontDoTType)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Terminal Type"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Terminal Type");
+                await OnNegotiatedAsync(false);
+            });
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.TTYPE, State.AlmostNegotiatingTerminalType);
@@ -329,6 +337,7 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
         if (!IsEnabled)
             return;
 
+        await OnNegotiatedAsync(true);
         Context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the client, to send the next Terminal Type.");
         await context.SendNegotiationAsync(new byte[]
         {
@@ -398,6 +407,7 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     private async ValueTask WillDoTerminalTypeAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the other party, Willing to do Terminal Type.");
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_willTtype);
     }
 

@@ -189,7 +189,11 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontDoCharset)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Won't do Character Set - do nothing"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Won't do Character Set - do nothing");
+                await OnNegotiatedAsync(false);
+            });
 
         stateMachine.Configure(State.DoCharset)
             .SubstateOf(State.Accepting)
@@ -197,7 +201,11 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontCharset)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Character Set - do nothing"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Character Set - do nothing");
+                await OnNegotiatedAsync(false);
+            });
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.CHARSET, State.AlmostNegotiatingCharset);
@@ -427,6 +435,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWillingCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Request charset negotiation from Client");
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doCharset);
         _charsetOffered = false;
     }
@@ -440,6 +449,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     private async ValueTask OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Charsets String: {CharsetList}", ";" + string.Join(";", GetCharsetOrder(AllowedEncodings()).Select(x => x.WebName)));
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(_supportedCharacterSets!.Value);
         _charsetOffered = true;
     }

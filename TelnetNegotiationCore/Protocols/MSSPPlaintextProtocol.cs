@@ -166,17 +166,23 @@ public class MSSPPlaintextProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <inheritdoc />
-	protected override ValueTask OnInitializeAsync()
+	/// <remarks>
+	/// This transport has no WILL/DO handshake of its own -- see the type documentation, "there is no
+	/// second switch". Registering the plugin at all is the whole of the consent it needs, so that is
+	/// this protocol's negotiation, and <see cref="TelnetProtocolPluginBase.IsNegotiated"/> is set true
+	/// here rather than staying false forever for want of a wire exchange that MSSP-REQUEST does not have.
+	/// </remarks>
+	protected override async ValueTask OnInitializeAsync()
 	{
 		Context.Logger.LogInformation("MSSP Plaintext Protocol initialized");
-		return default(ValueTask);
+		await OnNegotiatedAsync(true);
 	}
 
 	/// <inheritdoc />
-	protected override ValueTask OnProtocolDisabledAsync()
+	protected override async ValueTask OnProtocolDisabledAsync()
 	{
 		AbandonExchange();
-		return default(ValueTask);
+		await OnNegotiatedAsync(false);
 	}
 
 	/// <inheritdoc />

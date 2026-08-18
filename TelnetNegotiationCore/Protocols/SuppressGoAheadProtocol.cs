@@ -187,18 +187,18 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
-    private ValueTask OnDontSuppressGAAsync(IProtocolContext context)
+    private async ValueTask OnDontSuppressGAAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client won't do SUPPRESSGOAHEAD - do nothing");
         _doGA = true;
-        return default(ValueTask);
+        await OnNegotiatedAsync(false);
     }
 
-    private ValueTask WontSuppressGAAsync(IProtocolContext context)
+    private async ValueTask WontSuppressGAAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server won't do SUPPRESSGOAHEAD - do nothing");
         _doGA = true;
-        return default(ValueTask);
+        await OnNegotiatedAsync(false);
     }
 
     private async ValueTask WillingSuppressGAAsync(IProtocolContext context)
@@ -207,17 +207,18 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_willSga);
     }
 
-    private ValueTask OnDoSuppressGAAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask OnDoSuppressGAAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Client supports Suppress Go-Ahead.");
         _doGA = false;
-        return default(ValueTask);
+        await OnNegotiatedAsync(true);
     }
 
     private async ValueTask OnWillSuppressGAAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Server supports Suppress Go-Ahead.");
         _doGA = false;
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doSga);
     }
 

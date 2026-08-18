@@ -115,7 +115,11 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontTSPEED)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to send Terminal Speed"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to send Terminal Speed");
+                await OnNegotiatedAsync(false);
+            });
 
         // Handle subnegotiation: IAC SB TSPEED SEND IAC SE
         stateMachine.Configure(State.SubNegotiation)
@@ -141,7 +145,11 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontTSPEED)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't send Terminal Speed"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't send Terminal Speed");
+                await OnNegotiatedAsync(false);
+            });
 
         // Handle subnegotiation: IAC SB TSPEED IS <speed> IAC SE
         stateMachine.Configure(State.SubNegotiation)
@@ -272,6 +280,7 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
     private async ValueTask WillTerminalSpeedAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the server, Willing to send Terminal Speed.");
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_willTspeed);
     }
 
@@ -284,6 +293,7 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
     private async ValueTask RequestTerminalSpeedAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Requesting Terminal Speed from client.");
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(new byte[]
         {
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.SEND, (byte)Trigger.IAC,

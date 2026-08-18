@@ -482,7 +482,11 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontEncryption)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Client won't encrypt"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Client won't encrypt");
+                await OnNegotiatedAsync(false);
+            });
 
         // Server handles IS subnegotiation (encryption initialization from client)
         stateMachine.Configure(State.SubNegotiation)
@@ -533,7 +537,11 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontEncryption)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => context.Logger.LogDebug("Server doesn't want encryption"));
+            .OnEntryAsync(async () =>
+            {
+                context.Logger.LogDebug("Server doesn't want encryption");
+                await OnNegotiatedAsync(false);
+            });
 
         // Client handles SUPPORT subnegotiation
         stateMachine.Configure(State.SubNegotiation)
@@ -611,7 +619,8 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     private async ValueTask OnClientWillEncryptAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client willing to encrypt - sending encryption types");
-        
+        await OnNegotiatedAsync(true);
+
         // Get the list of encryption types from the provider (or empty list to reject)
         var encTypes = new List<byte>();
         if (_encryptionTypesProvider != null)
@@ -626,7 +635,8 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     private async ValueTask OnServerRequestsEncryptionAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server requests encryption (DO ENCRYPT) - responding with WILL");
-        await context.SendNegotiationAsync(new byte[] 
+        await OnNegotiatedAsync(true);
+        await context.SendNegotiationAsync(new byte[]
         { 
             (byte)Trigger.IAC, 
             (byte)Trigger.WILL, 

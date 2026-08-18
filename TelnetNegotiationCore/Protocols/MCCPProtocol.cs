@@ -109,8 +109,12 @@ public class MCCPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.DoMCCP3)
                 .SubstateOf(State.Accepting)
-                .OnEntry(() => context.Logger.LogDebug(
-                    "Client will use MCCP3 - awaiting IAC SB MCCP3 IAC SE before inflating"));
+                .OnEntryAsync(async () =>
+                {
+                    context.Logger.LogDebug(
+                        "Client will use MCCP3 - awaiting IAC SB MCCP3 IAC SE before inflating");
+                    await OnNegotiatedAsync(true);
+                });
 
             stateMachine.Configure(State.DontMCCP3)
                 .SubstateOf(State.Accepting)
@@ -384,24 +388,28 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnDoMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Client supports MCCP2 - will start compression");
+        await OnNegotiatedAsync(true);
         await StartDeflatingAsync(context, version: 2, s_sbMccp2);
     }
 
     private async ValueTask OnDontMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Client doesn't support MCCP2");
+        await OnNegotiatedAsync(false);
         await StopCompressionAsync(context, version: 2, inbound: false);
     }
 
     private async ValueTask OnDontMCCP3Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Client doesn't support MCCP3");
+        await OnNegotiatedAsync(false);
         await StopInflatingOnRefusalAsync(context, version: 3);
     }
 
     private async ValueTask OnWillMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server supports MCCP2 - accepting");
+        await OnNegotiatedAsync(true);
         // Compression starts at IAC SB MCCP2 IAC SE, not here.
         await context.SendNegotiationAsync(s_doMccp2);
     }
@@ -409,12 +417,14 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWontMCCP2Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server doesn't support MCCP2");
+        await OnNegotiatedAsync(false);
         await StopInflatingOnRefusalAsync(context, version: 2);
     }
 
     private async ValueTask OnWillMCCP3Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server supports MCCP3 - will start compressing output");
+        await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doMccp3);
         await StartDeflatingAsync(context, version: 3, s_sbMccp3);
     }
@@ -422,6 +432,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnWontMCCP3Async(IProtocolContext context)
     {
         context.Logger.LogDebug("Server doesn't support MCCP3");
+        await OnNegotiatedAsync(false);
         await StopCompressionAsync(context, version: 3, inbound: false);
     }
 

@@ -1,6 +1,50 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.9.0]
+
+### Added
+- **`IsEnabled` never meant "the peer agreed to this" — it meant "this plugin is attached", and
+  nothing distinguished the two.** `TelnetProtocolPluginBase.InitializeAsync` set `_isEnabled = true`
+  the moment a plugin was constructed and registered, which happens before any `WILL`/`DO` byte has
+  crossed the wire in either direction. Every downstream check that read `IsEnabled` to mean "is this
+  option live" — this library's own `TelnetEORInterpreter`/`TelnetMSSPInterpreter`, and any consumer
+  gating behaviour on a plugin's state — was reading a signal that had been true since before
+  negotiation started, and stayed true regardless of whether the peer ever answered, refused, or
+  later withdrew the option. The only path that could set it correctly, `OnEnabledAsync`, is reachable
+  only through `ProtocolPluginManager.EnablePluginAsync<T>()`, which nothing in this codebase calls —
+  so in practice `IsEnabled` was a constant, not a signal. A consumer that needed to know "did the peer
+  really negotiate MSDP before I send it a request" had no way to ask this library that question, and
+  had to work around it by sending unconditionally and absorbing whatever a server that never
+  negotiated the option sent back.
+  - **`IsEnabled` is unchanged and keeps its existing meaning**: whether the plugin is attached to the
+    interpreter and processing. That is a real and useful question — every internal guard that already
+    read it to mean "has this plugin been initialized" is still correct — and changing its meaning
+    under a name every consumer already reads would have been a silent semantic break, not a fix.
+  - **A new, orthogonal `IsNegotiated` property answers the question `IsEnabled` could not**: false
+    until the peer has genuinely agreed to the option over the wire, true once a `WILL`/`DO` (or
+    `DO`/`WILL`) exchange actually completes in the peer's favour, and false again if the peer refuses
+    outright or later withdraws an option it had previously accepted. A matching
+    `OnNegotiatedAsync(bool isNegotiated)` — and its overridable `OnNegotiationChangedAsync(bool)` hook,
+    named to sit alongside the existing `OnEnabledAsync`/`OnDisabledAsync`/`OnProtocolEnabledAsync`/
+    `OnProtocolDisabledAsync` pattern — fires exactly at the point each protocol's own state machine
+    resolves that question, giving a consumer a real hook to gate behaviour on instead of the
+    always-true `IsEnabled`.
+  - **Wired from the real state machine transition, not a second manual switch.** Each protocol already
+    implements `ConfigureStateMachine`, the designed extension point for a plugin's own negotiation
+    handlers; every protocol under `Protocols/` that negotiates an option over `WILL`/`WONT`/`DO`/`DONT`
+    now calls `OnNegotiatedAsync(true)` from the handler entered on genuine acceptance and
+    `OnNegotiatedAsync(false)` from the one entered on refusal or withdrawal, for both server mode and
+    client mode — the two see opposite halves of the same exchange (a server offering `WILL` and
+    reading the peer's `DO`/`DONT`; a client reading an offered `WILL`/`WONT` and answering `DO`), so
+    each is wired to the trigger that is a genuine response from the peer, not to this side's own
+    outbound announcement. `MSSPPlaintextProtocol` is the one exception worth calling out: it carries
+    no `WILL`/`DO` exchange of its own — registering the plugin at all is its whole opt-in, as its own
+    documentation already said — so it reports `IsNegotiated = true` from `OnInitializeAsync` rather
+    than staying false forever for want of a handshake that protocol does not have.
+  - This changes no wire behaviour anywhere — every existing test still passes unmodified — only the
+    accuracy of an internal signal nothing was reading correctly before.
+
 ## [2.8.3]
 
 ### Added

@@ -169,25 +169,43 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         {
             stateMachine.Configure(State.DontNAWS)
                 .SubstateOf(State.Accepting)
-                .OnEntry(() =>
+                .OnEntryAsync(async () =>
                 {
                     // Server refused NAWS — must not report window size.
                     _willingToDoNAWS = false;
                     context.Logger.LogDebug("Server won't do NAWS - do nothing");
+                    await OnNegotiatedAsync(false);
                 });
 
             stateMachine.Configure(State.DoNAWS)
                 .SubstateOf(State.Accepting)
-                .OnEntry(() => _willingToDoNAWS = true);
+                .OnEntryAsync(async () =>
+                {
+                    _willingToDoNAWS = true;
+                    await OnNegotiatedAsync(true);
+                });
         }
 
         stateMachine.Configure(State.WillDoNAWS)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await RequestNAWSAsync(x, context));
+            .OnEntryAsync(async x =>
+            {
+                // The peer just sent WILL NAWS. Whether we already sent DO (server mode asks
+                // eagerly at connection start, without waiting for this) or are about to
+                // (RequestNAWSAsync, below), both halves of the exchange are on the wire the
+                // moment this trigger fires -- so this is the genuine completion point, not the
+                // eager initial DO that RequestNAWSAsync alone would otherwise fire early.
+                await RequestNAWSAsync(x, context);
+                await OnNegotiatedAsync(true);
+            });
 
         stateMachine.Configure(State.WontDoNAWS)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => _willingToDoNAWS = false);
+            .OnEntryAsync(async () =>
+            {
+                _willingToDoNAWS = false;
+                await OnNegotiatedAsync(false);
+            });
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.NAWS, State.NegotiatingNAWS);
