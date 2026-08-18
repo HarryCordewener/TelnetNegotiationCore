@@ -1,6 +1,12 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.8.2]
+
+### Fixed
+- **`TelnetInterpreter` never declared `IAsyncDisposable`, so nothing generic ever disposed it** — the class has had a complete `DisposeAsync` for as long as it has had a processing loop: it completes the byte channel, cancels the loop, stops keep-alive, disposes every plugin (MCCP's zlib streams among them), retires the byte transforms and disposes the token source and the write lock. None of that was reachable through the type. C# binds `await using` to a `DisposeAsync` *method* by pattern, not to the interface, so the disposal ran perfectly for anyone who wrote the `await using` by hand — and not at all for a DI container, a `List<IAsyncDisposable>`, or any `is IAsyncDisposable` test, all of which look at the type and found nothing there. A server registering interpreters in a container leaked one interpreter, one processing task and one set of plugin state per connection, with no error to notice it by. The interface is now declared; the method it binds to is the one that was already there, unchanged.
+- **Disposing twice threw** — which had been mostly academic while only hand-written `await using` blocks reached the method, and stops being so the moment a container can see it: the container disposes what it owns whether or not the consumer already did. `ChannelWriter.Complete()` throws `ChannelClosedException` on an already-completed channel, which is what came out first, and had it not, `CancellationTokenSource.CancelAsync()` would have thrown `ObjectDisposedException` on the token source the previous call disposed. `IAsyncDisposable` requires repeated calls to be tolerated, so the first caller now takes the whole shutdown and every later one returns having done nothing. The claim is made with `Interlocked.Exchange` rather than a `bool` check-then-set, because the two callers most likely to race are the owner of the connection and the read loop that has just noticed the connection went away, and they are on different threads.
+
 ## [2.8.1]
 
 ### Fixed

@@ -19,7 +19,14 @@ namespace TelnetNegotiationCore.Interpreters;
 /// TODO: Telnet Interpreter should take in a simple Interface object that can Read & Write from / to a Stream!
 /// Read Byte, Write Byte, and a Buffer Size. That way we can test it.
 /// </summary>
-public partial class TelnetInterpreter
+/// <remarks>
+/// The <see cref="IAsyncDisposable"/> here is load-bearing, however redundant it looks next to a
+/// <see cref="DisposeAsync"/> that was already written and already correct. <c>await using</c> finds
+/// that method by pattern, so the disposal ran for anyone who wrote the <c>await using</c> by hand
+/// and for nobody else — a DI container, a collection of disposables, or any <c>is IAsyncDisposable</c>
+/// test looked at the type, saw nothing, and let the interpreter and every plugin it owns leak.
+/// </remarks>
+public partial class TelnetInterpreter : IAsyncDisposable
 {
     private readonly Dictionary<byte, Trigger> _isDefinedDictionary = new();
 
@@ -137,6 +144,18 @@ public partial class TelnetInterpreter
     /// Cancellation token source for graceful shutdown.
     /// </summary>
     private readonly CancellationTokenSource _processingCts = new();
+
+    /// <summary>
+    /// Non-zero once a caller has claimed the shutdown in <see cref="DisposeAsync"/>.
+    /// </summary>
+    /// <remarks>
+    /// An <see cref="Interlocked"/>-guarded <see cref="int"/> rather than a plain <c>bool</c>,
+    /// because the two callers most likely to race here run on different threads: the owner of the
+    /// connection, and the read loop that has just noticed the connection went away and is tearing
+    /// down what it was reading into. A check-then-set on a <c>bool</c> would let both of them
+    /// through and both would then try to complete the same channel.
+    /// </remarks>
+    private int _disposed;
 
     /// <summary>
     /// Cancelled when the interpreter is disposed. Protocols that run their own background timers
@@ -833,8 +852,23 @@ public partial class TelnetInterpreter
     /// <summary>
     /// Graceful shutdown of the interpreter.
     /// </summary>
+    /// <remarks>
+    /// Calling this more than once is harmless, as <see cref="IAsyncDisposable"/> requires, and it
+    /// does happen: a container that owns the interpreter disposes it whether or not the consumer
+    /// already did, and a consumer inside an <c>await using</c> may reasonably close the connection
+    /// early by hand. Without the guard the second call did not merely repeat the work, it threw —
+    /// <see cref="System.Threading.Channels.ChannelWriter{T}.Complete"/> on an already-completed
+    /// channel, and then cancellation on an already-disposed
+    /// <see cref="CancellationTokenSource"/>. The first caller performs the whole shutdown; anyone
+    /// arriving after it returns having done nothing.
+    /// </remarks>
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         _byteChannel.Writer.Complete();  // Signal no more data
         
 #if NET6_0_OR_GREATER
