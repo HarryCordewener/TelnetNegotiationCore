@@ -10,6 +10,7 @@ public enum State : short
 	SubNegotiation,
 	EndSubNegotiation,
 	DoNothing,
+	GoAhead,
 	Do,
 	Dont,
 	Willing,

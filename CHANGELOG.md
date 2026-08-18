@@ -45,6 +45,35 @@ All notable changes to this project will be documented in this file.
   - This changes no wire behaviour anywhere — every existing test still passes unmodified — only the
     accuracy of an internal signal nothing was reading correctly before.
 
+### Fixed
+- **A bare `IAC GA` had no permitted transition from `StartNegotiation` at all**, so a server sending
+  one — the original 1983 prompt marker (RFC 854), which predates `EOR` and `SUPPRESS-GO-AHEAD` and
+  which several real servers still send regardless of what either side negotiated — always reached
+  `OnUnhandledTriggerAsync`: a `Critical` log and a recovery through `Trigger.Error` on every single
+  occurrence. Harmless on its own; not harmless when a server pairs a trailing `GA` with another `IAC`
+  sequence right behind it. `achaea.com` does exactly that at the moment it starts MCCP2 — the prompt's
+  `GA` arrives immediately before `IAC SB COMPRESS2 IAC SE` — and the recovery could cost that marker
+  the same way losing any other subnegotiation start would. `StartNegotiation` now permits `GA`
+  directly, the same way it already permits `NOP`: consumed and dropped, nothing more, since reacting
+  to it as a prompt boundary would be wrong for a connection that also negotiated `EOR` or
+  `SUPPRESS-GO-AHEAD` and is sending `GA` for nothing.
+- **`Willing`, `Refusing`, `Do` and `Dont` had no permitted transition for `IAC` either**, and each of
+  those states expects exactly one more byte: the option number the `WILL`/`WONT`/`DO`/`DONT` was
+  about. Measured against `achaea.com` once `EOR`, `GMCP` and `MSSP` were also negotiated: the server
+  sent `IAC WONT` with no option byte at all — the very next byte was another `IAC` — immediately
+  before the same `IAC SB COMPRESS2 IAC SE` marker. Whatever the server's own reason for the bare
+  `WONT`, the unhandled `IAC` there recovered into `Accepting`, which had no idea a subnegotiation was
+  about to start; the marker right behind it was read as four bytes of plain text, and the zlib stream
+  that followed was never inflated — read as telnet, forever, for the rest of the connection. All four
+  states now treat a fresh `IAC` as abandoning the incomplete negotiation and restart parsing from
+  there, the same way `IAC IAC` is already handled as an escaped literal from `StartNegotiation`
+  rather than through the same generic recovery.
+  - Both were found and fixed together because the first one alone was not enough to make MCCP2 work
+    against the real server that motivated it: fixing only `GA` still left the second, independent gap
+    reachable by the same connection. `GoAheadDuringNegotiationTests` asserts on the absence of a
+    `Critical` log entry rather than on any one interleaving's downstream behaviour recovering by
+    luck, which is what the first, narrower version of this fix looked like passing under.
+
 ## [2.8.3]
 
 ### Added
