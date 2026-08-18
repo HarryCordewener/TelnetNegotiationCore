@@ -206,6 +206,55 @@ public class MSDPTests : BaseTest
 		await server_ti.DisposeAsync();
 	}
 
+	/// <summary>
+	/// A literal <c>IAC</c> (0xFF) byte in a value must be doubled before it goes on the wire, or the
+	/// peer's state machine reads it as the start of a command and the frame desyncs. Reuses
+	/// <c>TelnetSafeBytes</c> - the same escaping <c>SendAsync</c>/<c>SendPromptAsync</c> already
+	/// apply - rather than a second IAC-doubling implementation.
+	/// </summary>
+	[Test]
+	public async Task SendMSDPCommandEscapesALiteralIACByte()
+	{
+		byte[] negotiationOutput = null;
+
+		var client_ti = await new Builders.TelnetInterpreterBuilder()
+			.UseMode(Interpreters.TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit((data, encoding, telnet) => ValueTask.CompletedTask)
+			.OnNegotiation((data) =>
+			{
+				negotiationOutput = data.ToArray();
+				return ValueTask.CompletedTask;
+			})
+			.AddPlugin<Protocols.MSDPProtocol>()
+			.BuildAsync();
+
+		var valueWithIac = new byte[] { 0x41, (byte)Trigger.IAC, 0x42 }; // 'A' IAC 'B'
+		await client_ti.SendMSDPCommand(Encoding.GetBytes("SEND"), valueWithIac);
+
+		await Assert.That(negotiationOutput).IsNotNull();
+
+		var expected = new List<byte>
+		{
+			(byte)Trigger.IAC,
+			(byte)Trigger.SB,
+			(byte)Trigger.MSDP,
+			(byte)Trigger.MSDP_VAR,
+		};
+		expected.AddRange(Encoding.GetBytes("SEND"));
+		expected.Add((byte)Trigger.MSDP_VAL);
+		expected.Add(0x41);
+		expected.Add((byte)Trigger.IAC);
+		expected.Add((byte)Trigger.IAC); // the literal IAC, doubled
+		expected.Add(0x42);
+		expected.Add((byte)Trigger.IAC);
+		expected.Add((byte)Trigger.SE);
+
+		await AssertByteArraysEqual(negotiationOutput, expected.ToArray());
+
+		await client_ti.DisposeAsync();
+	}
+
 	[Test]
 	public async Task TestMSDPProtocolServerNegotiation()
 	{

@@ -13,7 +13,10 @@ All notable changes to this project will be documented in this file.
   the one wire shape all five commands share — `IAC SB MSDP MSDP_VAR <command> MSDP_VAL <argument>
   IAC SE` — mirroring `SendGMCPCommand`, which already did the equivalent for GMCP. `await
   telnet.SendMSDPCommand("SEND", "PLAYERS")` is the client half of asking a server what it is
-  willing to report.
+  willing to report. Both `SendMSDPCommand` and the existing `SendGMCPCommand` now escape a literal
+  `IAC` (0xFF) byte in their payload through the shared `TelnetSafeBytes` — the same helper
+  `SendAsync`/`SendPromptAsync` already use — rather than sending it unescaped and desyncing the
+  peer's state machine, or reimplementing the doubling a second time.
 
 ## [2.8.2]
 
