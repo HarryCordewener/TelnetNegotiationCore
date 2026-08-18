@@ -163,6 +163,56 @@ public class GMCPTests : BaseTest
 		await client_ti.DisposeAsync();
 	}
 
+	/// <summary>
+	/// A literal <c>IAC</c> (0xFF) byte in the command data must be doubled before it goes on the
+	/// wire, or the peer's state machine reads it as the start of a command and the frame desyncs.
+	/// Reuses <c>TelnetSafeBytes</c> - the same escaping <c>SendAsync</c>/<c>SendPromptAsync</c>
+	/// already apply, and <c>SendMSDPCommand</c> now applies too - rather than a second IAC-doubling
+	/// implementation.
+	/// </summary>
+	[Test]
+	public async Task SendGMCPCommandEscapesALiteralIACByte()
+	{
+		byte[] negotiationOutput = null;
+
+		var client_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit((data, encoding, telnet) => ValueTask.CompletedTask)
+			.OnNegotiation((data) =>
+			{
+				negotiationOutput = data.ToArray();
+				return ValueTask.CompletedTask;
+			})
+			.AddPlugin<GMCPProtocol>()
+			.BuildAsync();
+
+		var commandWithIac = new byte[] { 0x41, (byte)Trigger.IAC, 0x42 }; // 'A' IAC 'B'
+		await client_ti.SendGMCPCommand("Core.Ping", commandWithIac);
+
+		await Assert.That(negotiationOutput).IsNotNull();
+
+		var encoding = client_ti.CurrentEncoding;
+		var expected = new List<byte>
+		{
+			(byte)Trigger.IAC,
+			(byte)Trigger.SB,
+			(byte)Trigger.GMCP
+		};
+		expected.AddRange(encoding.GetBytes("Core.Ping"));
+		expected.Add((byte)' ');
+		expected.Add(0x41);
+		expected.Add((byte)Trigger.IAC);
+		expected.Add((byte)Trigger.IAC); // the literal IAC, doubled
+		expected.Add(0x42);
+		expected.Add((byte)Trigger.IAC);
+		expected.Add((byte)Trigger.SE);
+
+		await AssertByteArraysEqual(negotiationOutput, expected.ToArray());
+
+		await client_ti.DisposeAsync();
+	}
+
 	[Test]
 	public async Task ServerCanReceiveGMCPMessage()
 	{

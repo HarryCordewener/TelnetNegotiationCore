@@ -1,6 +1,23 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.8.3]
+
+### Added
+- **A client can now ask for an MSDP variable.** `MSDPProtocol` could negotiate the option and
+  receive whatever a server chose to send, but had no way to send anything: `MSDPServerHandler`
+  exists to answer a client's `LIST`, `REPORT`, `SEND`, `RESET` and `UNREPORT`, and
+  `MSDPClientHandler` — the half that would build those requests — was a stub that threw
+  `NotImplementedException`. A consumer negotiating MSDP as a client had the receiving half of the
+  protocol and nothing to say with it. `TelnetInterpreter.SendMSDPCommand(variable, value)` sends
+  the one wire shape all five commands share — `IAC SB MSDP MSDP_VAR <command> MSDP_VAL <argument>
+  IAC SE` — mirroring `SendGMCPCommand`, which already did the equivalent for GMCP. `await
+  telnet.SendMSDPCommand("SEND", "PLAYERS")` is the client half of asking a server what it is
+  willing to report. Both `SendMSDPCommand` and the existing `SendGMCPCommand` now escape a literal
+  `IAC` (0xFF) byte in their payload through the shared `TelnetSafeBytes` — the same helper
+  `SendAsync`/`SendPromptAsync` already use — rather than sending it unescaped and desyncing the
+  peer's state machine, or reimplementing the doubling a second time.
+
 ## [2.8.2]
 
 ### Fixed
