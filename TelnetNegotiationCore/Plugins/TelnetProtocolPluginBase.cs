@@ -73,9 +73,22 @@ public abstract class TelnetProtocolPluginBase : ITelnetProtocolPlugin, IAsyncDi
     /// <see cref="ConfigureStateMachine"/> handlers, at the state entered when a WILL/DO exchange for
     /// its option genuinely resolves -- not at <see cref="InitializeAsync"/>, which runs before any
     /// negotiation has happened at all.
+    /// <para>
+    /// <b>Transition-only, not level-triggered.</b> A protocol's own state machine can re-enter the
+    /// same accepted (or refused) state more than once for reasons that are its own business -- a
+    /// re-affirmed WILL, a retried handshake -- and calling this again with the value it already had
+    /// must not fire <see cref="OnNegotiationChangedAsync"/> a second time for a change that did not
+    /// happen. A consumer reacting to "negotiation just flipped" would otherwise see spurious repeats
+    /// for a state that never moved.
+    /// </para>
     /// </remarks>
     public virtual async ValueTask OnNegotiatedAsync(bool isNegotiated)
     {
+        if (_isNegotiated == isNegotiated)
+        {
+            return;
+        }
+
         _isNegotiated = isNegotiated;
         await OnNegotiationChangedAsync(isNegotiated);
     }

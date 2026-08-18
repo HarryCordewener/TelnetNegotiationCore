@@ -257,6 +257,105 @@ public class NegotiationStateTests : BaseTest
 	}
 
 	/// <summary>
+	/// The transition-only guarantee <see cref="OnNegotiatedAsyncFiresOnceForEachRealTransitionInOrder"/>
+	/// covers for alternating values: a second <c>DO</c> arriving while already negotiated true must not
+	/// re-fire <c>OnNegotiationChangedAsync</c> for a change that did not happen. A protocol's own state
+	/// machine can legitimately re-enter its accepted state (a re-affirmed <c>DO</c>, a retried
+	/// handshake) for reasons that are its business, not this base class's -- but a consumer reacting to
+	/// "negotiation just flipped" would otherwise see a spurious repeat.
+	/// </summary>
+	[Test]
+	public async Task OnNegotiatedAsyncDoesNotFireTwiceForTheSameValue()
+	{
+		var telnet = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation((data) => ValueTask.CompletedTask)
+			.AddPlugin<ObservingMSDPProtocol>()
+			.BuildAsync();
+
+		var msdp = (ObservingMSDPProtocol)telnet.PluginManager!.GetPlugin<Protocols.MSDPProtocol>()!;
+
+		await InterpretAndWaitAsync(telnet, [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP]);
+		await InterpretAndWaitAsync(telnet, [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP]);
+
+		await Assert.That(msdp.Changes.Count).IsEqualTo(1);
+		await Assert.That(msdp.Changes[0]).IsTrue();
+		await Assert.That(msdp.IsNegotiated).IsTrue();
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// LineMode's <c>WillLINEMODE</c>/<c>WontLINEMODE</c> states -- the peer announcing its own
+	/// capability, as distinct from <c>DoLINEMODE</c>/<c>DontLINEMODE</c> (the peer asking us to use it)
+	/// -- only logged before this fix and never called <see cref="Protocols.LineModeProtocol.OnNegotiatedAsync"/>
+	/// at all, so <c>IsNegotiated</c> stayed false forever on this path regardless of what the peer said.
+	/// </summary>
+	[Test]
+	public async Task LineModeIsNegotiatedTracksRealWillAndWont_ClientMode()
+	{
+		var telnet = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation((data) => ValueTask.CompletedTask)
+			.AddPlugin<Protocols.LineModeProtocol>()
+			.BuildAsync();
+
+		var lineMode = telnet.PluginManager!.GetPlugin<Protocols.LineModeProtocol>()!;
+
+		await Assert.That(lineMode.IsNegotiated).IsFalse();
+
+		await InterpretAndWaitAsync(telnet, [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.LINEMODE]);
+		await Assert.That(lineMode.IsNegotiated).IsTrue();
+
+		await InterpretAndWaitAsync(telnet, [(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.LINEMODE]);
+		await Assert.That(lineMode.IsNegotiated).IsFalse();
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// MCCP2 and MCCP3 negotiate independently -- one compresses server-to-client, the other
+	/// client-to-server -- and each used to report its own true/false straight to
+	/// <see cref="ITelnetProtocolPlugin.OnNegotiatedAsync"/>, so whichever settled second stomped the
+	/// first: MCCP3 being refused cleared <c>IsNegotiated</c> even while MCCP2 compression was genuinely
+	/// running. <c>IsNegotiated</c> must reflect the aggregate -- true while either version is accepted,
+	/// false only once both are refused.
+	/// </summary>
+	[Test]
+	public async Task MCCPIsNegotiatedReflectsEitherVersionNotWhicheverSettledLast()
+	{
+		var telnet = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation((data) => ValueTask.CompletedTask)
+			.AddPlugin<Protocols.MCCPProtocol>()
+			.BuildAsync();
+
+		var mccp = telnet.PluginManager!.GetPlugin<Protocols.MCCPProtocol>()!;
+
+		await Assert.That(mccp.IsNegotiated).IsFalse();
+
+		// Client accepts MCCP2 (server-to-client compression).
+		await InterpretAndWaitAsync(telnet, [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2]);
+		await Assert.That(mccp.IsNegotiated).IsTrue();
+
+		// Client refuses MCCP3 (client-to-server). MCCP2 is still running -- IsNegotiated must stay true.
+		await InterpretAndWaitAsync(telnet, [(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP3]);
+		await Assert.That(mccp.IsNegotiated).IsTrue();
+
+		// Now MCCP2 is refused too. Nothing is negotiated any more.
+		await InterpretAndWaitAsync(telnet, [(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP2]);
+		await Assert.That(mccp.IsNegotiated).IsFalse();
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
 	/// A plugin that records every <c>OnNegotiationChangedAsync</c> call it receives, so a test can
 	/// assert on the hook itself rather than only on <see cref="ITelnetProtocolPlugin.IsNegotiated"/>.
 	/// </summary>
