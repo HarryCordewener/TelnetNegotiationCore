@@ -390,12 +390,46 @@ public partial class TelnetInterpreter : IAsyncDisposable
             .SubstateOf(State.Accepting)
             .OnEntry(() => _logger.LogTrace("Connection: {ConnectionState}", "NOP call. Do nothing."));
 
+        // IAC GA (Go-Ahead) is the original 1983 prompt marker (RFC 854) and predates both EOR and
+        // SUPPRESS-GO-AHEAD: a server is free to send it regardless of which options either side
+        // negotiated, and several real ones do on every prompt. Nothing here treats it as anything
+        // but noise to be dropped, unlike Trigger.EOR, because reacting to it as a prompt boundary
+        // would be wrong for any server that also negotiated SUPPRESS-GO-AHEAD or EOR and is using
+        // GA for nothing — this is only about not crashing on it. Before this, GA had no permitted
+        // transition from StartNegotiation at all, so it always reached OnUnhandledTriggerAsync: a
+        // logged Critical and a recovery through Trigger.Error on every single occurrence. Servers
+        // that pair a trailing GA with another IAC sequence right behind it — achaea.com does, at
+        // the exact moment it starts MCCP2 — could lose that sequence to the recovery instead of
+        // parsing it, which is how a still-compressed byte stream ends up read as plain telnet.
+        tsm.Configure(State.StartNegotiation)
+            .Permit(Trigger.GA, State.GoAhead);
+
+        tsm.Configure(State.GoAhead)
+            .SubstateOf(State.Accepting)
+            .OnEntry(() => _logger.LogTrace("Connection: {ConnectionState}", "GA (Go-Ahead) received. Do nothing."));
+
         // As a general documentation, negotiation means a Do followed by a Will, or a Will followed by a Do.
         // Do is followed by Refusing or Will followed by Don't indicate negative negotiation.
-        tsm.Configure(State.Willing);
-        tsm.Configure(State.Refusing);
-        tsm.Configure(State.Do);
-        tsm.Configure(State.Dont);
+        //
+        // Each of these four states expects exactly one more byte: the option number the WILL,
+        // WONT, DO or DONT was about. A peer that sends a fresh IAC there instead — achaea.com does,
+        // immediately after a bare IAC WONT with no option byte at all, right at the point it starts
+        // MCCP2 — is not completing that negotiation. Without a permitted transition, that IAC used
+        // to be a byte with no meaning the state machine could assign it: an unhandled trigger,
+        // recovered through the generic Trigger.Error path into State.Accepting, which does not
+        // know a subnegotiation was about to start. The IAC SB COMPRESS2 IAC SE right behind it then
+        // read as four bytes of plain text and the zlib that followed read as more of the same,
+        // never inflated. Permitting IAC here abandons the incomplete negotiation and starts parsing
+        // the new command from where it actually begins, the same way IAC IAC is already handled as
+        // an escaped literal from StartNegotiation rather than through the same generic recovery.
+        tsm.Configure(State.Willing)
+            .Permit(Trigger.IAC, State.StartNegotiation);
+        tsm.Configure(State.Refusing)
+            .Permit(Trigger.IAC, State.StartNegotiation);
+        tsm.Configure(State.Do)
+            .Permit(Trigger.IAC, State.StartNegotiation);
+        tsm.Configure(State.Dont)
+            .Permit(Trigger.IAC, State.StartNegotiation);
 
         tsm.Configure(State.ReadingCharacters)
             .OnEntryFromAsync(Trigger.IAC, async _ =>
