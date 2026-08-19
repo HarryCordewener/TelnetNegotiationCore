@@ -29,8 +29,10 @@ namespace TelnetNegotiationCore.Models;
 public sealed class MSSPVariableCollection : IReadOnlyDictionary<string, IReadOnlyList<string>>
 {
 	private static readonly IReadOnlyList<string> None = Array.Empty<string>();
+	private static readonly IReadOnlyList<ReadOnlyMemory<byte>> NoBytes = Array.Empty<ReadOnlyMemory<byte>>();
 
 	private readonly Dictionary<string, List<string>> _values = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, List<ReadOnlyMemory<byte>>> _raw = new(StringComparer.Ordinal);
 	private readonly List<string> _order = [];
 
 	/// <summary>Variable names in the order the peer first mentioned them.</summary>
@@ -103,6 +105,41 @@ public sealed class MSSPVariableCollection : IReadOnlyDictionary<string, IReadOn
 			: null;
 
 	/// <summary>
+	/// Every value of <paramref name="variable"/> as it arrived on the wire, in the same order and at
+	/// the same indices as <see cref="this[string]"/>; an empty list when the peer never mentioned it.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// A peer's declared encoding is not a measurement of the bytes it sends. Servers negotiate
+	/// CHARSET down to UTF-8 and then send GB18030 or ISO-8859-1 regardless -- sometimes because the
+	/// encoding is chosen later in the session than the negotiation, by a menu on the login screen --
+	/// and decoding those bytes with the negotiated encoding substitutes <c>U+FFFD</c> for each one it
+	/// cannot read. That substitution is not reversible: the original byte is gone. So the bytes are
+	/// kept beside the text, and a caller that suspects a field can decide for itself what it holds.
+	/// </para>
+	/// <para>
+	/// These are copies taken as each field closed, not views into a live parse buffer, so they stay
+	/// valid for as long as the report does. An entry is empty for a value that never came off a wire
+	/// -- one added through <see cref="Add(string, string)"/>, which is how a report a program builds
+	/// for itself is assembled. Note that an empty entry is therefore indistinguishable from a value
+	/// the peer really did send as zero bytes, which the specification allows.
+	/// </para>
+	/// </remarks>
+	public IReadOnlyList<ReadOnlyMemory<byte>> Raw(string variable) =>
+		_raw.TryGetValue(MSSPVariables.Canonicalize(variable), out var bytes) ? bytes : NoBytes;
+
+	/// <summary>
+	/// The bytes of the default value of <paramref name="variable"/> -- the last one reported, the
+	/// same one <see cref="Default"/> returns -- or <see langword="null"/> when the peer did not
+	/// report it. See <see cref="Raw"/> for why this exists.
+	/// </summary>
+	public ReadOnlyMemory<byte>? RawDefault(string variable)
+	{
+		var bytes = Raw(variable);
+		return bytes.Count == 0 ? null : bytes[bytes.Count - 1];
+	}
+
+	/// <summary>
 	/// Records one value of one variable. Repeating a variable appends to its list rather than
 	/// replacing it, which is what makes the two ways MSSP spells an array land in one place and keep
 	/// their order.
@@ -110,11 +147,30 @@ public sealed class MSSPVariableCollection : IReadOnlyDictionary<string, IReadOn
 	/// <param name="variable">The variable name; canonicalized before storage.</param>
 	/// <param name="value">The value, exactly as reported.</param>
 	/// <returns>This instance, for chaining.</returns>
-	public MSSPVariableCollection Add(string variable, string value)
+	public MSSPVariableCollection Add(string variable, string value) => Add(variable, value, default);
+
+	/// <summary>
+	/// Records one value of one variable together with the bytes it was decoded from.
+	/// </summary>
+	/// <param name="variable">The variable name; canonicalized before storage.</param>
+	/// <param name="value">The value, exactly as reported.</param>
+	/// <param name="raw">
+	/// The bytes this value was decoded from. Must be a copy the collection can keep -- see
+	/// <see cref="Raw"/> -- rather than a window onto a buffer the caller reuses.
+	/// </param>
+	/// <returns>This instance, for chaining.</returns>
+	public MSSPVariableCollection Add(string variable, string value, ReadOnlyMemory<byte> raw)
 	{
 		if (value == null) throw new ArgumentNullException(nameof(value));
 
-		ListFor(variable)?.Add(value);
+		var list = ListFor(variable, out var name);
+		if (list == null)
+		{
+			return this;
+		}
+
+		list.Add(value);
+		_raw[name].Add(raw);
 		return this;
 	}
 
@@ -136,6 +192,7 @@ public sealed class MSSPVariableCollection : IReadOnlyDictionary<string, IReadOn
 	public void Clear()
 	{
 		_values.Clear();
+		_raw.Clear();
 		_order.Clear();
 	}
 
@@ -145,9 +202,16 @@ public sealed class MSSPVariableCollection : IReadOnlyDictionary<string, IReadOn
 
 	IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-	private List<string>? ListFor(string variable)
+	private List<string>? ListFor(string variable) => ListFor(variable, out _);
+
+	/// <summary>
+	/// The value list for a variable, creating it if this is the first mention, along with the
+	/// canonical name it was filed under so a caller can reach the parallel byte list without
+	/// canonicalizing a second time.
+	/// </summary>
+	private List<string>? ListFor(string variable, out string name)
 	{
-		var name = MSSPVariables.Canonicalize(variable);
+		name = MSSPVariables.Canonicalize(variable);
 		if (name.Length == 0)
 		{
 			return null;
@@ -157,6 +221,9 @@ public sealed class MSSPVariableCollection : IReadOnlyDictionary<string, IReadOn
 		{
 			list = [];
 			_values[name] = list;
+			// Created together and appended to together, so an index into one is an index into the
+			// other for the life of the report.
+			_raw[name] = [];
 			_order.Add(name);
 		}
 

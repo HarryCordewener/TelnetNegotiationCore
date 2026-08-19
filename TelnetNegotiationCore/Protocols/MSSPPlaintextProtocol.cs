@@ -407,7 +407,7 @@ public class MSSPPlaintextProtocol : TelnetProtocolPluginBase
 			return true;
 		}
 
-		if (!exchange.Collect(text, line.Length, Mssp.MaxMessageSize))
+		if (!exchange.Collect(text, line, Mssp.MaxMessageSize))
 		{
 			context.Logger.LogDebug(
 				"Ignoring a line inside a plaintext MSSP reply that is not a field: {Line}", text);
@@ -593,7 +593,7 @@ public class MSSPPlaintextProtocol : TelnetProtocolPluginBase
 		/// too, so any whitespace-based split would tear both apart. A line with no tab is not a
 		/// field: SMAUG never writes one, and a decorative separator must not become a variable.
 		/// </remarks>
-		public bool Collect(string text, int byteCount, int maxMessageSize)
+		public bool Collect(string text, byte[] line, int maxMessageSize)
 		{
 			var separator = text.IndexOf('\t');
 			var name = separator < 0 ? null : text.Substring(0, separator);
@@ -602,7 +602,7 @@ public class MSSPPlaintextProtocol : TelnetProtocolPluginBase
 			{
 				if (_finished) return true;
 
-				_bytes += byteCount;
+				_bytes += line.Length;
 
 				if (_bytes > maxMessageSize)
 				{
@@ -622,9 +622,26 @@ public class MSSPPlaintextProtocol : TelnetProtocolPluginBase
 
 				// An empty value is legitimate -- "The value can be an empty string" -- so a line that
 				// ends at the tab is a reported variable, not a malformed one.
-				_received.Add(name, text.Substring(separator + 1));
+				_received.Add(name, text.Substring(separator + 1), ValueBytes(line));
 				return true;
 			}
+		}
+
+		/// <summary>
+		/// The bytes of the value on this line: everything after the first tab.
+		/// </summary>
+		/// <remarks>
+		/// Located in the bytes rather than by reusing the string's own tab index, because the two
+		/// agree only while every character before the tab is a single byte, and a variable name is
+		/// not guaranteed to be. Copied, so the report does not keep a window onto a buffer the reader
+		/// reuses. <c>0x09</c> is unambiguous in the encodings this transport can be reading: the
+		/// legacy multi-byte sets MSSP's own CHARSET vocabulary names -- GB18030, BIG5, EUC-KR, CP949
+		/// -- all keep their trail bytes clear of it.
+		/// </remarks>
+		private static ReadOnlyMemory<byte> ValueBytes(byte[] line)
+		{
+			var tab = Array.IndexOf(line, (byte)'\t');
+			return tab < 0 ? ReadOnlyMemory<byte>.Empty : line.AsSpan(tab + 1).ToArray();
 		}
 
 		/// <summary><c>MSSP-REPLY-END</c>: hand the caller the report, or say why there isn't one.</summary>
