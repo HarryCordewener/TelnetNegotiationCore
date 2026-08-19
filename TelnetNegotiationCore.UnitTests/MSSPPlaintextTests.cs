@@ -75,6 +75,13 @@ public class MSSPPlaintextTests : BaseTest
 			await Interpreter.InterpretByteArrayAsync(Text(text));
 			await Interpreter.WaitForProcessingAsync();
 		}
+
+		/// <summary>Feeds bytes as they are, for a reply that is not in the connection's encoding.</summary>
+		public async Task FeedAsync(byte[] bytes)
+		{
+			await Interpreter.InterpretByteArrayAsync(bytes);
+			await Interpreter.WaitForProcessingAsync();
+		}
 	}
 
 	/// <summary>
@@ -146,7 +153,43 @@ public class MSSPPlaintextTests : BaseTest
 		return await request;
 	}
 
+	private static async Task<MSSPConfig> ExchangeAsync(Peer peer, byte[] reply)
+	{
+		var request = peer.Plaintext.RequestReportAsync().AsTask();
+
+		var asked = await PollUntilAsync(() => peer.Wired.Contains("MSSP-REQUEST"), timeoutMs: 10000);
+		await Assert.That(asked).IsTrue();
+
+		await peer.FeedAsync(reply);
+		return await request;
+	}
+
 	#region Parsing a reply
+
+	/// <summary>
+	/// A value's bytes survive this transport too, so a report is not worth less for having arrived
+	/// as lines rather than as a subnegotiation.
+	/// </summary>
+	/// <remarks>
+	/// The tab is found in the bytes rather than at the string's own tab index, and this is the case
+	/// that tells the two apart: nothing before the tab here is multi-byte, but a server whose
+	/// variable names are not ASCII would shift one index and not the other.
+	/// </remarks>
+	[Test]
+	public async Task APlaintextValueKeepsTheBytesItWasDecodedFrom()
+	{
+		var latin1 = Encoding.GetEncoding("iso-8859-1");
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		// ISO-8859-1 on the wire while the connection reads UTF-8, which is what a server that
+		// declares one encoding and writes another looks like from here.
+		var config = await ExchangeAsync(peer, latin1.GetBytes(Reply("NAME\tMühle")));
+
+		await Assert.That(config.Name).IsEqualTo("M�hle");
+
+		await Assert.That(config.Variables.RawDefault("NAME")!.Value.ToArray())
+			.IsEquivalentTo(latin1.GetBytes("Mühle"));
+	}
 
 	/// <summary>
 	/// The whole point: a reply framed the way SmaugFUSS frames it becomes the same

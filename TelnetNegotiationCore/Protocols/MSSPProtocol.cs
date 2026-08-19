@@ -405,9 +405,11 @@ public class MSSPProtocol : TelnetProtocolPluginBase
         }
 
 #if NET5_0_OR_GREATER
-        var text = encoding.GetString(CollectionsMarshal.AsSpan(_msspBytes.Bytes).Slice(_fieldStart, fieldLength));
+        var field = CollectionsMarshal.AsSpan(_msspBytes.Bytes).Slice(_fieldStart, fieldLength);
+        var text = encoding.GetString(field);
 #else
-        var text = encoding.GetString(_msspBytes.Bytes.Skip(_fieldStart).Take(fieldLength).ToArray());
+        var field = _msspBytes.Bytes.Skip(_fieldStart).Take(fieldLength).ToArray();
+        var text = encoding.GetString(field);
 #endif
         _fieldStart = _msspBytes.Count;
 
@@ -416,7 +418,11 @@ public class MSSPProtocol : TelnetProtocolPluginBase
             // A value with no variable ahead of it is malformed; there is nothing to attach it to.
             if (_currentVariable != null)
             {
-                _received.Add(_currentVariable, text);
+                // Copied, not referenced: the span above is a window onto the accumulating parse
+                // buffer, which keeps growing and is cleared between reports, so a view of it would
+                // be reading someone else's field by the time a consumer looked. The report outlives
+                // the buffer and has to own what it carries.
+                _received.Add(_currentVariable, text, field.ToArray());
             }
 
             return;
@@ -458,9 +464,15 @@ public class MSSPProtocol : TelnetProtocolPluginBase
             var variableName = entry.Key;
             var values = entry.Value;
 
-            foreach (var value in values)
+            // The bytes travel with the text through the projection, or the report handed to a
+            // consumer would carry only what the decode could make of a field and none of what
+            // arrived -- which is the whole point of keeping them. Indices match by construction:
+            // every write to one list writes to the other.
+            var raw = received.Raw(variableName);
+
+            for (var index = 0; index < values.Count; index++)
             {
-                config.Variables.Add(variableName, value);
+                config.Variables.Add(variableName, values[index], raw[index]);
             }
 
             if (values.Count == 0)

@@ -1,6 +1,33 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.10.0]
+
+### Added
+- **An MSSP report now carries the bytes each value was decoded from, not only the text.**
+  `MSSPVariableCollection.Raw(variable)` returns every value of a variable exactly as it arrived, at
+  the same indices as the strings, and `RawDefault(variable)` returns the bytes of the default value
+  — the one `Default` returns. A peer's declared encoding is not a measurement of the bytes it sends:
+  `mud.pkuxkx.net` negotiates CHARSET down to UTF-8 and then sends GBK anyway, because on that game
+  the encoding is chosen from a menu on the login screen, which is a later point in the session than
+  the negotiation; `bl.mud.at` answers `;UTF-8` and sends ISO-8859-1 umlauts in `DESCRIPTION-DE`.
+  Both sides negotiated correctly and the server simply sent something else. Decoding those bytes
+  with the negotiated encoding substitutes `U+FFFD` for each one it cannot read, and that
+  substitution is not reversible — the original byte is gone before any consumer sees the report —
+  so a crawler that wants to make its own decision about a suspect field had no way to make it. The
+  strings are unchanged and no callback moved, so this is additive: existing consumers see exactly
+  what they saw before, and one that cares reads the bytes beside them.
+  - Both transports carry them, so a report is not worth less for having arrived as
+    `MSSP-REPLY-START` lines than as a subnegotiation. The plaintext transport finds its tab in the
+    bytes rather than reusing the decoded string's tab index, because those two agree only while
+    every character before the tab is a single byte.
+  - The bytes are copied as each field closes rather than being windows onto the parse buffer, which
+    keeps growing and is cleared between reports; a view would be reading someone else's field by
+    the time a consumer looked.
+  - `Add(variable, value)` still exists and is what a program building a report for itself uses. It
+    records an empty entry, so an entry is empty either for a value that never came off a wire or
+    for one the peer really did send as zero bytes, which the specification allows.
+
 ## [2.9.1]
 
 ### Fixed

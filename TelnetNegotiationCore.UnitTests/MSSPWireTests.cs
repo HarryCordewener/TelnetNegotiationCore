@@ -148,6 +148,42 @@ public class MSSPWireTests : BaseTest
 	}
 
 	/// <summary>
+	/// A peer's declared encoding is not a measurement of the bytes it sends, so a report has to
+	/// carry what actually arrived as well as what could be read from it.
+	/// </summary>
+	/// <remarks>
+	/// Real servers negotiate CHARSET down to UTF-8 and then send something else regardless: on
+	/// <c>mud.pkuxkx.net</c> the encoding is chosen from a menu on the login screen, which is a later
+	/// point in the session than the negotiation, and <c>bl.mud.at</c> answers <c>;UTF-8</c> and sends
+	/// ISO-8859-1 umlauts. Decoding with the negotiated encoding substitutes every byte it cannot
+	/// read, and <c>U+FFFD</c> cannot be undone -- the original byte is gone -- so a consumer that
+	/// wants to make its own decision about a suspect field has to be handed the bytes before that
+	/// happens.
+	/// </remarks>
+	[Test]
+	public async Task AValueKeepsItsBytesWhenTheNegotiatedEncodingCannotReadThem()
+	{
+		var latin1 = Encoding.GetEncoding("iso-8859-1");
+		var (client, received) = await ClientAsync();
+
+		// Nothing has been negotiated, so the connection is reading UTF-8, and 0xFC -- ü in
+		// ISO-8859-1 -- is not a well-formed UTF-8 sequence.
+		await Assert.That(client.CurrentEncoding.WebName).IsEqualTo(Encoding.UTF8.WebName);
+
+		var config = await ReceiveOneAsync(client, received,
+			Subnegotiation(Field("NAME", "Mühle", latin1)));
+
+		// What the decode was able to make of it, which is all that survives today.
+		await Assert.That(config.Name).IsEqualTo("M�hle");
+
+		// What the peer actually sent.
+		await Assert.That(config.Variables.Raw("NAME").Single().ToArray())
+			.IsEquivalentTo(latin1.GetBytes("Mühle"));
+
+		await client.DisposeAsync();
+	}
+
+	/// <summary>
 	/// Every variable in a report shares one decoding, including the ones that reach typed
 	/// properties and the ones that only reach <see cref="MSSPConfig.Extended"/>.
 	/// </summary>
