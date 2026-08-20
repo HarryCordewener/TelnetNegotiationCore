@@ -619,6 +619,71 @@ namespace TelnetNegotiationCore.UnitTests
 			await server.DisposeAsync();
 		}
 
+		/// <summary>
+		/// RFC 2066 page 9 asks a peer to hold its data back: "While a CHARSET subnegotiation is in
+		/// progress, data SHOULD be queued. Once the CHARSET subnegotiation has terminated, the data
+		/// can be sent (in the correct character set)." That is a SHOULD on the sender, and a peer
+		/// that ignores it is the case we have to survive: bytes of an ordinary line arrive, CHARSET
+		/// completes before that line's newline does, and the line is left half-delivered.
+		///
+		/// Those bytes were written in the encoding in force when they were sent. The encoding handed
+		/// to the consumer alongside them must therefore be the one the line started in, not whatever
+		/// CHARSET has since moved to - the peer cannot retroactively have sent Latin-1.
+		/// </summary>
+		[Test]
+		public async Task DataArrivingBeforeCharsetSwitchKeepsTheEncodingItWasSentIn()
+		{
+			var receivedData = new List<(byte[] data, Encoding encoding)>();
+
+			ValueTask CaptureOutput(byte[] data, Encoding enc, TelnetInterpreter ti)
+			{
+				receivedData.Add((data, enc));
+				return ValueTask.CompletedTask;
+			}
+
+			var server = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(CaptureOutput)
+				.OnNegotiation(_ => ValueTask.CompletedTask)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			// The connection is on its default UTF-8, and the peer sends a line in it. No newline yet:
+			// this line is still open when the negotiation below lands.
+			const string sentText = "Café";
+			var sentBytes = Encoding.UTF8.GetBytes(sentText);
+			await Assert.That(sentBytes).IsEquivalentTo(new byte[] { 0x43, 0x61, 0x66, 0xC3, 0xA9 });
+
+			await server.InterpretByteArrayAsync(sentBytes);
+			await server.WaitForProcessingAsync();
+
+			// Mid-line, CHARSET completes and moves the connection to Latin-1.
+			await NegotiateCharset(server, "iso-8859-1", TelnetInterpreter.TelnetMode.Server);
+			await server.WaitForProcessingAsync();
+
+			// Positive control: the switch really happened, so this test cannot pass by the
+			// negotiation having quietly failed.
+			await Assert.That(server.CurrentEncoding.WebName).IsEqualTo("iso-8859-1");
+
+			// Only now does the line end.
+			await server.InterpretByteArrayAsync(new byte[] { (byte)'\n' });
+			await server.WaitForProcessingAsync();
+
+			await Assert.That(receivedData.Count).IsEqualTo(1);
+			var received = receivedData[0];
+
+			// The bytes themselves survive - the interpreter never transcodes.
+			await AssertByteArraysEqual(received.data, sentBytes);
+
+			// The label must still be the encoding the line was sent in. Reading these bytes as
+			// Latin-1 yields "CafÃ©", which is the mojibake this guards against.
+			await Assert.That(received.encoding.WebName).IsEqualTo("utf-8");
+			await Assert.That(received.encoding.GetString(received.data)).IsEqualTo(sentText);
+
+			await server.DisposeAsync();
+		}
+
 		// Helper method to test encoding with IAC escaping
 		private async Task TestEncodingWithIACEscaping(Encoding encoding, string webName, string testString, TelnetInterpreter.TelnetMode mode)
 		{
