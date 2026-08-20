@@ -684,6 +684,82 @@ namespace TelnetNegotiationCore.UnitTests
 			await server.DisposeAsync();
 		}
 
+		/// <summary>
+		/// The harder half of the previous test: a peer that not only ignores RFC 2066's request to
+		/// queue, but changes its own output encoding part-way through a line. The line then holds
+		/// bytes written in two encodings, and the single Encoding delivered beside it cannot describe
+		/// both halves - whichever is chosen, the other half reads as mojibake.
+		///
+		/// This is not a defect to be fixed at this layer; it is the ambiguity the RFC asks senders to
+		/// avoid by queueing, arriving anyway. What is pinned here is the choice made in its face: the
+		/// label is the encoding the line began in, and every byte is delivered intact so that a
+		/// consumer which knows better can decode the parts itself. Nothing is silently dropped or
+		/// transcoded, so the loss is recoverable rather than baked in.
+		/// </summary>
+		[Test]
+		public async Task ALineStraddlingACharsetSwitchIsLabelledByItsStartAndKeepsEveryByte()
+		{
+			var receivedData = new List<(byte[] data, Encoding encoding)>();
+
+			ValueTask CaptureOutput(byte[] data, Encoding enc, TelnetInterpreter ti)
+			{
+				receivedData.Add((data, enc));
+				return ValueTask.CompletedTask;
+			}
+
+			var server = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(CaptureOutput)
+				.OnNegotiation(_ => ValueTask.CompletedTask)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			// First half of the line, in the UTF-8 the connection is currently on.
+			var utf8Half = Encoding.UTF8.GetBytes("Café ");
+			await Assert.That(utf8Half).IsEquivalentTo(new byte[] { 0x43, 0x61, 0x66, 0xC3, 0xA9, 0x20 });
+			await server.InterpretByteArrayAsync(utf8Half);
+			await server.WaitForProcessingAsync();
+
+			// The switch lands in the middle of that same line.
+			await NegotiateCharset(server, "iso-8859-1", TelnetInterpreter.TelnetMode.Server);
+			await server.WaitForProcessingAsync();
+			await Assert.That(server.CurrentEncoding.WebName).IsEqualTo("iso-8859-1");
+
+			// Second half, which the peer really does write in Latin-1. 0xFC is "ü" there, and is not
+			// a legal UTF-8 lead byte at all - so these bytes cannot be read under the line's label.
+			var latin1Half = Encoding.Latin1.GetBytes("über");
+			await Assert.That(latin1Half).IsEquivalentTo(new byte[] { 0xFC, 0x62, 0x65, 0x72 });
+			await server.InterpretByteArrayAsync(latin1Half);
+			await server.InterpretByteArrayAsync(new byte[] { (byte)'\n' });
+			await server.WaitForProcessingAsync();
+
+			await Assert.That(receivedData.Count).IsEqualTo(1);
+			var received = receivedData[0];
+
+			// Every byte of both halves arrives, in order and untouched. This is the property that
+			// makes the ambiguity survivable: the consumer still has the original wire bytes.
+			await AssertByteArraysEqual(received.data, utf8Half.Concat(latin1Half).ToArray());
+
+			// The label is the encoding the line started in, not the one it ended in.
+			await Assert.That(received.encoding.WebName).IsEqualTo("utf-8");
+
+			// So the half that predates the switch reads correctly...
+			await Assert.That(received.encoding.GetString(received.data.Take(utf8Half.Length).ToArray()))
+				.IsEqualTo("Café ");
+
+			// ...and the half after it does not. Decoding the whole line under its label costs exactly
+			// the one byte that is not legal UTF-8: 0xFC becomes U+FFFD and "ber" survives beside it.
+			await Assert.That(received.encoding.GetString(received.data)).IsEqualTo("Café �ber");
+
+			// The consumer is not stuck with that, which is the point: the bytes are intact, so it can
+			// decode the tail as Latin-1 itself and recover "über" in full.
+			await Assert.That(Encoding.Latin1.GetString(received.data.Skip(utf8Half.Length).ToArray()))
+				.IsEqualTo("über");
+
+			await server.DisposeAsync();
+		}
+
 		// Helper method to test encoding with IAC escaping
 		private async Task TestEncodingWithIACEscaping(Encoding encoding, string webName, string testString, TelnetInterpreter.TelnetMode mode)
 		{
