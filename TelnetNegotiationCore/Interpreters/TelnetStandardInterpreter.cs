@@ -126,15 +126,6 @@ public partial class TelnetInterpreter : IAsyncDisposable
     private readonly Channel<byte> _byteChannel;
 
     /// <summary>
-    /// Unbounded channel for protocol negotiation messages (typically low volume).
-    /// </summary>
-    private readonly Channel<byte[]> _negotiationChannel = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions
-    {
-        SingleReader = true,
-        SingleWriter = false
-    });
-
-    /// <summary>
     /// SemaphoreSlim used to serialize all writes to the output stream,
     /// preventing concurrent write conflicts on the dual-channel telnet pipe.
     /// </summary>
@@ -249,7 +240,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
     /// <summary>
     /// Callback to the output stream directly for negotiation.
-    /// Internal use - negotiation messages are queued through _negotiationChannel.
+    /// Internal use - writes go straight out, serialized by <see cref="_writeLock"/> and never queued.
     /// </summary>
     public required Func<ReadOnlyMemory<byte>, ValueTask> CallbackNegotiationAsync { get; init; }
 
