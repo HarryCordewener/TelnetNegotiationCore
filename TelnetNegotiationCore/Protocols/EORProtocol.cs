@@ -181,8 +181,30 @@ public class EORProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
+    /// <summary>
+    /// A bare <c>IAC EOR</c> arrived: a prompt boundary where the option is in effect, and a NOP
+    /// where it is not.
+    /// </summary>
+    /// <remarks>
+    /// RFC 885: "When the END-OF-RECORD option is not in effect, the IAC EOR command should be
+    /// treated as a NOP if received, although IAC EOR should not normally be sent in this mode."
+    /// <para>
+    /// The condition is <see cref="IsEOREnabled"/> — the negotiated state — and not
+    /// <see cref="TelnetProtocolPluginBase.IsEnabled"/>, which is the guard
+    /// <see cref="OnPromptAsync"/> applies and which is about plugin lifetime: it is true from
+    /// initialisation onwards for every registered plugin, so it let an unnegotiated EOR through as
+    /// a prompt on every connection that merely had this plugin added.
+    /// </para>
+    /// </remarks>
     private async ValueTask OnEORPromptAsync()
     {
+        if (!IsEOREnabled)
+        {
+            Context.Logger.LogTrace(
+                "EOR received while the END-OF-RECORD option is not in effect. Treating it as a NOP (RFC 885).");
+            return;
+        }
+
         Context.Logger.LogDebug("Server is prompting EOR");
         await OnPromptAsync();
     }
