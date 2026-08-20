@@ -414,20 +414,30 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
     private async ValueTask CompleteAcceptedCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
-        var ascii = Encoding.ASCII;
-        
+        var acceptedCharset = Encoding.ASCII.GetString(_acceptedCharsetByteState!, 0, _acceptedCharsetByteIndex).Trim();
+
+        Encoding negotiated;
         try
         {
-            CurrentEncoding = Encoding.GetEncoding(ascii.GetString(_acceptedCharsetByteState!, 0, _acceptedCharsetByteIndex).Trim());
-            
-            // Update interpreter properties for backward compatibility
-            UpdateInterpreterEncoding(context);
+            negotiated = Encoding.GetEncoding(acceptedCharset);
         }
         catch (Exception ex)
         {
-            context.Logger.LogError(ex, "Unexpected error during Accepting Charset Negotiation. Could not find charset: {charset}", ascii.GetString(_acceptedCharsetByteState!, 0, _acceptedCharsetByteIndex));
+            // The charset stays where it was, so there is no change to announce.
+            context.Logger.LogError(ex, "Unexpected error during Accepting Charset Negotiation. Could not find charset: {charset}", acceptedCharset);
             await context.SendNegotiationAsync(s_charsetRejected);
+            _charsetOffered = false;
+            return;
         }
+
+        CurrentEncoding = negotiated;
+        // The peer accepting one of our offered charsets moves the encoding exactly as our own pick
+        // does in CompleteCharsetAsync, so it is announced the same way. A consumer holding text back
+        // until CHARSET settles - RFC 2066 page 9, "While a CHARSET subnegotiation is in progress,
+        // data SHOULD be queued" - has no other signal that it may now send.
+        await (_signalCharsetChangeAsync?.Invoke(CurrentEncoding) ?? default(ValueTask));
+        UpdateInterpreterEncoding(context);
+
         context.Logger.LogInformation("Connection: Accepted Charset Negotiation for: {charset}", CurrentEncoding.WebName);
         _charsetOffered = false;
     }

@@ -549,6 +549,76 @@ namespace TelnetNegotiationCore.UnitTests
 			await client.DisposeAsync();
 		}
 
+		/// <summary>
+		/// A client learns its encoding from the server's CHARSET ACCEPTED, which is a different code
+		/// path to the server's CHARSET REQUEST. Both must tell the consumer the encoding moved -
+		/// otherwise a client that queues text to encode after negotiation (RFC 2066 page 9: "While a
+		/// CHARSET subnegotiation is in progress, data SHOULD be queued") never learns it may send.
+		/// </summary>
+		[Test]
+		public async Task ClientReportsCharsetChangeWhenServerAcceptsOurCharset()
+		{
+			var reported = new List<Encoding>();
+
+			var client = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(_ => ValueTask.CompletedTask)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			var charsetPlugin = client.PluginManager!.GetPlugin<CharsetProtocol>();
+			charsetPlugin!.OnCharsetChange(encoding =>
+			{
+				reported.Add(encoding);
+				return ValueTask.CompletedTask;
+			});
+
+			await NegotiateCharset(client, "iso-8859-1", TelnetInterpreter.TelnetMode.Client);
+			await client.WaitForProcessingAsync();
+
+			await Assert.That(client.CurrentEncoding.WebName).IsEqualTo("iso-8859-1");
+			await Assert.That(reported.Count).IsEqualTo(1);
+			await Assert.That(reported[0].WebName).IsEqualTo("iso-8859-1");
+
+			await client.DisposeAsync();
+		}
+
+		/// <summary>
+		/// The server side of <see cref="ClientReportsCharsetChangeWhenServerAcceptsOurCharset"/>:
+		/// choosing an encoding from the peer's CHARSET REQUEST reports it too.
+		/// </summary>
+		[Test]
+		public async Task ServerReportsCharsetChangeWhenItChoosesFromTheOfferedCharsets()
+		{
+			var reported = new List<Encoding>();
+
+			var server = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(_ => ValueTask.CompletedTask)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			var charsetPlugin = server.PluginManager!.GetPlugin<CharsetProtocol>();
+			charsetPlugin!.OnCharsetChange(encoding =>
+			{
+				reported.Add(encoding);
+				return ValueTask.CompletedTask;
+			});
+
+			await NegotiateCharset(server, "iso-8859-1", TelnetInterpreter.TelnetMode.Server);
+			await server.WaitForProcessingAsync();
+
+			await Assert.That(server.CurrentEncoding.WebName).IsEqualTo("iso-8859-1");
+			await Assert.That(reported.Count).IsEqualTo(1);
+			await Assert.That(reported[0].WebName).IsEqualTo("iso-8859-1");
+
+			await server.DisposeAsync();
+		}
+
 		// Helper method to test encoding with IAC escaping
 		private async Task TestEncodingWithIACEscaping(Encoding encoding, string webName, string testString, TelnetInterpreter.TelnetMode mode)
 		{
