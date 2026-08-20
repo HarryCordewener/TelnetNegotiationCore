@@ -115,6 +115,27 @@ public partial class TelnetInterpreter : IAsyncDisposable
     private bool _bufferOverflowed;
 
     /// <summary>
+    /// <see cref="CurrentEncoding"/> as it stood when the line currently being assembled began, or
+    /// null when no line is open. This, not the encoding at newline time, is what the line is
+    /// delivered with.
+    /// </summary>
+    /// <remarks>
+    /// CHARSET can complete part-way through a line, because RFC 2066 page 9 only asks a peer to
+    /// hold data back while a subnegotiation runs — "While a CHARSET subnegotiation is in progress,
+    /// data SHOULD be queued" — and a SHOULD is not a MUST. When a peer sends anyway, the bytes
+    /// already buffered were written in the encoding that was in force when they were sent, and no
+    /// later negotiation can change what the peer already put on the wire.
+    ///
+    /// A line that straddles the switch is genuinely ambiguous: bytes the peer sent after it moved
+    /// really are in the new encoding, and one label cannot describe both halves. That ambiguity is
+    /// the sender's to avoid by queueing, and is why the RFC asks. Binding at line start is the half
+    /// that is right for the case that actually happens — a banner written whole in the old encoding
+    /// whose newline arrives after negotiation settles — and it never invents an encoding the peer
+    /// had not yet agreed to.
+    /// </remarks>
+    private Encoding? _lineEncoding;
+
+    /// <summary>
     /// Observers that see each assembled line before <see cref="CallbackOnSubmitAsync"/> does, and
     /// may consume it. See <see cref="RegisterInputLineObserver"/>.
     /// </summary>
@@ -124,15 +145,6 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// Channel for byte processing pipeline with backpressure.
     /// </summary>
     private readonly Channel<byte> _byteChannel;
-
-    /// <summary>
-    /// Unbounded channel for protocol negotiation messages (typically low volume).
-    /// </summary>
-    private readonly Channel<byte[]> _negotiationChannel = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions
-    {
-        SingleReader = true,
-        SingleWriter = false
-    });
 
     /// <summary>
     /// SemaphoreSlim used to serialize all writes to the output stream,
@@ -249,7 +261,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
     /// <summary>
     /// Callback to the output stream directly for negotiation.
-    /// Internal use - negotiation messages are queued through _negotiationChannel.
+    /// Internal use - writes go straight out, serialized by <see cref="_writeLock"/> and never queued.
     /// </summary>
     public required Func<ReadOnlyMemory<byte>, ValueTask> CallbackNegotiationAsync { get; init; }
 
@@ -476,6 +488,9 @@ public partial class TelnetInterpreter : IAsyncDisposable
         if (b.AsT0 == (byte)Trigger.CARRIAGERETURN) return;
         _logger.LogTrace("Debug: Writing into buffer: {Byte}", b.AsT0);
 
+        // The first byte of a line pins the encoding the whole line is delivered with. See _lineEncoding.
+        _lineEncoding ??= CurrentEncoding;
+
         if (_bufferPosition >= MaxBufferSize)
         {
             // Past the ceiling: stop storing, but keep consuming the line so that the connection
@@ -544,6 +559,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
             _bufferOverflowed = false;
             _bufferPosition = 0;
+            _lineEncoding = null;
             ReleaseLineBufferIfLarge();
             return;
         }
@@ -556,11 +572,16 @@ public partial class TelnetInterpreter : IAsyncDisposable
         // reuse it.
         var cp = _bufferPosition == 0 ? [] : _buffer!.AsSpan()[.._bufferPosition].ToArray();
         _bufferPosition = 0;
+
+        // An empty line holds no bytes to have been written in any particular encoding, so it takes
+        // the current one; anything else is delivered in the encoding it arrived in.
+        var lineEncoding = _lineEncoding ?? CurrentEncoding;
+        _lineEncoding = null;
         ReleaseLineBufferIfLarge();
 
         foreach (var observer in _inputLineObservers)
         {
-            if (await observer(cp, CurrentEncoding))
+            if (await observer(cp, lineEncoding))
             {
                 return;
             }
@@ -568,7 +589,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
         if (CallbackOnSubmitAsync is not null)
         {
-            await CallbackOnSubmitAsync(cp, CurrentEncoding, this);
+            await CallbackOnSubmitAsync(cp, lineEncoding, this);
         }
     }
 
