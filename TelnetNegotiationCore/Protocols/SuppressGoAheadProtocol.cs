@@ -98,6 +98,18 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
             stateMachine.Configure(State.WillSUPPRESSGOAHEAD)
                 .SubstateOf(State.Accepting)
                 .OnEntryAsync(async x => await OnWillSuppressGAAsync(x, context));
+
+            // A bare IAC GA arriving from the server. The interpreter permits the transition; what
+            // the GA *means* is this plugin's knowledge, because RFC 858 is the only thing that ever
+            // takes the meaning away. Client mode only: RFC 854 defines GA in the server-to-user
+            // direction ("the process must transmit the TELNET Go Ahead (GA) command" when it cannot
+            // proceed without input from the other end) and says of the other direction only that
+            // "GAs may be sent at any time, but need not ever be sent" — so a GA reaching a server is
+            // not a statement about anything and this library does not invent one. It is also the
+            // only direction whose suppression this plugin records: in server mode _doGA tracks the
+            // peer's DO, which asks *us* to suppress, and says nothing about what the peer sends.
+            stateMachine.Configure(State.GoAhead)
+                .OnEntryAsync(async () => await OnGoAheadAsync(context));
         }
     }
 
@@ -186,6 +198,48 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     }
 
     #region State Machine Handlers
+
+    /// <summary>
+    /// A bare <c>IAC GA</c> arrived from the server: the RFC 854 Go-Ahead signal, which is a prompt
+    /// boundary unless RFC 858 suppression is in effect, in which case it is a NOP.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// RFC 854 gives GA one meaning in this direction and it is exactly the prompt case: a process
+    /// that "cannot proceed without input from the other end" must send GA. So the default NVT — no
+    /// options negotiated, which is most MU* servers — ends its prompts with <c>IAC GA</c> and
+    /// nothing else, and this is the only signal a client will get for them.
+    /// </para>
+    /// <para>
+    /// The one thing that takes that meaning away is RFC 858, whose rule is quoted rather than
+    /// paraphrased because it is the whole condition: once suppression is in effect "the IAC GA
+    /// command should be treated as a NOP if received, although IAC GA should not normally be sent in
+    /// this mode". <see cref="IsGoAheadSuppressed"/> is that state, and nothing else is consulted —
+    /// notably not EOR, which is RFC 885 and says nothing about GA. A server that negotiated EOR and
+    /// sends GA anyway is still saying it cannot proceed, and a client with nothing buffered loses
+    /// nothing by being told twice.
+    /// </para>
+    /// <para>
+    /// This deliberately does not go through <see cref="OnPromptAsync"/>. That method's
+    /// <see cref="TelnetProtocolPluginBase.IsEnabled"/> guard is about plugin lifetime — it is true
+    /// from initialisation onwards for every registered plugin — so it is not the negotiated state
+    /// and would answer nothing here.
+    /// </para>
+    /// </remarks>
+    private async ValueTask OnGoAheadAsync(IProtocolContext context)
+    {
+        if (IsGoAheadSuppressed)
+        {
+            context.Logger.LogTrace(
+                "GA received while SUPPRESS-GO-AHEAD is in effect. Treating it as a NOP (RFC 858).");
+            return;
+        }
+
+        context.Logger.LogDebug("Server is prompting with GA (Go-Ahead)");
+
+        if (_onPromptReceived != null)
+            await _onPromptReceived().ConfigureAwait(false);
+    }
 
     private async ValueTask OnDontSuppressGAAsync(IProtocolContext context)
     {

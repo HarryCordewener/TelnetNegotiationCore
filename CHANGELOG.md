@@ -1,6 +1,21 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.11.0]
+
+### Fixed
+- **`IAC GA` now raises the prompt callback.** RFC 854 makes Go-Ahead the server-to-user prompt
+  boundary, and a default NVT — one that negotiates neither EOR nor SUPPRESS-GO-AHEAD — ends every
+  prompt with it. It was accepted and discarded, so a client that holds an unterminated line until a
+  boundary arrives was never told one had arrived. Client mode only: RFC 854 gives GA no meaning in
+  the other direction, and that is also the only direction whose suppression this library records.
+- **`IAC GA` is a NOP once SUPPRESS-GO-AHEAD is in effect**, per RFC 858. EOR is not consulted —
+  RFC 885 is a different marker and says nothing about Go-Ahead.
+- **`IAC EOR` is a NOP while the END-OF-RECORD option is not in effect**, per RFC 885. The prompt was
+  gated on `IsEnabled`, which is plugin lifetime and true from initialisation, so an unnegotiated
+  `IAC EOR` raised a prompt on any connection that merely registered the plugin. It is gated on
+  `IsEOREnabled` — the negotiated state — now.
+
 ## [2.10.0]
 
 ### Added

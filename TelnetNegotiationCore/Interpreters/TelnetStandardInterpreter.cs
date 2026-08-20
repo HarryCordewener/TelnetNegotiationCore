@@ -404,21 +404,24 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
         // IAC GA (Go-Ahead) is the original 1983 prompt marker (RFC 854) and predates both EOR and
         // SUPPRESS-GO-AHEAD: a server is free to send it regardless of which options either side
-        // negotiated, and several real ones do on every prompt. Nothing here treats it as anything
-        // but noise to be dropped, unlike Trigger.EOR, because reacting to it as a prompt boundary
-        // would be wrong for any server that also negotiated SUPPRESS-GO-AHEAD or EOR and is using
-        // GA for nothing — this is only about not crashing on it. Before this, GA had no permitted
+        // negotiated, and several real ones do on every prompt. Before this, GA had no permitted
         // transition from StartNegotiation at all, so it always reached OnUnhandledTriggerAsync: a
         // logged Critical and a recovery through Trigger.Error on every single occurrence. Servers
         // that pair a trailing GA with another IAC sequence right behind it — achaea.com does, at
         // the exact moment it starts MCCP2 — could lose that sequence to the recovery instead of
         // parsing it, which is how a still-compressed byte stream ends up read as plain telnet.
+        //
+        // The state itself does nothing. Whether this particular GA is a prompt boundary or a
+        // leftover to drop is the negotiated state, which is the plugins' knowledge and not the
+        // interpreter's: SuppressGoAheadProtocol adds its own entry action here, and drops the GA
+        // only where RFC 858 says to — once SUPPRESS-GO-AHEAD is in effect. EOR is not part of that
+        // condition; RFC 885 is a different marker and says nothing about Go-Ahead.
         tsm.Configure(State.StartNegotiation)
             .Permit(Trigger.GA, State.GoAhead);
 
         tsm.Configure(State.GoAhead)
             .SubstateOf(State.Accepting)
-            .OnEntry(() => _logger.LogTrace("Connection: {ConnectionState}", "GA (Go-Ahead) received. Do nothing."));
+            .OnEntry(() => _logger.LogTrace("Connection: {ConnectionState}", "GA (Go-Ahead) received."));
 
         // As a general documentation, negotiation means a Do followed by a Will, or a Will followed by a Do.
         // Do is followed by Refusing or Will followed by Don't indicate negative negotiation.
