@@ -412,10 +412,10 @@ public partial class TelnetInterpreter : IAsyncDisposable
         // parsing it, which is how a still-compressed byte stream ends up read as plain telnet.
         //
         // The state itself does nothing. Whether this particular GA is a prompt boundary or a
-        // leftover to drop depends on what was negotiated, which is the plugins' knowledge and not
-        // the interpreter's: SuppressGoAheadProtocol adds its own entry action here and consults
-        // GoAheadMarksPrompt, so a connection that also negotiated EOR or SUPPRESS-GO-AHEAD still
-        // treats a GA as noise.
+        // leftover to drop is the negotiated state, which is the plugins' knowledge and not the
+        // interpreter's: SuppressGoAheadProtocol adds its own entry action here, and drops the GA
+        // only where RFC 858 says to — once SUPPRESS-GO-AHEAD is in effect. EOR is not part of that
+        // condition; RFC 885 is a different marker and says nothing about Go-Ahead.
         tsm.Configure(State.StartNegotiation)
             .Permit(Trigger.GA, State.GoAhead);
 

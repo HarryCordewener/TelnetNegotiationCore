@@ -56,6 +56,25 @@ public class PromptMarkerTests : BaseTest
 					return ValueTask.CompletedTask;
 				}));
 
+	private static Task<TelnetInterpreter> BuildServerAsync(List<string> prompts) =>
+		BuildAndWaitAsync(new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(_ => ValueTask.CompletedTask)
+			.AddPlugin<EORProtocol>()
+				.OnPrompt(() =>
+				{
+					prompts.Add("EOR");
+					return ValueTask.CompletedTask;
+				})
+			.AddPlugin<SuppressGoAheadProtocol>()
+				.OnPrompt(() =>
+				{
+					prompts.Add("GA");
+					return ValueTask.CompletedTask;
+				}));
+
 	/// <summary>
 	/// The NukeFire case, and the default NVT of RFC 854: nothing negotiated, GA ends the prompt.
 	/// </summary>
@@ -144,6 +163,27 @@ public class PromptMarkerTests : BaseTest
 		await Assert.That(prompts).IsEmpty();
 
 		await client.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A server told a GA is told nothing. RFC 854 says of the user-to-server direction only that
+	/// "GAs may be sent at any time, but need not ever be sent", so a GA arriving here is not a
+	/// statement about anything — and this is also the direction whose suppression the plugin does
+	/// not record, because in server mode its flag tracks the peer's <c>DO</c>, which asks this end
+	/// to suppress and says nothing about what the peer sends. This pins the client-only wiring: a
+	/// GA must still cost nothing but a state transition.
+	/// </summary>
+	[Test]
+	public async Task AGoAheadReachingAServerRaisesNoPrompt()
+	{
+		var prompts = new List<string>();
+		var server = await BuildServerAsync(prompts);
+
+		await InterpretAndWaitAsync(server, s_goAhead);
+
+		await Assert.That(prompts).IsEmpty();
+
+		await server.DisposeAsync();
 	}
 
 	/// <summary>
