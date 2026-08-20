@@ -620,6 +620,92 @@ namespace TelnetNegotiationCore.UnitTests
 		}
 
 		/// <summary>
+		/// A consumer's callback throwing is the consumer's bug, but it must not leave the connection
+		/// holding two different ideas of what encoding it is on. The plugin and the interpreter have
+		/// to agree either way, because the interpreter's copy is the one every line is labelled from.
+		/// </summary>
+		[Test]
+		public async Task AThrowingCharsetChangeCallbackStillLeavesTheClientEncodingApplied()
+		{
+			var receivedData = new List<(byte[] data, Encoding encoding)>();
+
+			ValueTask CaptureOutput(byte[] data, Encoding enc, TelnetInterpreter ti)
+			{
+				receivedData.Add((data, enc));
+				return ValueTask.CompletedTask;
+			}
+
+			var client = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(CaptureOutput)
+				.OnNegotiation(_ => ValueTask.CompletedTask)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			var charsetPlugin = client.PluginManager!.GetPlugin<CharsetProtocol>();
+			charsetPlugin!.OnCharsetChange(_ => throw new InvalidOperationException("consumer blew up"));
+
+			await NegotiateCharset(client, "iso-8859-1", TelnetInterpreter.TelnetMode.Client);
+			await client.WaitForProcessingAsync();
+
+			// The interpreter's encoding is what consumers read and what lines are labelled from, so a
+			// throwing notification must not leave it behind the plugin's.
+			await Assert.That(charsetPlugin.CurrentEncoding.WebName).IsEqualTo("iso-8859-1");
+			await Assert.That(client.CurrentEncoding.WebName).IsEqualTo("iso-8859-1");
+
+			// The concrete harm if it did lag: every later line carries the stale label.
+			await client.InterpretByteArrayAsync(Encoding.Latin1.GetBytes("über\n"));
+			await client.WaitForProcessingAsync();
+
+			await Assert.That(receivedData.Count).IsEqualTo(1);
+			await Assert.That(receivedData[0].encoding.WebName).IsEqualTo("iso-8859-1");
+			await Assert.That(receivedData[0].encoding.GetString(receivedData[0].data)).IsEqualTo("über");
+
+			await client.DisposeAsync();
+		}
+
+		/// <summary>
+		/// The server's side of the same hazard, which costs more than divergent state: the CHARSET
+		/// ACCEPTED reply is what terminates the subnegotiation for the peer (RFC 2066: "Receipt of a
+		/// CHARSET ACCEPTED or TTABLE-ACK message terminates the subnegotiation, with the new character
+		/// set in force"). A consumer throwing out of the change notification must not swallow it and
+		/// leave the peer waiting on a reply that never comes.
+		/// </summary>
+		[Test]
+		public async Task AThrowingCharsetChangeCallbackStillSendsTheServersAcceptedReply()
+		{
+			var negotiationOutput = new List<byte[]>();
+
+			var server = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(data => { negotiationOutput.Add(data.ToArray()); return ValueTask.CompletedTask; })
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			var charsetPlugin = server.PluginManager!.GetPlugin<CharsetProtocol>();
+			charsetPlugin!.OnCharsetChange(_ => throw new InvalidOperationException("consumer blew up"));
+
+			await NegotiateCharset(server, "iso-8859-1", TelnetInterpreter.TelnetMode.Server);
+			await server.WaitForProcessingAsync();
+
+			await Assert.That(server.CurrentEncoding.WebName).IsEqualTo("iso-8859-1");
+
+			var accepted = new List<byte>
+			{
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED
+			};
+			accepted.AddRange(Encoding.ASCII.GetBytes("iso-8859-1"));
+			accepted.AddRange(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE });
+
+			await Assert.That(negotiationOutput.Any(x => x.SequenceEqual(accepted))).IsTrue();
+
+			await server.DisposeAsync();
+		}
+
+		/// <summary>
 		/// RFC 2066 page 9 asks a peer to hold its data back: "While a CHARSET subnegotiation is in
 		/// progress, data SHOULD be queued. Once the CHARSET subnegotiation has terminated, the data
 		/// can be sent (in the correct character set)." That is a SHOULD on the sender, and a peer

@@ -403,13 +403,16 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         byte[] postAmble = [ (byte)Trigger.IAC, (byte)Trigger.SE ];
 
         CurrentEncoding = chosenEncoding;
-        await (_signalCharsetChangeAsync?.Invoke(CurrentEncoding) ?? default(ValueTask));
-        
-        // Update interpreter properties for backward compatibility
         UpdateInterpreterEncoding(context);
 
+        // The peer is told before the consumer is. Its CHARSET ACCEPTED is what terminates the
+        // subnegotiation, and the consumer's notification is its cue to send whatever it queued while
+        // CHARSET was in flight - so notifying first would invite it to send text the peer would still
+        // be reading in the old charset.
         byte[] response = [.. preamble, .. charsetAscii, .. postAmble];
         await context.SendNegotiationAsync(response);
+
+        await NotifyCharsetChangeAsync(context);
     }
 
     private async ValueTask CompleteAcceptedCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
@@ -431,15 +434,44 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         }
 
         CurrentEncoding = negotiated;
+        UpdateInterpreterEncoding(context);
+        _charsetOffered = false;
+
+        context.Logger.LogInformation("Connection: Accepted Charset Negotiation for: {charset}", CurrentEncoding.WebName);
+
         // The peer accepting one of our offered charsets moves the encoding exactly as our own pick
         // does in CompleteCharsetAsync, so it is announced the same way. A consumer holding text back
         // until CHARSET settles - RFC 2066 page 9, "While a CHARSET subnegotiation is in progress,
-        // data SHOULD be queued" - has no other signal that it may now send.
-        await (_signalCharsetChangeAsync?.Invoke(CurrentEncoding) ?? default(ValueTask));
-        UpdateInterpreterEncoding(context);
+        // data SHOULD be queued" - has no other signal that it may now send. Announced last, so that
+        // everything it reports is already true by the time it is told.
+        await NotifyCharsetChangeAsync(context);
+    }
 
-        context.Logger.LogInformation("Connection: Accepted Charset Negotiation for: {charset}", CurrentEncoding.WebName);
-        _charsetOffered = false;
+    /// <summary>
+    /// Tells the consumer the encoding moved, without letting its failure become the connection's.
+    /// </summary>
+    /// <remarks>
+    /// Every state change this reports is committed before it runs, and on the server path the peer
+    /// has already had its reply, so a consumer throwing out of here costs nothing but its own
+    /// notification. It used to cost more: the interpreter's copy of the encoding went unassigned,
+    /// leaving the plugin and the interpreter disagreeing about what every later line is labelled
+    /// with, and on the server path the CHARSET ACCEPTED that RFC 2066 needs to terminate the
+    /// subnegotiation was never sent, so the peer waited on a reply that would never come.
+    /// </remarks>
+    private async ValueTask NotifyCharsetChangeAsync(IProtocolContext context)
+    {
+        if (_signalCharsetChangeAsync is null) return;
+
+        try
+        {
+            await _signalCharsetChangeAsync(CurrentEncoding);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(ex,
+                "A charset-change callback threw for {charset}. The encoding change stands; only the notification was lost.",
+                CurrentEncoding.WebName);
+        }
     }
 
     private async ValueTask OnWillingCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
