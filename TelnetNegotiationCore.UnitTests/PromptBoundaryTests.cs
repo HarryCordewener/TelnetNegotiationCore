@@ -77,4 +77,82 @@ public class PromptBoundaryTests : BaseTest
 
 		await client.DisposeAsync();
 	}
+
+	/// <summary>
+	/// A prompt boundary closes the line the same way a submitted line does: nothing pinned about
+	/// the drained bytes may outlive it. Here, a CHARSET change lands between the prompt and the
+	/// next line; the next line must be tagged with the encoding in force when *it* arrived, not
+	/// whatever was pinned by the prompt text before the boundary.
+	/// </summary>
+	[Test]
+	public async Task ALineAfterAPromptBoundaryIsTaggedWithTheEncodingInForceWhenItArrives()
+	{
+		var lines = new List<(byte[] Data, Encoding Encoding)>();
+
+		var client = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit((data, encoding, _) => { lines.Add((data, encoding)); return ValueTask.CompletedTask; })
+				.OnNegotiation(_ => ValueTask.CompletedTask)
+				.AddPlugin<SuppressGoAheadProtocol>()
+				.AddPlugin<CharsetProtocol>());
+
+		// The prompt text arrives under the default UTF-8, then the GA boundary fires with
+		// nothing else pending.
+		await InterpretAndWaitAsync(client, Encoding.UTF8.GetBytes("HP:100>"));
+		await InterpretAndWaitAsync(client, new byte[] { (byte)Trigger.IAC, (byte)Trigger.GA });
+
+		// CHARSET moves the connection to Latin-1 between the prompt and the next line.
+		await InterpretAndWaitAsync(client, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
+		await InterpretAndWaitAsync(client, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET });
+		var accepted = new List<byte> { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED };
+		accepted.AddRange(Encoding.ASCII.GetBytes("iso-8859-1"));
+		accepted.AddRange(new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE });
+		await InterpretAndWaitAsync(client, accepted.ToArray());
+
+		await Assert.That(client.CurrentEncoding.WebName).IsEqualTo("iso-8859-1");
+
+		var latin1 = Encoding.GetEncoding("iso-8859-1");
+		await InterpretAndWaitAsync(client, latin1.GetBytes("Latin-1 à\r\n"));
+
+		await Assert.That(lines.Count).IsEqualTo(1);
+		await Assert.That(lines[0].Encoding.WebName).IsEqualTo("iso-8859-1");
+		await Assert.That(latin1.GetString(lines[0].Data)).IsEqualTo("Latin-1 à");
+
+		await client.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A prompt boundary closes the line the same way a submitted line does, including the
+	/// overflow flag: a line that passed <see cref="TelnetInterpreter.MaxBufferSize"/> before its
+	/// boundary arrived must not make the next, unrelated, ordinary-length line pay for it.
+	/// </summary>
+	[Test]
+	public async Task ALineThatOverflowsBeforeItsPromptBoundaryDoesNotDropTheNextLine()
+	{
+		var lines = new List<string>();
+
+		var client = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.WithMaxBufferSize(8)
+				.OnSubmit((data, encoding, _) => { lines.Add(encoding.GetString(data)); return ValueTask.CompletedTask; })
+				.OnNegotiation(_ => ValueTask.CompletedTask)
+				.AddPlugin<SuppressGoAheadProtocol>());
+
+		// Past the ceiling before any terminator arrives, then the boundary fires with the
+		// overflow flag still set and nothing else pending.
+		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes(new string('x', 20)));
+		await InterpretAndWaitAsync(client, new byte[] { (byte)Trigger.IAC, (byte)Trigger.GA });
+
+		// An entirely ordinary short line right behind it must not pay for the line that overflowed.
+		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("hi\r\n"));
+
+		await Assert.That(lines.Count).IsEqualTo(1);
+		await Assert.That(lines[0]).IsEqualTo("hi");
+
+		await client.DisposeAsync();
+	}
 }

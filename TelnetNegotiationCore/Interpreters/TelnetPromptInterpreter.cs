@@ -14,6 +14,11 @@ public partial class TelnetInterpreter
 	/// obvious way to hold a partial line is <see cref="CallbackOnByteAsync"/>, which is what
 	/// SharpMUTerm does. This property is for the consumer that does not, so that draining the line
 	/// buffer at a boundary does not put the text out of everyone's reach.
+	/// <para>
+	/// Valid to read from inside the prompt callback, on the byte-processing loop that invokes it.
+	/// The setter is not synchronized, so a reader on any other thread has no guarantee against a
+	/// torn value.
+	/// </para>
 	/// </remarks>
 	public ReadOnlyMemory<byte> LastPromptBytes { get; private set; }
 
@@ -40,6 +45,17 @@ public partial class TelnetInterpreter
 	/// of: a server sending <c>HP:100&gt;</c> <c>IAC GA</c> then <c>You wave.CRLF</c> produced one
 	/// line reading <c>HP:100&gt;You wave.</c> — the prompt gone from where it belonged and corrupting
 	/// where it landed. See PromptBoundaryTests.
+	/// <para>
+	/// A boundary closes the line the same way <see cref="WriteToOutput"/> does, and for the same
+	/// reason: after this call no line is open, so nothing pinned or flagged about the drained bytes
+	/// may survive to be read against whatever the next line turns out to be. <c>_lineEncoding</c> is
+	/// cleared so the next line picks up <see cref="CurrentEncoding"/> as it stands when that line
+	/// actually starts, not whatever was pinned when the prompt's bytes arrived — otherwise a CHARSET
+	/// change that lands between the prompt and the next line is silently ignored and that line is
+	/// delivered tagged with the wrong encoding. <c>_bufferOverflowed</c> is cleared so a line that
+	/// overflowed before its boundary arrived does not make the connection drop the next, unrelated,
+	/// ordinary-length line too.
+	/// </para>
 	/// </remarks>
 	/// <param name="marked">
 	/// True when a server marker (<c>IAC GA</c>, <c>IAC EOR</c>) caused this boundary; false when it
@@ -52,6 +68,8 @@ public partial class TelnetInterpreter
 			: _buffer!.AsSpan()[.._bufferPosition].ToArray();
 
 		_bufferPosition = 0;
+		_lineEncoding = null;
+		_bufferOverflowed = false;
 		ReleaseLineBufferIfLarge();
 
 		if (marked)
