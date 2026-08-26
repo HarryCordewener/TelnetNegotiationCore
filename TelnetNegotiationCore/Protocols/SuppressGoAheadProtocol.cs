@@ -31,6 +31,11 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     /// <summary>
     /// Sets the callback that is invoked when a prompt is received (Suppress Go-Ahead marker).
     /// </summary>
+    /// <remarks>
+    /// Runs on the byte-processing loop — the same thread EOR's and Packet Patch's prompt callbacks
+    /// run on, so a handler shared across all three (as <c>AddDefaultMUDProtocols</c> does by
+    /// default) needs no thread-safety of its own on that account.
+    /// </remarks>
     /// <param name="callback">The callback to handle prompts</param>
     /// <returns>This instance for fluent chaining</returns>
     public SuppressGoAheadProtocol OnPrompt(Func<ValueTask>? callback)

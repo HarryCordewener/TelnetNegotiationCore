@@ -109,18 +109,6 @@ public partial class TelnetInterpreter : IAsyncDisposable
     private int _bufferPosition;
 
     /// <summary>
-    /// Guards <see cref="_buffer"/>, <see cref="_bufferPosition"/>, <see cref="_bufferOverflowed"/>
-    /// and <see cref="_lineEncoding"/> against the one caller that is not the byte-processing loop:
-    /// <see cref="TakePartialLineAsPrompt"/>, called from <see cref="Protocols.PacketPatchProtocol"/>'s
-    /// timer thread. Every other mutator of these fields already runs on the loop, one byte at a time,
-    /// with nothing else able to interleave -- this lock exists solely to make that loop's writes and a
-    /// concurrent timer-thread read/clear agree on one consistent instant, rather than the timer thread
-    /// observing a position that has moved past the array content it names, or a resize the loop thread
-    /// is midway through publishing.
-    /// </summary>
-    private readonly object _bufferLock = new();
-
-    /// <summary>
     /// Whether the line currently being assembled has already passed <see cref="MaxBufferSize"/>,
     /// and so is going to be discarded whole when its newline finally arrives.
     /// </summary>
@@ -154,9 +142,20 @@ public partial class TelnetInterpreter : IAsyncDisposable
     private readonly List<Func<byte[], Encoding, ValueTask<bool>>> _inputLineObservers = [];
 
     /// <summary>
-    /// Channel for byte processing pipeline with backpressure.
+    /// Written to <see cref="_byteChannel"/> in place of a wire byte, to move
+    /// <see cref="Protocols.PacketPatchProtocol"/>'s hold-time decision off its timer thread and onto
+    /// the byte-processing loop -- the one thread that already owns the line buffer, so it can act on
+    /// the sentinel directly instead of a second thread reaching into that state. Negative and out of
+    /// the 0-255 range a genuine wire byte occupies, so it can never collide with one.
     /// </summary>
-    private readonly Channel<byte> _byteChannel;
+    private const short InferredPromptSentinel = -1;
+
+    /// <summary>
+    /// Channel for byte processing pipeline with backpressure. Element type is <c>short</c>, not
+    /// <c>byte</c>: every wire byte still fits, and the spare negative range is what carries
+    /// <see cref="InferredPromptSentinel"/>.
+    /// </summary>
+    private readonly Channel<short> _byteChannel;
 
     /// <summary>
     /// SemaphoreSlim used to serialize all writes to the output stream,
@@ -301,7 +300,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
         _parameterizedTriggers = new ParameterizedTriggers();
 
         // Create bounded channel with backpressure (max 10,000 bytes buffered)
-        _byteChannel = Channel.CreateBounded<byte>(new BoundedChannelOptions(10000)
+        _byteChannel = Channel.CreateBounded<short>(new BoundedChannelOptions(10000)
         {
             FullMode = BoundedChannelFullMode.Wait,  // Backpressure: block producer if full
             SingleReader = true,   // Optimization: only one consumer
@@ -503,32 +502,29 @@ public partial class TelnetInterpreter : IAsyncDisposable
         if (b.AsT0 == (byte)Trigger.CARRIAGERETURN) return;
         _logger.LogTrace("Debug: Writing into buffer: {Byte}", b.AsT0);
 
-        lock (_bufferLock)
+        // The first byte of a line pins the encoding the whole line is delivered with. See _lineEncoding.
+        _lineEncoding ??= CurrentEncoding;
+
+        if (_bufferPosition >= MaxBufferSize)
         {
-            // The first byte of a line pins the encoding the whole line is delivered with. See _lineEncoding.
-            _lineEncoding ??= CurrentEncoding;
-
-            if (_bufferPosition >= MaxBufferSize)
+            // Past the ceiling: stop storing, but keep consuming the line so that the connection
+            // stays in sync and the next newline still ends it. Writing anyway indexed past the end
+            // of the array, which threw out of the state machine and killed byte processing for the
+            // rest of the connection.
+            _bufferOverflowed = true;
+        }
+        else
+        {
+            // One comparison on the hot path: capacity starts at zero, so this covers the first byte
+            // of the connection and a full buffer with the same test, and the growth itself is out of
+            // line because it happens at most log2(MaxBufferSize / 1 KiB) times per line.
+            if (_bufferPosition == _bufferCapacity)
             {
-                // Past the ceiling: stop storing, but keep consuming the line so that the connection
-                // stays in sync and the next newline still ends it. Writing anyway indexed past the end
-                // of the array, which threw out of the state machine and killed byte processing for the
-                // rest of the connection.
-                _bufferOverflowed = true;
+                GrowLineBuffer();
             }
-            else
-            {
-                // One comparison on the hot path: capacity starts at zero, so this covers the first byte
-                // of the connection and a full buffer with the same test, and the growth itself is out of
-                // line because it happens at most log2(MaxBufferSize / 1 KiB) times per line.
-                if (_bufferPosition == _bufferCapacity)
-                {
-                    GrowLineBuffer();
-                }
 
-                _buffer![_bufferPosition] = b.AsT0;
-                _bufferPosition++;
-            }
+            _buffer![_bufferPosition] = b.AsT0;
+            _bufferPosition++;
         }
 
         await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? default(ValueTask));
@@ -569,39 +565,33 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// </summary>
     private async ValueTask WriteToOutput()
     {
-        byte[] cp;
-        Encoding lineEncoding;
-
-        lock (_bufferLock)
+        if (_bufferOverflowed)
         {
-            if (_bufferOverflowed)
-            {
-                _bufferOverflowed = false;
-                _bufferPosition = 0;
-                _lineEncoding = null;
-                ReleaseLineBufferIfLarge();
+            _logger.LogError(
+                "A line of input exceeded the maximum buffer size of {MaxBufferSize} bytes and was dropped. Raise TelnetInterpreter.MaxBufferSize if this is legitimate traffic.",
+                MaxBufferSize);
 
-                _logger.LogError(
-                    "A line of input exceeded the maximum buffer size of {MaxBufferSize} bytes and was dropped. Raise TelnetInterpreter.MaxBufferSize if this is legitimate traffic.",
-                    MaxBufferSize);
-                return;
-            }
-
-            // A NEWLINE reaches here only from State.Act, which only a NEWLINE trigger enters — so every
-            // call is a genuine line submission, including one with nothing buffered since the last: the
-            // second CRLF of a "paragraph break" double newline is exactly that; MUD/MUSH output leans on
-            // it for blank lines. Skipping the callback here silently drops those lines before any caller
-            // ever sees them. _buffer stays null until something is written to it, so the empty case can't
-            // reuse it.
-            cp = _bufferPosition == 0 ? [] : _buffer!.AsSpan()[.._bufferPosition].ToArray();
+            _bufferOverflowed = false;
             _bufferPosition = 0;
-
-            // An empty line holds no bytes to have been written in any particular encoding, so it takes
-            // the current one; anything else is delivered in the encoding it arrived in.
-            lineEncoding = _lineEncoding ?? CurrentEncoding;
             _lineEncoding = null;
             ReleaseLineBufferIfLarge();
+            return;
         }
+
+        // A NEWLINE reaches here only from State.Act, which only a NEWLINE trigger enters — so every
+        // call is a genuine line submission, including one with nothing buffered since the last: the
+        // second CRLF of a "paragraph break" double newline is exactly that; MUD/MUSH output leans on
+        // it for blank lines. Skipping the callback here silently drops those lines before any caller
+        // ever sees them. _buffer stays null until something is written to it, so the empty case can't
+        // reuse it.
+        var cp = _bufferPosition == 0 ? [] : _buffer!.AsSpan()[.._bufferPosition].ToArray();
+        _bufferPosition = 0;
+
+        // An empty line holds no bytes to have been written in any particular encoding, so it takes
+        // the current one; anything else is delivered in the encoding it arrived in.
+        var lineEncoding = _lineEncoding ?? CurrentEncoding;
+        _lineEncoding = null;
+        ReleaseLineBufferIfLarge();
 
         foreach (var observer in _inputLineObservers)
         {
@@ -850,6 +840,40 @@ public partial class TelnetInterpreter : IAsyncDisposable
             int byteCount = 0;
             await foreach (var raw in _byteChannel.Reader.ReadAllAsync(cancellationToken))
             {
+                if (raw == InferredPromptSentinel)
+                {
+                    // Not a wire byte. Protocols.PacketPatchProtocol's timer enqueues this instead of
+                    // touching the line buffer itself, so the actual check-and-take runs here, on the
+                    // one thread that already owns that buffer -- see TakePartialLineAsPrompt and
+                    // TryEnqueueInferredPrompt. HasSeenMarkedPrompt is read here rather than left to
+                    // TakePartialLineAsPrompt because it must gate the call, not just its result: a
+                    // sentinel that is stale by the time it is dequeued (a genuine IAC GA/EOR won the
+                    // race and already drained the buffer, and latched the flag, first) must not touch
+                    // the buffer at all, only find nothing there.
+                    if (!HasSeenMarkedPrompt && TakePartialLineAsPrompt(marked: false))
+                    {
+                        var onInferredPrompt = _onInferredPrompt;
+                        if (onInferredPrompt is not null)
+                        {
+                            try
+                            {
+                                await onInferredPrompt();
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException)
+                            {
+                                // Mirrors FireByteAsync's own catch: a consumer's callback throwing
+                                // must not take down byte processing for the rest of the connection.
+                                _logger.LogError(ex,
+                                    "The inferred-prompt callback threw. Connection continues.");
+                            }
+                        }
+                    }
+
+                    continue;
+                }
+
+                var bt = (byte)raw;
+
                 // Between bytes: the one point where this loop is provably not inside a decoder.
                 if (_hasRetiredInboundTransforms)
                 {
@@ -859,7 +883,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 var transform = _inboundTransform;
                 if (transform is null)
                 {
-                    await FireByteAsync(raw, ++byteCount);
+                    await FireByteAsync(bt, ++byteCount);
                     await NotifyIfIdleAsync();
                     continue;
                 }
@@ -875,7 +899,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 // zip bomb arrives as 1032 bytes per call, 16,315 times. Batch the feed and that
                 // ceiling becomes 1032 x batch size, which a hostile peer chooses. See
                 // MCCPCompressedStreamTests.AHighRatioPayloadDoesNotGrowTheDecodersBuffer.
-                var decoded = await transform.DecodeAsync(raw);
+                var decoded = await transform.DecodeAsync(bt);
                 for (var i = 0; i < decoded.Length; i++)
                 {
                     await FireByteAsync(decoded.Span[i], ++byteCount);
@@ -938,10 +962,14 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// Tells a registered idle handler that the byte stream has gone quiet, when it has.
     /// </summary>
     /// <remarks>
-    /// "Quiet" is the channel being empty, not the read call returning: a socket read hands its whole
-    /// buffer to the channel at once and the loop drains it one byte at a time, so the end of a read
-    /// and the end of processing that read are different moments and only the second one means the
-    /// server has stopped talking.
+    /// "Quiet" is the channel being empty at the instant this runs, which is a looser thing than "a
+    /// read just ended": <see cref="InterpretByteArrayAsync"/> writes one byte per <c>await</c>, so a
+    /// consumer draining faster than the writes arrive can observe <c>Count == 0</c> between two bytes
+    /// of what the caller thinks of as a single read, not only after the last one. That produces false
+    /// positives, and they are harmless: the only registered handler
+    /// (<see cref="Protocols.PacketPatchProtocol.OnByteStreamIdleAsync"/>) just restarts its hold-time
+    /// clock from whatever byte was last seen, and a hold time is measured from the last byte either
+    /// way -- re-arming a little early changes nothing once the rest of the read does arrive.
     /// </remarks>
     private async ValueTask NotifyIfIdleAsync()
     {
@@ -951,6 +979,21 @@ public partial class TelnetInterpreter : IAsyncDisposable
             await handler();
         }
     }
+
+    /// <summary>
+    /// Enqueues <see cref="InferredPromptSentinel"/> for the byte-processing loop to act on. The only
+    /// caller is <see cref="Protocols.PacketPatchProtocol"/>'s timer callback, which must not touch the
+    /// line buffer itself -- see <see cref="TakePartialLineAsPrompt"/>'s remarks.
+    /// </summary>
+    /// <remarks>
+    /// A non-blocking <c>TryWrite</c> rather than <c>WriteAsync</c>, deliberately: the timer callback
+    /// is synchronous and must return quickly regardless, the channel has ample headroom (10,000 deep)
+    /// for one extra signal per held fragment, and if it is ever genuinely full or already completed
+    /// the fragment simply goes unreported as a prompt -- no worse an outcome than the connection
+    /// having already gone away, which a completed channel means it has.
+    /// </remarks>
+    /// <returns>False if the sentinel could not be enqueued (the channel is full or closed).</returns>
+    internal bool TryEnqueueInferredPrompt() => _byteChannel.Writer.TryWrite(InferredPromptSentinel);
 
     /// <summary>
     /// Graceful shutdown of the interpreter.

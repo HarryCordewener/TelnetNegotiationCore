@@ -37,9 +37,21 @@ namespace TelnetNegotiationCore.Protocols;
 /// plugin stops firing for the rest of it. A server that marks its prompts is never second-guessed.
 /// </para>
 /// <para>
+/// <b>The timer never touches the line buffer.</b> It runs on the thread pool, and the line buffer
+/// has exactly one owner: the interpreter's byte-processing loop. So the timer's only job, when
+/// <see cref="HoldTime"/> elapses, is to enqueue a sentinel onto that same loop's own channel
+/// (<see cref="Interpreters.TelnetInterpreter.TryEnqueueInferredPrompt"/>) and get out of the way —
+/// the actual check-and-take runs on the loop itself, the moment it dequeues that sentinel. See
+/// <c>TelnetStandardInterpreter.ProcessBytesAsync</c> and
+/// <see cref="Interpreters.TelnetInterpreter.TakePartialLineAsPrompt"/>'s remarks for the rest of the
+/// story, including why a losing race reports nothing rather than a spurious second prompt.
+/// </para>
+/// <para>
 /// This carries no <c>WILL</c>/<c>DO</c> exchange of its own — registering it is the whole opt-in, as
-/// with <see cref="MSSPPlaintextProtocol"/> — so it reports <see cref="TelnetProtocolPluginBase.IsNegotiated"/>
-/// true from initialization rather than waiting for a handshake it does not have.
+/// with <see cref="MSSPPlaintextProtocol"/> — so it reports
+/// <see cref="TelnetProtocolPluginBase.IsNegotiated"/> true from initialization in client mode,
+/// rather than waiting for a handshake it does not have. Server mode never negotiates at all; see
+/// <see cref="OnInitializeAsync"/>.
 /// </para>
 /// </remarks>
 [RequiredMethod("OnPrompt", Description = "Configure the callback to handle inferred prompt events")]
@@ -52,23 +64,23 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	public static readonly TimeSpan MaximumHoldTime = TimeSpan.FromSeconds(10);
 
 	/// <summary>
-	/// Fires <see cref="FireAsync"/> once <see cref="HoldTime"/> has elapsed with no intervening
+	/// Fires <see cref="OnTimerElapsed"/> once <see cref="HoldTime"/> has elapsed with no intervening
 	/// activity. Armed and re-armed by <see cref="OnByteStreamIdleAsync"/>, which runs on the
-	/// byte-processing loop; the callback itself runs on the thread pool.
+	/// byte-processing loop; the callback itself runs on the thread pool, but does no more than
+	/// enqueue a sentinel — see the type remarks — so disposing it needs no special handling beyond
+	/// the ordinary parameterless <see cref="Timer.Dispose()"/>.
 	/// </summary>
 	private readonly Timer _timer;
 
 	/// <summary>
-	/// The still-running <see cref="FireAsync"/> invocation, if the timer has fired and not yet
-	/// finished. Assigned synchronously inside the timer callback before that callback returns, which
-	/// is what lets <see cref="OnDisposeAsync"/> wait for it: disposing <see cref="_timer"/> waits for
-	/// its (synchronous) callback delegate to return, and by then this field names whatever work that
-	/// callback started.
+	/// Set at the top of <see cref="OnInitializeAsync"/>, so <see cref="OnDisposeAsync"/> can tell
+	/// apart a plugin that was genuinely built into a connection from one that was merely constructed
+	/// (both of this class's <c>WithHoldTime</c>/<c>HoldTime</c> tests do exactly that) and never
+	/// initialized — <see cref="TelnetProtocolPluginBase.Context"/> throws for the latter, and
+	/// <c>ProtocolPluginManager.DisposeAllAsync</c> has no try/catch around each plugin's disposal, so
+	/// one throwing here would abandon every other plugin's cleanup along with its own.
 	/// </summary>
-	private Task? _pendingFire;
-
-	/// <summary>Guards against two overlapping <see cref="FireAsync"/> bodies. See its own remarks.</summary>
-	private int _firing;
+	private bool _initialized;
 
 	private Func<ValueTask>? _onPromptReceived;
 
@@ -78,7 +90,13 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 		_timer = new Timer(OnTimerElapsed, null, Timeout.Infinite, Timeout.Infinite);
 	}
 
-	/// <summary>How long an unterminated fragment is held before it is called a prompt.</summary>
+	/// <summary>
+	/// How long an unterminated fragment is held before it is called a prompt.
+	/// </summary>
+	/// <remarks>
+	/// Zero is accepted and means immediate, not disabled: unlike TinTin++'s own <c>0</c>, which turns
+	/// packet patch off there, this plugin has no separate "off" value — not registering it is that.
+	/// </remarks>
 	public TimeSpan HoldTime { get; private set; } = DefaultHoldTime;
 
 	/// <inheritdoc />
@@ -117,6 +135,12 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// EOR and Suppress Go-Ahead plugins were given: a consumer wants one prompt notification, not one
 	/// per way of detecting one.
 	/// </summary>
+	/// <remarks>
+	/// Runs on the byte-processing loop — the same thread every registered prompt callback runs on,
+	/// EOR's and Suppress Go-Ahead's included, so a handler shared across all three (as
+	/// <c>AddDefaultMUDProtocols</c> does by default) needs no thread-safety of its own on that
+	/// account.
+	/// </remarks>
 	/// <param name="callback">The callback to handle prompts</param>
 	/// <returns>This instance for fluent chaining</returns>
 	public PacketPatchProtocol OnPrompt(Func<ValueTask>? callback)
@@ -135,6 +159,8 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// <inheritdoc />
 	protected override async ValueTask OnInitializeAsync()
 	{
+		_initialized = true;
+
 		if (Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
 		{
 			Context.Logger.LogInformation("Packet Patch is client-only; not arming in server mode.");
@@ -145,34 +171,26 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 			"Packet Patch initialized: an unterminated fragment becomes a prompt after {HoldTime}.", HoldTime);
 
 		Context.Interpreter.SetByteStreamIdleHandler(OnByteStreamIdleAsync);
+		Context.Interpreter.SetInferredPromptHandler(FireInferredPromptCallbackAsync);
 		await OnNegotiatedAsync(true);
 	}
 
 	/// <inheritdoc />
-	/// <remarks>
-	/// Disposing <see cref="_timer"/> only waits for its own (synchronous) callback delegate to
-	/// return, and that delegate hands the real work to <see cref="_pendingFire"/> and returns
-	/// immediately — so waiting on the timer alone is not enough to guarantee <see cref="FireAsync"/>
-	/// has finished. Awaiting <see cref="_pendingFire"/> afterwards closes that gap: it is assigned
-	/// before the callback delegate returns, so by the time the timer has finished disposing, the
-	/// field names whatever fire is (or was) in flight.
-	/// </remarks>
-	protected override async ValueTask OnDisposeAsync()
+	protected override ValueTask OnDisposeAsync()
 	{
-		Context.Interpreter.SetByteStreamIdleHandler(null);
-
-#if NET6_0_OR_GREATER
-		await _timer.DisposeAsync();
-#else
-		using var disposed = new ManualResetEventSlim(false);
-		_timer.Dispose(disposed.WaitHandle);
-		disposed.Wait();
-#endif
-
-		if (_pendingFire is { } pending)
+		if (!_initialized)
 		{
-			await pending.ConfigureAwait(false);
+			return default;
 		}
+
+		Context.Interpreter.SetByteStreamIdleHandler(null);
+		Context.Interpreter.SetInferredPromptHandler(null);
+
+		// Ordinary parameterless Dispose is enough here, and safe to call more than once: the timer
+		// callback (OnTimerElapsed) does no asynchronous work of its own to wait for -- it only
+		// enqueues a sentinel, synchronously, and returns. See the type remarks.
+		_timer.Dispose();
+		return default;
 	}
 
 	private ValueTask OnByteStreamIdleAsync()
@@ -181,6 +199,7 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 		{
 			_timer.Change(Timeout.Infinite, Timeout.Infinite);
 			Context.Interpreter.SetByteStreamIdleHandler(null);
+			Context.Interpreter.SetInferredPromptHandler(null);
 			return default;
 		}
 
@@ -191,60 +210,30 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <summary>
-	/// The <see cref="Timer"/> callback. Synchronous and immediate on purpose: the real work is
-	/// handed to <see cref="FireAsync"/> and tracked in <see cref="_pendingFire"/> rather than awaited
-	/// here, because a <see cref="TimerCallback"/> has no way to signal "still running" to a disposer
-	/// other than by not having returned yet, and this method must return quickly regardless.
+	/// The <see cref="Timer"/> callback. Does no buffer work of its own -- see the type remarks on why
+	/// that must run on the byte-processing loop instead -- so all it does is ask that loop to do it,
+	/// by enqueueing the sentinel it watches for.
 	/// </summary>
-	private void OnTimerElapsed(object? state) => _pendingFire = FireAsync().AsTask();
-
-	private async ValueTask FireAsync()
+	private void OnTimerElapsed(object? state)
 	{
-		// The timer callback runs on the thread pool while the byte loop may be re-arming it. Only
-		// one firing may run the check-and-take below, or two prompts can be reported for one
-		// fragment.
-		if (Interlocked.Exchange(ref _firing, 1) == 1)
+		if (!Context.Interpreter.TryEnqueueInferredPrompt())
 		{
-			return;
+			Context.Logger.LogWarning(
+				"Packet Patch could not enqueue an inferred prompt: the connection's byte channel is full or already closed.");
 		}
+	}
 
-		try
-		{
-			if (!IsEnabled || Context.HasSeenMarkedPrompt || !Context.HasPartialLine)
-			{
-				return;
-			}
+	/// <summary>
+	/// Invoked by the byte-processing loop, on the loop itself, once it has already taken the partial
+	/// line for an inferred prompt. See <c>TelnetStandardInterpreter.ProcessBytesAsync</c>'s handling
+	/// of the sentinel <see cref="OnTimerElapsed"/> enqueues, which calls this only when there was
+	/// something to report.
+	/// </summary>
+	private ValueTask FireInferredPromptCallbackAsync()
+	{
+		Context.Logger.LogDebug(
+			"No marker after {HoldTime} of silence; treating the held fragment as a prompt.", HoldTime);
 
-			// Context.TakePartialLineAsPrompt is the interpreter's one seam this plugin shares with a
-			// thread it does not own: a genuine IAC GA/EOR can drain the same fragment on the byte loop
-			// at the same moment this timer decides to. The interpreter's own lock over the line buffer
-			// (see TelnetStandardInterpreter._bufferLock) is what keeps that from tearing the buffer;
-			// what it cannot do is stop this call from losing the race entirely and taking an already-
-			// emptied buffer. Checking the result before invoking the callback is what stops that loss
-			// from being reported as a second prompt for a fragment the marked path already delivered.
-			Context.TakePartialLineAsPrompt(marked: false);
-
-			if (Context.Interpreter.LastPromptBytes.Length == 0)
-			{
-				return;
-			}
-
-			Context.Logger.LogDebug("No marker after {HoldTime} of silence; treating the held fragment as a prompt.", HoldTime);
-
-			if (_onPromptReceived is not null)
-			{
-				await _onPromptReceived().ConfigureAwait(false);
-			}
-		}
-		catch (Exception ex)
-		{
-			// A throw here is on a timer thread with nobody to catch it, which would take the process
-			// down for a prompt.
-			Context.Logger.LogError(ex, "The packet-patch prompt callback threw.");
-		}
-		finally
-		{
-			Interlocked.Exchange(ref _firing, 0);
-		}
+		return _onPromptReceived?.Invoke() ?? default;
 	}
 }

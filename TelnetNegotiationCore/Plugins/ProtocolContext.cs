@@ -147,5 +147,5 @@ internal class ProtocolContext : IProtocolContext
     public bool HasSeenMarkedPrompt => Interpreter.HasSeenMarkedPrompt;
 
     /// <inheritdoc />
-    public void TakePartialLineAsPrompt(bool marked) => Interpreter.TakePartialLineAsPrompt(marked);
+    public bool TakePartialLineAsPrompt(bool marked) => Interpreter.TakePartialLineAsPrompt(marked);
 }

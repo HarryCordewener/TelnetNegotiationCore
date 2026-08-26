@@ -162,5 +162,10 @@ public interface IProtocolContext
     /// and clears it. Call this at a prompt boundary, before invoking the prompt callback.
     /// </summary>
     /// <param name="marked">True for a server marker, false for a boundary inferred from silence.</param>
-    void TakePartialLineAsPrompt(bool marked);
+    /// <returns>
+    /// True if a prompt should be reported. Always true for <paramref name="marked"/>; for an unmarked
+    /// call, false if there was nothing held to take — see
+    /// <see cref="Interpreters.TelnetInterpreter.TakePartialLineAsPrompt"/>'s remarks.
+    /// </returns>
+    bool TakePartialLineAsPrompt(bool marked);
 }
