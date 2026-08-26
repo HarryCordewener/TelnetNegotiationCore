@@ -109,6 +109,18 @@ public partial class TelnetInterpreter : IAsyncDisposable
     private int _bufferPosition;
 
     /// <summary>
+    /// Guards <see cref="_buffer"/>, <see cref="_bufferPosition"/>, <see cref="_bufferOverflowed"/>
+    /// and <see cref="_lineEncoding"/> against the one caller that is not the byte-processing loop:
+    /// <see cref="TakePartialLineAsPrompt"/>, called from <see cref="Protocols.PacketPatchProtocol"/>'s
+    /// timer thread. Every other mutator of these fields already runs on the loop, one byte at a time,
+    /// with nothing else able to interleave -- this lock exists solely to make that loop's writes and a
+    /// concurrent timer-thread read/clear agree on one consistent instant, rather than the timer thread
+    /// observing a position that has moved past the array content it names, or a resize the loop thread
+    /// is midway through publishing.
+    /// </summary>
+    private readonly object _bufferLock = new();
+
+    /// <summary>
     /// Whether the line currently being assembled has already passed <see cref="MaxBufferSize"/>,
     /// and so is going to be discarded whole when its newline finally arrives.
     /// </summary>
@@ -491,29 +503,32 @@ public partial class TelnetInterpreter : IAsyncDisposable
         if (b.AsT0 == (byte)Trigger.CARRIAGERETURN) return;
         _logger.LogTrace("Debug: Writing into buffer: {Byte}", b.AsT0);
 
-        // The first byte of a line pins the encoding the whole line is delivered with. See _lineEncoding.
-        _lineEncoding ??= CurrentEncoding;
+        lock (_bufferLock)
+        {
+            // The first byte of a line pins the encoding the whole line is delivered with. See _lineEncoding.
+            _lineEncoding ??= CurrentEncoding;
 
-        if (_bufferPosition >= MaxBufferSize)
-        {
-            // Past the ceiling: stop storing, but keep consuming the line so that the connection
-            // stays in sync and the next newline still ends it. Writing anyway indexed past the end
-            // of the array, which threw out of the state machine and killed byte processing for the
-            // rest of the connection.
-            _bufferOverflowed = true;
-        }
-        else
-        {
-            // One comparison on the hot path: capacity starts at zero, so this covers the first byte
-            // of the connection and a full buffer with the same test, and the growth itself is out of
-            // line because it happens at most log2(MaxBufferSize / 1 KiB) times per line.
-            if (_bufferPosition == _bufferCapacity)
+            if (_bufferPosition >= MaxBufferSize)
             {
-                GrowLineBuffer();
+                // Past the ceiling: stop storing, but keep consuming the line so that the connection
+                // stays in sync and the next newline still ends it. Writing anyway indexed past the end
+                // of the array, which threw out of the state machine and killed byte processing for the
+                // rest of the connection.
+                _bufferOverflowed = true;
             }
+            else
+            {
+                // One comparison on the hot path: capacity starts at zero, so this covers the first byte
+                // of the connection and a full buffer with the same test, and the growth itself is out of
+                // line because it happens at most log2(MaxBufferSize / 1 KiB) times per line.
+                if (_bufferPosition == _bufferCapacity)
+                {
+                    GrowLineBuffer();
+                }
 
-            _buffer![_bufferPosition] = b.AsT0;
-            _bufferPosition++;
+                _buffer![_bufferPosition] = b.AsT0;
+                _bufferPosition++;
+            }
         }
 
         await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? default(ValueTask));
@@ -554,33 +569,39 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// </summary>
     private async ValueTask WriteToOutput()
     {
-        if (_bufferOverflowed)
-        {
-            _logger.LogError(
-                "A line of input exceeded the maximum buffer size of {MaxBufferSize} bytes and was dropped. Raise TelnetInterpreter.MaxBufferSize if this is legitimate traffic.",
-                MaxBufferSize);
+        byte[] cp;
+        Encoding lineEncoding;
 
-            _bufferOverflowed = false;
+        lock (_bufferLock)
+        {
+            if (_bufferOverflowed)
+            {
+                _bufferOverflowed = false;
+                _bufferPosition = 0;
+                _lineEncoding = null;
+                ReleaseLineBufferIfLarge();
+
+                _logger.LogError(
+                    "A line of input exceeded the maximum buffer size of {MaxBufferSize} bytes and was dropped. Raise TelnetInterpreter.MaxBufferSize if this is legitimate traffic.",
+                    MaxBufferSize);
+                return;
+            }
+
+            // A NEWLINE reaches here only from State.Act, which only a NEWLINE trigger enters — so every
+            // call is a genuine line submission, including one with nothing buffered since the last: the
+            // second CRLF of a "paragraph break" double newline is exactly that; MUD/MUSH output leans on
+            // it for blank lines. Skipping the callback here silently drops those lines before any caller
+            // ever sees them. _buffer stays null until something is written to it, so the empty case can't
+            // reuse it.
+            cp = _bufferPosition == 0 ? [] : _buffer!.AsSpan()[.._bufferPosition].ToArray();
             _bufferPosition = 0;
+
+            // An empty line holds no bytes to have been written in any particular encoding, so it takes
+            // the current one; anything else is delivered in the encoding it arrived in.
+            lineEncoding = _lineEncoding ?? CurrentEncoding;
             _lineEncoding = null;
             ReleaseLineBufferIfLarge();
-            return;
         }
-
-        // A NEWLINE reaches here only from State.Act, which only a NEWLINE trigger enters — so every
-        // call is a genuine line submission, including one with nothing buffered since the last: the
-        // second CRLF of a "paragraph break" double newline is exactly that; MUD/MUSH output leans on
-        // it for blank lines. Skipping the callback here silently drops those lines before any caller
-        // ever sees them. _buffer stays null until something is written to it, so the empty case can't
-        // reuse it.
-        var cp = _bufferPosition == 0 ? [] : _buffer!.AsSpan()[.._bufferPosition].ToArray();
-        _bufferPosition = 0;
-
-        // An empty line holds no bytes to have been written in any particular encoding, so it takes
-        // the current one; anything else is delivered in the encoding it arrived in.
-        var lineEncoding = _lineEncoding ?? CurrentEncoding;
-        _lineEncoding = null;
-        ReleaseLineBufferIfLarge();
 
         foreach (var observer in _inputLineObservers)
         {
@@ -839,6 +860,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 if (transform is null)
                 {
                     await FireByteAsync(raw, ++byteCount);
+                    await NotifyIfIdleAsync();
                     continue;
                 }
 
@@ -858,6 +880,11 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 {
                     await FireByteAsync(decoded.Span[i], ++byteCount);
                 }
+
+                // After the whole decoded batch, not inside the loop above: one wire byte can decode
+                // to many, and notifying between them would arm the idle timer while bytes from the
+                // very same read are still waiting to be fired.
+                await NotifyIfIdleAsync();
             }
             _logger.LogDebug("Byte processing completed. Total bytes processed: {ByteCount}", byteCount);
         }
@@ -905,6 +932,24 @@ public partial class TelnetInterpreter : IAsyncDisposable
         }
         _logger.LogTrace("After byte #{ByteNum}, new state: {State}, buffer position: {BufferPos}",
             byteCount, TelnetStateMachine.State, _bufferPosition);
+    }
+
+    /// <summary>
+    /// Tells a registered idle handler that the byte stream has gone quiet, when it has.
+    /// </summary>
+    /// <remarks>
+    /// "Quiet" is the channel being empty, not the read call returning: a socket read hands its whole
+    /// buffer to the channel at once and the loop drains it one byte at a time, so the end of a read
+    /// and the end of processing that read are different moments and only the second one means the
+    /// server has stopped talking.
+    /// </remarks>
+    private async ValueTask NotifyIfIdleAsync()
+    {
+        var handler = _onByteStreamIdle;
+        if (handler is not null && _byteChannel.Reader.Count == 0)
+        {
+            await handler();
+        }
     }
 
     /// <summary>

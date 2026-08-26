@@ -1,9 +1,13 @@
 using System;
+using System.Threading.Tasks;
 
 namespace TelnetNegotiationCore.Interpreters;
 
 public partial class TelnetInterpreter
 {
+	/// <summary>The registered idle handler, or null. See <see cref="SetByteStreamIdleHandler"/>.</summary>
+	private Func<ValueTask>? _onByteStreamIdle;
+
 	/// <summary>
 	/// The text of the most recent prompt: the partial line that was standing when a prompt boundary
 	/// occurred, in the order the bytes arrived and undecoded.
@@ -63,18 +67,34 @@ public partial class TelnetInterpreter
 	/// </param>
 	internal void TakePartialLineAsPrompt(bool marked)
 	{
-		LastPromptBytes = _bufferPosition == 0
-			? ReadOnlyMemory<byte>.Empty
-			: _buffer!.AsSpan()[.._bufferPosition].ToArray();
+		// Locked because this is also called from Protocols.PacketPatchProtocol's timer thread, the
+		// one caller of this method that is not the byte-processing loop -- see _bufferLock.
+		lock (_bufferLock)
+		{
+			LastPromptBytes = _bufferPosition == 0
+				? ReadOnlyMemory<byte>.Empty
+				: _buffer!.AsSpan()[.._bufferPosition].ToArray();
 
-		_bufferPosition = 0;
-		_lineEncoding = null;
-		_bufferOverflowed = false;
-		ReleaseLineBufferIfLarge();
+			_bufferPosition = 0;
+			_lineEncoding = null;
+			_bufferOverflowed = false;
+			ReleaseLineBufferIfLarge();
+		}
 
 		if (marked)
 		{
 			HasSeenMarkedPrompt = true;
 		}
 	}
+
+	/// <summary>
+	/// Registers the handler called when the inbound byte stream has gone quiet — every queued byte
+	/// processed, nothing waiting. Pass null to remove it.
+	/// </summary>
+	/// <remarks>
+	/// One delegate rather than a plugin-manager walk, because this is checked on the byte-processing
+	/// loop: a null check and an integer compare per byte is affordable, iterating every registered
+	/// plugin is not. <see cref="Protocols.PacketPatchProtocol"/> is the only caller.
+	/// </remarks>
+	internal void SetByteStreamIdleHandler(Func<ValueTask>? handler) => _onByteStreamIdle = handler;
 }

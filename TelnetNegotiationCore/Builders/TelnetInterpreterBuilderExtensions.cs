@@ -23,9 +23,11 @@ public static class TelnetInterpreterBuilderExtensions
     /// <param name="onMSSP">Optional callback for MSSP request events</param>
     /// <param name="msspConfig">Optional MSSP configuration provider</param>
     /// <param name="onMSDPMessage">Optional callback for MSDP message events</param>
-    /// <param name="onPrompt">Optional callback for prompt events (EOR/SuppressGoAhead)</param>
+    /// <param name="onPrompt">Optional callback for prompt events (EOR/SuppressGoAhead/Packet Patch)</param>
     /// <param name="charsetOrder">Optional ordered list of preferred character encodings</param>
     /// <param name="onCompressionEnabled">Optional callback for MCCP compression state changes. If provided, MCCP protocol is added.</param>
+    /// <param name="onMXPEnabled">Optional callback for MXP negotiation state changes</param>
+    /// <param name="packetPatchHoldTime">Optional hold time for Packet Patch's silence-inferred prompt. Defaults to <see cref="PacketPatchProtocol.DefaultHoldTime"/>.</param>
     /// <returns>The builder for method chaining</returns>
     public static TelnetInterpreterBuilder AddDefaultMUDProtocols(
         this TelnetInterpreterBuilder builder,
@@ -37,7 +39,8 @@ public static class TelnetInterpreterBuilderExtensions
         Func<ValueTask>? onPrompt = null,
         Encoding[]? charsetOrder = null,
         Func<int, bool, ValueTask>? onCompressionEnabled = null,
-        Func<ValueTask>? onMXPEnabled = null)
+        Func<ValueTask>? onMXPEnabled = null,
+        TimeSpan? packetPatchHoldTime = null)
     {
         if (builder == null)
             throw new ArgumentNullException(nameof(builder));
@@ -82,8 +85,16 @@ public static class TelnetInterpreterBuilderExtensions
         if (onPrompt != null)
             sgaContext = sgaContext.OnPrompt(onPrompt);
 
+        // Add Packet Patch (uses the same prompt callback). Last of the three prompt sources, and the
+        // only one that is a guess: it stands down the moment either of the other two fires.
+        var packetPatchContext = sgaContext.AddPlugin<PacketPatchProtocol>();
+        if (packetPatchHoldTime is { } hold)
+            packetPatchContext = packetPatchContext.WithHoldTime(hold);
+        if (onPrompt != null)
+            packetPatchContext = packetPatchContext.OnPrompt(onPrompt);
+
         // Add MXP protocol
-        var mxpContext = sgaContext.AddPlugin<MXPProtocol>();
+        var mxpContext = packetPatchContext.AddPlugin<MXPProtocol>();
         if (onMXPEnabled != null)
             mxpContext = mxpContext.OnMXPEnabled(onMXPEnabled);
 
@@ -107,6 +118,6 @@ public static class TelnetInterpreterBuilderExtensions
     /// <returns>The builder for method chaining</returns>
     public static TelnetInterpreterBuilder AddDefaultMUDProtocols(this TelnetInterpreterBuilder builder)
     {
-        return AddDefaultMUDProtocols(builder, null, null, null, null, null, null, null, null);
+        return AddDefaultMUDProtocols(builder, null, null, null, null, null, null, null, null, null);
     }
 }
