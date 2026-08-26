@@ -37,7 +37,7 @@ public class PromptMarkerTests : BaseTest
 	private static readonly byte[] s_willSga = [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD];
 	private static readonly byte[] s_willEor = [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR];
 
-	private static Task<TelnetInterpreter> BuildClientAsync(List<string> prompts, bool acceptSuppression = false) =>
+	private static Task<TelnetInterpreter> BuildClientAsync(List<string> prompts) =>
 		BuildAndWaitAsync(new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(logger)
@@ -54,8 +54,7 @@ public class PromptMarkerTests : BaseTest
 				{
 					prompts.Add("GA");
 					return ValueTask.CompletedTask;
-				})
-				.AcceptSuppression(acceptSuppression));
+				}));
 
 	private static Task<TelnetInterpreter> BuildServerAsync(List<string> prompts) =>
 		BuildAndWaitAsync(new TelnetInterpreterBuilder()
@@ -101,7 +100,7 @@ public class PromptMarkerTests : BaseTest
 	public async Task AGoAheadIsANopOnceSuppressGoAheadIsInEffect()
 	{
 		var prompts = new List<string>();
-		var client = await BuildClientAsync(prompts, acceptSuppression: true);
+		var client = await BuildClientAsync(prompts);
 
 		await InterpretAndWaitAsync(client, s_willSga);
 		await InterpretAndWaitAsync(client, s_goAhead);

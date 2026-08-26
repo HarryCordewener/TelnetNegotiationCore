@@ -270,14 +270,14 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
-    /// Sets whether a server's <c>WILL SUPPRESS-GO-AHEAD</c> is accepted or refused.
-    /// See <see cref="SuppressGoAheadProtocol.AcceptSuppression"/>.
+    /// Sets whether a server's <c>WILL SUPPRESS-GO-AHEAD</c> is refused instead of accepted.
+    /// See <see cref="SuppressGoAheadProtocol.RefuseSuppression"/>.
     /// </summary>
-    public static PluginConfigurationContext<SuppressGoAheadProtocol> AcceptSuppression(
+    public static PluginConfigurationContext<SuppressGoAheadProtocol> RefuseSuppression(
         this PluginConfigurationContext<SuppressGoAheadProtocol> context,
-        bool accept = true)
+        bool refuse = true)
     {
-        context.Plugin.AcceptSuppression(accept);
+        context.Plugin.RefuseSuppression(refuse);
         return context;
     }
 
