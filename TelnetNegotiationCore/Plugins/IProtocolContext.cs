@@ -150,4 +150,17 @@ public interface IProtocolContext
     /// Gets the underlying telnet interpreter instance for advanced protocol scenarios.
     /// </summary>
     Interpreters.TelnetInterpreter Interpreter { get; }
+
+    /// <summary>True when bytes have arrived since the last line submission or prompt boundary.</summary>
+    bool HasPartialLine { get; }
+
+    /// <summary>True once a genuine <c>IAC GA</c> or <c>IAC EOR</c> prompt has fired on this connection.</summary>
+    bool HasSeenMarkedPrompt { get; }
+
+    /// <summary>
+    /// Hands the standing partial line to <see cref="Interpreters.TelnetInterpreter.LastPromptBytes"/>
+    /// and clears it. Call this at a prompt boundary, before invoking the prompt callback.
+    /// </summary>
+    /// <param name="marked">True for a server marker, false for a boundary inferred from silence.</param>
+    void TakePartialLineAsPrompt(bool marked);
 }
