@@ -41,10 +41,10 @@ public partial class TelnetInterpreter
 	/// connection. Mudlet's <c>mGA_Driver</c> and TinTin++'s <c>TELOPT_FLAG_PROMPT</c> are the same
 	/// latch under different names.
 	/// </remarks>
-	internal bool HasSeenMarkedPrompt { get; private set; }
+	public bool HasSeenMarkedPrompt { get; private set; }
 
 	/// <summary>True when bytes have arrived since the last line submission or prompt boundary.</summary>
-	internal bool HasPartialLine => _bufferPosition > 0;
+	public bool HasPartialLine => _bufferPosition > 0;
 
 	/// <summary>
 	/// Hands the standing partial line to <see cref="LastPromptBytes"/> and clears it, because a prompt
@@ -97,7 +97,7 @@ public partial class TelnetInterpreter
 	/// call that actually found a held fragment. False only for an unmarked call against an
 	/// already-empty buffer, which the caller must not report as a prompt.
 	/// </returns>
-	internal bool TakePartialLineAsPrompt(bool marked)
+	public bool TakePartialLineAsPrompt(bool marked)
 	{
 		if (_bufferPosition == 0 && !marked)
 		{

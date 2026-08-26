@@ -10,18 +10,14 @@ All notable changes to this project will be documented in this file.
   where it stood. The next `CRLF` then submitted those bytes as the head of a line they were never
   part of: a server sending `HP:100>` `IAC GA` `You wave.CRLF` produced one line reading
   `HP:100>You wave.`, with the prompt missing from where it belonged and corrupting where it landed.
-  A new prompt-boundary seam on the interpreter — `TakePartialLineAsPrompt` — takes the partial line
-  at the boundary, resets the line encoding and overflow flag exactly as an ordinary submission does,
-  and clears it; both markers now route through it before invoking their callback. The text is not
-  lost: it lands on `TelnetInterpreter.LastPromptBytes`, for the consumer that does not accumulate
-  bytes itself.
-  - **`IProtocolContext` gained three members — `HasPartialLine`, `HasSeenMarkedPrompt`, and
-    `TakePartialLineAsPrompt(bool marked)`, the last returning `bool` rather than `void`.** This is a
-    source- and binary-breaking change for anyone outside this assembly implementing
-    `IProtocolContext` directly, as opposed to consuming `ProtocolContext` — the library's own
-    implementation, which already carries all three and needs no changes from a caller: an external
-    implementation will not compile against 2.12.0 until it adds the three members, and a prebuilt one
-    will fail to load against it rather than run.
+  A new prompt-boundary seam on the interpreter — `TelnetInterpreter.TakePartialLineAsPrompt`, public
+  alongside its `HasPartialLine` and `HasSeenMarkedPrompt` — takes the partial line at the boundary,
+  resets the line encoding and overflow flag exactly as an ordinary submission does, and clears it;
+  both markers now route through it before invoking their callback. The text is not lost: it lands on
+  `TelnetInterpreter.LastPromptBytes`, for the consumer that does not accumulate bytes itself. A
+  plugin reaches all three the same way it reaches everything else the interpreter offers beyond
+  `IProtocolContext`'s own surface — through `IProtocolContext.Interpreter` — so no existing
+  implementation of `IProtocolContext` needs a single change for this.
   - The interpreter's inbound byte channel changed element type, from `Channel<byte>` to
     `Channel<short>` carrying a negative sentinel alongside ordinary bytes, so that a prompt inferred
     from silence (see `PacketPatchProtocol`, below) is raised from the byte-processing loop rather
@@ -81,6 +77,10 @@ All notable changes to this project will be documented in this file.
   the plugin was told to stop. Mudlet's posting timer and TinTin++'s `#config {PACKET PATCH}` are the
   same mechanism; the latter's name is the honest one, since what is being patched is TCP
   fragmentation and a prompt is the case where the fragment was the end of the server's turn.
+  Re-arming the hold timer cannot cancel a fire the runtime has already queued to the thread pool, so
+  a stale callback checks its own timestamp against the current arm's deadline before enqueueing
+  anything, and drops itself rather than reporting a prompt contaminated with bytes that arrived after
+  it was scheduled.
 
 ## [2.11.0]
 

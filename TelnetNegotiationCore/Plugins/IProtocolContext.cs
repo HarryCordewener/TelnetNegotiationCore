@@ -147,25 +147,13 @@ public interface IProtocolContext
     void RegisterInitialNegotiation(Func<ValueTask> negotiationFunc);
 
     /// <summary>
-    /// Gets the underlying telnet interpreter instance for advanced protocol scenarios.
+    /// Gets the underlying telnet interpreter instance for advanced protocol scenarios, including
+    /// <see cref="Interpreters.TelnetInterpreter.HasPartialLine"/>,
+    /// <see cref="Interpreters.TelnetInterpreter.HasSeenMarkedPrompt"/> and
+    /// <see cref="Interpreters.TelnetInterpreter.TakePartialLineAsPrompt"/> for a plugin that
+    /// participates in prompt-boundary detection — reached through here rather than duplicated onto
+    /// this interface, so that a new one is not a breaking change for every external implementer of
+    /// it every time the interpreter grows another such member.
     /// </summary>
     Interpreters.TelnetInterpreter Interpreter { get; }
-
-    /// <summary>True when bytes have arrived since the last line submission or prompt boundary.</summary>
-    bool HasPartialLine { get; }
-
-    /// <summary>True once a genuine <c>IAC GA</c> or <c>IAC EOR</c> prompt has fired on this connection.</summary>
-    bool HasSeenMarkedPrompt { get; }
-
-    /// <summary>
-    /// Hands the standing partial line to <see cref="Interpreters.TelnetInterpreter.LastPromptBytes"/>
-    /// and clears it. Call this at a prompt boundary, before invoking the prompt callback.
-    /// </summary>
-    /// <param name="marked">True for a server marker, false for a boundary inferred from silence.</param>
-    /// <returns>
-    /// True if a prompt should be reported. Always true for <paramref name="marked"/>; for an unmarked
-    /// call, false if there was nothing held to take — see
-    /// <see cref="Interpreters.TelnetInterpreter.TakePartialLineAsPrompt"/>'s remarks.
-    /// </returns>
-    bool TakePartialLineAsPrompt(bool marked);
 }

@@ -139,13 +139,4 @@ internal class ProtocolContext : IProtocolContext
 
     /// <inheritdoc />
     public TelnetInterpreter Interpreter => _interpreter;
-
-    /// <inheritdoc />
-    public bool HasPartialLine => Interpreter.HasPartialLine;
-
-    /// <inheritdoc />
-    public bool HasSeenMarkedPrompt => Interpreter.HasSeenMarkedPrompt;
-
-    /// <inheritdoc />
-    public bool TakePartialLineAsPrompt(bool marked) => Interpreter.TakePartialLineAsPrompt(marked);
 }

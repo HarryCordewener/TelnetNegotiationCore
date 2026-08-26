@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -33,18 +34,32 @@ namespace TelnetNegotiationCore.Protocols;
 /// </para>
 /// <para>
 /// <b>A guess, and it retires as soon as it is not needed.</b> The first genuine <c>IAC GA</c> or
-/// <c>IAC EOR</c> on a connection sets <see cref="IProtocolContext.HasSeenMarkedPrompt"/> and this
-/// plugin stops firing for the rest of it. A server that marks its prompts is never second-guessed.
+/// <c>IAC EOR</c> on a connection sets <see cref="Interpreters.TelnetInterpreter.HasSeenMarkedPrompt"/>
+/// and this plugin stops firing for the rest of it. A server that marks its prompts is never
+/// second-guessed.
 /// </para>
 /// <para>
 /// <b>The timer never touches the line buffer.</b> It runs on the thread pool, and the line buffer
 /// has exactly one owner: the interpreter's byte-processing loop. So the timer's only job, when
 /// <see cref="HoldTime"/> elapses, is to enqueue a sentinel onto that same loop's own channel
-/// (<see cref="Interpreters.TelnetInterpreter.TryEnqueueInferredPrompt"/>) and get out of the way —
-/// the actual check-and-take runs on the loop itself, the moment it dequeues that sentinel. See
+/// (the interpreter's internal <c>TryEnqueueInferredPrompt</c>) and get out of the way — the actual
+/// check-and-take runs on the loop itself, the moment it dequeues that sentinel. See
 /// <c>TelnetStandardInterpreter.ProcessBytesAsync</c> and
 /// <see cref="Interpreters.TelnetInterpreter.TakePartialLineAsPrompt"/>'s remarks for the rest of the
 /// story, including why a losing race reports nothing rather than a spurious second prompt.
+/// </para>
+/// <para>
+/// <b>A queued callback is not a cancelled one.</b> <see cref="Timer.Change(TimeSpan, TimeSpan)"/>
+/// reprograms when the timer next fires; it does nothing about a firing the runtime has already
+/// dispatched to the thread pool and simply not yet run. Left unguarded, that gap admits exactly one
+/// bad interleaving: the timer expires with nothing queued yet, new bytes arrive and extend the same
+/// fragment before the queued callback gets a turn to run, and that stale callback then enqueues a
+/// sentinel the loop honours -- reporting a prompt that eats the head of whatever just arrived, and
+/// leaving the rest of it to submit as a truncated line. <c>_armDeadline</c> closes it: every
+/// (re)arm records when it is legitimately allowed to fire, and <see cref="OnTimerElapsed"/> checks
+/// its own timestamp against the *current* value of that field, not whichever one was in force when
+/// it was scheduled, before it does anything else. A stale callback always finds a deadline a re-arm
+/// has since pushed later and drops itself; the re-armed timer's own future fire is untouched.
 /// </para>
 /// <para>
 /// This carries no <c>WILL</c>/<c>DO</c> exchange of its own — registering it is the whole opt-in, as
@@ -71,6 +86,29 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// the ordinary parameterless <see cref="Timer.Dispose()"/>.
 	/// </summary>
 	private readonly Timer _timer;
+
+	/// <summary>
+	/// .NET/Windows timer resolution is commonly quoted at roughly 15 ms; a fire that lands a few
+	/// milliseconds ahead of its own recorded deadline is ordinary scheduling jitter, not a stale
+	/// callback, and must not be dropped as one. Chosen at that scale deliberately: smaller risks
+	/// treating a legitimate fire as stale, and this plugin's shortest realistic
+	/// <see cref="HoldTime"/> is still hundreds of milliseconds, so 15 ms costs it nothing worth
+	/// noticing at the other end.
+	/// </summary>
+	private static readonly long ToleranceTicks = (long)(0.015 * Stopwatch.Frequency);
+
+	/// <summary>
+	/// The <see cref="Stopwatch"/> timestamp at or after which the current arm is legitimately
+	/// allowed to fire, or <see cref="long.MaxValue"/> while nothing is armed. Recorded by
+	/// <see cref="OnByteStreamIdleAsync"/> immediately before every <see cref="Timer.Change(TimeSpan, TimeSpan)"/>
+	/// call, and read back by <see cref="OnTimerElapsed"/> to tell a stale callback from a live one --
+	/// see the type remarks, "A queued callback is not a cancelled one". A <c>long</c> rather than a
+	/// <see cref="TimeSpan"/>/<see cref="DateTime"/> pairing needs no lock of its own: this field is
+	/// the entire piece of state shared between the two threads that touch it, and plain
+	/// <c>Interlocked.Exchange</c>/<c>Interlocked.Read</c> are all a single 64-bit field ever needs,
+	/// on the 32-bit runtimes this library still targets included.
+	/// </summary>
+	private long _armDeadline = long.MaxValue;
 
 	/// <summary>
 	/// Set at the top of <see cref="OnInitializeAsync"/>, so <see cref="OnDisposeAsync"/> can tell
@@ -222,13 +260,14 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// <remarks>
 	/// The mirror image of <see cref="OnProtocolDisabledAsync"/>: re-registers both handlers, same as
 	/// <see cref="OnInitializeAsync"/> originally did, unless server mode or an already-latched
-	/// <see cref="IProtocolContext.HasSeenMarkedPrompt"/> means they should stay unregistered.
+	/// <see cref="Interpreters.TelnetInterpreter.HasSeenMarkedPrompt"/> means they should stay
+	/// unregistered.
 	/// </remarks>
 	protected override ValueTask OnProtocolEnabledAsync()
 	{
 		if (_initialized
 			&& Context.Mode != Interpreters.TelnetInterpreter.TelnetMode.Server
-			&& !Context.HasSeenMarkedPrompt)
+			&& !Context.Interpreter.HasSeenMarkedPrompt)
 		{
 			Context.Interpreter.SetByteStreamIdleHandler(OnByteStreamIdleAsync);
 			Context.Interpreter.SetInferredPromptHandler(FireInferredPromptCallbackAsync);
@@ -239,8 +278,9 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 
 	private ValueTask OnByteStreamIdleAsync()
 	{
-		if (Context.HasSeenMarkedPrompt)
+		if (Context.Interpreter.HasSeenMarkedPrompt)
 		{
+			Interlocked.Exchange(ref _armDeadline, long.MaxValue);
 			_timer.Change(Timeout.Infinite, Timeout.Infinite);
 			Context.Interpreter.SetByteStreamIdleHandler(null);
 			Context.Interpreter.SetInferredPromptHandler(null);
@@ -248,24 +288,49 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 		}
 
 		// Restart, not start: a fragment arriving in two TCP segments is one fragment, and the clock
-		// runs from the last byte rather than the first.
-		_timer.Change(Context.HasPartialLine ? HoldTime : Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+		// runs from the last byte rather than the first. The deadline is recorded before the timer is
+		// (re)armed, and under a lock-free Exchange rather than a plain write, so OnTimerElapsed can
+		// never observe a due time that has moved without also observing the deadline that goes with
+		// it -- see _armDeadline's own remarks and the type remarks, "A queued callback is not a
+		// cancelled one".
+		var hasPartialLine = Context.Interpreter.HasPartialLine;
+		Interlocked.Exchange(ref _armDeadline,
+			hasPartialLine
+				? Stopwatch.GetTimestamp() + (long)(HoldTime.TotalSeconds * Stopwatch.Frequency)
+				: long.MaxValue);
+		_timer.Change(hasPartialLine ? HoldTime : Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 		return default;
 	}
 
 	/// <summary>
 	/// The <see cref="Timer"/> callback. Does no buffer work of its own -- see the type remarks on why
 	/// that must run on the byte-processing loop instead -- so all it does is ask that loop to do it,
-	/// by enqueueing the sentinel it watches for.
+	/// by enqueueing the sentinel it watches for -- and only once it has confirmed, against
+	/// <see cref="_armDeadline"/>, that it is not a stale callback the runtime queued under an arm a
+	/// later re-arm has since superseded. See the type remarks, "A queued callback is not a cancelled
+	/// one", and <see cref="ToleranceTicks"/> for why the comparison is not a strict less-than.
 	/// </summary>
 	private void OnTimerElapsed(object? state)
 	{
+		if (Stopwatch.GetTimestamp() < Interlocked.Read(ref _armDeadline) - ToleranceTicks)
+		{
+			return;
+		}
+
 		if (!Context.Interpreter.TryEnqueueInferredPrompt())
 		{
 			Context.Logger.LogWarning(
 				"Packet Patch could not enqueue an inferred prompt: the connection's byte channel is full or already closed.");
 		}
 	}
+
+	/// <summary>
+	/// Test-only seam for <see cref="OnTimerElapsed"/>'s staleness check. Nothing can make the thread
+	/// pool actually stall a queued callback on demand, so a test proving a stale fire drops itself
+	/// invokes this directly -- immediately after a re-arm, before the real due time -- rather than
+	/// trying to reproduce the race with a genuine <see cref="Timer"/>.
+	/// </summary>
+	internal void SimulateTimerElapsedForTests() => OnTimerElapsed(null);
 
 	/// <summary>
 	/// Invoked by the byte-processing loop, on the loop itself, once it has already taken the partial

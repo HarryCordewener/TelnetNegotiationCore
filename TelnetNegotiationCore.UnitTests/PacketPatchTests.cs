@@ -190,6 +190,40 @@ public class PacketPatchTests : BaseTest
 	}
 
 	[Test]
+	public async Task AStaleTimerCallbackDropsItselfAfterARearm()
+	{
+		// Timer.Change cannot cancel a callback the runtime has already dispatched to the thread pool
+		// -- only reprogram when the timer next fires. Nothing can make the pool actually stall a
+		// queued callback on demand to reproduce that race for real, so this drives the mechanism
+		// that closes it (PacketPatchProtocol._armDeadline) directly instead: hold a fragment, extend
+		// it (a genuine re-arm, moving the deadline later), then invoke the elapsed path immediately
+		// -- exactly modelling a callback that was queued under the first arm and is only now getting
+		// its turn to run, after the second arm already moved the goalposts.
+		var lines = new List<string>();
+		var prompts = 0;
+		var client = await ClientAsync(() => { prompts++; return ValueTask.CompletedTask; }, lines);
+		var plugin = client.PluginManager!.GetPlugin<PacketPatchProtocol>()!;
+
+		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("What's your "));
+		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("name, "));
+
+		// The stale fire: invoked well before the second arm's own deadline, it must drop itself
+		// rather than reporting the still-growing fragment as a prompt.
+		plugin.SimulateTimerElapsedForTests();
+		await Assert.That(prompts).IsEqualTo(0);
+
+		// The rest of the fragment arrives after the simulated stale fire, same as it would have if
+		// the real race had played out -- and the genuinely pending, re-armed timer still reports the
+		// whole thing once its own hold time actually elapses.
+		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("freejack?"));
+		await Assert.That(await PollUntilAsync(() => prompts == 1)).IsTrue();
+		await Assert.That(Encoding.ASCII.GetString(client.LastPromptBytes.Span))
+			.IsEqualTo("What's your name, freejack?");
+
+		await client.DisposeAsync();
+	}
+
+	[Test]
 	public async Task AHoldTimeOutsideItsRangeIsRejectedRatherThanClamped()
 	{
 		await Assert.That(() => new PacketPatchProtocol().WithHoldTime(TimeSpan.FromSeconds(11)))

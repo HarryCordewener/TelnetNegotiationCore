@@ -328,7 +328,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 
         context.Logger.LogDebug("Server is prompting with GA (Go-Ahead)");
 
-        context.TakePartialLineAsPrompt(marked: true);
+        context.Interpreter.TakePartialLineAsPrompt(marked: true);
 
         if (_onPromptReceived != null)
             await _onPromptReceived().ConfigureAwait(false);
