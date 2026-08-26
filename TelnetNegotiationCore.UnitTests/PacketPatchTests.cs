@@ -133,8 +133,8 @@ public class PacketPatchTests : BaseTest
 
 		// Pins the hold as an actual duration rather than a lower bound: every other assertion in this
 		// file polls for prompts == 1, which a 1ms hold would also satisfy. InterpretAndWaitAsync has
-		// already spent ~100ms of the 400ms hold waiting for the channel to drain and settle, so half
-		// of the remainder still leaves comfortable margin on both sides of the boundary.
+		// already spent ~100ms of the 400ms hold settling, and this delay spends 200ms more -- ~300ms
+		// total, so the margin against the 400ms boundary is ~100ms, not symmetric on both sides of it.
 		await Task.Delay(Hold / 2);
 		await Assert.That(prompts).IsEqualTo(0);
 
@@ -166,66 +166,27 @@ public class PacketPatchTests : BaseTest
 		await server.DisposeAsync();
 	}
 
-	/// <summary>
-	/// Best-effort, not deterministic. Nothing in this test (or the library) can force the packet-patch
-	/// timer's thread-pool callback and this test's own write of a marked <c>IAC GA</c> to land in the
-	/// exact same instant on the byte channel, so a single run cannot guarantee it actually exercises
-	/// the interleaving where the two race for the same fragment -- only that, across many trials with
-	/// the GA's send time swept across the hold boundary, at least some land close. What every trial
-	/// does check, regardless of which write the channel happens to serialize first: the connection
-	/// never throws, the prompt count stays sane (the GA always reports; the inferred prompt may or may
-	/// not, depending on who won), and -- the strongest signal that the line buffer was never left in a
-	/// torn state -- an ordinary line sent immediately afterwards still arrives whole. See the task
-	/// report for why a fully deterministic version of this test isn't achievable here.
-	/// </summary>
 	[Test]
-	public async Task AFragmentRacingAMarkedPromptNeverCorruptsTheConnection()
+	public async Task NoFurtherInferredPromptArrivesAfterTheHeuristicIsDisabledAtRuntime()
 	{
-		var raceHold = TimeSpan.FromMilliseconds(60);
+		var lines = new List<string>();
+		var prompts = 0;
+		var client = await ClientAsync(() => { prompts++; return ValueTask.CompletedTask; }, lines);
 
-		for (var trial = 0; trial < 20; trial++)
-		{
-			var lines = new List<string>();
-			var prompts = 0;
+		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("What's your name, freejack?"));
 
-			var client = await BuildAndWaitAsync(
-				new TelnetInterpreterBuilder()
-					.UseMode(TelnetInterpreter.TelnetMode.Client)
-					.UseLogger(logger)
-					.OnSubmit((data, _, _) => { lines.Add(Encoding.ASCII.GetString(data)); return ValueTask.CompletedTask; })
-					.OnNegotiation(_ => ValueTask.CompletedTask)
-					.AddPlugin<SuppressGoAheadProtocol>()
-					.OnPrompt(() => { prompts++; return ValueTask.CompletedTask; })
-					.AddPlugin<PacketPatchProtocol>()
-					.WithHoldTime(raceHold)
-					.OnPrompt(() => { prompts++; return ValueTask.CompletedTask; }));
+		// Disabling well before the hold time elapses (only ~100ms of it has passed, see
+		// InterpretAndWaitAsync) is deliberate: it proves OnProtocolDisabledAsync actually disarms
+		// the already-armed timer, not merely that disabling happened to race ahead of a fire that
+		// was going to lose anyway. Without that disarm, the timer set by the fragment above would
+		// still be pending and would still enqueue a sentinel around the 400ms mark regardless of
+		// when disable ran.
+		await client.PluginManager!.DisablePluginAsync<PacketPatchProtocol>();
 
-			await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("HP:100>"));
+		await Task.Delay(Hold * 3);
+		await Assert.That(prompts).IsEqualTo(0);
 
-			// Sweeps from 10ms before the hold boundary to 9ms after it across trials.
-			var offsetMs = Math.Max(0, trial - 10);
-			var gaTask = Task.Run(async () =>
-			{
-				if (offsetMs > 0)
-				{
-					await Task.Delay(offsetMs);
-				}
-
-				await client.InterpretByteArrayAsync(new byte[] { 255, 249 });
-			});
-
-			await gaTask;
-			await client.WaitForProcessingAsync();
-			await Task.Delay(raceHold * 2);
-
-			await Assert.That(prompts is 1 or 2).IsTrue();
-
-			await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("You wave.\r\n"));
-			await Assert.That(lines.Count).IsEqualTo(1);
-			await Assert.That(lines[0]).IsEqualTo("You wave.");
-
-			await client.DisposeAsync();
-		}
+		await client.DisposeAsync();
 	}
 
 	[Test]

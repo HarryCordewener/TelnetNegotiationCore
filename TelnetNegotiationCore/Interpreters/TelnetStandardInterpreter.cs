@@ -845,27 +845,31 @@ public partial class TelnetInterpreter : IAsyncDisposable
                     // Not a wire byte. Protocols.PacketPatchProtocol's timer enqueues this instead of
                     // touching the line buffer itself, so the actual check-and-take runs here, on the
                     // one thread that already owns that buffer -- see TakePartialLineAsPrompt and
-                    // TryEnqueueInferredPrompt. HasSeenMarkedPrompt is read here rather than left to
-                    // TakePartialLineAsPrompt because it must gate the call, not just its result: a
-                    // sentinel that is stale by the time it is dequeued (a genuine IAC GA/EOR won the
-                    // race and already drained the buffer, and latched the flag, first) must not touch
-                    // the buffer at all, only find nothing there.
-                    if (!HasSeenMarkedPrompt && TakePartialLineAsPrompt(marked: false))
+                    // TryEnqueueInferredPrompt.
+                    //
+                    // The handler is read first, and gates the rest: it is null whenever the plugin
+                    // would not want this sentinel honoured at all -- disabled at runtime, disposed,
+                    // or already latched off by a marked prompt (OnByteStreamIdleAsync unregisters it
+                    // in that last case) -- and checking it before touching anything else means a
+                    // stale sentinel from before any of those leaves the line buffer alone rather than
+                    // draining it for a report nobody will receive. HasSeenMarkedPrompt is read here
+                    // too, not left to TakePartialLineAsPrompt, because it must gate the call and not
+                    // just its result: a sentinel that is stale because a genuine IAC GA/EOR won the
+                    // race and already drained the buffer must not touch the buffer at all, only find
+                    // nothing there.
+                    var onInferredPrompt = _onInferredPrompt;
+                    if (onInferredPrompt is not null && !HasSeenMarkedPrompt && TakePartialLineAsPrompt(marked: false))
                     {
-                        var onInferredPrompt = _onInferredPrompt;
-                        if (onInferredPrompt is not null)
+                        try
                         {
-                            try
-                            {
-                                await onInferredPrompt();
-                            }
-                            catch (Exception ex) when (ex is not OperationCanceledException)
-                            {
-                                // Mirrors FireByteAsync's own catch: a consumer's callback throwing
-                                // must not take down byte processing for the rest of the connection.
-                                _logger.LogError(ex,
-                                    "The inferred-prompt callback threw. Connection continues.");
-                            }
+                            await onInferredPrompt();
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            // Mirrors FireByteAsync's own catch: a consumer's callback throwing
+                            // must not take down byte processing for the rest of the connection.
+                            _logger.LogError(ex,
+                                "The inferred-prompt callback threw. Connection continues.");
                         }
                     }
 

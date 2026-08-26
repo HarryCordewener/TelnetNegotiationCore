@@ -178,6 +178,13 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// <inheritdoc />
 	protected override ValueTask OnDisposeAsync()
 	{
+		// Ordinary parameterless Dispose is enough here, and safe to call more than once: the timer
+		// callback (OnTimerElapsed) does no asynchronous work of its own to wait for -- it only
+		// enqueues a sentinel, synchronously, and returns. See the type remarks. Disposed even for a
+		// plugin that was constructed but never initialized (nothing is scheduled against
+		// Timeout.Infinite in that case, but there is still no reason to leave the Timer undisposed).
+		_timer.Dispose();
+
 		if (!_initialized)
 		{
 			return default;
@@ -185,11 +192,48 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 
 		Context.Interpreter.SetByteStreamIdleHandler(null);
 		Context.Interpreter.SetInferredPromptHandler(null);
+		return default;
+	}
 
-		// Ordinary parameterless Dispose is enough here, and safe to call more than once: the timer
-		// callback (OnTimerElapsed) does no asynchronous work of its own to wait for -- it only
-		// enqueues a sentinel, synchronously, and returns. See the type remarks.
-		_timer.Dispose();
+	/// <inheritdoc />
+	/// <remarks>
+	/// Disarming the timer and unregistering both handlers is what stops a disabled plugin from
+	/// still reporting inferred prompts -- mirrors the latch handling in
+	/// <see cref="OnByteStreamIdleAsync"/>, which does the same thing for the same reason when a
+	/// marked prompt retires the heuristic. Nothing in the byte-processing loop has to know about
+	/// <see cref="TelnetProtocolPluginBase.IsEnabled"/> this way: an already-enqueued sentinel finds
+	/// the handler null and leaves the line buffer alone, rather than draining it for a report a
+	/// disabled plugin should not be making. See <c>TelnetStandardInterpreter.ProcessBytesAsync</c>'s
+	/// handling of the sentinel.
+	/// </remarks>
+	protected override ValueTask OnProtocolDisabledAsync()
+	{
+		if (_initialized)
+		{
+			_timer.Change(Timeout.Infinite, Timeout.Infinite);
+			Context.Interpreter.SetByteStreamIdleHandler(null);
+			Context.Interpreter.SetInferredPromptHandler(null);
+		}
+
+		return default;
+	}
+
+	/// <inheritdoc />
+	/// <remarks>
+	/// The mirror image of <see cref="OnProtocolDisabledAsync"/>: re-registers both handlers, same as
+	/// <see cref="OnInitializeAsync"/> originally did, unless server mode or an already-latched
+	/// <see cref="IProtocolContext.HasSeenMarkedPrompt"/> means they should stay unregistered.
+	/// </remarks>
+	protected override ValueTask OnProtocolEnabledAsync()
+	{
+		if (_initialized
+			&& Context.Mode != Interpreters.TelnetInterpreter.TelnetMode.Server
+			&& !Context.HasSeenMarkedPrompt)
+		{
+			Context.Interpreter.SetByteStreamIdleHandler(OnByteStreamIdleAsync);
+			Context.Interpreter.SetInferredPromptHandler(FireInferredPromptCallbackAsync);
+		}
+
 		return default;
 	}
 
