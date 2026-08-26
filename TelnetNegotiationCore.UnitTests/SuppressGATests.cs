@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using TUnit.Core;
 using System;
+using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Builders;
@@ -354,7 +355,7 @@ public class SuppressGATests : BaseTest
 	[Test]
 	public async Task AClientAnswersAnInboundDontSuppressGoAheadOnlyWhenItIsAChange()
 	{
-		var negotiations = new System.Collections.Generic.List<byte[]>();
+		var negotiations = new List<byte[]>();
 
 		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{
@@ -389,7 +390,7 @@ public class SuppressGATests : BaseTest
 	[Test]
 	public async Task AnInboundDoSuppressGoAheadIsNotAnUnhandledTrigger()
 	{
-		var negotiations = new System.Collections.Generic.List<byte[]>();
+		var negotiations = new List<byte[]>();
 
 		ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
 		{

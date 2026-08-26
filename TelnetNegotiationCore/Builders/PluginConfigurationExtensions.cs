@@ -270,7 +270,8 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
-    /// Sets whether a server's <c>WILL SUPPRESS-GO-AHEAD</c> is refused instead of accepted.
+    /// Sets whether a server's <c>WILL SUPPRESS-GO-AHEAD</c> is refused instead of accepted --
+    /// accepting it is what RFC 1123 §3.2.2 requires, so calling this opts out of that MUST.
     /// See <see cref="SuppressGoAheadProtocol.RefuseSuppression"/>.
     /// </summary>
     public static PluginConfigurationContext<SuppressGoAheadProtocol> RefuseSuppression(

@@ -97,6 +97,25 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     /// </summary>
     public bool OwnGoAheadSuppressed => _ownGoAheadSuppressed;
 
+    /// <summary>
+    /// Whether <em>this</em> end currently suppresses its own outbound Go-Ahead -- the direction
+    /// <c>TelnetInterpreter.PromptTerminator</c> needs when deciding whether an outbound prompt may
+    /// end with <c>IAC GA</c>.
+    /// </summary>
+    /// <remarks>
+    /// Mode-correct, unlike reading <c>_doGA</c> or <see cref="OwnGoAheadSuppressed"/> directly:
+    /// <c>_doGA</c> is mode-dependent (see its declaration) -- in server mode a peer's <c>DO</c> is a
+    /// request that <em>we</em> suppress, so <c>_doGA</c> already tracks our own direction there; in
+    /// client mode <c>_doGA</c> tracks the <em>peer's</em> direction instead, so this reads
+    /// <see cref="OwnGoAheadSuppressed"/> there, which client mode alone maintains. Do not substitute
+    /// <see cref="IsGoAheadSuppressed"/> here -- it answers a different question, whether an
+    /// <em>inbound</em> GA still means a prompt, which in client mode is the peer's direction too.
+    /// </remarks>
+    public bool SuppressesOutboundGoAhead =>
+        Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+            ? _doGA == false
+            : _ownGoAheadSuppressed;
+
     /// <inheritdoc />
     public override Type ProtocolType => typeof(SuppressGoAheadProtocol);
 
@@ -368,8 +387,10 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     /// RFC 854 §3(b): a request for a mode already in effect must not be acknowledged, to prevent
     /// negotiation loops -- hence the early return when <see cref="_ownGoAheadSuppressed"/> is
     /// already true. Otherwise this answers <c>WILL</c>, which RFC 1123 §3.2.2 requires here just as
-    /// it does for the server's own offer, and which costs nothing to honour: this client never
-    /// sends GA regardless (RFC 854, "GAs may be sent at any time, but need not ever be sent").
+    /// it does for the server's own offer, and the promise is kept, not moot: setting
+    /// <see cref="_ownGoAheadSuppressed"/> is what <see cref="SuppressesOutboundGoAhead"/> reads, and
+    /// <c>TelnetInterpreter.PromptTerminator</c> consults that before ever putting <c>IAC GA</c> on an
+    /// outbound prompt.
     /// </remarks>
     private async ValueTask OnDoOwnSuppressGAAsync(IProtocolContext context)
     {
@@ -391,8 +412,11 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     /// <remarks>
     /// Same loop-prevention rule as <see cref="OnDoOwnSuppressGAAsync"/>, and RFC 854's "a party ...
     /// must never refuse a request to disable some option" means the answering <c>WONT</c> is always
-    /// sent on a genuine change. It says nothing about this client ever actually sending a GA -- see
-    /// the remark above.
+    /// sent on a genuine change. Clearing <see cref="_ownGoAheadSuppressed"/> is what lets
+    /// <see cref="SuppressesOutboundGoAhead"/> go false again, so a prompt sent afterwards may end
+    /// with <c>IAC GA</c> once more -- "may", because RFC 854 permits a party to never actually send
+    /// one ("GAs may be sent at any time, but need not ever be sent"); this library will, once nothing
+    /// else suppresses it.
     /// </remarks>
     private async ValueTask OnDontOwnSuppressGAAsync(IProtocolContext context)
     {

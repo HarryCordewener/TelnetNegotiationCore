@@ -612,4 +612,44 @@ public class EORTests : BaseTest
 
 		await server_ti.DisposeAsync();
 	}
+
+	/// <summary>
+	/// The client-mode counterpart of <see cref="PromptEndsWithCarriageReturnLineFeedWhenGoAheadIsSuppressed"/>:
+	/// a server's <c>IAC DO SUPPRESS-GO-AHEAD</c> asks this client to suppress its own outbound GA (not the
+	/// server's -- that direction is the server's <c>WILL</c>, which never happens here), this client answers
+	/// <c>WILL</c>, and that promise must be kept by <c>PromptTerminator</c>. Before the fix this read
+	/// <c>IsGoAheadSuppressed</c>, which in client mode tracks the peer's direction and stayed false here, so
+	/// an outbound prompt broke the promise by ending with the very <c>IAC GA</c> just refused.
+	/// </summary>
+	[Test]
+	public async Task PromptEndsWithCarriageReturnLineFeedWhenClientAgreedToSuppressItsOwnGoAhead()
+	{
+		byte[] output = null;
+
+		ValueTask Capture(ReadOnlyMemory<byte> data)
+		{
+			output = data.ToArray();
+			return ValueTask.CompletedTask;
+		}
+
+		var client_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(Capture)
+				.AddPlugin<SuppressGoAheadProtocol>()
+		);
+
+		await InterpretAndWaitAsync(client_ti, [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD]);
+		await AssertByteArraysEqual(output, [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD]);
+
+		var prompt = Encoding.ASCII.GetBytes("HP: 100/100> ");
+		output = null;
+		await client_ti.SendPromptAsync(prompt);
+
+		await AssertByteArraysEqual(output, [.. prompt, (byte)'\r', (byte)'\n']);
+
+		await client_ti.DisposeAsync();
+	}
 }

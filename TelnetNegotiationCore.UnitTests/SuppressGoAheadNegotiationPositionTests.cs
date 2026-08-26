@@ -86,6 +86,11 @@ public class SuppressGoAheadNegotiationPositionTests : BaseTest
 	}
 
 	/// <summary>RFC 858 §5: once suppression is accepted, "the IAC GA command should be treated as a NOP".</summary>
+	/// <remarks>
+	/// Unlike <c>PromptMarkerTests.AGoAheadIsANopOnceSuppressGoAheadIsInEffect</c>, this fixture
+	/// registers only <c>SuppressGoAheadProtocol</c> -- pinning the NOP with no EOR plugin present at
+	/// all, not merely one left un-negotiated.
+	/// </remarks>
 	[Test]
 	public async Task AnAcceptedSuppressionMakesGoAheadANop()
 	{
