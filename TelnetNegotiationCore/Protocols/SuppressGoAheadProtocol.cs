@@ -22,6 +22,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 {
     private static readonly byte[] s_willSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD };
     private static readonly byte[] s_doSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD };
+    private static readonly byte[] s_dontSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD };
 
     private bool? _doGA = true;
 
@@ -38,7 +39,29 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
         return this;
     }
 
+    /// <summary>
+    /// Whether this client agrees when a server offers to stop sending Go-Ahead. False by default.
+    /// </summary>
+    /// <remarks>
+    /// RFC 858 §3's default is <c>DONT SUPPRESS-GO-AHEAD</c> — "Go aheads are transmitted" — and the
+    /// server's <c>WILL</c> is an offer to stop sending them in the server-to-user direction, which is
+    /// the direction a prompt travels. Agreeing costs this client the only prompt marker RFC 854 gives
+    /// it, in exchange for not receiving two bytes per prompt. A MUD client wants the marker; the
+    /// full-duplex hosts RFC 858 was written for do not, which is what this switch is for.
+    /// </remarks>
+    public bool AcceptsSuppression { get; private set; }
 
+    /// <summary>
+    /// Sets whether a server's <c>WILL SUPPRESS-GO-AHEAD</c> is accepted (<c>DO</c>) or refused
+    /// (<c>DONT</c>).
+    /// </summary>
+    /// <param name="accept">True to accept suppression, false (the default) to refuse it</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public SuppressGoAheadProtocol AcceptSuppression(bool accept = true)
+    {
+        AcceptsSuppression = accept;
+        return this;
+    }
 
     /// <summary>
     /// Indicates whether Go-Ahead is suppressed (true = suppressed, false = enabled)
@@ -272,6 +295,16 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 
     private async ValueTask OnWillSuppressGAAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
+        if (!AcceptsSuppression)
+        {
+            context.Logger.LogDebug(
+                "Server offered SUPPRESS-GO-AHEAD; refusing so GA keeps marking prompts (RFC 858 §3 default).");
+            _doGA = true;
+            await OnNegotiatedAsync(false);
+            await context.SendNegotiationAsync(s_dontSga);
+            return;
+        }
+
         context.Logger.LogDebug("Server supports Suppress Go-Ahead.");
         _doGA = false;
         await OnNegotiatedAsync(true);

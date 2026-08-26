@@ -15,7 +15,7 @@ public class SuppressGATests : BaseTest
 {
 
 	[Test]
-	public async Task ClientRespondsWithDoSuppressGAToServerWill()
+	public async Task ClientRespondsWithDontSuppressGAToServerWillByDefault()
 	{
 		// Arrange
 		byte[] negotiationOutput = null;
@@ -36,9 +36,9 @@ public class SuppressGATests : BaseTest
 		// Act - Client receives WILL SUPPRESSGOAHEAD from server
 		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
 
-		// Assert
+		// Assert - a client refuses suppression by default, so GA keeps marking prompts (RFC 858 §3)
 		await Assert.That(negotiationOutput).IsNotNull();
-		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
+		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD });
 
 		// Cleanup
 		await client_ti.DisposeAsync();
@@ -77,7 +77,7 @@ public class SuppressGATests : BaseTest
 	}
 
 	[Test]
-	public async Task ClientAcceptsWillSuppressGA()
+	public async Task ClientRefusesWillSuppressGAByDefault()
 	{
 		// Arrange
 		byte[] negotiationOutput = null;
@@ -98,9 +98,9 @@ public class SuppressGATests : BaseTest
 		// Act - Client receives WILL SUPPRESSGOAHEAD from server
 		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
 
-		// Assert - Client should send DO SUPPRESSGOAHEAD
+		// Assert - Client should send DONT SUPPRESSGOAHEAD (RFC 858 §3's own default)
 		await Assert.That(negotiationOutput).IsNotNull();
-		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
+		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD });
 
 		// Cleanup
 		await client_ti.DisposeAsync();
@@ -167,7 +167,7 @@ public class SuppressGATests : BaseTest
 	}
 
 	[Test]
-	public async Task SuppressGANegotiationSequenceComplete()
+	public async Task SuppressGANegotiationSequenceCompletesWithDefaultRefusal()
 	{
 		// Arrange
 		byte[] negotiationOutput = null;
@@ -188,9 +188,9 @@ public class SuppressGATests : BaseTest
 
 		// Step 1: Server sends WILL SUPPRESSGOAHEAD
 		await InterpretAndWaitAsync(testClient, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
-		
+
 		await Assert.That(negotiationOutput).IsNotNull();
-		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
+		await AssertByteArraysEqual(negotiationOutput, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD });
 
 		// Cleanup
 		await testClient.DisposeAsync();
@@ -229,7 +229,7 @@ public class SuppressGATests : BaseTest
 	}
 
 	[Test]
-	public async Task ClientWillSuppressGAToServer()
+	public async Task ClientRespondsToWillSuppressGAWithDontByDefault()
 	{
 		// Arrange
 		byte[] negotiationOutput = null;
@@ -247,13 +247,13 @@ public class SuppressGATests : BaseTest
 			.OnNegotiation(CaptureNegotiation)
 			.AddPlugin<SuppressGoAheadProtocol>());
 
-		// Test client initiating SUPPRESSGOAHEAD
+		// Test client's default response to a server offering SUPPRESSGOAHEAD
 		// Act - Client receives WILL SUPPRESSGOAHEAD
 		await InterpretAndWaitAsync(client_ti, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
 
-		// Assert - Client should respond with DO
+		// Assert - Client should respond with DONT (RFC 858 §3's own default)
 		await Assert.That(negotiationOutput).IsNotNull();
-		var expectedResponse = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD };
+		var expectedResponse = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD };
 		await AssertByteArraysEqual(negotiationOutput, expectedResponse);
 
 		// Cleanup

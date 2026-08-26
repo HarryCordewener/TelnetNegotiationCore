@@ -270,6 +270,18 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets whether a server's <c>WILL SUPPRESS-GO-AHEAD</c> is accepted or refused.
+    /// See <see cref="SuppressGoAheadProtocol.AcceptSuppression"/>.
+    /// </summary>
+    public static PluginConfigurationContext<SuppressGoAheadProtocol> AcceptSuppression(
+        this PluginConfigurationContext<SuppressGoAheadProtocol> context,
+        bool accept = true)
+    {
+        context.Plugin.AcceptSuppression(accept);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the character set order for Charset negotiation in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
