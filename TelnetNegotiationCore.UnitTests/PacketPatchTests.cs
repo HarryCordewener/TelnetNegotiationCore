@@ -172,6 +172,7 @@ public class PacketPatchTests : BaseTest
 		var lines = new List<string>();
 		var prompts = 0;
 		var client = await ClientAsync(() => { prompts++; return ValueTask.CompletedTask; }, lines);
+		var plugin = client.PluginManager!.GetPlugin<PacketPatchProtocol>()!;
 
 		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("What's your name, freejack?"));
 
@@ -183,7 +184,25 @@ public class PacketPatchTests : BaseTest
 		// when disable ran.
 		await client.PluginManager!.DisablePluginAsync<PacketPatchProtocol>();
 
-		await Task.Delay(Hold * 3);
+		// Waited out here, past the pre-disable arm's own deadline, rather than only around the
+		// disable itself: this is what makes the re-enable check below actually exercise the
+		// scenario in the finding. A callback dispatched under that arm and only now getting its
+		// turn to run would, without OnProtocolDisabledAsync resetting _armDeadline, find "now" past
+		// its (stale) deadline and pass OnTimerElapsed's guard.
+		await Task.Delay(Hold * 2);
+		await Assert.That(prompts).IsEqualTo(0);
+
+		// Re-enabling must not resurrect the pre-disable arm. OnProtocolDisabledAsync resets
+		// _armDeadline to long.MaxValue alongside disarming, specifically so a callback dispatched
+		// before disable ran -- or one the thread pool only gets around to running after re-enable has
+		// already re-registered fresh handlers -- still finds a deadline in the far future and drops
+		// itself. OnProtocolEnabledAsync re-registers the handlers but never touches the timer or the
+		// deadline, so nothing here re-arms it; invoked directly (OnTimerElapsed is internal for
+		// exactly this) because nothing can make the thread pool actually run a stale callback late
+		// enough to land after a real disable/enable pair on demand.
+		await client.PluginManager!.EnablePluginAsync<PacketPatchProtocol>();
+		plugin.OnTimerElapsed(null);
+		await client.WaitForProcessingAsync();
 		await Assert.That(prompts).IsEqualTo(0);
 
 		await client.DisposeAsync();
@@ -209,7 +228,7 @@ public class PacketPatchTests : BaseTest
 
 		// The stale fire: invoked well before the second arm's own deadline, it must drop itself
 		// rather than reporting the still-growing fragment as a prompt.
-		plugin.SimulateTimerElapsedForTests();
+		plugin.OnTimerElapsed(null);
 		await Assert.That(prompts).IsEqualTo(0);
 
 		// The rest of the fragment arrives after the simulated stale fire, same as it would have if

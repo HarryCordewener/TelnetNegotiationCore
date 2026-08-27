@@ -68,13 +68,18 @@ public partial class TelnetInterpreter
 	/// ordinary-length line too.
 	/// </para>
 	/// <para>
-	/// <b>Callers, and why this stays single-threaded.</b> Every caller runs on the byte-processing
-	/// loop: a marked boundary from within a state-machine entry handler (itself invoked from the loop),
-	/// and a silence-inferred boundary from the loop's own handling of
-	/// <c>TelnetStandardInterpreter.InferredPromptSentinel</c>. Nothing here is called from
-	/// <see cref="Protocols.PacketPatchProtocol"/>'s timer thread — that timer only enqueues the
-	/// sentinel (<see cref="TryEnqueueInferredPrompt"/>) and never touches the line buffer itself — so
-	/// this needs no lock: the line buffer genuinely has one writer.
+	/// <b>Call this only from the byte-processing loop.</b> It is unsynchronized, on purpose: the
+	/// line buffer has exactly one writer as long as every caller honours that, which every caller
+	/// inside this library does — a marked boundary from within a state-machine entry handler (itself
+	/// invoked from the loop), and a silence-inferred boundary from the loop's own handling of
+	/// <c>TelnetStandardInterpreter.InferredPromptSentinel</c>. <see cref="Protocols.PacketPatchProtocol"/>'s
+	/// timer thread is deliberately not among them — that timer only enqueues the sentinel
+	/// (<see cref="TryEnqueueInferredPrompt"/>) and never calls this directly, for the same reason an
+	/// external caller must not: calling it from any other thread races the loop's own writes to the
+	/// same state this method mutates (<c>_bufferPosition</c>, <c>_lineEncoding</c>,
+	/// <c>_bufferOverflowed</c>, and, via <see cref="ReleaseLineBufferIfLarge"/>, <c>_buffer</c>
+	/// itself going null) — lost bytes at best, the loop dereferencing a buffer out from under itself
+	/// at worst.
 	/// </para>
 	/// <para>
 	/// <b>The false-positive case.</b> A silence-inferred call can lose a race it does not know it is

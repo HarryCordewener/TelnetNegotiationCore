@@ -90,10 +90,14 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// <summary>
 	/// .NET/Windows timer resolution is commonly quoted at roughly 15 ms; a fire that lands a few
 	/// milliseconds ahead of its own recorded deadline is ordinary scheduling jitter, not a stale
-	/// callback, and must not be dropped as one. Chosen at that scale deliberately: smaller risks
-	/// treating a legitimate fire as stale, and this plugin's shortest realistic
-	/// <see cref="HoldTime"/> is still hundreds of milliseconds, so 15 ms costs it nothing worth
-	/// noticing at the other end.
+	/// callback, and must not be dropped as one. Chosen at that scale deliberately, and accepted with
+	/// eyes open that it swallows the whole guard for a <see cref="HoldTime"/> shorter than itself --
+	/// zero included, see <see cref="HoldTime"/>'s own remarks. That is not a gap: a hold that small
+	/// is already asking for the next silence to be reported no matter how brief, so a callback
+	/// landing within a few milliseconds of a fresh re-arm being indistinguishable from a live one is
+	/// the request being honoured, not defeated. The trade is aimed at this plugin's actual working
+	/// range instead -- hundreds of milliseconds to seconds, per <see cref="DefaultHoldTime"/> and up
+	/// to <see cref="MaximumHoldTime"/> -- where 15 ms is negligible either way.
 	/// </summary>
 	private static readonly long ToleranceTicks = (long)(0.015 * Stopwatch.Frequency);
 
@@ -216,6 +220,13 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// <inheritdoc />
 	protected override ValueTask OnDisposeAsync()
 	{
+		// Reset first, same as OnProtocolDisabledAsync and for the same reason: a callback the
+		// runtime already dispatched before Dispose was called may still be about to run, and this
+		// is what makes it drop itself -- both against the race the type remarks describe, and
+		// against logging a spurious "could not enqueue" warning for a channel that Dispose is about
+		// to complete anyway.
+		Interlocked.Exchange(ref _armDeadline, long.MaxValue);
+
 		// Ordinary parameterless Dispose is enough here, and safe to call more than once: the timer
 		// callback (OnTimerElapsed) does no asynchronous work of its own to wait for -- it only
 		// enqueues a sentinel, synchronously, and returns. See the type remarks. Disposed even for a
@@ -243,11 +254,23 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// the handler null and leaves the line buffer alone, rather than draining it for a report a
 	/// disabled plugin should not be making. See <c>TelnetStandardInterpreter.ProcessBytesAsync</c>'s
 	/// handling of the sentinel.
+	/// <para>
+	/// Resetting <see cref="_armDeadline"/> here is not optional. A plain disable is covered even
+	/// without it -- the loop's null check on the unregistered handler catches an already-enqueued
+	/// sentinel regardless -- but <see cref="ProtocolPluginManager.EnablePluginAsync{T}"/> is public,
+	/// and <see cref="OnProtocolEnabledAsync"/> re-registers both handlers without touching the timer
+	/// or this field. Left unreset, a callback dispatched before disable and still not yet run would,
+	/// after a re-enable, read a deadline that is now in the past, pass <see cref="OnTimerElapsed"/>'s
+	/// guard, and enqueue a sentinel the freshly re-registered handler honours -- the exact
+	/// contamination the deadline exists to prevent, reached through a disable/enable pair instead of
+	/// a bare re-arm.
+	/// </para>
 	/// </remarks>
 	protected override ValueTask OnProtocolDisabledAsync()
 	{
 		if (_initialized)
 		{
+			Interlocked.Exchange(ref _armDeadline, long.MaxValue);
 			_timer.Change(Timeout.Infinite, Timeout.Infinite);
 			Context.Interpreter.SetByteStreamIdleHandler(null);
 			Context.Interpreter.SetInferredPromptHandler(null);
@@ -310,7 +333,14 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// later re-arm has since superseded. See the type remarks, "A queued callback is not a cancelled
 	/// one", and <see cref="ToleranceTicks"/> for why the comparison is not a strict less-than.
 	/// </summary>
-	private void OnTimerElapsed(object? state)
+	/// <remarks>
+	/// Internal rather than private for exactly one reason: nothing can make the thread pool actually
+	/// stall a queued callback on demand, so a test proving a stale fire drops itself has to invoke
+	/// this directly -- immediately after a re-arm, before the real due time -- instead of trying to
+	/// reproduce the race with a genuine <see cref="Timer"/>. Not part of the public API; reachable
+	/// from the test assembly only, via this project's <c>InternalsVisibleTo</c>.
+	/// </remarks>
+	internal void OnTimerElapsed(object? state)
 	{
 		if (Stopwatch.GetTimestamp() < Interlocked.Read(ref _armDeadline) - ToleranceTicks)
 		{
@@ -323,14 +353,6 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 				"Packet Patch could not enqueue an inferred prompt: the connection's byte channel is full or already closed.");
 		}
 	}
-
-	/// <summary>
-	/// Test-only seam for <see cref="OnTimerElapsed"/>'s staleness check. Nothing can make the thread
-	/// pool actually stall a queued callback on demand, so a test proving a stale fire drops itself
-	/// invokes this directly -- immediately after a re-arm, before the real due time -- rather than
-	/// trying to reproduce the race with a genuine <see cref="Timer"/>.
-	/// </summary>
-	internal void SimulateTimerElapsedForTests() => OnTimerElapsed(null);
 
 	/// <summary>
 	/// Invoked by the byte-processing loop, on the loop itself, once it has already taken the partial
