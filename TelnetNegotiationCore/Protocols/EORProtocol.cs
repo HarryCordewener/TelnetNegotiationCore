@@ -33,7 +33,7 @@ public class EORProtocol : TelnetProtocolPluginBase
     /// <remarks>
     /// Runs on the byte-processing loop — the same thread Suppress Go-Ahead's and Packet Patch's
     /// prompt callbacks run on, so a handler shared across all three (as
-    /// <c>AddDefaultMUDProtocols</c> does by default) needs no thread-safety of its own on that
+    /// <c>AddDefaultMUDProtocols</c> does when given one) needs no thread-safety of its own on that
     /// account.
     /// </remarks>
     /// <param name="callback">The callback to handle prompts</param>

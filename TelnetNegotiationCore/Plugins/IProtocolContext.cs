@@ -150,10 +150,8 @@ public interface IProtocolContext
     /// Gets the underlying telnet interpreter instance for advanced protocol scenarios, including
     /// <see cref="Interpreters.TelnetInterpreter.HasPartialLine"/>,
     /// <see cref="Interpreters.TelnetInterpreter.HasSeenMarkedPrompt"/> and
-    /// <see cref="Interpreters.TelnetInterpreter.TakePartialLineAsPrompt"/> for a plugin that
-    /// participates in prompt-boundary detection — reached through here rather than duplicated onto
-    /// this interface, so that a new one is not a breaking change for every external implementer of
-    /// it every time the interpreter grows another such member.
+    /// <see cref="Interpreters.TelnetInterpreter.TakePartialLineAsPrompt"/> for prompt-boundary
+    /// detection.
     /// </summary>
     Interpreters.TelnetInterpreter Interpreter { get; }
 }

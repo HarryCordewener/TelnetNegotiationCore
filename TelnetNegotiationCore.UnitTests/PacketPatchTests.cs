@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using TUnit.Core;
@@ -12,9 +13,8 @@ namespace TelnetNegotiationCore.UnitTests;
 
 public class PacketPatchTests : BaseTest
 {
-	// 400ms, not the 120ms elsewhere in this file's history: InterpretAndWaitAsync's
-	// WaitForProcessingAsync sleeps 100ms after the channel drains, so a 120ms hold left only 20ms
-	// of margin and AFragmentSplitAcrossTwoReadsIsNotFiredTwice could fire between its two feeds.
+	// InterpretAndWaitAsync settles for 100ms after the channel drains, so the hold needs real
+	// margin above that to avoid flaking AFragmentSplitAcrossTwoReadsIsNotFiredTwice.
 	private static readonly TimeSpan Hold = TimeSpan.FromMilliseconds(400);
 
 	private static Task<TelnetInterpreter> ClientAsync(
@@ -101,20 +101,13 @@ public class PacketPatchTests : BaseTest
 				.WithHoldTime(Hold)
 				.OnPrompt(() => { prompts++; return ValueTask.CompletedTask; }));
 
-		// Nothing marked has arrived yet, so this first prompt can only come from Packet Patch's own
-		// hold-time timer. Pinning it here -- rather than jumping straight to the GA -- is what tells
-		// this test apart from one where Packet Patch never fires at all: without it, prompts == 1
-		// after the GA below would be just as consistent with a completely inert plugin, since
-		// Suppress Go-Ahead alone produces that count.
+		// Pins that this prompt comes from Packet Patch itself, not Suppress Go-Ahead.
 		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("HP:100>"));
 		await Assert.That(await PollUntilAsync(() => prompts == 1)).IsTrue();
 
-		// A genuine marker latches the heuristic off, and still reports its own prompt.
 		await InterpretAndWaitAsync(client, new byte[] { 255, 249 });
 		await Assert.That(prompts).IsEqualTo(2);
 
-		// A new fragment must never again reach Packet Patch's timer, now that the connection has
-		// proven it marks its own prompts.
 		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("HP:99>"));
 		await Task.Delay(Hold * 3);
 		await Assert.That(prompts).IsEqualTo(2);
@@ -131,10 +124,7 @@ public class PacketPatchTests : BaseTest
 
 		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("What's your name, freejack?"));
 
-		// Pins the hold as an actual duration rather than a lower bound: every other assertion in this
-		// file polls for prompts == 1, which a 1ms hold would also satisfy. InterpretAndWaitAsync has
-		// already spent ~100ms of the 400ms hold settling, and this delay spends 200ms more -- ~300ms
-		// total, so the margin against the 400ms boundary is ~100ms, not symmetric on both sides of it.
+		// Pins the hold as an actual duration, not just a lower bound a 1ms hold would also satisfy.
 		await Task.Delay(Hold / 2);
 		await Assert.That(prompts).IsEqualTo(0);
 
@@ -176,30 +166,20 @@ public class PacketPatchTests : BaseTest
 
 		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("What's your name, freejack?"));
 
-		// Disabling well before the hold time elapses (only ~100ms of it has passed, see
-		// InterpretAndWaitAsync) is deliberate: it proves OnProtocolDisabledAsync actually disarms
-		// the already-armed timer, not merely that disabling happened to race ahead of a fire that
-		// was going to lose anyway. Without that disarm, the timer set by the fragment above would
-		// still be pending and would still enqueue a sentinel around the 400ms mark regardless of
-		// when disable ran.
+		// Disables well before the hold elapses, so this proves OnProtocolDisabledAsync itself
+		// disarms the timer, not that disable happened to win a race it would have won anyway.
 		await client.PluginManager!.DisablePluginAsync<PacketPatchProtocol>();
 
-		// Waited out here, past the pre-disable arm's own deadline, rather than only around the
-		// disable itself: this is what makes the re-enable check below actually exercise the
-		// scenario in the finding. A callback dispatched under that arm and only now getting its
-		// turn to run would, without OnProtocolDisabledAsync resetting _armDeadline, find "now" past
-		// its (stale) deadline and pass OnTimerElapsed's guard.
+		// Waits past the pre-disable arm's own deadline before re-enabling, so a callback dispatched
+		// under that arm and only now getting its turn would, without the reset, find "now" already
+		// past its stale deadline and pass OnTimerElapsed's guard.
 		await Task.Delay(Hold * 2);
 		await Assert.That(prompts).IsEqualTo(0);
 
-		// Re-enabling must not resurrect the pre-disable arm. OnProtocolDisabledAsync resets
-		// _armDeadline to long.MaxValue alongside disarming, specifically so a callback dispatched
-		// before disable ran -- or one the thread pool only gets around to running after re-enable has
-		// already re-registered fresh handlers -- still finds a deadline in the far future and drops
-		// itself. OnProtocolEnabledAsync re-registers the handlers but never touches the timer or the
-		// deadline, so nothing here re-arms it; invoked directly (OnTimerElapsed is internal for
-		// exactly this) because nothing can make the thread pool actually run a stale callback late
-		// enough to land after a real disable/enable pair on demand.
+		// Re-enabling must not resurrect the pre-disable arm: OnProtocolEnabledAsync re-registers
+		// the handlers but never touches the timer or the deadline. Invoked directly (OnTimerElapsed
+		// is internal for exactly this) since nothing can make the thread pool run a stale callback
+		// late enough to land after a real disable/enable pair on demand.
 		await client.PluginManager!.EnablePluginAsync<PacketPatchProtocol>();
 		plugin.OnTimerElapsed(null);
 		await client.WaitForProcessingAsync();
@@ -211,13 +191,10 @@ public class PacketPatchTests : BaseTest
 	[Test]
 	public async Task AStaleTimerCallbackDropsItselfAfterARearm()
 	{
-		// Timer.Change cannot cancel a callback the runtime has already dispatched to the thread pool
-		// -- only reprogram when the timer next fires. Nothing can make the pool actually stall a
-		// queued callback on demand to reproduce that race for real, so this drives the mechanism
-		// that closes it (PacketPatchProtocol._armDeadline) directly instead: hold a fragment, extend
-		// it (a genuine re-arm, moving the deadline later), then invoke the elapsed path immediately
-		// -- exactly modelling a callback that was queued under the first arm and is only now getting
-		// its turn to run, after the second arm already moved the goalposts.
+		// Timer.Change cannot cancel a callback already dispatched to the thread pool. Nothing can
+		// make the pool stall a queued callback on demand, so this drives _armDeadline directly:
+		// hold a fragment, extend it (a genuine re-arm), then invoke the elapsed path immediately --
+		// modelling a callback queued under the first arm, only now getting its turn to run.
 		var lines = new List<string>();
 		var prompts = 0;
 		var client = await ClientAsync(() => { prompts++; return ValueTask.CompletedTask; }, lines);
@@ -226,14 +203,9 @@ public class PacketPatchTests : BaseTest
 		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("What's your "));
 		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("name, "));
 
-		// The stale fire: invoked well before the second arm's own deadline, it must drop itself
-		// rather than reporting the still-growing fragment as a prompt.
 		plugin.OnTimerElapsed(null);
 		await Assert.That(prompts).IsEqualTo(0);
 
-		// The rest of the fragment arrives after the simulated stale fire, same as it would have if
-		// the real race had played out -- and the genuinely pending, re-armed timer still reports the
-		// whole thing once its own hold time actually elapses.
 		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("freejack?"));
 		await Assert.That(await PollUntilAsync(() => prompts == 1)).IsTrue();
 		await Assert.That(Encoding.ASCII.GetString(client.LastPromptBytes.Span))
@@ -255,5 +227,80 @@ public class PacketPatchTests : BaseTest
 	public async Task TheDefaultHoldTimeIsFiveHundredMilliseconds()
 	{
 		await Assert.That(new PacketPatchProtocol().HoldTime).IsEqualTo(TimeSpan.FromMilliseconds(500));
+	}
+
+	[Test]
+	[NotInParallel]
+	public async Task ABurstSpanningTheHoldDeadlineNeverMangleAnOrdinaryLine()
+	{
+		// Holds "Prompt> ", then starts a burst of complete lines ~10ms before the hold would
+		// otherwise elapse, large enough that draining it through the bounded channel takes longer
+		// than the hold itself. Either "Prompt> " fires as its own prompt first, or the burst
+		// arrives soon enough to merge into "Prompt> ROOM0000 ..." -- both legitimate. What must
+		// never happen is a fragment split out of the *middle* of the burst.
+		// NotInParallel: the ~10ms margin below is precise enough that thread-pool contention from
+		// other tests running concurrently can shift it enough to flake, in either direction.
+		const string roomSuffix = "The Great Hall of Dwarves, a long description of the room.";
+		var burstHold = TimeSpan.FromMilliseconds(300);
+		var lines = new List<string>();
+		var prompts = 0;
+		var client = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit((data, _, _) => { lines.Add(Encoding.ASCII.GetString(data)); return ValueTask.CompletedTask; })
+				.OnNegotiation(_ => ValueTask.CompletedTask)
+				.AddPlugin<PacketPatchProtocol>()
+				.WithHoldTime(burstHold)
+				.OnPrompt(() => { prompts++; return ValueTask.CompletedTask; }));
+
+		await client.InterpretByteArrayAsync(Encoding.ASCII.GetBytes("Prompt> "));
+		await client.WaitForProcessingAsync(maxWaitMs: 1000, additionalDelayMs: 0);
+		await Task.Delay(TimeSpan.FromMilliseconds(290));
+
+		var burst = new StringBuilder();
+		for (var i = 0; i < 400; i++)
+		{
+			burst.Append($"ROOM{i:0000} {roomSuffix}\r\n");
+		}
+
+		await client.InterpretByteArrayAsync(Encoding.ASCII.GetBytes(burst.ToString()));
+		await client.WaitForProcessingAsync(maxWaitMs: 10000, additionalDelayMs: 500);
+
+		bool IsWholeLine(string l) =>
+			l.EndsWith(roomSuffix, StringComparison.Ordinal)
+			&& (l.StartsWith("ROOM", StringComparison.Ordinal) || l.StartsWith("Prompt> ROOM", StringComparison.Ordinal));
+
+		var badLines = lines.Where(l => !IsWholeLine(l)).ToList();
+		await Assert.That(badLines).IsEmpty();
+		await Assert.That(lines.Count).IsEqualTo(400);
+		await Assert.That(prompts <= 1).IsTrue();
+
+		await client.DisposeAsync();
+	}
+
+	[Test]
+	public async Task AddDefaultMUDProtocolsWithNoPromptCallbackDoesNotRegisterPacketPatch()
+	{
+		var lines = new List<string>();
+		var client = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit((data, _, _) => { lines.Add(Encoding.ASCII.GetString(data)); return ValueTask.CompletedTask; })
+				.OnNegotiation(_ => ValueTask.CompletedTask)
+				.AddDefaultMUDProtocols());
+
+		await Assert.That(client.PluginManager!.GetPlugin<PacketPatchProtocol>()).IsNull();
+
+		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("Enter your name: "));
+		await Task.Delay(TimeSpan.FromSeconds(1));
+		await Assert.That(lines.Count).IsEqualTo(0);
+
+		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("Bob\r\n"));
+		await Assert.That(lines.Count).IsEqualTo(1);
+		await Assert.That(lines[0]).IsEqualTo("Enter your name: Bob");
+
+		await client.DisposeAsync();
 	}
 }

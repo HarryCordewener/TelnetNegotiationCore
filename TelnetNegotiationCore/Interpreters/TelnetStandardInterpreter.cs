@@ -142,18 +142,16 @@ public partial class TelnetInterpreter : IAsyncDisposable
     private readonly List<Func<byte[], Encoding, ValueTask<bool>>> _inputLineObservers = [];
 
     /// <summary>
-    /// Written to <see cref="_byteChannel"/> in place of a wire byte, to move
-    /// <see cref="Protocols.PacketPatchProtocol"/>'s hold-time decision off its timer thread and onto
-    /// the byte-processing loop -- the one thread that already owns the line buffer, so it can act on
-    /// the sentinel directly instead of a second thread reaching into that state. Negative and out of
-    /// the 0-255 range a genuine wire byte occupies, so it can never collide with one.
+    /// Written to <see cref="_byteChannel"/> in place of a wire byte, so
+    /// <see cref="Protocols.PacketPatchProtocol"/>'s hold-time decision runs on the byte-processing
+    /// loop -- the thread that owns the line buffer -- instead of its own timer thread. Negative, so
+    /// it can never collide with a genuine wire byte (0-255).
     /// </summary>
     private const short InferredPromptSentinel = -1;
 
     /// <summary>
     /// Channel for byte processing pipeline with backpressure. Element type is <c>short</c>, not
-    /// <c>byte</c>: every wire byte still fits, and the spare negative range is what carries
-    /// <see cref="InferredPromptSentinel"/>.
+    /// <c>byte</c>, so the negative range can carry <see cref="InferredPromptSentinel"/>.
     /// </summary>
     private readonly Channel<short> _byteChannel;
 
@@ -842,21 +840,13 @@ public partial class TelnetInterpreter : IAsyncDisposable
             {
                 if (raw == InferredPromptSentinel)
                 {
-                    // Not a wire byte. Protocols.PacketPatchProtocol's timer enqueues this instead of
-                    // touching the line buffer itself, so the actual check-and-take runs here, on the
-                    // one thread that already owns that buffer -- see TakePartialLineAsPrompt and
-                    // TryEnqueueInferredPrompt.
-                    //
-                    // The handler is read first, and gates the rest: it is null whenever the plugin
-                    // would not want this sentinel honoured at all -- disabled at runtime, disposed,
-                    // or already latched off by a marked prompt (OnByteStreamIdleAsync unregisters it
-                    // in that last case) -- and checking it before touching anything else means a
-                    // stale sentinel from before any of those leaves the line buffer alone rather than
-                    // draining it for a report nobody will receive. HasSeenMarkedPrompt is read here
-                    // too, not left to TakePartialLineAsPrompt, because it must gate the call and not
-                    // just its result: a sentinel that is stale because a genuine IAC GA/EOR won the
-                    // race and already drained the buffer must not touch the buffer at all, only find
-                    // nothing there.
+                    // Not a wire byte -- see TakePartialLineAsPrompt and TryEnqueueInferredPrompt.
+                    // The handler is checked first: null means the plugin does not want this honoured
+                    // (disabled, disposed, or already latched off), so the buffer is left untouched
+                    // rather than drained for a report nobody receives. HasSeenMarkedPrompt is read
+                    // here rather than left to TakePartialLineAsPrompt because it must gate the call
+                    // itself: a sentinel stale because a marker already won the race and drained the
+                    // buffer must not touch it again.
                     var onInferredPrompt = _onInferredPrompt;
                     if (onInferredPrompt is not null && !HasSeenMarkedPrompt && TakePartialLineAsPrompt(marked: false))
                     {
@@ -888,7 +878,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 if (transform is null)
                 {
                     await FireByteAsync(bt, ++byteCount);
-                    await NotifyIfIdleAsync();
+                    await NotifyByteProcessedAsync();
                     continue;
                 }
 
@@ -904,15 +894,24 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 // ceiling becomes 1032 x batch size, which a hostile peer chooses. See
                 // MCCPCompressedStreamTests.AHighRatioPayloadDoesNotGrowTheDecodersBuffer.
                 var decoded = await transform.DecodeAsync(bt);
-                for (var i = 0; i < decoded.Length; i++)
+                if (decoded.Length == 0)
                 {
-                    await FireByteAsync(decoded.Span[i], ++byteCount);
+                    // Nothing reached the state machine (mid-sequence in a stateful decoder), but the
+                    // connection is still not silent: counts as a processed byte regardless.
+                    await NotifyByteProcessedAsync();
                 }
+                else
+                {
+                    for (var i = 0; i < decoded.Length; i++)
+                    {
+                        await FireByteAsync(decoded.Span[i], ++byteCount);
 
-                // After the whole decoded batch, not inside the loop above: one wire byte can decode
-                // to many, and notifying between them would arm the idle timer while bytes from the
-                // very same read are still waiting to be fired.
-                await NotifyIfIdleAsync();
+                        // Once per decoded byte, not once per wire byte, so a large decoded batch
+                        // keeps disarming throughout rather than only at its end. A premature idle
+                        // flag mid-batch is corrected by the very next byte's own fresh check.
+                        await NotifyByteProcessedAsync();
+                    }
+                }
             }
             _logger.LogDebug("Byte processing completed. Total bytes processed: {ByteCount}", byteCount);
         }
@@ -963,38 +962,37 @@ public partial class TelnetInterpreter : IAsyncDisposable
     }
 
     /// <summary>
-    /// Tells a registered idle handler that the byte stream has gone quiet, when it has.
+    /// Tells a registered handler that one more byte has been processed, and whether the channel is
+    /// empty right now.
     /// </summary>
     /// <remarks>
-    /// "Quiet" is the channel being empty at the instant this runs, which is a looser thing than "a
-    /// read just ended": <see cref="InterpretByteArrayAsync"/> writes one byte per <c>await</c>, so a
-    /// consumer draining faster than the writes arrive can observe <c>Count == 0</c> between two bytes
-    /// of what the caller thinks of as a single read, not only after the last one. That produces false
-    /// positives, and they are harmless: the only registered handler
-    /// (<see cref="Protocols.PacketPatchProtocol.OnByteStreamIdleAsync"/>) just restarts its hold-time
-    /// clock from whatever byte was last seen, and a hold time is measured from the last byte either
-    /// way -- re-arming a little early changes nothing once the rest of the read does arrive.
+    /// Called after every byte, not only at idle points: a timer armed before a sustained burst must
+    /// still be told the burst is happening, or its hold time can elapse mid-burst with nothing
+    /// having disarmed it. See <see cref="Protocols.PacketPatchProtocol.OnByteProcessedAsync"/>.
+    /// <para>
+    /// "Idle" is the channel being empty at this exact instant, which can be true mid-read (see
+    /// <see cref="InterpretByteArrayAsync"/>, which writes one byte per <c>await</c>). Harmless: the
+    /// handler arms only from the buffer's state at that instant, so a premature idle flag is
+    /// corrected by the very next byte if there was truly more to come.
+    /// </para>
     /// </remarks>
-    private async ValueTask NotifyIfIdleAsync()
+    private async ValueTask NotifyByteProcessedAsync()
     {
-        var handler = _onByteStreamIdle;
-        if (handler is not null && _byteChannel.Reader.Count == 0)
+        var handler = _onByteProcessed;
+        if (handler is not null)
         {
-            await handler();
+            await handler(_byteChannel.Reader.Count == 0);
         }
     }
 
     /// <summary>
     /// Enqueues <see cref="InferredPromptSentinel"/> for the byte-processing loop to act on. The only
-    /// caller is <see cref="Protocols.PacketPatchProtocol"/>'s timer callback, which must not touch the
-    /// line buffer itself -- see <see cref="TakePartialLineAsPrompt"/>'s remarks.
+    /// caller is <see cref="Protocols.PacketPatchProtocol"/>'s timer callback, which must not touch
+    /// the line buffer itself -- see <see cref="TakePartialLineAsPrompt"/>'s remarks.
     /// </summary>
     /// <remarks>
-    /// A non-blocking <c>TryWrite</c> rather than <c>WriteAsync</c>, deliberately: the timer callback
-    /// is synchronous and must return quickly regardless, the channel has ample headroom (10,000 deep)
-    /// for one extra signal per held fragment, and if it is ever genuinely full or already completed
-    /// the fragment simply goes unreported as a prompt -- no worse an outcome than the connection
-    /// having already gone away, which a completed channel means it has.
+    /// A non-blocking <c>TryWrite</c>: the timer callback is synchronous and must return quickly, and
+    /// a full or closed channel simply leaves the fragment unreported as a prompt.
     /// </remarks>
     /// <returns>False if the sentinel could not be enqueued (the channel is full or closed).</returns>
     internal bool TryEnqueueInferredPrompt() => _byteChannel.Writer.TryWrite(InferredPromptSentinel);

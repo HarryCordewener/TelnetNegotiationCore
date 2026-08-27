@@ -12,61 +12,51 @@ using TelnetNegotiationCore.Plugins;
 namespace TelnetNegotiationCore.Protocols;
 
 /// <summary>
-/// Infers a prompt boundary from silence, for the many servers that mark their prompts with nothing
-/// at all.
+/// Infers a prompt boundary from silence, for servers that mark their prompts with nothing at all.
 /// </summary>
 /// <remarks>
 /// <para>
-/// RFC 854 gives a server <c>IAC GA</c> and RFC 885 gives it <c>IAC EOR</c>, and a great many MUD
-/// servers send neither: measured on 2026-08-26, starwars.d20mud.com and tdome.nukefire.org each
-/// complete a thirty-odd exchange handshake, offer neither option, ignore an unsolicited
-/// <c>IAC DO EOR</c> outright, and end their login screen with a bare unterminated fragment. Held
-/// against the line buffer, that fragment surfaces only when the *next* newline arrives, glued to the
-/// head of a line it was never part of.
+/// RFC 854 gives a server <c>IAC GA</c> and RFC 885 gives it <c>IAC EOR</c>; many MUD servers send
+/// neither, ending a prompt with a bare unterminated fragment. Held against the line buffer, that
+/// fragment surfaces only when the next newline arrives, glued to a line it was never part of.
 /// </para>
 /// <para>
 /// So it is inferred: hold the fragment, and if nothing more arrives within <see cref="HoldTime"/>,
-/// call it a prompt. The two clients these servers recommend both do exactly this — Mudlet's posting
-/// timer (<c>ctelnet.h</c>, <c>mTimeOut = 300</c>) and TinTin++'s "packet patch"
-/// (<c>#config {PACKET PATCH}</c>, 500 ms, settable 0–10 s), whose name is the honest one: the
-/// problem being patched is TCP fragmentation, and a prompt is only the case where the fragment turns
-/// out to have been the end of the server's turn.
+/// call it a prompt -- the same approach as Mudlet's posting timer and TinTin++'s "packet patch"
+/// (500 ms default, 0-10 s range).
 /// </para>
 /// <para>
-/// <b>A guess, and it retires as soon as it is not needed.</b> The first genuine <c>IAC GA</c> or
-/// <c>IAC EOR</c> on a connection sets <see cref="Interpreters.TelnetInterpreter.HasSeenMarkedPrompt"/>
-/// and this plugin stops firing for the rest of it. A server that marks its prompts is never
-/// second-guessed.
+/// <b>Retires once not needed.</b> The first genuine <c>IAC GA</c> or <c>IAC EOR</c> on a
+/// connection sets <see cref="Interpreters.TelnetInterpreter.HasSeenMarkedPrompt"/> and this plugin
+/// stops firing for the rest of it.
 /// </para>
 /// <para>
-/// <b>The timer never touches the line buffer.</b> It runs on the thread pool, and the line buffer
-/// has exactly one owner: the interpreter's byte-processing loop. So the timer's only job, when
-/// <see cref="HoldTime"/> elapses, is to enqueue a sentinel onto that same loop's own channel
-/// (the interpreter's internal <c>TryEnqueueInferredPrompt</c>) and get out of the way — the actual
-/// check-and-take runs on the loop itself, the moment it dequeues that sentinel. See
-/// <c>TelnetStandardInterpreter.ProcessBytesAsync</c> and
-/// <see cref="Interpreters.TelnetInterpreter.TakePartialLineAsPrompt"/>'s remarks for the rest of the
-/// story, including why a losing race reports nothing rather than a spurious second prompt.
+/// <b>The timer never touches the line buffer.</b> The buffer has exactly one owner, the
+/// byte-processing loop; when <see cref="HoldTime"/> elapses the timer only enqueues a sentinel
+/// onto that loop's own channel (the interpreter's internal <c>TryEnqueueInferredPrompt</c>), and
+/// the loop itself does the check-and-take when it dequeues it. See
+/// <see cref="Interpreters.TelnetInterpreter.TakePartialLineAsPrompt"/>'s remarks for why a losing
+/// race reports nothing rather than a spurious second prompt.
+/// </para>
+/// <para>
+/// <b>Arm and disarm are byte-driven, not idle-driven.</b> Every byte the loop fires is reported to
+/// <see cref="OnByteProcessedAsync"/> with a flag for whether the channel is empty right now; any
+/// byte at all disarms first, and only a genuinely idle byte may re-arm, fresh from the buffer's
+/// state at that instant. An idle-only notification would let an arm placed before a sustained
+/// burst survive the burst's entire duration and fire behind a backlog of unrelated bytes.
 /// </para>
 /// <para>
 /// <b>A queued callback is not a cancelled one.</b> <see cref="Timer.Change(TimeSpan, TimeSpan)"/>
-/// reprograms when the timer next fires; it does nothing about a firing the runtime has already
-/// dispatched to the thread pool and simply not yet run. Left unguarded, that gap admits exactly one
-/// bad interleaving: the timer expires with nothing queued yet, new bytes arrive and extend the same
-/// fragment before the queued callback gets a turn to run, and that stale callback then enqueues a
-/// sentinel the loop honours -- reporting a prompt that eats the head of whatever just arrived, and
-/// leaving the rest of it to submit as a truncated line. <c>_armDeadline</c> closes it: every
-/// (re)arm records when it is legitimately allowed to fire, and <see cref="OnTimerElapsed"/> checks
-/// its own timestamp against the *current* value of that field, not whichever one was in force when
-/// it was scheduled, before it does anything else. A stale callback always finds a deadline a re-arm
-/// has since pushed later and drops itself; the re-armed timer's own future fire is untouched.
+/// reprograms when the timer next fires; it does nothing about a firing already dispatched to the
+/// thread pool. <c>_armDeadline</c> covers that: every arm, disarm and re-arm records what the
+/// current arm is, and <see cref="OnTimerElapsed"/> checks its own timestamp against the current
+/// value before doing anything else, so a callback dispatched under a superseded arm drops itself.
 /// </para>
 /// <para>
-/// This carries no <c>WILL</c>/<c>DO</c> exchange of its own — registering it is the whole opt-in, as
-/// with <see cref="MSSPPlaintextProtocol"/> — so it reports
-/// <see cref="TelnetProtocolPluginBase.IsNegotiated"/> true from initialization in client mode,
-/// rather than waiting for a handshake it does not have. Server mode never negotiates at all; see
-/// <see cref="OnInitializeAsync"/>.
+/// This carries no <c>WILL</c>/<c>DO</c> exchange of its own -- registering it is the whole opt-in,
+/// as with <see cref="MSSPPlaintextProtocol"/> -- so it reports
+/// <see cref="TelnetProtocolPluginBase.IsNegotiated"/> true from initialization in client mode.
+/// Server mode never negotiates at all; see <see cref="OnInitializeAsync"/>.
 /// </para>
 /// </remarks>
 [RequiredMethod("OnPrompt", Description = "Configure the callback to handle inferred prompt events")]
@@ -80,47 +70,33 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 
 	/// <summary>
 	/// Fires <see cref="OnTimerElapsed"/> once <see cref="HoldTime"/> has elapsed with no intervening
-	/// activity. Armed and re-armed by <see cref="OnByteStreamIdleAsync"/>, which runs on the
-	/// byte-processing loop; the callback itself runs on the thread pool, but does no more than
-	/// enqueue a sentinel — see the type remarks — so disposing it needs no special handling beyond
-	/// the ordinary parameterless <see cref="Timer.Dispose()"/>.
+	/// activity. Armed, disarmed and re-armed by <see cref="OnByteProcessedAsync"/>.
 	/// </summary>
 	private readonly Timer _timer;
 
 	/// <summary>
-	/// .NET/Windows timer resolution is commonly quoted at roughly 15 ms; a fire that lands a few
-	/// milliseconds ahead of its own recorded deadline is ordinary scheduling jitter, not a stale
-	/// callback, and must not be dropped as one. Chosen at that scale deliberately, and accepted with
-	/// eyes open that it swallows the whole guard for a <see cref="HoldTime"/> shorter than itself --
-	/// zero included, see <see cref="HoldTime"/>'s own remarks. That is not a gap: a hold that small
-	/// is already asking for the next silence to be reported no matter how brief, so a callback
-	/// landing within a few milliseconds of a fresh re-arm being indistinguishable from a live one is
-	/// the request being honoured, not defeated. The trade is aimed at this plugin's actual working
-	/// range instead -- hundreds of milliseconds to seconds, per <see cref="DefaultHoldTime"/> and up
-	/// to <see cref="MaximumHoldTime"/> -- where 15 ms is negligible either way.
+	/// Tolerance for <see cref="OnTimerElapsed"/>'s staleness check, absorbing clock skew between an
+	/// arm's <see cref="Stopwatch"/> sample and the timer engine's own clock -- 15 ms, negligible
+	/// against a <see cref="HoldTime"/> in the hundreds of milliseconds to seconds. Inert below that
+	/// (zero included): a hold that short means reporting the next silence no matter how brief,
+	/// which is what happens either way.
 	/// </summary>
 	private static readonly long ToleranceTicks = (long)(0.015 * Stopwatch.Frequency);
 
 	/// <summary>
-	/// The <see cref="Stopwatch"/> timestamp at or after which the current arm is legitimately
-	/// allowed to fire, or <see cref="long.MaxValue"/> while nothing is armed. Recorded by
-	/// <see cref="OnByteStreamIdleAsync"/> immediately before every <see cref="Timer.Change(TimeSpan, TimeSpan)"/>
-	/// call, and read back by <see cref="OnTimerElapsed"/> to tell a stale callback from a live one --
-	/// see the type remarks, "A queued callback is not a cancelled one". A <c>long</c> rather than a
-	/// <see cref="TimeSpan"/>/<see cref="DateTime"/> pairing needs no lock of its own: this field is
-	/// the entire piece of state shared between the two threads that touch it, and plain
-	/// <c>Interlocked.Exchange</c>/<c>Interlocked.Read</c> are all a single 64-bit field ever needs,
-	/// on the 32-bit runtimes this library still targets included.
+	/// The <see cref="Stopwatch"/> timestamp at or after which the current arm may legitimately
+	/// fire, or <see cref="long.MaxValue"/> while nothing is armed. Recorded by
+	/// <see cref="OnByteProcessedAsync"/> before every <see cref="Timer.Change(TimeSpan, TimeSpan)"/>
+	/// call and read by <see cref="OnTimerElapsed"/> to tell a stale callback from a live one. A
+	/// <c>long</c>, guarded with <c>Interlocked</c> rather than a lock: this field is the only state
+	/// shared between the two threads that touch it.
 	/// </summary>
 	private long _armDeadline = long.MaxValue;
 
 	/// <summary>
-	/// Set at the top of <see cref="OnInitializeAsync"/>, so <see cref="OnDisposeAsync"/> can tell
-	/// apart a plugin that was genuinely built into a connection from one that was merely constructed
-	/// (both of this class's <c>WithHoldTime</c>/<c>HoldTime</c> tests do exactly that) and never
-	/// initialized — <see cref="TelnetProtocolPluginBase.Context"/> throws for the latter, and
-	/// <c>ProtocolPluginManager.DisposeAllAsync</c> has no try/catch around each plugin's disposal, so
-	/// one throwing here would abandon every other plugin's cleanup along with its own.
+	/// Set at the top of <see cref="OnInitializeAsync"/>, so <see cref="OnDisposeAsync"/> can tell a
+	/// plugin that was built into a connection apart from one merely constructed and never
+	/// initialized -- <see cref="TelnetProtocolPluginBase.Context"/> throws for the latter.
 	/// </summary>
 	private bool _initialized;
 
@@ -136,8 +112,8 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// How long an unterminated fragment is held before it is called a prompt.
 	/// </summary>
 	/// <remarks>
-	/// Zero is accepted and means immediate, not disabled: unlike TinTin++'s own <c>0</c>, which turns
-	/// packet patch off there, this plugin has no separate "off" value — not registering it is that.
+	/// Zero is accepted and means immediate, not disabled: this plugin has no separate "off" value
+	/// -- not registering it is that.
 	/// </remarks>
 	public TimeSpan HoldTime { get; private set; } = DefaultHoldTime;
 
@@ -156,8 +132,8 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// <param name="holdTime">A duration in [0, <see cref="MaximumHoldTime"/>]</param>
 	/// <returns>This instance for fluent chaining</returns>
 	/// <exception cref="ArgumentOutOfRangeException">
-	/// The hold time is negative or above <see cref="MaximumHoldTime"/>. Rejected rather than clamped,
-	/// so a mistyped value is never silently turned into a different one.
+	/// The hold time is negative or above <see cref="MaximumHoldTime"/>. Rejected rather than
+	/// clamped, so a mistyped value is never silently turned into a different one.
 	/// </exception>
 	public PacketPatchProtocol WithHoldTime(TimeSpan holdTime)
 	{
@@ -173,15 +149,12 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <summary>
-	/// Sets the callback invoked when a held fragment is called a prompt. Pass the same callback the
-	/// EOR and Suppress Go-Ahead plugins were given: a consumer wants one prompt notification, not one
-	/// per way of detecting one.
+	/// Sets the callback invoked when a held fragment is called a prompt. Pass the same callback
+	/// given to EOR and Suppress Go-Ahead.
 	/// </summary>
 	/// <remarks>
-	/// Runs on the byte-processing loop — the same thread every registered prompt callback runs on,
-	/// EOR's and Suppress Go-Ahead's included, so a handler shared across all three (as
-	/// <c>AddDefaultMUDProtocols</c> does by default) needs no thread-safety of its own on that
-	/// account.
+	/// Runs on the byte-processing loop, the same thread EOR's and Suppress Go-Ahead's prompt
+	/// callbacks run on.
 	/// </remarks>
 	/// <param name="callback">The callback to handle prompts</param>
 	/// <returns>This instance for fluent chaining</returns>
@@ -194,8 +167,8 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// <inheritdoc />
 	public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
 	{
-		// Nothing. This plugin reads no telnet command and answers none; its whole input is the
-		// absence of bytes, which the state machine has no trigger for.
+		// Nothing: this plugin's whole input is the absence of bytes, which the state machine has
+		// no trigger for.
 	}
 
 	/// <inheritdoc />
@@ -212,7 +185,7 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 		Context.Logger.LogInformation(
 			"Packet Patch initialized: an unterminated fragment becomes a prompt after {HoldTime}.", HoldTime);
 
-		Context.Interpreter.SetByteStreamIdleHandler(OnByteStreamIdleAsync);
+		Context.Interpreter.SetByteProcessedHandler(OnByteProcessedAsync);
 		Context.Interpreter.SetInferredPromptHandler(FireInferredPromptCallbackAsync);
 		await OnNegotiatedAsync(true);
 	}
@@ -220,50 +193,36 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// <inheritdoc />
 	protected override ValueTask OnDisposeAsync()
 	{
-		// Reset first, same as OnProtocolDisabledAsync and for the same reason: a callback the
-		// runtime already dispatched before Dispose was called may still be about to run, and this
-		// is what makes it drop itself -- both against the race the type remarks describe, and
-		// against logging a spurious "could not enqueue" warning for a channel that Dispose is about
-		// to complete anyway.
+		// Reset first: a callback already dispatched before Dispose may still run, and finding
+		// long.MaxValue is what makes it drop itself.
 		Interlocked.Exchange(ref _armDeadline, long.MaxValue);
 
-		// Ordinary parameterless Dispose is enough here, and safe to call more than once: the timer
-		// callback (OnTimerElapsed) does no asynchronous work of its own to wait for -- it only
-		// enqueues a sentinel, synchronously, and returns. See the type remarks. Disposed even for a
-		// plugin that was constructed but never initialized (nothing is scheduled against
-		// Timeout.Infinite in that case, but there is still no reason to leave the Timer undisposed).
+		// Parameterless Dispose is safe to call more than once; OnTimerElapsed does no
+		// asynchronous work to wait for.
 		_timer.Dispose();
 
-		if (!_initialized)
+		// Server mode never registered anything in OnInitializeAsync.
+		if (!_initialized || Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
 		{
 			return default;
 		}
 
-		Context.Interpreter.SetByteStreamIdleHandler(null);
+		Context.Interpreter.SetByteProcessedHandler(null);
 		Context.Interpreter.SetInferredPromptHandler(null);
 		return default;
 	}
 
 	/// <inheritdoc />
 	/// <remarks>
-	/// Disarming the timer and unregistering both handlers is what stops a disabled plugin from
-	/// still reporting inferred prompts -- mirrors the latch handling in
-	/// <see cref="OnByteStreamIdleAsync"/>, which does the same thing for the same reason when a
-	/// marked prompt retires the heuristic. Nothing in the byte-processing loop has to know about
-	/// <see cref="TelnetProtocolPluginBase.IsEnabled"/> this way: an already-enqueued sentinel finds
-	/// the handler null and leaves the line buffer alone, rather than draining it for a report a
-	/// disabled plugin should not be making. See <c>TelnetStandardInterpreter.ProcessBytesAsync</c>'s
-	/// handling of the sentinel.
+	/// Disarming and unregistering both handlers is what stops a disabled plugin from still
+	/// reporting -- an already-enqueued sentinel then finds the handler null and leaves the buffer
+	/// alone.
 	/// <para>
-	/// Resetting <see cref="_armDeadline"/> here is not optional. A plain disable is covered even
-	/// without it -- the loop's null check on the unregistered handler catches an already-enqueued
-	/// sentinel regardless -- but <see cref="ProtocolPluginManager.EnablePluginAsync{T}"/> is public,
-	/// and <see cref="OnProtocolEnabledAsync"/> re-registers both handlers without touching the timer
-	/// or this field. Left unreset, a callback dispatched before disable and still not yet run would,
-	/// after a re-enable, read a deadline that is now in the past, pass <see cref="OnTimerElapsed"/>'s
-	/// guard, and enqueue a sentinel the freshly re-registered handler honours -- the exact
-	/// contamination the deadline exists to prevent, reached through a disable/enable pair instead of
-	/// a bare re-arm.
+	/// Resetting <see cref="_armDeadline"/> is required: <see cref="ProtocolPluginManager.EnablePluginAsync{T}"/>
+	/// is public, and <see cref="OnProtocolEnabledAsync"/> re-registers the handlers without
+	/// touching this field. Left unreset, a callback dispatched before disable could pass
+	/// <see cref="OnTimerElapsed"/>'s guard after a re-enable and enqueue a sentinel the freshly
+	/// re-registered handler honours.
 	/// </para>
 	/// </remarks>
 	protected override ValueTask OnProtocolDisabledAsync()
@@ -272,7 +231,7 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 		{
 			Interlocked.Exchange(ref _armDeadline, long.MaxValue);
 			_timer.Change(Timeout.Infinite, Timeout.Infinite);
-			Context.Interpreter.SetByteStreamIdleHandler(null);
+			Context.Interpreter.SetByteProcessedHandler(null);
 			Context.Interpreter.SetInferredPromptHandler(null);
 		}
 
@@ -281,10 +240,10 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 
 	/// <inheritdoc />
 	/// <remarks>
-	/// The mirror image of <see cref="OnProtocolDisabledAsync"/>: re-registers both handlers, same as
-	/// <see cref="OnInitializeAsync"/> originally did, unless server mode or an already-latched
-	/// <see cref="Interpreters.TelnetInterpreter.HasSeenMarkedPrompt"/> means they should stay
-	/// unregistered.
+	/// Mirrors <see cref="OnProtocolDisabledAsync"/>, unless server mode or an already-latched
+	/// <see cref="Interpreters.TelnetInterpreter.HasSeenMarkedPrompt"/> means the handlers should
+	/// stay unregistered. Also re-evaluates the arm immediately, so a fragment held across the
+	/// disable is reported rather than left waiting for the next byte to trigger a check on its own.
 	/// </remarks>
 	protected override ValueTask OnProtocolEnabledAsync()
 	{
@@ -292,30 +251,43 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 			&& Context.Mode != Interpreters.TelnetInterpreter.TelnetMode.Server
 			&& !Context.Interpreter.HasSeenMarkedPrompt)
 		{
-			Context.Interpreter.SetByteStreamIdleHandler(OnByteStreamIdleAsync);
+			Context.Interpreter.SetByteProcessedHandler(OnByteProcessedAsync);
 			Context.Interpreter.SetInferredPromptHandler(FireInferredPromptCallbackAsync);
+			return OnByteProcessedAsync(idle: true);
 		}
 
 		return default;
 	}
 
-	private ValueTask OnByteStreamIdleAsync()
+	/// <summary>
+	/// Called after every byte the byte-processing loop fires, with <paramref name="idle"/> true
+	/// when the channel is empty at that exact instant. See the type remarks, "Arm and disarm are
+	/// byte-driven".
+	/// </summary>
+	private ValueTask OnByteProcessedAsync(bool idle)
 	{
 		if (Context.Interpreter.HasSeenMarkedPrompt)
 		{
 			Interlocked.Exchange(ref _armDeadline, long.MaxValue);
 			_timer.Change(Timeout.Infinite, Timeout.Infinite);
-			Context.Interpreter.SetByteStreamIdleHandler(null);
+			Context.Interpreter.SetByteProcessedHandler(null);
 			Context.Interpreter.SetInferredPromptHandler(null);
 			return default;
 		}
 
-		// Restart, not start: a fragment arriving in two TCP segments is one fragment, and the clock
-		// runs from the last byte rather than the first. The deadline is recorded before the timer is
-		// (re)armed, and under a lock-free Exchange rather than a plain write, so OnTimerElapsed can
-		// never observe a due time that has moved without also observing the deadline that goes with
-		// it -- see _armDeadline's own remarks and the type remarks, "A queued callback is not a
-		// cancelled one".
+		if (!idle)
+		{
+			// Skipped when already disarmed, so a sustained burst costs one Exchange/Change total.
+			if (Interlocked.Read(ref _armDeadline) != long.MaxValue)
+			{
+				Interlocked.Exchange(ref _armDeadline, long.MaxValue);
+				_timer.Change(Timeout.Infinite, Timeout.Infinite);
+			}
+
+			return default;
+		}
+
+		// Restart, not start: the clock runs from the last byte, not the first.
 		var hasPartialLine = Context.Interpreter.HasPartialLine;
 		Interlocked.Exchange(ref _armDeadline,
 			hasPartialLine
@@ -326,19 +298,14 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <summary>
-	/// The <see cref="Timer"/> callback. Does no buffer work of its own -- see the type remarks on why
-	/// that must run on the byte-processing loop instead -- so all it does is ask that loop to do it,
-	/// by enqueueing the sentinel it watches for -- and only once it has confirmed, against
-	/// <see cref="_armDeadline"/>, that it is not a stale callback the runtime queued under an arm a
-	/// later re-arm has since superseded. See the type remarks, "A queued callback is not a cancelled
-	/// one", and <see cref="ToleranceTicks"/> for why the comparison is not a strict less-than.
+	/// The <see cref="Timer"/> callback. Enqueues the sentinel the loop watches for, once
+	/// <see cref="_armDeadline"/> confirms this is not a stale callback from a superseded arm.
 	/// </summary>
 	/// <remarks>
-	/// Internal rather than private for exactly one reason: nothing can make the thread pool actually
-	/// stall a queued callback on demand, so a test proving a stale fire drops itself has to invoke
-	/// this directly -- immediately after a re-arm, before the real due time -- instead of trying to
-	/// reproduce the race with a genuine <see cref="Timer"/>. Not part of the public API; reachable
-	/// from the test assembly only, via this project's <c>InternalsVisibleTo</c>.
+	/// Internal, not private, so a test can invoke it directly; reachable only from the test
+	/// assembly, via this project's <c>InternalsVisibleTo</c>. <see cref="ToleranceTicks"/> covers
+	/// clock skew between the deadline's <see cref="Stopwatch"/> sample and the timer engine's own
+	/// clock.
 	/// </remarks>
 	internal void OnTimerElapsed(object? state)
 	{
@@ -355,10 +322,8 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <summary>
-	/// Invoked by the byte-processing loop, on the loop itself, once it has already taken the partial
-	/// line for an inferred prompt. See <c>TelnetStandardInterpreter.ProcessBytesAsync</c>'s handling
-	/// of the sentinel <see cref="OnTimerElapsed"/> enqueues, which calls this only when there was
-	/// something to report.
+	/// Invoked on the byte-processing loop once it has taken the partial line for an inferred
+	/// prompt.
 	/// </summary>
 	private ValueTask FireInferredPromptCallbackAsync()
 	{

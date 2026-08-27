@@ -4,83 +4,43 @@ All notable changes to this project will be documented in this file.
 ## [2.12.0]
 
 ### Fixed
-- **A prompt's text was left in the line buffer and prepended to the next line submitted.** Both
-  prompt paths — `EORProtocol.OnPromptAsync` on `IAC EOR` and `SuppressGoAheadProtocol.OnGoAheadAsync`
-  on `IAC GA` — invoked the consumer's callback and returned, leaving the accumulated partial line
-  where it stood. The next `CRLF` then submitted those bytes as the head of a line they were never
-  part of: a server sending `HP:100>` `IAC GA` `You wave.CRLF` produced one line reading
-  `HP:100>You wave.`, with the prompt missing from where it belonged and corrupting where it landed.
-  A new prompt-boundary seam on the interpreter — `TelnetInterpreter.TakePartialLineAsPrompt`, public
-  alongside its `HasPartialLine` and `HasSeenMarkedPrompt` — takes the partial line at the boundary,
-  resets the line encoding and overflow flag exactly as an ordinary submission does, and clears it;
-  both markers now route through it before invoking their callback. The text is not lost: it lands on
-  `TelnetInterpreter.LastPromptBytes`, for the consumer that does not accumulate bytes itself. A
-  plugin reaches all three the same way it reaches everything else the interpreter offers beyond
-  `IProtocolContext`'s own surface — through `IProtocolContext.Interpreter` — so no existing
-  implementation of `IProtocolContext` needs a single change for this.
-  - The interpreter's inbound byte channel changed element type, from `Channel<byte>` to
-    `Channel<short>` carrying a negative sentinel alongside ordinary bytes, so that a prompt inferred
-    from silence (see `PacketPatchProtocol`, below) is raised from the byte-processing loop rather
-    than from a timer thread. This is internal, not part of the public surface, but it is the reason
-    all three prompt sources — `IAC GA`, `IAC EOR`, and the new silence-inferred prompt — now
-    guarantee their callback runs on the same thread: a handler shared across them, such as through
-    `AddDefaultMUDProtocols`'s single `onPrompt` parameter, needs no synchronization of its own on
-    that account.
-- **A client refused a server's offer to stop sending Go-Ahead, which RFC 1123 forbids it from
-  refusing.** `OnWillSuppressGAAsync` answered a server's `WILL SUPPRESS-GO-AHEAD` with `DO`
-  unconditionally; an earlier revision of this work made it answer `DONT`, on the strength of RFC 858
-  §3's stated default. Both were wrong, in opposite directions, and the second was worse. RFC 1123
-  (STD 3) §3.2.2 updates RFC 854 and 858 for Internet hosts: "A User or Server Telnet MUST always
-  accept negotiation of the Suppress Go Ahead option", and its DISCUSSION states the intent outright
-  — "The effect of the rules in this section is to allow either end of a Telnet connection to veto
-  the use of GA commands." RFC 858 §3 states the *default*; it does not authorise a client to refuse.
-  A client now accepts, which is both compliant and what the library did before this branch.
-  `SuppressGoAheadProtocol.RefuseSuppression()` is the opt-out for a consumer whose game pairs SGA
-  with GA-marked prompts, and its documentation says plainly that taking it violates an RFC 1123
-  MUST. Losing GA to a server's veto is no longer losing the prompt: `PacketPatchProtocol` is the
-  fallback.
+- **A prompt's text was left in the line buffer and prepended to the next line submitted.**
+  `EORProtocol` and `SuppressGoAheadProtocol` invoked the consumer's prompt callback without
+  draining the accumulated partial line, so the next `CRLF` submitted it as the head of a line it
+  was never part of. `TelnetInterpreter.TakePartialLineAsPrompt` (public, alongside `HasPartialLine`
+  and `HasSeenMarkedPrompt`) now takes the partial line at the boundary and clears it before either
+  marker invokes its callback. The text is not lost: it lands on `TelnetInterpreter.LastPromptBytes`.
+  Reached through `IProtocolContext.Interpreter`, so no external `IProtocolContext` implementation
+  needs to change.
+- **A client refused a server's offer to stop sending Go-Ahead, which RFC 1123 §3.2.2 forbids.** A
+  client now accepts `WILL SUPPRESS-GO-AHEAD` unconditionally. Losing GA to a server's veto no
+  longer loses the prompt: `PacketPatchProtocol` is the fallback.
 - **A client answered an inbound `DO SUPPRESS-GO-AHEAD` with `WONT`, refusing the same option in the
-  other direction.** The client branch of `SuppressGoAheadProtocol` configured only the server's
-  `WILL`/`WONT`, so `TelnetSafeInterpreter`'s generic sweep answered for it — `IAC WONT
-  SUPPRESS-GO-AHEAD`, a refusal, where RFC 1123 §3.2.2 requires acceptance in this direction too, and
-  RFC 858 §5 requires the two directions be negotiated independently. The client branch now handles
-  `DO`/`DONT` itself, tracking its own outbound suppression separately from the peer's so the two are
-  never conflated, and honours both halves of RFC 854 §3(b): a request for a change of mode is always
-  answered, and a request to enter the mode already in force is not acknowledged. A client that
-  suppresses its own Go-Ahead still treats an inbound `IAC GA` as a prompt, because that is the
-  peer's direction and a separate fact.
-- **A client that had just promised `WILL SUPPRESS-GO-AHEAD` sent `IAC GA` at the end of its own
-  prompts anyway.** `TelnetEORInterpreter.PromptTerminator`, which decides what `SendPromptAsync`
-  ends a prompt with, gated the choice on `IsGoAheadSuppressed` — the field that in server mode
-  tracks this end's own outbound suppression, but in client mode tracks the *peer's* direction
-  instead, per the fix above. A client answering an inbound `DO SUPPRESS-GO-AHEAD` with `WILL` kept
-  emitting `IAC GA`, because `IsGoAheadSuppressed` never became true for that direction in client
-  mode. A new `SuppressesOutboundGoAhead` property reads whichever field is mode-correct for this
-  end's own direction — `IsGoAheadSuppressed` itself is untouched, since `OnGoAheadAsync`'s NOP check
-  genuinely wants the peer's direction — and `PromptTerminator` now reads it instead.
+  other direction.** The client branch now handles `DO`/`DONT` itself, tracking its own outbound
+  suppression separately from the peer's (RFC 858 §5), and honours RFC 854 §3(b): a change of mode
+  is always answered, a request to enter the mode already in force is not.
+- **A client that had agreed to suppress its own Go-Ahead sent `IAC GA` at the end of its prompts
+  anyway.** `PromptTerminator` read the field that tracks the peer's direction, not this end's own.
+  A new `SuppressGoAheadProtocol.SuppressesOutboundGoAhead` reads the mode-correct direction.
+- **A burst of ordinary output arriving while a silence-inferred prompt was still held could report
+  a phantom prompt mid-burst and truncate the line it interrupted.** `PacketPatchProtocol`'s
+  hold-time arm/disarm was idle-driven: an arm placed before a sustained burst survived the whole
+  burst, because the channel never emptied out while more was still arriving, so a stale timer fire
+  could enqueue its report behind a backlog and drain whatever partial line was standing once it was
+  finally read. Arm and disarm are now byte-driven -- every byte disarms, and only a genuinely idle
+  byte may re-arm, fresh from the buffer's state at that instant.
 
 ### Added
 - **`PacketPatchProtocol`, for the servers that mark a prompt with nothing at all.** RFC 854 gives a
-  server `IAC GA` and RFC 885 gives it `IAC EOR`; measured on 2026-08-26, starwars.d20mud.com and
-  tdome.nukefire.org each complete a thirty-odd exchange handshake, offer neither option, ignore an
-  unsolicited `IAC DO EOR` outright, and end their login screen with a bare unterminated fragment
-  that no marker follows. Held against the line buffer, that fragment surfaced only when the next
-  newline arrived, glued to the head of a line it was never part of. The plugin holds it instead, and
-  calls it a prompt after `HoldTime` of silence — 500 ms by default, settable 0–10 s, rejected rather
-  than clamped outside that range. Registering the plugin is its whole opt-in; it carries no
-  `WILL`/`DO` exchange, and it refuses to arm at all in server mode. It is included in
-  `AddDefaultMUDProtocols`, which gains an appended, defaulted `packetPatchHoldTime` parameter.
-  The first genuine `IAC GA` or `IAC EOR` on a connection retires it permanently — a server that
-  marks its prompts is never second-guessed — and disabling it at runtime through
-  `ProtocolPluginManager.DisablePluginAsync<PacketPatchProtocol>()` disarms its timer and stops it
-  from reporting immediately, rather than leaving an already-armed timer free to fire once more after
-  the plugin was told to stop. Mudlet's posting timer and TinTin++'s `#config {PACKET PATCH}` are the
-  same mechanism; the latter's name is the honest one, since what is being patched is TCP
-  fragmentation and a prompt is the case where the fragment was the end of the server's turn.
-  Re-arming the hold timer cannot cancel a fire the runtime has already queued to the thread pool, so
-  a stale callback checks its own timestamp against the current arm's deadline before enqueueing
-  anything, and drops itself rather than reporting a prompt contaminated with bytes that arrived after
-  it was scheduled.
+  server `IAC GA` and RFC 885 gives it `IAC EOR`; many MUD servers offer neither and end a prompt
+  with a bare unterminated fragment. The plugin holds it and calls it a prompt after `HoldTime` of
+  silence — 500 ms by default, settable 0–10 s, rejected rather than clamped outside that range.
+  Registering the plugin is its whole opt-in; it never arms in server mode. `AddDefaultMUDProtocols`
+  adds it only when given an `onPrompt` callback (a consumer who never asked for prompts should not
+  lose a held fragment to a guess), and gains an appended, defaulted `packetPatchHoldTime` parameter.
+  The first genuine `IAC GA` or `IAC EOR` on a connection retires it permanently, and disabling it at
+  runtime through `ProtocolPluginManager.DisablePluginAsync<PacketPatchProtocol>()` disarms it
+  rather than leaving an already-armed timer free to fire once more.
 
 ## [2.11.0]
 

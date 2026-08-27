@@ -23,17 +23,18 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     private static readonly byte[] s_willSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD };
     private static readonly byte[] s_wontSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.SUPPRESSGOAHEAD };
     private static readonly byte[] s_doSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD };
-    private static readonly byte[] s_dontSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD };
 
-    // The peer's SUPPRESS-GO-AHEAD state. See the remarks on the State.GoAhead configuration below
-    // for why this is the peer's direction only, and never the direction this end suppresses.
+    // Cached from ConfigureStateMachine's context parameter (which always runs before
+    // InitializeAsync) so SuppressesOutboundGoAhead below can answer without Context throwing for a
+    // plugin that was configured but never fully initialized.
+    private Interpreters.TelnetInterpreter.TelnetMode? _mode;
+
+    // The peer's SUPPRESS-GO-AHEAD state -- never this end's own direction; see State.GoAhead below.
     private bool? _doGA = true;
 
-    // This end's own SUPPRESS-GO-AHEAD state -- client mode only, set from State.Do/State.Dont in
-    // ConfigureStateMachine's client branch. RFC 858 §5 requires the two directions be negotiated
-    // independently, so this cannot reuse _doGA above. Starts false, RFC 858 §3's default ("GO
-    // AHEAD is transmitted"), so an opening DONT SUPPRESS-GO-AHEAD finds us already in that mode
-    // and is correctly silent under RFC 854 §3(b).
+    // This end's own SUPPRESS-GO-AHEAD state, client mode only. RFC 858 §5 requires the two
+    // directions negotiated independently, so this cannot reuse _doGA. Starts false (RFC 858 §3's
+    // default), so an opening DONT SUPPRESS-GO-AHEAD is silently absorbed per RFC 854 §3(b).
     private bool _ownGoAheadSuppressed;
 
     private Func<ValueTask>? _onPromptReceived;
@@ -43,46 +44,14 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     /// </summary>
     /// <remarks>
     /// Runs on the byte-processing loop — the same thread EOR's and Packet Patch's prompt callbacks
-    /// run on, so a handler shared across all three (as <c>AddDefaultMUDProtocols</c> does by
-    /// default) needs no thread-safety of its own on that account.
+    /// run on, so a handler shared across all three (as <c>AddDefaultMUDProtocols</c> does when
+    /// given one) needs no thread-safety of its own on that account.
     /// </remarks>
     /// <param name="callback">The callback to handle prompts</param>
     /// <returns>This instance for fluent chaining</returns>
     public SuppressGoAheadProtocol OnPrompt(Func<ValueTask>? callback)
     {
         _onPromptReceived = callback;
-        return this;
-    }
-
-    /// <summary>
-    /// Whether this client refuses a server's offer to stop sending Go-Ahead. False by default.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Setting this true makes this client violate RFC 1123 §3.2.2, which updates RFC 854/858 for
-    /// Internet hosts: "A User or Server Telnet MUST always accept negotiation of the Suppress Go
-    /// Ahead option." Accepting is therefore the default; this switch exists to opt out of a MUST,
-    /// not to tune a preference.
-    /// </para>
-    /// <para>
-    /// The reason to opt out anyway: a MUD client whose game pairs SUPPRESS-GO-AHEAD with GA-marked
-    /// prompts loses its only prompt boundary the moment it agrees. RFC 1123 forbids this client
-    /// from vetoing the option, but does not require the game to honour a refusal either -- a server
-    /// is free to negotiate SGA over this client's <c>DONT</c> regardless. So this switch is for the
-    /// case where the game does back off, at the cost of standing outside the MUST while it is set.
-    /// </para>
-    /// </remarks>
-    public bool RefusesSuppression { get; private set; }
-
-    /// <summary>
-    /// Sets whether a server's <c>WILL SUPPRESS-GO-AHEAD</c> is refused (<c>DONT</c>) instead of
-    /// accepted (<c>DO</c>, the RFC 1123 §3.2.2-compliant default). See <see cref="RefusesSuppression"/>.
-    /// </summary>
-    /// <param name="refuse">True (the default when called) to refuse suppression; false to accept it</param>
-    /// <returns>This instance for fluent chaining</returns>
-    public SuppressGoAheadProtocol RefuseSuppression(bool refuse = true)
-    {
-        RefusesSuppression = refuse;
         return this;
     }
 
@@ -103,16 +72,14 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     /// end with <c>IAC GA</c>.
     /// </summary>
     /// <remarks>
-    /// Mode-correct, unlike reading <c>_doGA</c> or <see cref="OwnGoAheadSuppressed"/> directly:
-    /// <c>_doGA</c> is mode-dependent (see its declaration) -- in server mode a peer's <c>DO</c> is a
-    /// request that <em>we</em> suppress, so <c>_doGA</c> already tracks our own direction there; in
-    /// client mode <c>_doGA</c> tracks the <em>peer's</em> direction instead, so this reads
-    /// <see cref="OwnGoAheadSuppressed"/> there, which client mode alone maintains. Do not substitute
-    /// <see cref="IsGoAheadSuppressed"/> here -- it answers a different question, whether an
-    /// <em>inbound</em> GA still means a prompt, which in client mode is the peer's direction too.
+    /// Not <c>_doGA</c> or <see cref="OwnGoAheadSuppressed"/> directly: <c>_doGA</c> tracks this
+    /// end's own direction in server mode but the peer's in client mode, where
+    /// <see cref="OwnGoAheadSuppressed"/> is the field that actually tracks this end. Not
+    /// <see cref="IsGoAheadSuppressed"/> either -- that answers whether an inbound GA still means a
+    /// prompt, the peer's direction, not this one.
     /// </remarks>
     public bool SuppressesOutboundGoAhead =>
-        Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+        _mode == Interpreters.TelnetInterpreter.TelnetMode.Server
             ? _doGA == false
             : _ownGoAheadSuppressed;
 
@@ -130,6 +97,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     /// <inheritdoc />
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
+        _mode = context.Mode;
         context.Logger.LogInformation("Configuring Suppress Go-Ahead state machine");
         
         // Register SuppressGA protocol handlers with the context
@@ -162,12 +130,10 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
             stateMachine.Configure(State.Refusing)
                 .Permit(Trigger.SUPPRESSGOAHEAD, State.WontSUPPRESSGOAHEAD);
 
-            // The other direction: a server asking *us* to suppress our own outbound Go-Ahead.
-            // RFC 854 §3(b) requires a response to a change of mode, even one that changes nothing
-            // about what this client actually transmits, and RFC 858 §5 requires the two directions
-            // be negotiated independently -- so this reuses the server branch's DoSUPPRESSGOAHEAD /
-            // DontSUPPRESSGOAHEAD states rather than adding near-duplicates; only one branch of this
-            // `if` ever configures a given interpreter instance, so there is no clash.
+            // The other direction: a server asking us to suppress our own outbound Go-Ahead.
+            // RFC 858 §5 requires the two directions negotiated independently. Reuses the server
+            // branch's DoSUPPRESSGOAHEAD/DontSUPPRESSGOAHEAD states rather than duplicating them --
+            // only one branch of this `if` ever configures a given interpreter instance.
             stateMachine.Configure(State.Do)
                 .Permit(Trigger.SUPPRESSGOAHEAD, State.DoSUPPRESSGOAHEAD);
 
@@ -273,21 +239,6 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
         return default(ValueTask);
     }
 
-    /// <summary>
-    /// Called by the interpreter when a prompt is signaled.
-    /// Internal method that invokes the callback.
-    /// </summary>
-    internal async ValueTask OnPromptAsync()
-    {
-        if (!IsEnabled)
-            return;
-
-        Context.Logger.LogDebug("Server is prompting with Suppress Go-Ahead");
-        
-        if (_onPromptReceived != null)
-            await _onPromptReceived().ConfigureAwait(false);
-    }
-
     #region State Machine Handlers
 
     /// <summary>
@@ -311,10 +262,10 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     /// nothing by being told twice.
     /// </para>
     /// <para>
-    /// This deliberately does not go through <see cref="OnPromptAsync"/>. That method's
-    /// <see cref="TelnetProtocolPluginBase.IsEnabled"/> guard is about plugin lifetime — it is true
-    /// from initialisation onwards for every registered plugin — so it is not the negotiated state
-    /// and would answer nothing here.
+    /// Reports directly through <see cref="_onPromptReceived"/> rather than through a shared
+    /// intermediary gated on <see cref="TelnetProtocolPluginBase.IsEnabled"/> — that flag is about
+    /// plugin lifetime, true from initialisation onwards for every registered plugin, and is not the
+    /// negotiated state this handler actually needs to answer to.
     /// </para>
     /// </remarks>
     private async ValueTask OnGoAheadAsync(IProtocolContext context)
@@ -363,17 +314,9 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 
     private async ValueTask OnWillSuppressGAAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
-        if (RefusesSuppression)
-        {
-            context.Logger.LogDebug(
-                "Server offered SUPPRESS-GO-AHEAD; refusing by request, though RFC 1123 §3.2.2 requires accepting it.");
-            _doGA = true;
-            await OnNegotiatedAsync(false);
-            await context.SendNegotiationAsync(s_dontSga);
-            return;
-        }
-
-        context.Logger.LogDebug("Server supports Suppress Go-Ahead (accepting, per RFC 1123 §3.2.2).");
+        // RFC 1123 §3.2.2: "A User or Server Telnet MUST always accept negotiation of the Suppress
+        // Go Ahead option."
+        context.Logger.LogDebug("Server supports Suppress Go-Ahead.");
         _doGA = false;
         await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doSga);
@@ -384,13 +327,8 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     /// SUPPRESS-GO-AHEAD</c>, client mode).
     /// </summary>
     /// <remarks>
-    /// RFC 854 §3(b): a request for a mode already in effect must not be acknowledged, to prevent
-    /// negotiation loops -- hence the early return when <see cref="_ownGoAheadSuppressed"/> is
-    /// already true. Otherwise this answers <c>WILL</c>, which RFC 1123 §3.2.2 requires here just as
-    /// it does for the server's own offer, and the promise is kept, not moot: setting
-    /// <see cref="_ownGoAheadSuppressed"/> is what <see cref="SuppressesOutboundGoAhead"/> reads, and
-    /// <c>TelnetInterpreter.PromptTerminator</c> consults that before ever putting <c>IAC GA</c> on an
-    /// outbound prompt.
+    /// RFC 854 §3(b): a request for a mode already in effect must not be acknowledged. RFC 1123
+    /// §3.2.2 requires accepting, so this answers <c>WILL</c> on a genuine change.
     /// </remarks>
     private async ValueTask OnDoOwnSuppressGAAsync(IProtocolContext context)
     {
@@ -409,15 +347,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     /// The server asked this client to resume sending Go-Ahead (<c>IAC DONT SUPPRESS-GO-AHEAD</c>,
     /// client mode).
     /// </summary>
-    /// <remarks>
-    /// Same loop-prevention rule as <see cref="OnDoOwnSuppressGAAsync"/>, and RFC 854's "a party ...
-    /// must never refuse a request to disable some option" means the answering <c>WONT</c> is always
-    /// sent on a genuine change. Clearing <see cref="_ownGoAheadSuppressed"/> is what lets
-    /// <see cref="SuppressesOutboundGoAhead"/> go false again, so a prompt sent afterwards may end
-    /// with <c>IAC GA</c> once more -- "may", because RFC 854 permits a party to never actually send
-    /// one ("GAs may be sent at any time, but need not ever be sent"); this library will, once nothing
-    /// else suppresses it.
-    /// </remarks>
+    /// <remarks>Same loop-prevention rule as <see cref="OnDoOwnSuppressGAAsync"/>.</remarks>
     private async ValueTask OnDontOwnSuppressGAAsync(IProtocolContext context)
     {
         if (!_ownGoAheadSuppressed)

@@ -1,45 +1,44 @@
 using System;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace TelnetNegotiationCore.Interpreters;
 
 public partial class TelnetInterpreter
 {
-	/// <summary>The registered idle handler, or null. See <see cref="SetByteStreamIdleHandler"/>.</summary>
-	private Func<ValueTask>? _onByteStreamIdle;
+	/// <summary>
+	/// The registered byte-processed handler, or null. See <see cref="SetByteProcessedHandler"/>.
+	/// <see langword="volatile"/>: registration can run on a different thread (a plugin's
+	/// disable/enable) than the byte-processing loop that reads this on every byte fired.
+	/// </summary>
+	private volatile Func<bool, ValueTask>? _onByteProcessed;
 
-	/// <summary>The registered inferred-prompt handler, or null. See <see cref="SetInferredPromptHandler"/>.</summary>
-	private Func<ValueTask>? _onInferredPrompt;
+	/// <summary>
+	/// The registered inferred-prompt handler, or null. See <see cref="SetInferredPromptHandler"/>.
+	/// <see langword="volatile"/> for the same reason as <see cref="_onByteProcessed"/>.
+	/// </summary>
+	private volatile Func<ValueTask>? _onInferredPrompt;
 
 	/// <summary>
 	/// The text of the most recent prompt: the partial line that was standing when a prompt boundary
 	/// occurred, in the order the bytes arrived and undecoded.
 	/// </summary>
 	/// <remarks>
-	/// The prompt callback carries no payload — it is a <c>Func&lt;ValueTask&gt;</c> and has been since
-	/// the callback existed — because a consumer that wants the text usually already has it: the
-	/// obvious way to hold a partial line is <see cref="CallbackOnByteAsync"/>, which is what
-	/// SharpMUTerm does. This property is for the consumer that does not, so that draining the line
-	/// buffer at a boundary does not put the text out of everyone's reach.
+	/// The prompt callback carries no payload, because a consumer that wants the text usually
+	/// already has it via <see cref="CallbackOnByteAsync"/>. This property is for the consumer that
+	/// does not.
 	/// <para>
-	/// Set only from the byte-processing loop. <see cref="TakePartialLineAsPrompt"/>'s only callers are
-	/// a marked prompt's state-machine entry handler (<c>EORProtocol</c>, <c>SuppressGoAheadProtocol</c>)
-	/// and this loop's own handling of <c>InferredPromptSentinel</c>
-	/// (<see cref="Protocols.PacketPatchProtocol"/>'s silence-inferred prompt) — both run on the loop,
-	/// and so does every registered prompt callback in turn, EOR, Suppress Go-Ahead and Packet Patch
-	/// alike. Reading this from inside any of those callbacks is safe. A reader on any other thread has
-	/// no synchronization against a concurrent write and may observe a torn value.
+	/// Set only from the byte-processing loop, so reading it from inside the prompt callback (EOR,
+	/// Suppress Go-Ahead or Packet Patch alike) is safe. A reader on any other thread has no
+	/// synchronization against a concurrent write and may observe a torn value.
 	/// </para>
 	/// </remarks>
 	public ReadOnlyMemory<byte> LastPromptBytes { get; private set; }
 
 	/// <summary>True once a genuine <c>IAC GA</c> or <c>IAC EOR</c> prompt has fired on this connection.</summary>
 	/// <remarks>
-	/// The latch <see cref="Protocols.PacketPatchProtocol"/> reads. A server that marks its prompts is
-	/// not a server whose prompts need guessing at, and the guess is worse than the marker wherever
-	/// both are available — so the first marked prompt retires the heuristic for the rest of the
-	/// connection. Mudlet's <c>mGA_Driver</c> and TinTin++'s <c>TELOPT_FLAG_PROMPT</c> are the same
-	/// latch under different names.
+	/// The latch <see cref="Protocols.PacketPatchProtocol"/> reads: the first marked prompt retires
+	/// its silence-inferred heuristic for the rest of the connection.
 	/// </remarks>
 	public bool HasSeenMarkedPrompt { get; private set; }
 
@@ -47,66 +46,41 @@ public partial class TelnetInterpreter
 	public bool HasPartialLine => _bufferPosition > 0;
 
 	/// <summary>
-	/// Hands the standing partial line to <see cref="LastPromptBytes"/> and clears it, because a prompt
-	/// boundary has just delivered those bytes.
+	/// Hands the standing partial line to <see cref="LastPromptBytes"/> and clears it.
 	/// </summary>
 	/// <remarks>
-	/// <b>Clearing is the point.</b> Before this existed, a prompt fired and the bytes stayed in the
-	/// line buffer, so the next <c>CRLF</c> submitted them as the head of a line they were never part
-	/// of: a server sending <c>HP:100&gt;</c> <c>IAC GA</c> then <c>You wave.CRLF</c> produced one
-	/// line reading <c>HP:100&gt;You wave.</c> — the prompt gone from where it belonged and corrupting
-	/// where it landed. See PromptBoundaryTests.
+	/// Also resets <c>_lineEncoding</c> and <c>_bufferOverflowed</c>, exactly as <c>WriteToOutput</c>
+	/// does for an ordinary line, so neither survives to taint the next one. If the line had already
+	/// overflowed, the reported text is truncated to what was stored before the ceiling, and this
+	/// logs a warning rather than staying silent about the truncation.
 	/// <para>
-	/// A boundary closes the line the same way <see cref="WriteToOutput"/> does, and for the same
-	/// reason: after this call no line is open, so nothing pinned or flagged about the drained bytes
-	/// may survive to be read against whatever the next line turns out to be. <c>_lineEncoding</c> is
-	/// cleared so the next line picks up <see cref="CurrentEncoding"/> as it stands when that line
-	/// actually starts, not whatever was pinned when the prompt's bytes arrived — otherwise a CHARSET
-	/// change that lands between the prompt and the next line is silently ignored and that line is
-	/// delivered tagged with the wrong encoding. <c>_bufferOverflowed</c> is cleared so a line that
-	/// overflowed before its boundary arrived does not make the connection drop the next, unrelated,
-	/// ordinary-length line too.
-	/// </para>
-	/// <para>
-	/// <b>Call this only from the byte-processing loop.</b> It is unsynchronized, on purpose: the
-	/// line buffer has exactly one writer as long as every caller honours that, which every caller
-	/// inside this library does — a marked boundary from within a state-machine entry handler (itself
-	/// invoked from the loop), and a silence-inferred boundary from the loop's own handling of
-	/// <c>TelnetStandardInterpreter.InferredPromptSentinel</c>. <see cref="Protocols.PacketPatchProtocol"/>'s
-	/// timer thread is deliberately not among them — that timer only enqueues the sentinel
-	/// (<see cref="TryEnqueueInferredPrompt"/>) and never calls this directly, for the same reason an
-	/// external caller must not: calling it from any other thread races the loop's own writes to the
-	/// same state this method mutates (<c>_bufferPosition</c>, <c>_lineEncoding</c>,
-	/// <c>_bufferOverflowed</c>, and, via <see cref="ReleaseLineBufferIfLarge"/>, <c>_buffer</c>
-	/// itself going null) — lost bytes at best, the loop dereferencing a buffer out from under itself
-	/// at worst.
-	/// </para>
-	/// <para>
-	/// <b>The false-positive case.</b> A silence-inferred call can lose a race it does not know it is
-	/// in: the timer's sentinel and a genuine marker can both be in flight for the same fragment, and
-	/// whichever byte the loop happens to process first wins. If the marker wins first, the buffer is
-	/// already empty by the time the sentinel is processed. Returning <see langword="false"/> for that
-	/// case — an unmarked call finding nothing held — is what stops it from being reported as a second,
-	/// spurious prompt for a fragment the marker already delivered; see the caller in
-	/// <c>TelnetStandardInterpreter.ProcessBytesAsync</c>. A marked call is never speculative in this
-	/// way and always reports: a bare <c>IAC GA</c> with nothing buffered is a legitimately empty
-	/// prompt, and callers such as <c>SuppressGoAheadProtocol.OnGoAheadAsync</c> rely on that.
+	/// <b>Call this only from the byte-processing loop.</b> It is unsynchronized: the line buffer
+	/// has exactly one writer as long as every caller honours that. Calling it from any other thread
+	/// races the loop's own writes to <c>_bufferPosition</c>, <c>_lineEncoding</c>,
+	/// <c>_bufferOverflowed</c> and, via <c>ReleaseLineBufferIfLarge</c>, <c>_buffer</c> itself going
+	/// null.
 	/// </para>
 	/// </remarks>
 	/// <param name="marked">
-	/// True when a server marker (<c>IAC GA</c>, <c>IAC EOR</c>) caused this boundary; false when it
-	/// was inferred from silence. Only a marked boundary sets <see cref="HasSeenMarkedPrompt"/>.
+	/// True for a server marker (<c>IAC GA</c>, <c>IAC EOR</c>); false when inferred from silence.
+	/// Only a marked boundary sets <see cref="HasSeenMarkedPrompt"/>.
 	/// </param>
 	/// <returns>
-	/// True if a prompt should be reported: always for <paramref name="marked"/>, or for an unmarked
-	/// call that actually found a held fragment. False only for an unmarked call against an
-	/// already-empty buffer, which the caller must not report as a prompt.
+	/// True if a prompt should be reported. Always true when <paramref name="marked"/>; for an
+	/// unmarked call, false if nothing was held, in which case the call is a no-op.
 	/// </returns>
 	public bool TakePartialLineAsPrompt(bool marked)
 	{
 		if (_bufferPosition == 0 && !marked)
 		{
 			return false;
+		}
+
+		if (_bufferOverflowed)
+		{
+			_logger.LogWarning(
+				"A prompt boundary arrived on a line that had already overflowed past {MaxBufferSize} bytes; the reported prompt text is truncated to what was stored before the ceiling.",
+				MaxBufferSize);
 		}
 
 		LastPromptBytes = _bufferPosition == 0
@@ -127,26 +101,23 @@ public partial class TelnetInterpreter
 	}
 
 	/// <summary>
-	/// Registers the handler called when the inbound byte stream has gone quiet — every queued byte
-	/// processed, nothing waiting. Pass null to remove it.
+	/// Registers the handler called after every byte the byte-processing loop fires into the state
+	/// machine, with a flag saying whether the channel is empty right now. Pass null to remove it.
 	/// </summary>
 	/// <remarks>
-	/// One delegate rather than a plugin-manager walk, because this is checked on the byte-processing
-	/// loop: a null check and an integer compare per byte is affordable, iterating every registered
-	/// plugin is not. <see cref="Protocols.PacketPatchProtocol"/> is the only caller.
+	/// <see cref="Protocols.PacketPatchProtocol"/> is the only caller. Called on every byte, not
+	/// only idle ones, so a sustained burst cannot hide a stale arm behind unprocessed backlog.
 	/// </remarks>
-	internal void SetByteStreamIdleHandler(Func<ValueTask>? handler) => _onByteStreamIdle = handler;
+	internal void SetByteProcessedHandler(Func<bool, ValueTask>? handler) => _onByteProcessed = handler;
 
 	/// <summary>
-	/// Registers the handler invoked, on the byte-processing loop, after the loop itself has taken an
-	/// inferred prompt's partial line (<see cref="TakePartialLineAsPrompt"/> returned true for an
+	/// Registers the handler invoked, on the byte-processing loop, after the loop itself has taken
+	/// an inferred prompt's partial line (<see cref="TakePartialLineAsPrompt"/> returned true for an
 	/// unmarked call). Pass null to remove it.
 	/// </summary>
 	/// <remarks>
-	/// <see cref="Protocols.PacketPatchProtocol"/> is the only caller: this is the second half of its
-	/// two-part registration alongside <see cref="SetByteStreamIdleHandler"/>, split because the two
-	/// fire at different times for different reasons — one on every idle point to arm or re-arm the
-	/// hold-time timer, this one only once, when a held fragment has actually just been taken.
+	/// <see cref="Protocols.PacketPatchProtocol"/> is the only caller: the second half of its
+	/// two-part registration alongside <see cref="SetByteProcessedHandler"/>.
 	/// </remarks>
 	internal void SetInferredPromptHandler(Func<ValueTask>? handler) => _onInferredPrompt = handler;
 }

@@ -98,12 +98,9 @@ public class PromptBoundaryTests : BaseTest
 				.AddPlugin<SuppressGoAheadProtocol>()
 				.AddPlugin<CharsetProtocol>());
 
-		// The prompt text arrives under the default UTF-8, then the GA boundary fires with
-		// nothing else pending.
 		await InterpretAndWaitAsync(client, Encoding.UTF8.GetBytes("HP:100>"));
 		await InterpretAndWaitAsync(client, new byte[] { (byte)Trigger.IAC, (byte)Trigger.GA });
 
-		// CHARSET moves the connection to Latin-1 between the prompt and the next line.
 		await InterpretAndWaitAsync(client, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
 		await InterpretAndWaitAsync(client, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.CHARSET });
 		var accepted = new List<byte> { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED };
@@ -142,12 +139,10 @@ public class PromptBoundaryTests : BaseTest
 				.OnNegotiation(_ => ValueTask.CompletedTask)
 				.AddPlugin<SuppressGoAheadProtocol>());
 
-		// Past the ceiling before any terminator arrives, then the boundary fires with the
-		// overflow flag still set and nothing else pending.
+		// 20 bytes against an 8-byte MaxBufferSize: past the ceiling before the GA boundary arrives.
 		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes(new string('x', 20)));
 		await InterpretAndWaitAsync(client, new byte[] { (byte)Trigger.IAC, (byte)Trigger.GA });
 
-		// An entirely ordinary short line right behind it must not pay for the line that overflowed.
 		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("hi\r\n"));
 
 		await Assert.That(lines.Count).IsEqualTo(1);

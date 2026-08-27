@@ -614,12 +614,9 @@ public class EORTests : BaseTest
 	}
 
 	/// <summary>
-	/// The client-mode counterpart of <see cref="PromptEndsWithCarriageReturnLineFeedWhenGoAheadIsSuppressed"/>:
-	/// a server's <c>IAC DO SUPPRESS-GO-AHEAD</c> asks this client to suppress its own outbound GA (not the
-	/// server's -- that direction is the server's <c>WILL</c>, which never happens here), this client answers
-	/// <c>WILL</c>, and that promise must be kept by <c>PromptTerminator</c>. Before the fix this read
-	/// <c>IsGoAheadSuppressed</c>, which in client mode tracks the peer's direction and stayed false here, so
-	/// an outbound prompt broke the promise by ending with the very <c>IAC GA</c> just refused.
+	/// The client-mode counterpart of <see cref="PromptEndsWithCarriageReturnLineFeedWhenGoAheadIsSuppressed"/>.
+	/// A server's <c>IAC DO SUPPRESS-GO-AHEAD</c> asks this client to suppress its own outbound GA;
+	/// <c>PromptTerminator</c> must honour that direction, not the peer's.
 	/// </summary>
 	[Test]
 	public async Task PromptEndsWithCarriageReturnLineFeedWhenClientAgreedToSuppressItsOwnGoAhead()
