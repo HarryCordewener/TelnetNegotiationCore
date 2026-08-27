@@ -56,16 +56,10 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     public bool IsGoAheadSuppressed => _peerGoAheadSuppressed;
 
     /// <summary>
-    /// Whether this end has agreed to suppress its own outbound Go-Ahead. Independent of
-    /// <see cref="IsGoAheadSuppressed"/>, which reflects the peer's direction.
-    /// </summary>
-    public bool OwnGoAheadSuppressed => _ownGoAheadSuppressed;
-
-    /// <summary>
-    /// Whether <em>this</em> end currently suppresses its own outbound Go-Ahead -- the direction
+    /// Whether <em>this</em> end has agreed to suppress its own outbound Go-Ahead -- the direction
     /// <c>TelnetInterpreter.PromptTerminator</c> needs when deciding whether an outbound prompt may
-    /// end with <c>IAC GA</c>. Same field as <see cref="OwnGoAheadSuppressed"/>, not
-    /// <see cref="IsGoAheadSuppressed"/>, which is the peer's direction.
+    /// end with <c>IAC GA</c>. Independent of <see cref="IsGoAheadSuppressed"/>, the peer's
+    /// direction.
     /// </summary>
     public bool SuppressesOutboundGoAhead => _ownGoAheadSuppressed;
 

@@ -23,7 +23,7 @@ All notable changes to this project will be documented in this file.
   is always answered, a request to enter the mode already in force is not.
 - **A client that had agreed to suppress its own Go-Ahead sent `IAC GA` at the end of its prompts
   anyway.** `PromptTerminator` read the field that tracks the peer's direction, not this end's own.
-  A new `SuppressGoAheadProtocol.SuppressesOutboundGoAhead` reads the mode-correct direction.
+  A new `SuppressGoAheadProtocol.SuppressesOutboundGoAhead` reads this end's own direction.
 - **A burst of ordinary output arriving while a silence-inferred prompt was still held could report
   a phantom prompt mid-burst and truncate the line it interrupted.** `PacketPatchProtocol`'s
   hold-time arm/disarm was idle-driven: an arm placed before a sustained burst survived the whole
