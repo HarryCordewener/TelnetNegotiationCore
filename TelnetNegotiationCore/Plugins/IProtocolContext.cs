@@ -147,7 +147,11 @@ public interface IProtocolContext
     void RegisterInitialNegotiation(Func<ValueTask> negotiationFunc);
 
     /// <summary>
-    /// Gets the underlying telnet interpreter instance for advanced protocol scenarios.
+    /// Gets the underlying telnet interpreter instance for advanced protocol scenarios, including
+    /// <see cref="Interpreters.TelnetInterpreter.HasPartialLine"/>,
+    /// <see cref="Interpreters.TelnetInterpreter.HasSeenMarkedPrompt"/> and
+    /// <see cref="Interpreters.TelnetInterpreter.TakePartialLineAsPrompt"/> for prompt-boundary
+    /// detection.
     /// </summary>
     Interpreters.TelnetInterpreter Interpreter { get; }
 }

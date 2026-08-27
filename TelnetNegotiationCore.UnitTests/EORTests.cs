@@ -612,4 +612,41 @@ public class EORTests : BaseTest
 
 		await server_ti.DisposeAsync();
 	}
+
+	/// <summary>
+	/// The client-mode counterpart of <see cref="PromptEndsWithCarriageReturnLineFeedWhenGoAheadIsSuppressed"/>.
+	/// A server's <c>IAC DO SUPPRESS-GO-AHEAD</c> asks this client to suppress its own outbound GA;
+	/// <c>PromptTerminator</c> must honour that direction, not the peer's.
+	/// </summary>
+	[Test]
+	public async Task PromptEndsWithCarriageReturnLineFeedWhenClientAgreedToSuppressItsOwnGoAhead()
+	{
+		byte[] output = null;
+
+		ValueTask Capture(ReadOnlyMemory<byte> data)
+		{
+			output = data.ToArray();
+			return ValueTask.CompletedTask;
+		}
+
+		var client_ti = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Client)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(Capture)
+				.AddPlugin<SuppressGoAheadProtocol>()
+		);
+
+		await InterpretAndWaitAsync(client_ti, [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD]);
+		await AssertByteArraysEqual(output, [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD]);
+
+		var prompt = Encoding.ASCII.GetBytes("HP: 100/100> ");
+		output = null;
+		await client_ti.SendPromptAsync(prompt);
+
+		await AssertByteArraysEqual(output, [.. prompt, (byte)'\r', (byte)'\n']);
+
+		await client_ti.DisposeAsync();
+	}
 }

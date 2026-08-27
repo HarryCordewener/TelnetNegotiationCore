@@ -21,15 +21,26 @@ namespace TelnetNegotiationCore.Protocols;
 public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 {
     private static readonly byte[] s_willSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD };
+    private static readonly byte[] s_wontSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.SUPPRESSGOAHEAD };
     private static readonly byte[] s_doSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD };
+    private static readonly byte[] s_dontSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD };
 
-    private bool? _doGA = true;
+    // This end's own SUPPRESS-GO-AHEAD state: whether we have agreed to suppress our own outbound GA.
+    private bool _ownGoAheadSuppressed;
+
+    // The peer's SUPPRESS-GO-AHEAD state: whether the peer has agreed to suppress its own outbound GA.
+    private bool _peerGoAheadSuppressed;
 
     private Func<ValueTask>? _onPromptReceived;
 
     /// <summary>
     /// Sets the callback that is invoked when a prompt is received (Suppress Go-Ahead marker).
     /// </summary>
+    /// <remarks>
+    /// Runs on the byte-processing loop — the same thread EOR's and Packet Patch's prompt callbacks
+    /// run on, so a handler shared across all three (as <c>AddDefaultMUDProtocols</c> does when
+    /// given one) needs no thread-safety of its own on that account.
+    /// </remarks>
     /// <param name="callback">The callback to handle prompts</param>
     /// <returns>This instance for fluent chaining</returns>
     public SuppressGoAheadProtocol OnPrompt(Func<ValueTask>? callback)
@@ -38,12 +49,19 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
         return this;
     }
 
-
+    /// <summary>
+    /// Whether the peer has agreed to suppress its own outbound Go-Ahead -- the direction that
+    /// decides whether an inbound <c>IAC GA</c> still means a prompt.
+    /// </summary>
+    public bool IsGoAheadSuppressed => _peerGoAheadSuppressed;
 
     /// <summary>
-    /// Indicates whether Go-Ahead is suppressed (true = suppressed, false = enabled)
+    /// Whether <em>this</em> end has agreed to suppress its own outbound Go-Ahead -- the direction
+    /// <c>TelnetInterpreter.PromptTerminator</c> needs when deciding whether an outbound prompt may
+    /// end with <c>IAC GA</c>. Independent of <see cref="IsGoAheadSuppressed"/>, the peer's
+    /// direction.
     /// </summary>
-    public bool IsGoAheadSuppressed => _doGA == false;
+    public bool SuppressesOutboundGoAhead => _ownGoAheadSuppressed;
 
     /// <inheritdoc />
     public override Type ProtocolType => typeof(SuppressGoAheadProtocol);
@@ -81,6 +99,24 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
                 .SubstateOf(State.Accepting)
                 .OnEntryAsync(async () => await OnDontSuppressGAAsync(context));
 
+            // The other direction: the peer offering to suppress its own outbound Go-Ahead. RFC 858
+            // §5 requires the two directions negotiated independently. Reuses the client branch's
+            // WillSUPPRESSGOAHEAD/WontSUPPRESSGOAHEAD states rather than duplicating them -- only
+            // one branch of this `if` ever configures a given interpreter instance.
+            stateMachine.Configure(State.Willing)
+                .Permit(Trigger.SUPPRESSGOAHEAD, State.WillSUPPRESSGOAHEAD);
+
+            stateMachine.Configure(State.Refusing)
+                .Permit(Trigger.SUPPRESSGOAHEAD, State.WontSUPPRESSGOAHEAD);
+
+            stateMachine.Configure(State.WillSUPPRESSGOAHEAD)
+                .SubstateOf(State.Accepting)
+                .OnEntryAsync(async () => await OnWillPeerSuppressGAAsync(context));
+
+            stateMachine.Configure(State.WontSUPPRESSGOAHEAD)
+                .SubstateOf(State.Accepting)
+                .OnEntryAsync(async () => await OnWontPeerSuppressGAAsync(context));
+
             context.RegisterInitialNegotiation(async () => await WillingSuppressGAAsync(context));
         }
         else
@@ -90,6 +126,24 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.Refusing)
                 .Permit(Trigger.SUPPRESSGOAHEAD, State.WontSUPPRESSGOAHEAD);
+
+            // The other direction: a server asking us to suppress our own outbound Go-Ahead.
+            // RFC 858 §5 requires the two directions negotiated independently. Reuses the server
+            // branch's DoSUPPRESSGOAHEAD/DontSUPPRESSGOAHEAD states rather than duplicating them --
+            // only one branch of this `if` ever configures a given interpreter instance.
+            stateMachine.Configure(State.Do)
+                .Permit(Trigger.SUPPRESSGOAHEAD, State.DoSUPPRESSGOAHEAD);
+
+            stateMachine.Configure(State.Dont)
+                .Permit(Trigger.SUPPRESSGOAHEAD, State.DontSUPPRESSGOAHEAD);
+
+            stateMachine.Configure(State.DoSUPPRESSGOAHEAD)
+                .SubstateOf(State.Accepting)
+                .OnEntryAsync(async () => await OnDoOwnSuppressGAAsync(context));
+
+            stateMachine.Configure(State.DontSUPPRESSGOAHEAD)
+                .SubstateOf(State.Accepting)
+                .OnEntryAsync(async () => await OnDontOwnSuppressGAAsync(context));
 
             stateMachine.Configure(State.WontSUPPRESSGOAHEAD)
                 .SubstateOf(State.Accepting)
@@ -105,9 +159,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
             // direction ("the process must transmit the TELNET Go Ahead (GA) command" when it cannot
             // proceed without input from the other end) and says of the other direction only that
             // "GAs may be sent at any time, but need not ever be sent" — so a GA reaching a server is
-            // not a statement about anything and this library does not invent one. It is also the
-            // only direction whose suppression this plugin records: in server mode _doGA tracks the
-            // peer's DO, which asks *us* to suppress, and says nothing about what the peer sends.
+            // not a statement about anything and this library does not invent one.
             stateMachine.Configure(State.GoAhead)
                 .OnEntryAsync(async () => await OnGoAheadAsync(context));
         }
@@ -124,7 +176,6 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnProtocolEnabledAsync()
     {
         Context.Logger.LogInformation("Suppress Go-Ahead Protocol enabled");
-        _doGA = false; // GA suppressed
         return default(ValueTask);
     }
 
@@ -132,32 +183,31 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnProtocolDisabledAsync()
     {
         Context.Logger.LogInformation("Suppress Go-Ahead Protocol disabled");
-        _doGA = true; // GA active
         return default(ValueTask);
     }
 
     /// <summary>
-    /// Enables Go-Ahead suppression for the connection
+    /// Manually suppresses this end's own outbound Go-Ahead, without a negotiation round-trip.
     /// </summary>
     public ValueTask SuppressGoAheadAsync()
     {
         if (!IsEnabled)
             return default(ValueTask);
 
-        _doGA = false;
+        _ownGoAheadSuppressed = true;
         Context.Logger.LogInformation("Go-Ahead suppression enabled");
         return default(ValueTask);
     }
 
     /// <summary>
-    /// Disables Go-Ahead suppression (re-enables GA)
+    /// Manually resumes this end's own outbound Go-Ahead, without a negotiation round-trip.
     /// </summary>
     public ValueTask EnableGoAheadAsync()
     {
         if (!IsEnabled)
             return default(ValueTask);
 
-        _doGA = true;
+        _ownGoAheadSuppressed = false;
         Context.Logger.LogInformation("Go-Ahead suppression disabled (GA active)");
         return default(ValueTask);
     }
@@ -178,23 +228,9 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
-        _doGA = null;
+        _ownGoAheadSuppressed = false;
+        _peerGoAheadSuppressed = false;
         return default(ValueTask);
-    }
-
-    /// <summary>
-    /// Called by the interpreter when a prompt is signaled.
-    /// Internal method that invokes the callback.
-    /// </summary>
-    internal async ValueTask OnPromptAsync()
-    {
-        if (!IsEnabled)
-            return;
-
-        Context.Logger.LogDebug("Server is prompting with Suppress Go-Ahead");
-        
-        if (_onPromptReceived != null)
-            await _onPromptReceived().ConfigureAwait(false);
     }
 
     #region State Machine Handlers
@@ -220,10 +256,10 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     /// nothing by being told twice.
     /// </para>
     /// <para>
-    /// This deliberately does not go through <see cref="OnPromptAsync"/>. That method's
-    /// <see cref="TelnetProtocolPluginBase.IsEnabled"/> guard is about plugin lifetime — it is true
-    /// from initialisation onwards for every registered plugin — so it is not the negotiated state
-    /// and would answer nothing here.
+    /// Reports directly through <see cref="_onPromptReceived"/> rather than through a shared
+    /// intermediary gated on <see cref="TelnetProtocolPluginBase.IsEnabled"/> — that flag is about
+    /// plugin lifetime, true from initialisation onwards for every registered plugin, and is not the
+    /// negotiated state this handler actually needs to answer to.
     /// </para>
     /// </remarks>
     private async ValueTask OnGoAheadAsync(IProtocolContext context)
@@ -237,6 +273,8 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
 
         context.Logger.LogDebug("Server is prompting with GA (Go-Ahead)");
 
+        context.Interpreter.TakePartialLineAsPrompt(marked: true);
+
         if (_onPromptReceived != null)
             await _onPromptReceived().ConfigureAwait(false);
     }
@@ -244,14 +282,14 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     private async ValueTask OnDontSuppressGAAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client won't do SUPPRESSGOAHEAD - do nothing");
-        _doGA = true;
+        _ownGoAheadSuppressed = false;
         await OnNegotiatedAsync(false);
     }
 
     private async ValueTask WontSuppressGAAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server won't do SUPPRESSGOAHEAD - do nothing");
-        _doGA = true;
+        _peerGoAheadSuppressed = false;
         await OnNegotiatedAsync(false);
     }
 
@@ -264,16 +302,94 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     private async ValueTask OnDoSuppressGAAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Client supports Suppress Go-Ahead.");
-        _doGA = false;
+        _ownGoAheadSuppressed = true;
         await OnNegotiatedAsync(true);
     }
 
     private async ValueTask OnWillSuppressGAAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
+        // RFC 1123 §3.2.2: "A User or Server Telnet MUST always accept negotiation of the Suppress
+        // Go Ahead option."
         context.Logger.LogDebug("Server supports Suppress Go-Ahead.");
-        _doGA = false;
+        _peerGoAheadSuppressed = true;
         await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doSga);
+    }
+
+    /// <summary>
+    /// The server asked this client to suppress its own outbound Go-Ahead (<c>IAC DO
+    /// SUPPRESS-GO-AHEAD</c>, client mode).
+    /// </summary>
+    /// <remarks>
+    /// RFC 854 §3(b): a request for a mode already in effect must not be acknowledged. RFC 1123
+    /// §3.2.2 requires accepting, so this answers <c>WILL</c> on a genuine change.
+    /// </remarks>
+    private async ValueTask OnDoOwnSuppressGAAsync(IProtocolContext context)
+    {
+        if (_ownGoAheadSuppressed)
+        {
+            return;
+        }
+
+        _ownGoAheadSuppressed = true;
+        context.Logger.LogDebug(
+            "Server asked us to suppress our own Go-Ahead; agreeing (RFC 1123 §3.2.2).");
+        await context.SendNegotiationAsync(s_willSga);
+    }
+
+    /// <summary>
+    /// The server asked this client to resume sending Go-Ahead (<c>IAC DONT SUPPRESS-GO-AHEAD</c>,
+    /// client mode).
+    /// </summary>
+    /// <remarks>Same loop-prevention rule as <see cref="OnDoOwnSuppressGAAsync"/>.</remarks>
+    private async ValueTask OnDontOwnSuppressGAAsync(IProtocolContext context)
+    {
+        if (!_ownGoAheadSuppressed)
+        {
+            return;
+        }
+
+        _ownGoAheadSuppressed = false;
+        context.Logger.LogDebug("Server asked us to resume Go-Ahead on our side; agreeing.");
+        await context.SendNegotiationAsync(s_wontSga);
+    }
+
+    /// <summary>
+    /// The peer offered to suppress its own outbound Go-Ahead (<c>IAC WILL SUPPRESS-GO-AHEAD</c>,
+    /// server mode).
+    /// </summary>
+    /// <remarks>
+    /// RFC 854 §3(b): a request for a mode already in effect must not be acknowledged. RFC 1123
+    /// §3.2.2 requires accepting, so this answers <c>DO</c> on a genuine change.
+    /// </remarks>
+    private async ValueTask OnWillPeerSuppressGAAsync(IProtocolContext context)
+    {
+        if (_peerGoAheadSuppressed)
+        {
+            return;
+        }
+
+        _peerGoAheadSuppressed = true;
+        context.Logger.LogDebug(
+            "Peer will suppress its own Go-Ahead; agreeing (RFC 1123 §3.2.2).");
+        await context.SendNegotiationAsync(s_doSga);
+    }
+
+    /// <summary>
+    /// The peer asked to resume sending its own Go-Ahead (<c>IAC WONT SUPPRESS-GO-AHEAD</c>, server
+    /// mode).
+    /// </summary>
+    /// <remarks>Same loop-prevention rule as <see cref="OnWillPeerSuppressGAAsync"/>.</remarks>
+    private async ValueTask OnWontPeerSuppressGAAsync(IProtocolContext context)
+    {
+        if (!_peerGoAheadSuppressed)
+        {
+            return;
+        }
+
+        _peerGoAheadSuppressed = false;
+        context.Logger.LogDebug("Peer will resume Go-Ahead on its side; agreeing.");
+        await context.SendNegotiationAsync(s_dontSga);
     }
 
     #endregion

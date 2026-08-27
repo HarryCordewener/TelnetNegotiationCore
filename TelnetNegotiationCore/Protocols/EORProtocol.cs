@@ -30,6 +30,12 @@ public class EORProtocol : TelnetProtocolPluginBase
     /// <summary>
     /// Sets the callback that is invoked when a prompt is received (EOR marker).
     /// </summary>
+    /// <remarks>
+    /// Runs on the byte-processing loop — the same thread Suppress Go-Ahead's and Packet Patch's
+    /// prompt callbacks run on, so a handler shared across all three (as
+    /// <c>AddDefaultMUDProtocols</c> does when given one) needs no thread-safety of its own on that
+    /// account.
+    /// </remarks>
     /// <param name="callback">The callback to handle prompts</param>
     /// <returns>This instance for fluent chaining</returns>
     public EORProtocol OnPrompt(Func<ValueTask>? callback)
@@ -174,7 +180,9 @@ public class EORProtocol : TelnetProtocolPluginBase
             return;
 
         Context.Logger.LogDebug("Server is prompting with EOR");
-        
+
+        Context.Interpreter.TakePartialLineAsPrompt(marked: true);
+
         if (_onPromptReceived != null)
             await _onPromptReceived().ConfigureAwait(false);
     }

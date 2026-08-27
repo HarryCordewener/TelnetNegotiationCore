@@ -96,6 +96,11 @@ public class PromptMarkerTests : BaseTest
 	/// RFC 858: once suppression is in effect "the IAC GA command should be treated as a NOP if
 	/// received, although IAC GA should not normally be sent in this mode".
 	/// </summary>
+	/// <remarks>
+	/// This fixture also registers <c>EORProtocol</c> (via <see cref="BuildClientAsync"/>), unlike
+	/// <see cref="SuppressGoAheadNegotiationPositionTests.AnAcceptedSuppressionMakesGoAheadANop"/> --
+	/// pinning that an un-negotiated EOR plugin sitting alongside SGA does not interfere with the NOP.
+	/// </remarks>
 	[Test]
 	public async Task AGoAheadIsANopOnceSuppressGoAheadIsInEffect()
 	{

@@ -270,6 +270,30 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets the callback invoked when a held fragment is called a prompt.
+    /// See <see cref="PacketPatchProtocol.OnPrompt"/>.
+    /// </summary>
+    public static PluginConfigurationContext<PacketPatchProtocol> OnPrompt(
+        this PluginConfigurationContext<PacketPatchProtocol> context,
+        Func<ValueTask>? callback)
+    {
+        context.Plugin.OnPrompt(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets how long an unterminated fragment is held before it is called a prompt.
+    /// See <see cref="PacketPatchProtocol.WithHoldTime"/>.
+    /// </summary>
+    public static PluginConfigurationContext<PacketPatchProtocol> WithHoldTime(
+        this PluginConfigurationContext<PacketPatchProtocol> context,
+        TimeSpan holdTime)
+    {
+        context.Plugin.WithHoldTime(holdTime);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the character set order for Charset negotiation in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
