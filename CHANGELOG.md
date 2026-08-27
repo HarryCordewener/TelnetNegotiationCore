@@ -14,7 +14,9 @@ All notable changes to this project will be documented in this file.
   needs to change.
 - **A client refused a server's offer to stop sending Go-Ahead, which RFC 1123 §3.2.2 forbids.** A
   client now accepts `WILL SUPPRESS-GO-AHEAD` unconditionally. Losing GA to a server's veto no
-  longer loses the prompt: `PacketPatchProtocol` is the fallback.
+  longer loses the prompt: `PacketPatchProtocol` is the fallback. Server mode had the same gap for
+  the same RFC, which names Server Telnet explicitly: a peer's `WILL SUPPRESS-GO-AHEAD` now gets a
+  `DO` in server mode too, instead of falling through to a default `DONT`.
 - **A client answered an inbound `DO SUPPRESS-GO-AHEAD` with `WONT`, refusing the same option in the
   other direction.** The client branch now handles `DO`/`DONT` itself, tracking its own outbound
   suppression separately from the peer's (RFC 858 §5), and honours RFC 854 §3(b): a change of mode

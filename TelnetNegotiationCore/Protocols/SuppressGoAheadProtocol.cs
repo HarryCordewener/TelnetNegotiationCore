@@ -23,6 +23,7 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     private static readonly byte[] s_willSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD };
     private static readonly byte[] s_wontSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.SUPPRESSGOAHEAD };
     private static readonly byte[] s_doSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD };
+    private static readonly byte[] s_dontSga = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD };
 
     // Cached from ConfigureStateMachine's context parameter (which always runs before
     // InitializeAsync) so SuppressesOutboundGoAhead below can answer without Context throwing for a
@@ -36,6 +37,10 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     // directions negotiated independently, so this cannot reuse _doGA. Starts false (RFC 858 §3's
     // default), so an opening DONT SUPPRESS-GO-AHEAD is silently absorbed per RFC 854 §3(b).
     private bool _ownGoAheadSuppressed;
+
+    // The peer's own SUPPRESS-GO-AHEAD state, server mode only -- mirrors _ownGoAheadSuppressed.
+    // Starts false (RFC 858 §3's default).
+    private bool _peerGoAheadSuppressed;
 
     private Func<ValueTask>? _onPromptReceived;
 
@@ -119,6 +124,24 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
             stateMachine.Configure(State.DontSUPPRESSGOAHEAD)
                 .SubstateOf(State.Accepting)
                 .OnEntryAsync(async () => await OnDontSuppressGAAsync(context));
+
+            // The other direction: the peer offering to suppress its own outbound Go-Ahead. RFC 858
+            // §5 requires the two directions negotiated independently. Reuses the client branch's
+            // WillSUPPRESSGOAHEAD/WontSUPPRESSGOAHEAD states rather than duplicating them -- only
+            // one branch of this `if` ever configures a given interpreter instance.
+            stateMachine.Configure(State.Willing)
+                .Permit(Trigger.SUPPRESSGOAHEAD, State.WillSUPPRESSGOAHEAD);
+
+            stateMachine.Configure(State.Refusing)
+                .Permit(Trigger.SUPPRESSGOAHEAD, State.WontSUPPRESSGOAHEAD);
+
+            stateMachine.Configure(State.WillSUPPRESSGOAHEAD)
+                .SubstateOf(State.Accepting)
+                .OnEntryAsync(async () => await OnWillPeerSuppressGAAsync(context));
+
+            stateMachine.Configure(State.WontSUPPRESSGOAHEAD)
+                .SubstateOf(State.Accepting)
+                .OnEntryAsync(async () => await OnWontPeerSuppressGAAsync(context));
 
             context.RegisterInitialNegotiation(async () => await WillingSuppressGAAsync(context));
         }
@@ -358,6 +381,44 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
         _ownGoAheadSuppressed = false;
         context.Logger.LogDebug("Server asked us to resume Go-Ahead on our side; agreeing.");
         await context.SendNegotiationAsync(s_wontSga);
+    }
+
+    /// <summary>
+    /// The peer offered to suppress its own outbound Go-Ahead (<c>IAC WILL SUPPRESS-GO-AHEAD</c>,
+    /// server mode).
+    /// </summary>
+    /// <remarks>
+    /// RFC 854 §3(b): a request for a mode already in effect must not be acknowledged. RFC 1123
+    /// §3.2.2 requires accepting, so this answers <c>DO</c> on a genuine change.
+    /// </remarks>
+    private async ValueTask OnWillPeerSuppressGAAsync(IProtocolContext context)
+    {
+        if (_peerGoAheadSuppressed)
+        {
+            return;
+        }
+
+        _peerGoAheadSuppressed = true;
+        context.Logger.LogDebug(
+            "Peer will suppress its own Go-Ahead; agreeing (RFC 1123 §3.2.2).");
+        await context.SendNegotiationAsync(s_doSga);
+    }
+
+    /// <summary>
+    /// The peer asked to resume sending its own Go-Ahead (<c>IAC WONT SUPPRESS-GO-AHEAD</c>, server
+    /// mode).
+    /// </summary>
+    /// <remarks>Same loop-prevention rule as <see cref="OnWillPeerSuppressGAAsync"/>.</remarks>
+    private async ValueTask OnWontPeerSuppressGAAsync(IProtocolContext context)
+    {
+        if (!_peerGoAheadSuppressed)
+        {
+            return;
+        }
+
+        _peerGoAheadSuppressed = false;
+        context.Logger.LogDebug("Peer will resume Go-Ahead on its side; agreeing.");
+        await context.SendNegotiationAsync(s_dontSga);
     }
 
     #endregion

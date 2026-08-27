@@ -10,7 +10,7 @@ using TelnetNegotiationCore.Protocols;
 namespace TelnetNegotiationCore.UnitTests;
 
 /// <summary>
-/// A client's negotiation position on a server's <c>WILL SUPPRESS-GO-AHEAD</c>: RFC 1123 §3.2.2
+/// Negotiation position on a peer's <c>WILL SUPPRESS-GO-AHEAD</c>, in both modes: RFC 1123 §3.2.2
 /// requires accepting it, unconditionally.
 /// </summary>
 public class SuppressGoAheadNegotiationPositionTests : BaseTest
@@ -64,5 +64,87 @@ public class SuppressGoAheadNegotiationPositionTests : BaseTest
 		await Assert.That(prompts).IsEqualTo(0);
 
 		await client.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A server's negotiation position on a peer's <c>WILL SUPPRESS-GO-AHEAD</c>: RFC 1123 §3.2.2
+	/// names Server Telnet explicitly, so this must be accepted the same as the client side above.
+	/// </summary>
+	[Test]
+	public async Task AServerAcceptsPeersSuppressGoAheadBecauseRfc1123RequiresIt()
+	{
+		byte[]? negotiation = null;
+
+		var server = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(data => { negotiation = data.ToArray(); return ValueTask.CompletedTask; })
+				.AddPlugin<SuppressGoAheadProtocol>());
+
+		// The server's own opening WILL SUPPRESS-GO-AHEAD, unrelated to the peer's direction under test.
+		negotiation = null;
+
+		await InterpretAndWaitAsync(server, new byte[]
+			{ (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
+
+		await AssertByteArraysEqual(negotiation, new byte[]
+			{ (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.SUPPRESSGOAHEAD });
+
+		await server.DisposeAsync();
+	}
+
+	/// <summary>A peer resuming its own Go-Ahead (<c>IAC WONT SUPPRESS-GO-AHEAD</c>) after having suppressed it.</summary>
+	[Test]
+	public async Task AServerAcknowledgesAPeerResumingGoAhead()
+	{
+		byte[]? negotiation = null;
+
+		var server = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(data => { negotiation = data.ToArray(); return ValueTask.CompletedTask; })
+				.AddPlugin<SuppressGoAheadProtocol>());
+
+		await InterpretAndWaitAsync(server, new byte[]
+			{ (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
+		negotiation = null;
+
+		await InterpretAndWaitAsync(server, new byte[]
+			{ (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.SUPPRESSGOAHEAD });
+
+		await AssertByteArraysEqual(negotiation, new byte[]
+			{ (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.SUPPRESSGOAHEAD });
+
+		await server.DisposeAsync();
+	}
+
+	/// <summary>RFC 854 §3(b): a request for a mode already in effect must not be acknowledged.</summary>
+	[Test]
+	public async Task AServerStaysSilentOnARepeatedSuppressGoAheadRequest()
+	{
+		byte[]? negotiation = null;
+
+		var server = await BuildAndWaitAsync(
+			new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(NoOpSubmitCallback)
+				.OnNegotiation(data => { negotiation = data.ToArray(); return ValueTask.CompletedTask; })
+				.AddPlugin<SuppressGoAheadProtocol>());
+
+		await InterpretAndWaitAsync(server, new byte[]
+			{ (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
+		negotiation = null;
+
+		await InterpretAndWaitAsync(server, new byte[]
+			{ (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.SUPPRESSGOAHEAD });
+
+		await Assert.That(negotiation).IsNull();
+
+		await server.DisposeAsync();
 	}
 }
