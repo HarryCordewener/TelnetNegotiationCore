@@ -40,10 +40,9 @@ public partial class TelnetInterpreter
 	/// distinguished from a line, so it ends as a line does, with CR LF.
 	///
 	/// This reads <see cref="Protocols.SuppressGoAheadProtocol.SuppressesOutboundGoAhead"/>, not
-	/// <see cref="Protocols.SuppressGoAheadProtocol.IsGoAheadSuppressed"/>: the two agree in server
-	/// mode (a peer's <c>DO</c> there is a request that we suppress our own GA) but not in client
-	/// mode, where <c>IsGoAheadSuppressed</c> tracks the peer's own outbound direction instead --
-	/// the direction that decides whether an <em>inbound</em> GA still means a prompt, not this one.
+	/// <see cref="Protocols.SuppressGoAheadProtocol.IsGoAheadSuppressed"/>, which is the peer's
+	/// direction -- the one that decides whether an <em>inbound</em> GA still means a prompt, not
+	/// this one, and independent of it per RFC 858 §5.
 	///
 	/// The negotiated state belongs to the protocol plugins; the interpreter asks them for it rather
 	/// than keeping a second copy that nothing updates.
