@@ -230,18 +230,17 @@ public class PacketPatchTests : BaseTest
 	}
 
 	[Test]
-	[NotInParallel]
 	public async Task ABurstSpanningTheHoldDeadlineNeverMangleAnOrdinaryLine()
 	{
-		// Holds "Prompt> ", then starts a burst of complete lines ~10ms before the hold would
-		// otherwise elapse, large enough that draining it through the bounded channel takes longer
-		// than the hold itself. Either "Prompt> " fires as its own prompt first, or the burst
-		// arrives soon enough to merge into "Prompt> ROOM0000 ..." -- both legitimate. What must
-		// never happen is a fragment split out of the *middle* of the burst.
-		// NotInParallel: the ~10ms margin below is precise enough that thread-pool contention from
-		// other tests running concurrently can shift it enough to flake, in either direction.
+		// Holds "Prompt> " and lets it arm at the idle byte that follows. The first slice of the
+		// burst is sized to just clear the byte channel's 10,000 bound, so InterpretByteArrayAsync's
+		// own backpressure forces a real write/consume handoff: the write cannot return until the
+		// loop has consumed at least one burst byte, which is what disarms the fix's byte-driven
+		// arm, and the loop has not had the chance to drain the rest, so the channel is still
+		// non-empty. OnTimerElapsed(null) is invoked right there, at a zero hold time so the deadline
+		// is never early -- modelling the pre-fix code reaching its deadline mid-burst, with no sleep
+		// and no margin to flake under load. The rest of the burst follows once that has resolved.
 		const string roomSuffix = "The Great Hall of Dwarves, a long description of the room.";
-		var burstHold = TimeSpan.FromMilliseconds(300);
 		var lines = new List<string>();
 		var prompts = 0;
 		var client = await BuildAndWaitAsync(
@@ -251,12 +250,11 @@ public class PacketPatchTests : BaseTest
 				.OnSubmit((data, _, _) => { lines.Add(Encoding.ASCII.GetString(data)); return ValueTask.CompletedTask; })
 				.OnNegotiation(_ => ValueTask.CompletedTask)
 				.AddPlugin<PacketPatchProtocol>()
-				.WithHoldTime(burstHold)
+				.WithHoldTime(TimeSpan.Zero)
 				.OnPrompt(() => { prompts++; return ValueTask.CompletedTask; }));
+		var plugin = client.PluginManager!.GetPlugin<PacketPatchProtocol>()!;
 
-		await client.InterpretByteArrayAsync(Encoding.ASCII.GetBytes("Prompt> "));
-		await client.WaitForProcessingAsync(maxWaitMs: 1000, additionalDelayMs: 0);
-		await Task.Delay(TimeSpan.FromMilliseconds(290));
+		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("Prompt> "));
 
 		var burst = new StringBuilder();
 		for (var i = 0; i < 400; i++)
@@ -264,7 +262,11 @@ public class PacketPatchTests : BaseTest
 			burst.Append($"ROOM{i:0000} {roomSuffix}\r\n");
 		}
 
-		await client.InterpretByteArrayAsync(Encoding.ASCII.GetBytes(burst.ToString()));
+		var burstBytes = Encoding.ASCII.GetBytes(burst.ToString());
+		const int channelBound = 10000;
+		await client.InterpretByteArrayAsync(burstBytes.AsMemory(0, channelBound + 1));
+		plugin.OnTimerElapsed(null);
+		await client.InterpretByteArrayAsync(burstBytes.AsMemory(channelBound + 1));
 		await client.WaitForProcessingAsync(maxWaitMs: 10000, additionalDelayMs: 500);
 
 		bool IsWholeLine(string l) =>
