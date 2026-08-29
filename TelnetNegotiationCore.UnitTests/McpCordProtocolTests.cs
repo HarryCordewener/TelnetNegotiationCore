@@ -74,7 +74,6 @@ public class McpCordProtocolTests : BaseTest
 				return ValueTask.CompletedTask;
 			})
 			.AddPlugin<MudClientProtocol>()
-			.AddPlugin<McpNegotiateProtocol>()
 			.AddPlugin<McpCordProtocol>();
 
 		configure?.Invoke(builder.Plugin);
@@ -95,7 +94,7 @@ public class McpCordProtocolTests : BaseTest
 			await peer.FeedAsync($"#$#mcp-negotiate-end {key}\r\n");
 
 			await Assert.That(await PollUntilAsync(
-				() => peer.Interpreter.PluginManager!.GetPlugin<McpNegotiateProtocol>()!
+				() => peer.Interpreter.PluginManager!.GetPlugin<MudClientProtocol>()!
 					.Agreed.ContainsKey(McpCordProtocol.PackageName),
 				timeoutMs: 10000)).IsTrue();
 		}
@@ -104,18 +103,17 @@ public class McpCordProtocolTests : BaseTest
 	}
 
 	/// <summary>
-	/// The dependency is declared, so adding cords without the package negotiation that advertises
-	/// them is refused at <c>BuildAsync</c> rather than going quiet on the wire.
+	/// The dependency is declared, so adding cords without the session layer they ride on is refused
+	/// at <c>BuildAsync</c> rather than going quiet on the wire.
 	/// </summary>
 	[Test]
-	public async Task CordsWithoutPackageNegotiationAreRefusedAtBuild()
+	public async Task CordsWithoutTheSessionLayerAreRefusedAtBuild()
 	{
 		var builder = new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(logger)
 			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(_ => ValueTask.CompletedTask)
-			.AddPlugin<MudClientProtocol>()
 			.AddPlugin<McpCordProtocol>();
 
 		await Assert.That(async () => await builder.BuildAsync()).Throws<InvalidOperationException>();
@@ -395,7 +393,6 @@ public class McpCordProtocolTests : BaseTest
 				return ValueTask.CompletedTask;
 			})
 			.AddPlugin<MudClientProtocol>()
-			.AddPlugin<McpNegotiateProtocol>()
 			.AddPlugin<McpCordProtocol>()
 			.BuildAsync();
 

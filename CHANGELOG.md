@@ -4,14 +4,13 @@ All notable changes to this project will be documented in this file.
 ## [2.13.0]
 
 ### Added
-- **MCP, the MUD Client Protocol (2.1), as three plugins.** `MudClientProtocol` is the session layer:
-  the `#$#` framing, the `#$"` quoting rule, the version handshake and the authentication key.
-  `McpNegotiateProtocol` is the `mcp-negotiate` package that advertises which packages this side
-  speaks and settles the version of each. They are separate because the specification separates
-  them — `mcp-negotiate` is a package carried over the session layer, versioned on its own (1.0, and
-  2.0 which adds `mcp-negotiate-end`), exactly as `dns-org-mud-moo-simpleedit` is. The dependency
-  runs one way, so `McpNegotiateProtocol` declares `MudClientProtocol` and adding it alone throws at
-  `BuildAsync()`. Configure both from the builder chain with `.OnMcpMessage(...)`,
+- **MCP, the MUD Client Protocol (2.1), as two plugins.** `MudClientProtocol` is the session layer and its
+  package negotiation: the `#$#` framing, the `#$"` quoting rule, the version handshake, the
+  authentication key, and the `mcp-negotiate` exchange that settles which packages the two sides
+  share. `mcp-negotiate` is a package in the specification's terms, but it is the one package every
+  MCP 2.1 implementation is REQUIRED to speak, so it is not a choice a consumer makes and is not a
+  plugin they have to register. Packages that *are* a choice get their own plugin depending on this
+  one. Configure it all from one builder chain with `.OnMcpMessage(...)`,
   `.SupportsMcpPackage(...)` and `.OnMcpNegotiationComplete(...)`.
   - Nothing MCP reaches `OnSubmit`: handshake, messages, continuation lines and terminators are
     taken out of the stream, and a line the peer quoted as `#$"…` is delivered unquoted.
@@ -58,7 +57,7 @@ All notable changes to this project will be documented in this file.
     repeated end no longer invokes the callback twice.
   - `MudClientProtocol.NegotiatedVersion` (what the session settled on, `min(server-max, client-max)`)
     and `OfferedVersions` (the range the peer named, recorded whether or not it was answered).
-  - `McpNegotiateProtocol.PeerPackages`: everything the peer advertised, including packages this side
+  - `MudClientProtocol.PeerPackages`: everything the peer advertised, including packages this side
     does not speak. `Agreed` is an intersection and throws away the larger half, but "what does this
     peer support" is a different question from "what can the two of us do together".
   - **`McpCordProtocol`, the `mcp-cord` package** — named, typed channels multiplexed over the one

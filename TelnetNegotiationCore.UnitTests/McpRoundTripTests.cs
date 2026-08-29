@@ -98,7 +98,6 @@ public class McpRoundTripTests : BaseTest
 			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(wire.FromServer)
 			.AddPlugin<MudClientProtocol>()
-			.AddPlugin<McpNegotiateProtocol>()
 			.SupportsMcpPackage("dns-com-example-editor", new McpVersion(1, 0), new McpVersion(2, 0))
 			.SupportsMcpPackage("dns-com-example-server-only", new McpVersion(1, 0), new McpVersion(1, 0))
 			.BuildAsync();
@@ -109,7 +108,6 @@ public class McpRoundTripTests : BaseTest
 			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(wire.FromClient)
 			.AddPlugin<MudClientProtocol>()
-			.AddPlugin<McpNegotiateProtocol>()
 			.SupportsMcpPackage("dns-com-example-editor", new McpVersion(1, 5), new McpVersion(3, 0))
 			.BuildAsync();
 
@@ -123,8 +121,8 @@ public class McpRoundTripTests : BaseTest
 		await Assert.That(serverMcp.IsNegotiated).IsTrue();
 		await Assert.That(serverMcp.AuthenticationKey).IsEqualTo(clientMcp.AuthenticationKey);
 
-		var serverPackages = wire.Server.PluginManager!.GetPlugin<McpNegotiateProtocol>()!;
-		var clientPackages = wire.Client.PluginManager!.GetPlugin<McpNegotiateProtocol>()!;
+		var serverPackages = wire.Server.PluginManager!.GetPlugin<MudClientProtocol>()!;
+		var clientPackages = wire.Client.PluginManager!.GetPlugin<MudClientProtocol>()!;
 
 		await Assert.That(serverPackages.IsComplete).IsTrue();
 		await Assert.That(clientPackages.IsComplete).IsTrue();
@@ -135,7 +133,7 @@ public class McpRoundTripTests : BaseTest
 		await Assert.That(serverPackages.Agreed["dns-com-example-editor"]).IsEqualTo(new McpVersion(2, 0));
 
 		// mcp-negotiate is a package like any other, and both sides said so.
-		await Assert.That(clientPackages.Agreed[McpNegotiateProtocol.PackageName]).IsEqualTo(new McpVersion(2, 0));
+		await Assert.That(clientPackages.Agreed[MudClientProtocol.NegotiatePackage]).IsEqualTo(new McpVersion(2, 0));
 
 		// A package only one side speaks is agreed by neither.
 		await Assert.That(clientPackages.Agreed.ContainsKey("dns-com-example-server-only")).IsFalse();
@@ -227,7 +225,6 @@ public class McpRoundTripTests : BaseTest
 			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(wire.FromServer)
 			.AddPlugin<MudClientProtocol>()
-			.AddPlugin<McpNegotiateProtocol>()
 			.AddPlugin<McpCordProtocol>()
 			.SupportsCordType("dns-com-example-chat", cord =>
 			{
@@ -246,14 +243,13 @@ public class McpRoundTripTests : BaseTest
 			.OnSubmit(NoOpSubmitCallback)
 			.OnNegotiation(wire.FromClient)
 			.AddPlugin<MudClientProtocol>()
-			.AddPlugin<McpNegotiateProtocol>()
 			.AddPlugin<McpCordProtocol>()
 			.BuildAsync();
 
 		await wire.SettleAsync();
 
 		var clientCords = wire.Client.PluginManager!.GetPlugin<McpCordProtocol>()!;
-		var clientNegotiate = wire.Client.PluginManager!.GetPlugin<McpNegotiateProtocol>()!;
+		var clientNegotiate = wire.Client.PluginManager!.GetPlugin<MudClientProtocol>()!;
 
 		// Both sides agreed on cords before either used one.
 		await Assert.That(clientNegotiate.Agreed[McpCordProtocol.PackageName]).IsEqualTo(new McpVersion(1, 0));

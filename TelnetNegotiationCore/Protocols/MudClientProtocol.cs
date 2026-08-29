@@ -19,10 +19,12 @@ namespace TelnetNegotiationCore.Protocols;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the session layer only -- framing, quoting, the version handshake and the authentication
-/// key. Package negotiation is <see cref="McpNegotiateProtocol"/>, which is a separate plugin
-/// because <c>mcp-negotiate</c> is itself a package carried over this layer rather than a part of
-/// it.
+/// The session layer and its package negotiation: framing, quoting, the version handshake, the
+/// authentication key, and the <c>mcp-negotiate</c> exchange that settles which packages the two
+/// sides share. <c>mcp-negotiate</c> is a package in the specification's terms, but it is one every
+/// MCP 2.1 implementation is REQUIRED to speak, so there is no session worth having without it and
+/// nothing for a consumer to decide. Packages a consumer may genuinely choose -- <c>mcp-cord</c>,
+/// and whatever it builds on top -- are their own plugins, depending on this one.
 /// </para>
 /// <para>
 /// The handshake is asymmetric and the server opens it, because nothing else can: a client has no
@@ -449,6 +451,9 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	{
 		context.Logger.LogInformation("Configuring MCP");
 
+		OnMessage(CanMessage, OnCanAsync);
+		OnMessage(EndMessage, OnEndAsync);
+
 		context.Interpreter.RegisterInputLineObserver((line, encoding) => OnInputLineAsync(line, encoding, context));
 
 		if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
@@ -467,8 +472,11 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	{
 		_authenticationKey = null;
 		_negotiatedVersion = null;
+		IsComplete = false;
 
 		lock (_open) _open.Clear();
+		lock (_agreed) _agreed.Clear();
+		lock (_peer) _peer.Clear();
 
 		await OnNegotiatedAsync(false);
 	}
@@ -810,6 +818,11 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 
 	private async ValueTask AnnounceEstablishedAsync(IProtocolContext context)
 	{
+		// The package list first, and in this order deliberately: mcp-negotiate-end is what tells the
+		// peer the list is complete, so nothing a consumer does on OnEstablished can add to it. Every
+		// package that was going to register did so at InitializeAsync, which is long past by here.
+		await SendPackageListAsync();
+
 		Func<ValueTask>[] handlers;
 		lock (_established) handlers = _established.ToArray();
 
@@ -958,4 +971,250 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 
 		return key.ToString();
 	}
+
+	#region Package negotiation
+
+	/// <summary>
+	/// The name of the package negotiation carried on this layer, which it advertises like any other.
+	/// </summary>
+	/// <remarks>
+	/// <b>Not a separate plugin, and the reason is that it is not a separate decision.</b> The
+	/// specification calls <c>mcp-negotiate</c> a package and marks it REQUIRED for every MCP 2.1
+	/// implementation -- so a session layer that could be built without it could only be built into
+	/// something non-conformant. Splitting them offered a consumer a choice that has one correct
+	/// answer, at the price of two plugins to register, a dependency to declare, and two places to
+	/// look for one exchange.
+	/// </remarks>
+	public const string NegotiatePackage = "mcp-negotiate";
+
+	private const string CanMessage = "mcp-negotiate-can";
+	private const string EndMessage = "mcp-negotiate-end";
+
+	private readonly Dictionary<string, (McpVersion Min, McpVersion Max)> _supported =
+		new(StringComparer.OrdinalIgnoreCase)
+		{
+			[NegotiatePackage] = (new McpVersion(1, 0), new McpVersion(2, 0)),
+		};
+
+	private readonly Dictionary<string, McpVersion> _agreed = new(StringComparer.OrdinalIgnoreCase);
+
+	private readonly Dictionary<string, (McpVersion Min, McpVersion Max)> _peer =
+		new(StringComparer.OrdinalIgnoreCase);
+
+	private Func<IReadOnlyDictionary<string, McpVersion>, ValueTask>? _onComplete;
+
+	/// <summary>
+	/// The packages both sides speak, and the highest version each agreed on.
+	/// </summary>
+	/// <remarks>
+	/// A package is in here only if this side declared it through <see cref="Supports"/>, the peer
+	/// offered it, and the two ranges overlap. A peer's <c>can</c> line on its own is a claim about
+	/// the peer, not an agreement -- for that, see <see cref="PeerPackages"/>.
+	/// </remarks>
+	public IReadOnlyDictionary<string, McpVersion> Agreed
+	{
+		get { lock (_agreed) return new Dictionary<string, McpVersion>(_agreed, StringComparer.OrdinalIgnoreCase); }
+	}
+
+	/// <summary>
+	/// Every package the peer said it speaks, with the range it named -- including packages this side
+	/// does not speak.
+	/// </summary>
+	/// <remarks>
+	/// <see cref="Agreed"/> is an intersection, and so throws away the larger half of what the peer
+	/// said. This keeps all of it, because "what does this peer support" is a different question from
+	/// "what can the two of us do together", and only the first one survives here. A directory
+	/// recording that a game offers <c>dns-org-mud-moo-simpleedit</c> cares that the game offers it,
+	/// not that this client happens not to implement it.
+	/// </remarks>
+	public IReadOnlyDictionary<string, (McpVersion Min, McpVersion Max)> PeerPackages
+	{
+		get
+		{
+			lock (_peer)
+			{
+				return new Dictionary<string, (McpVersion Min, McpVersion Max)>(
+					_peer, StringComparer.OrdinalIgnoreCase);
+			}
+		}
+	}
+
+	/// <summary>
+	/// Whether the peer has said its list is finished, by sending <c>mcp-negotiate-end</c>.
+	/// </summary>
+	/// <remarks>
+	/// False forever against a 1.0 peer, which has no such line. That is not the same as "no packages
+	/// agreed" -- see <see cref="Agreed"/>, which fills in as the list arrives.
+	/// </remarks>
+	public bool IsComplete { get; private set; }
+
+	/// <summary>
+	/// Declares a package this side speaks, and the range of versions it can speak.
+	/// </summary>
+	/// <remarks>
+	/// Call this before <c>BuildAsync</c>, or from a package plugin's own <c>InitializeAsync</c>. The
+	/// whole list goes out in one burst the moment the session comes up, closed by
+	/// <c>mcp-negotiate-end</c>, so a package that registers after that has told the peer nothing.
+	/// </remarks>
+	/// <param name="package">The package name</param>
+	/// <param name="minimum">The lowest version this side can speak</param>
+	/// <param name="maximum">The highest version this side can speak</param>
+	/// <returns>This instance for fluent chaining</returns>
+	/// <exception cref="ArgumentOutOfRangeException">The range is empty.</exception>
+	public MudClientProtocol Supports(string package, McpVersion minimum, McpVersion maximum)
+	{
+		if (string.IsNullOrEmpty(package))
+		{
+			throw new ArgumentException("A package name is required.", nameof(package));
+		}
+
+		// Refused where it is declared rather than advertised as malformed framing that the peer can
+		// only drop. A package name is built on the same identifier production as everything else in
+		// MCP.
+		if (!McpMessage.IsIdentifier(package))
+		{
+			throw new ArgumentException(
+				$"'{package}' is not an MCP package name: a letter, then letters, digits and hyphens.",
+				nameof(package));
+		}
+
+		if (minimum > maximum)
+		{
+			throw new ArgumentOutOfRangeException(
+				nameof(minimum), minimum, $"The minimum version is above the maximum ({maximum}).");
+		}
+
+		lock (_supported) _supported[package] = (minimum, maximum);
+		return this;
+	}
+
+	/// <summary>
+	/// Sets the callback that runs when the peer says its list is finished, with the agreed packages.
+	/// </summary>
+	/// <remarks>
+	/// <b>Fires on the peer's <c>mcp-negotiate-end</c>, so against a 1.0 peer it never fires at all</b>
+	/// -- that version has no such line. It is therefore the wrong place to hang anything needed
+	/// against every peer; read <see cref="Agreed"/>, which fills in as each <c>can</c> arrives.
+	/// Once the end line has been seen the negotiation is terminal, so the set handed to this callback
+	/// stays the set that was agreed.
+	/// </remarks>
+	/// <param name="callback">The callback, or null to remove one</param>
+	/// <returns>This instance for fluent chaining</returns>
+	public MudClientProtocol OnNegotiationComplete(
+		Func<IReadOnlyDictionary<string, McpVersion>, ValueTask>? callback)
+	{
+		_onComplete = callback;
+		return this;
+	}
+
+	/// <summary>
+	/// Sends the whole list, then the line that says it is finished.
+	/// </summary>
+	private async ValueTask SendPackageListAsync()
+	{
+		KeyValuePair<string, (McpVersion Min, McpVersion Max)>[] packages;
+		lock (_supported) packages = [.. _supported];
+
+		foreach (var (package, range) in packages)
+		{
+			await SendAsync(
+				CanMessage,
+				("package", package),
+				("min-version", range.Min.ToString()),
+				("max-version", range.Max.ToString()));
+		}
+
+		await SendAsync(EndMessage);
+
+		Context.Logger.LogDebug("Offered {Count} MCP packages", packages.Length);
+	}
+
+	/// <summary>
+	/// One package the peer says it speaks. Agreement is worked out here rather than at the end of the
+	/// list, because a 1.0 peer never sends an end.
+	/// </summary>
+	private ValueTask OnCanAsync(McpMessage message)
+	{
+		// The list is finished when the peer says it is finished. A can line arriving afterwards must
+		// not change what was agreed: OnNegotiationComplete has already been handed a snapshot, and a
+		// table that keeps moving under it is a snapshot of nothing.
+		if (IsComplete)
+		{
+			Context.Logger.LogDebug("Ignoring {Message}: the peer already ended its package list", CanMessage);
+			return default(ValueTask);
+		}
+
+		var package = message.Value("package");
+
+		// The same rule reading as writing: something that is not a package name is not recorded as one.
+		if (!McpMessage.IsIdentifier(package)
+			|| !message.TryGetVersion("min-version", out var theirMin)
+			|| !message.TryGetVersion("max-version", out var theirMax))
+		{
+			Context.Logger.LogDebug("Ignoring a malformed {Message}", CanMessage);
+			return default(ValueTask);
+		}
+
+		// A minimum above a maximum describes no range at all. The overlap check below would refuse to
+		// agree on it anyway, but recording it would hand a consumer asking "what does this peer
+		// support" a claim that cannot be true.
+		if (theirMin > theirMax)
+		{
+			Context.Logger.LogDebug(
+				"Ignoring {Message} for {Package}: the range {Min} to {Max} is inverted",
+				CanMessage, package, theirMin, theirMax);
+			return default(ValueTask);
+		}
+
+		lock (_peer) _peer[package!] = (theirMin, theirMax);
+
+		(McpVersion Min, McpVersion Max) ours;
+		lock (_supported)
+		{
+			if (!_supported.TryGetValue(package!, out ours))
+			{
+				Context.Logger.LogDebug("The peer offers {Package}, which this side does not speak", package);
+				return default(ValueTask);
+			}
+		}
+
+		var min = theirMin > ours.Min ? theirMin : ours.Min;
+		var max = theirMax < ours.Max ? theirMax : ours.Max;
+
+		if (min > max)
+		{
+			Context.Logger.LogDebug(
+				"No overlap on {Package}: the peer speaks {TheirMin} to {TheirMax} and this side {OurMin} to {OurMax}",
+				package, theirMin, theirMax, ours.Min, ours.Max);
+			return default(ValueTask);
+		}
+
+		lock (_agreed) _agreed[package!] = max;
+
+		Context.Logger.LogDebug("Agreed on {Package} {Version}", package, max);
+		return default(ValueTask);
+	}
+
+	/// <summary>The peer's list is finished.</summary>
+	private async ValueTask OnEndAsync(McpMessage message)
+	{
+		// Announced once. A repeated end line is not a second negotiation.
+		if (IsComplete)
+		{
+			Context.Logger.LogDebug("Ignoring a repeated {Message}", EndMessage);
+			return;
+		}
+
+		IsComplete = true;
+		var agreed = Agreed;
+
+		Context.Logger.LogDebug("The peer finished its package list; {Count} agreed", agreed.Count);
+
+		if (_onComplete is not null)
+		{
+			await _onComplete(agreed);
+		}
+	}
+
+	#endregion
 }

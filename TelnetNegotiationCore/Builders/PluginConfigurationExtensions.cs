@@ -682,15 +682,15 @@ public static class PluginConfigurationExtensions
 
     /// <summary>
     /// Declares a package this side speaks in a fluent manner.
-    /// See <see cref="McpNegotiateProtocol.Supports"/>.
+    /// See <see cref="MudClientProtocol.Supports"/>.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
     /// <param name="package">The package name</param>
     /// <param name="minimum">The lowest version this side can speak</param>
     /// <param name="maximum">The highest version this side can speak</param>
     /// <returns>The configuration context for continued chaining</returns>
-    public static PluginConfigurationContext<McpNegotiateProtocol> SupportsMcpPackage(
-        this PluginConfigurationContext<McpNegotiateProtocol> context,
+    public static PluginConfigurationContext<MudClientProtocol> SupportsMcpPackage(
+        this PluginConfigurationContext<MudClientProtocol> context,
         string package,
         Models.McpVersion minimum,
         Models.McpVersion maximum)
@@ -701,13 +701,13 @@ public static class PluginConfigurationExtensions
 
     /// <summary>
     /// Sets the callback that runs when the peer finishes its package list, in a fluent manner.
-    /// See <see cref="McpNegotiateProtocol.OnNegotiationComplete"/>.
+    /// See <see cref="MudClientProtocol.OnNegotiationComplete"/>.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
     /// <param name="callback">The callback to handle the agreed package set</param>
     /// <returns>The configuration context for continued chaining</returns>
-    public static PluginConfigurationContext<McpNegotiateProtocol> OnMcpNegotiationComplete(
-        this PluginConfigurationContext<McpNegotiateProtocol> context,
+    public static PluginConfigurationContext<MudClientProtocol> OnMcpNegotiationComplete(
+        this PluginConfigurationContext<MudClientProtocol> context,
         Func<IReadOnlyDictionary<string, Models.McpVersion>, ValueTask>? callback)
     {
         context.Plugin.OnNegotiationComplete(callback);

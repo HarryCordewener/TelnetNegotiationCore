@@ -17,8 +17,8 @@ namespace TelnetNegotiationCore.Protocols;
 /// <remarks>
 /// <para>
 /// <b>A cord is not a negotiation</b>, which is worth saying because its open/close lifecycle looks
-/// like one. The negotiating happened a layer down, when <see cref="McpNegotiateProtocol"/>
-/// established that both sides speak <c>mcp-cord</c>; opening one is use of a capability already
+/// like one. The negotiating happened before it, when <see cref="MudClientProtocol"/>'s package
+/// negotiation established that both sides speak <c>mcp-cord</c>; opening one is use of a capability already
 /// agreed. There is no offer, no counter-offer and no version intersection -- closer to opening a
 /// connection on an agreed port than to agreeing which ports exist.
 /// </para>
@@ -67,11 +67,11 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 	public override string ProtocolName => "MCP mcp-cord";
 
 	/// <summary>
-	/// <see cref="McpNegotiateProtocol"/>. A cord type is only usable once the peer has been told this
-	/// side speaks <c>mcp-cord</c>, and that is what package negotiation is for -- so a consumer who
-	/// registers this alone is told at <c>BuildAsync</c> rather than finding out from silence.
+	/// <see cref="MudClientProtocol"/>. A cord is carried on that layer's messages and is only usable
+	/// once its package negotiation has told the peer this side speaks <c>mcp-cord</c> -- so a consumer
+	/// who registers this alone is told at <c>BuildAsync</c> rather than finding out from silence.
 	/// </summary>
-	public override IReadOnlyCollection<Type> Dependencies => [typeof(McpNegotiateProtocol)];
+	public override IReadOnlyCollection<Type> Dependencies => [typeof(MudClientProtocol)];
 
 	/// <summary>The cords open on this session, this side's and the peer's alike.</summary>
 	public IReadOnlyCollection<McpCord> Open
@@ -110,7 +110,7 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 	/// <inheritdoc />
 	protected override ValueTask OnInitializeAsync()
 	{
-		Negotiate.Supports(PackageName, new McpVersion(1, 0), new McpVersion(1, 0));
+		Mcp.Supports(PackageName, new McpVersion(1, 0), new McpVersion(1, 0));
 
 		Mcp.OnMessage(OpenMessage, OnOpenAsync);
 		Mcp.OnMessage(CordMessage, OnCordAsync);
@@ -134,10 +134,6 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 
 		return default(ValueTask);
 	}
-
-	private McpNegotiateProtocol Negotiate =>
-		Context.GetPlugin<McpNegotiateProtocol>()
-		?? throw new InvalidOperationException($"{nameof(McpCordProtocol)} requires {nameof(McpNegotiateProtocol)}.");
 
 	private MudClientProtocol Mcp =>
 		Context.GetPlugin<MudClientProtocol>()
@@ -172,7 +168,7 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 		// that never advertised mcp-cord sends a message it is obliged to drop, while this side goes on
 		// believing the cord exists. A consumer that wants one waits for negotiation to finish --
 		// OnMcpNegotiationComplete, or Agreed filling in.
-		if (!Negotiate.Agreed.ContainsKey(PackageName))
+		if (!Mcp.Agreed.ContainsKey(PackageName))
 		{
 			throw new InvalidOperationException(
 				$"The peer has not agreed the {PackageName} package, so a cord cannot be opened.");

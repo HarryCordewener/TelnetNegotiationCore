@@ -179,7 +179,7 @@ All plugin callbacks and settings are set inline on the builder:
 - `.WithMaxTTableSize(bytes)` — TTABLE size limit (RFC 2066)
 - `.WithReplyTimeout(...)` — plaintext MSSP reply ceiling (`MSSPPlaintextProtocol`, see below)
 - `.OnMcpMessage("package-message", msg => ...)` — MCP messages (`MudClientProtocol`, see below)
-- `.SupportsMcpPackage(name, min, max)` / `.OnMcpNegotiationComplete(agreed => ...)` — MCP package negotiation (`McpNegotiateProtocol`)
+- `.SupportsMcpPackage(name, min, max)` / `.OnMcpNegotiationComplete(agreed => ...)` — MCP package negotiation (`MudClientProtocol`)
 - `.SupportsCordType("type", cord => ...)` — accept a cord type (`McpCordProtocol`, see below)
 - `.WithMaxBufferSize(bytes)` — longest line of ordinary input the interpreter will assemble (default 5 MiB; a longer line is dropped, not truncated)
 
@@ -415,25 +415,24 @@ descendants carry over ordinary telnet text, on lines beginning `#$#`. It is not
 there is no `IAC DO`, nothing to negotiate at the option level, and everything happens on assembled
 lines of text.
 
-It is **three plugins**, because the specification describes three things:
+It is **two plugins**, split where a consumer has an actual choice to make:
 
-- **`MudClientProtocol`** — the session layer. Framing, quoting, the version handshake and the
-  authentication key.
-- **`McpNegotiateProtocol`** — the `mcp-negotiate` package, which tells the peer which packages this
-  side speaks and works out the version of each that both can use.
+- **`MudClientProtocol`** — the session layer *and* its package negotiation. Framing, quoting, the
+  version handshake, the authentication key, and the `mcp-negotiate` exchange that settles which
+  packages the two sides share.
 - **`McpCordProtocol`** — the `mcp-cord` package: named, typed channels multiplexed over the session,
   and the extension point that lets you define your own channel without a plugin in this library.
 
-`mcp-negotiate` is *itself a package* carried over the session layer, versioned on its own (1.0, and
-2.0 which adds the line that ends the list), exactly as `dns-org-mud-moo-simpleedit` is. The
-dependency runs one way — the session layer works with it absent, and it is meaningless without the
-session layer — so `McpNegotiateProtocol` declares `MudClientProtocol` as a dependency and adding it
-alone throws at `BuildAsync()` rather than going quiet on the wire.
+`mcp-negotiate` is a package in the specification's terms, versioned on its own (1.0, and 2.0 which
+adds the line that ends the list). It lives in the session layer anyway, because it is the one package
+**every MCP 2.1 implementation is REQUIRED to speak** — a session layer without it could only be built
+into something non-conformant, so separating them offered a choice with exactly one correct answer at
+the price of a second plugin to register and two places to look for one exchange. Packages you may
+genuinely choose are their own plugins, depending on this one.
 
 ```csharp
 .AddPlugin<MudClientProtocol>()
     .OnMcpMessage("dns-org-mud-moo-simpleedit-content", HandleEditAsync)
-.AddPlugin<McpNegotiateProtocol>()
     .SupportsMcpPackage("dns-org-mud-moo-simpleedit", new McpVersion(1, 0), new McpVersion(1, 0))
     .OnMcpNegotiationComplete(agreed => { /* what both sides settled on */ })
 ```
@@ -577,7 +576,7 @@ verbatim to the end of the line with no quoting of its own, so a string containi
 several continuation lines rather than one line with an embedded newline that would end it early.
 
 Agreement is worked out as each `mcp-negotiate-can` arrives rather than when the list ends, because
-a 1.0 peer never sends an end; `McpNegotiateProtocol.IsComplete` is the extra thing 2.0 buys, not a
+a 1.0 peer never sends an end; `MudClientProtocol.IsComplete` is the extra thing 2.0 buys, not a
 precondition for agreeing on anything. A package is in `Agreed` only if this side declared it, the
 peer offered it, and the two ranges overlap — the agreed version being the highest both can speak.
 
@@ -588,7 +587,7 @@ place to hang anything you need against every peer. Read `Agreed` instead, which
 change `Agreed`, and a repeated end does not announce it twice, so the set the callback was handed
 stays the set that was agreed.
 
-`McpNegotiateProtocol.PeerPackages` keeps **everything the peer advertised**, including packages this
+`MudClientProtocol.PeerPackages` keeps **everything the peer advertised**, including packages this
 side does not speak — `Agreed` is an intersection and throws away the larger half. "What does this peer
 support" and "what can the two of us do together" are different questions, and only the first survives
 in `PeerPackages`.
@@ -596,19 +595,18 @@ in `PeerPackages`.
 ### Cords
 
 `mcp-cord` gives you named, typed channels over the one session. **A cord is not a negotiation**,
-which is worth saying because its open/close lifecycle looks like one — the negotiating happened a
-layer down, when `mcp-negotiate` established that both sides speak `mcp-cord`. Opening one is use of
+which is worth saying because its open/close lifecycle looks like one — the negotiating happened
+before it, when `mcp-negotiate` established that both sides speak `mcp-cord`. Opening one is use of
 a capability already agreed: no offer, no counter-offer, no version intersection. Closer to opening a
 connection on an agreed port than to agreeing which ports exist.
 
 What it buys is that **you can define your own channel without a plugin in this library**:
 
-Cords depend on package negotiation, which depends on the session layer, so all three go on together
-— `McpCordProtocol` alone throws at `BuildAsync()`:
+Cords ride on the session layer, so both go on together — `McpCordProtocol` alone throws at
+`BuildAsync()`:
 
 ```csharp
 .AddPlugin<MudClientProtocol>()
-.AddPlugin<McpNegotiateProtocol>()
 .AddPlugin<McpCordProtocol>()
     .SupportsCordType("dns-com-example-chat", cord =>
     {
