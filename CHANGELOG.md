@@ -35,6 +35,23 @@ All notable changes to this project will be documented in this file.
     decision and that path is a byte stream.
   - New public models: `McpMessage` and `McpVersion`.
 
+### Fixed
+- **`TelnetInterpreter.WaitForProcessingAsync` returned while the last byte was still being
+  handled.** It watched `_byteChannel.Reader.Count`, which goes to zero when a byte is *dequeued*,
+  not when the state machine and the consumer's callbacks have finished with it — and the byte still
+  in flight is the one that completes a subnegotiation or submits a line. A fixed 100ms delay
+  afterwards covered the gap on an idle machine and stopped covering it on a loaded one, which is a
+  CI flake rather than a barrier: `CharsetTests.ServerEvaluationCheck` failed on GitHub Actions
+  against a server that had answered correctly, and passed on re-run with nothing changed. The wait
+  is now on a pair of counters — items accepted onto the channel, items the processing loop has
+  finished handling — so it covers the handling and not just the queue. Counted per channel item,
+  which is the unit that gets queued, so a caller waiting on compressed input waits for the decoded
+  bytes too; and counted in a `finally`, so a callback that throws cannot strand every later barrier
+  on a target it can never reach. `additionalDelayMs` stays, and stays at 100ms by default, but it
+  now covers only work a consumer starts that is not itself the handling of an input byte — a timer
+  a plugin arms, say. Nothing inside byte handling needs it. The unit suite runs about 9 seconds
+  faster for it.
+
 ### Changed
 - **The internal assembled-line observer hook can now rewrite a line, not only consume it.**
   `TelnetInterpreter.RegisterInputLineObserver` takes a

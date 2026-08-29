@@ -136,6 +136,21 @@ public partial class TelnetInterpreter : IAsyncDisposable
     private Encoding? _lineEncoding;
 
     /// <summary>
+    /// How many items have been accepted onto <see cref="_byteChannel"/>, and how many the processing
+    /// loop has finished handling. <see cref="WaitForProcessingAsync"/> is the difference between
+    /// them.
+    /// </summary>
+    /// <remarks>
+    /// Counted per channel item rather than per decoded byte, because an item is the unit that gets
+    /// queued: one wire byte through an inbound transform can decode to none or to many, and all of
+    /// that is the handling of the one item that was written.
+    /// </remarks>
+    private long _itemsQueued;
+
+    /// <inheritdoc cref="_itemsQueued"/>
+    private long _itemsHandled;
+
+    /// <summary>
     /// Observers that see each assembled line before <see cref="CallbackOnSubmitAsync"/> does, and
     /// may rewrite or consume it. See <see cref="RegisterInputLineObserver"/>.
     /// </summary>
@@ -804,6 +819,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
     public async ValueTask InterpretAsync(byte bt)
     {
         await _byteChannel.Writer.WriteAsync(bt);
+        Interlocked.Increment(ref _itemsQueued);
     }
 
     /// <summary>
@@ -820,24 +836,49 @@ public partial class TelnetInterpreter : IAsyncDisposable
         for (int i = 0; i < byteArray.Length; i++)
         {
             await _byteChannel.Writer.WriteAsync(byteArray.Span[i]);
+            Interlocked.Increment(ref _itemsQueued);
         }
     }
 
     /// <summary>
-    /// Waits for all pending bytes in the channel to be processed.
-    /// Useful for tests and ensuring all data is processed before continuing.
+    /// Waits until everything fed in before this call has been <em>handled</em> -- run through the
+    /// state machine and out through the consumer's callbacks -- rather than merely taken off the
+    /// queue.
     /// </summary>
-    /// <param name="maxWaitMs">Maximum time to wait for channel to drain (default: 1000ms)</param>
-    /// <param name="additionalDelayMs">Additional delay after channel drains to allow callbacks to complete (default: 100ms)</param>
+    /// <remarks>
+    /// <para>
+    /// <b>The distinction is what this method is for.</b> Bytes are dequeued one at a time and then
+    /// handled, so watching <c>Reader.Count</c> returns while the last byte -- the one that completes
+    /// a subnegotiation, or submits a line -- is still inside its handler. That is what this used to
+    /// do, with a fixed delay afterwards to cover the gap: a wait that is long enough on an idle
+    /// machine and not on a loaded one, which is the shape of a CI flake rather than a barrier.
+    /// </para>
+    /// <para>
+    /// The counters are per channel item, which is the unit that gets queued. One wire byte through
+    /// an inbound transform can decode to none or to many, and all of that is the handling of the one
+    /// item, so a caller waiting on compressed input waits for the decoded bytes too.
+    /// </para>
+    /// </remarks>
+    /// <param name="maxWaitMs">How long to wait before giving up and returning anyway (default:
+    /// 1000ms). A ceiling on a handler that never finishes, not the mechanism.</param>
+    /// <param name="additionalDelayMs">A further fixed delay once the wait is satisfied (default:
+    /// 100ms), for work a consumer starts that is not itself the handling of an input byte -- a timer
+    /// a plugin arms, say. Nothing that runs inside byte handling needs it any more; pass 0 to skip
+    /// it.</param>
     public async ValueTask WaitForProcessingAsync(int maxWaitMs = 1000, int additionalDelayMs = 100)
     {
+        // Snapshotted before the loop: this waits for what the caller had already fed in, not for a
+        // peer that keeps sending. Otherwise a busy connection would hold the caller here until the
+        // ceiling, which reads as a hang rather than as a barrier.
+        var target = Interlocked.Read(ref _itemsQueued);
         var startTime = DateTime.UtcNow;
-        while (_byteChannel.Reader.Count > 0 && (DateTime.UtcNow - startTime).TotalMilliseconds < maxWaitMs)
+
+        while (Interlocked.Read(ref _itemsHandled) < target
+            && (DateTime.UtcNow - startTime).TotalMilliseconds < maxWaitMs)
         {
-            await Task.Delay(10);
+            await Task.Delay(1);
         }
-        
-        // Give additional time for state machine transitions and callbacks to complete
+
         if (additionalDelayMs > 0)
         {
             await Task.Delay(additionalDelayMs);
@@ -854,79 +895,90 @@ public partial class TelnetInterpreter : IAsyncDisposable
             int byteCount = 0;
             await foreach (var raw in _byteChannel.Reader.ReadAllAsync(cancellationToken))
             {
-                if (raw == InferredPromptSentinel)
+                // In a finally so that every way out of the body counts -- the early continues, and a
+                // handler that threw. An item left uncounted would strand WaitForProcessingAsync on a
+                // target it can never reach, turning one failed callback into a timeout on every
+                // barrier for the rest of the connection.
+                try
                 {
-                    // Not a wire byte -- see TakePartialLineAsPrompt and TryEnqueueInferredPrompt.
-                    // The handler is checked first: null means the plugin does not want this honoured
-                    // (disabled, disposed, or already latched off), so the buffer is left untouched
-                    // rather than drained for a report nobody receives. HasSeenMarkedPrompt is read
-                    // here rather than left to TakePartialLineAsPrompt because it must gate the call
-                    // itself: a sentinel stale because a marker already won the race and drained the
-                    // buffer must not touch it again.
-                    var onInferredPrompt = _onInferredPrompt;
-                    if (onInferredPrompt is not null && !HasSeenMarkedPrompt && TakePartialLineAsPrompt(marked: false))
+                    if (raw == InferredPromptSentinel)
                     {
-                        try
+                        // Not a wire byte -- see TakePartialLineAsPrompt and TryEnqueueInferredPrompt.
+                        // The handler is checked first: null means the plugin does not want this honoured
+                        // (disabled, disposed, or already latched off), so the buffer is left untouched
+                        // rather than drained for a report nobody receives. HasSeenMarkedPrompt is read
+                        // here rather than left to TakePartialLineAsPrompt because it must gate the call
+                        // itself: a sentinel stale because a marker already won the race and drained the
+                        // buffer must not touch it again.
+                        var onInferredPrompt = _onInferredPrompt;
+                        if (onInferredPrompt is not null && !HasSeenMarkedPrompt && TakePartialLineAsPrompt(marked: false))
                         {
-                            await onInferredPrompt();
+                            try
+                            {
+                                await onInferredPrompt();
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException)
+                            {
+                                // Mirrors FireByteAsync's own catch: a consumer's callback throwing
+                                // must not take down byte processing for the rest of the connection.
+                                _logger.LogError(ex,
+                                    "The inferred-prompt callback threw. Connection continues.");
+                            }
                         }
-                        catch (Exception ex) when (ex is not OperationCanceledException)
-                        {
-                            // Mirrors FireByteAsync's own catch: a consumer's callback throwing
-                            // must not take down byte processing for the rest of the connection.
-                            _logger.LogError(ex,
-                                "The inferred-prompt callback threw. Connection continues.");
-                        }
+
+                        continue;
                     }
 
-                    continue;
-                }
+                    var bt = (byte)raw;
 
-                var bt = (byte)raw;
-
-                // Between bytes: the one point where this loop is provably not inside a decoder.
-                if (_hasRetiredInboundTransforms)
-                {
-                    DisposeRetiredInboundTransforms();
-                }
-
-                var transform = _inboundTransform;
-                if (transform is null)
-                {
-                    await FireByteAsync(bt, ++byteCount);
-                    await NotifyByteProcessedAsync();
-                    continue;
-                }
-
-                // A transform is installed (MCCP, in practice), so this wire byte is not a telnet
-                // byte. Only what comes back out of it is, and one wire byte can decode to none or
-                // to many. A decode failure is terminal for the stream and has its own path inside
-                // the transform, so it deliberately is not caught the way a bad telnet byte is.
-                //
-                // Feeding ONE byte per call is load-bearing, not incidental: it is what bounds a
-                // decoder's output buffer. DEFLATE expands at most 1032:1 from a single input byte,
-                // so an inflater's buffer plateaus at 2 KiB no matter what the peer sends — a 16 MiB
-                // zip bomb arrives as 1032 bytes per call, 16,315 times. Batch the feed and that
-                // ceiling becomes 1032 x batch size, which a hostile peer chooses. See
-                // MCCPCompressedStreamTests.AHighRatioPayloadDoesNotGrowTheDecodersBuffer.
-                var decoded = await transform.DecodeAsync(bt);
-                if (decoded.Length == 0)
-                {
-                    // Nothing reached the state machine (mid-sequence in a stateful decoder), but the
-                    // connection is still not silent: counts as a processed byte regardless.
-                    await NotifyByteProcessedAsync();
-                }
-                else
-                {
-                    for (var i = 0; i < decoded.Length; i++)
+                    // Between bytes: the one point where this loop is provably not inside a decoder.
+                    if (_hasRetiredInboundTransforms)
                     {
-                        await FireByteAsync(decoded.Span[i], ++byteCount);
+                        DisposeRetiredInboundTransforms();
+                    }
 
-                        // Once per decoded byte, not once per wire byte, so a large decoded batch
-                        // keeps disarming throughout rather than only at its end. A premature idle
-                        // flag mid-batch is corrected by the very next byte's own fresh check.
+                    var transform = _inboundTransform;
+                    if (transform is null)
+                    {
+                        await FireByteAsync(bt, ++byteCount);
+                        await NotifyByteProcessedAsync();
+                        continue;
+                    }
+
+                    // A transform is installed (MCCP, in practice), so this wire byte is not a telnet
+                    // byte. Only what comes back out of it is, and one wire byte can decode to none or
+                    // to many. A decode failure is terminal for the stream and has its own path inside
+                    // the transform, so it deliberately is not caught the way a bad telnet byte is.
+                    //
+                    // Feeding ONE byte per call is load-bearing, not incidental: it is what bounds a
+                    // decoder's output buffer. DEFLATE expands at most 1032:1 from a single input byte,
+                    // so an inflater's buffer plateaus at 2 KiB no matter what the peer sends — a 16 MiB
+                    // zip bomb arrives as 1032 bytes per call, 16,315 times. Batch the feed and that
+                    // ceiling becomes 1032 x batch size, which a hostile peer chooses. See
+                    // MCCPCompressedStreamTests.AHighRatioPayloadDoesNotGrowTheDecodersBuffer.
+                    var decoded = await transform.DecodeAsync(bt);
+                    if (decoded.Length == 0)
+                    {
+                        // Nothing reached the state machine (mid-sequence in a stateful decoder), but the
+                        // connection is still not silent: counts as a processed byte regardless.
                         await NotifyByteProcessedAsync();
                     }
+                    else
+                    {
+                        for (var i = 0; i < decoded.Length; i++)
+                        {
+                            await FireByteAsync(decoded.Span[i], ++byteCount);
+
+                            // Once per decoded byte, not once per wire byte, so a large decoded batch
+                            // keeps disarming throughout rather than only at its end. A premature idle
+                            // flag mid-batch is corrected by the very next byte's own fresh check.
+                            await NotifyByteProcessedAsync();
+                        }
+                    }
+                }
+                finally
+                {
+                    Interlocked.Increment(ref _itemsHandled);
                 }
             }
             _logger.LogDebug("Byte processing completed. Total bytes processed: {ByteCount}", byteCount);
@@ -1011,7 +1063,13 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// a full or closed channel simply leaves the fragment unreported as a prompt.
     /// </remarks>
     /// <returns>False if the sentinel could not be enqueued (the channel is full or closed).</returns>
-    internal bool TryEnqueueInferredPrompt() => _byteChannel.Writer.TryWrite(InferredPromptSentinel);
+    internal bool TryEnqueueInferredPrompt()
+    {
+        if (!_byteChannel.Writer.TryWrite(InferredPromptSentinel)) return false;
+
+        Interlocked.Increment(ref _itemsQueued);
+        return true;
+    }
 
     /// <summary>
     /// Graceful shutdown of the interpreter.
