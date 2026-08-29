@@ -66,6 +66,16 @@ namespace TelnetNegotiationCore.UnitTests
 				}
 				await server_ti.WaitForProcessingAsync();
 
+				// WaitForProcessingAsync is a bounded wait rather than a guarantee, so a response that
+				// is merely late reads here as a response that never came. Observed on CI as
+				// "Expected to not be null" against a server that had answered correctly, on a loaded
+				// runner. Only waited for when one is expected: a null expectation is the assertion
+				// that nothing was sent, and polling for that would just spend the timeout.
+				if (serverShouldRespond is not null)
+				{
+					await PollUntilAsync(() => negotiationOutput is not null);
+				}
+
 				await Assert.That(server_ti.CurrentEncoding).IsEqualTo(shouldHaveCurrentEncoding);
 				await AssertByteArraysEqual(negotiationOutput, serverShouldRespond);
 			}
@@ -107,6 +117,13 @@ namespace TelnetNegotiationCore.UnitTests
 					await client_ti.InterpretAsync(x);
 				}
 				await client_ti.WaitForProcessingAsync();
+
+				// The same bounded wait, and the same reason -- see ServerEvaluationCheck.
+				if (clientShouldRespond is not null)
+				{
+					await PollUntilAsync(() => negotiationOutput is not null);
+				}
+
 				await Assert.That(client_ti.CurrentEncoding).IsEqualTo(shouldHaveCurrentEncoding);
 				await AssertByteArraysEqual(negotiationOutput, clientShouldRespond);
 			}
