@@ -84,6 +84,39 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	public string? AuthenticationKey => _authenticationKey;
 
 	/// <summary>
+	/// Whether this client answers a server's offer of MCP. True by default.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// Set false to take MCP out of the stream without ever speaking it. The offer is still consumed
+	/// -- it is protocol, and does not belong in a connect screen shown to a reader -- but nothing is
+	/// sent in reply, so no session is established and every later <c>#$#</c> line is treated as it is
+	/// outside a session.
+	/// </para>
+	/// <para>
+	/// This is for a consumer that reads screens from strangers and has no use for a session: a
+	/// crawler. Answering would put text on a stranger's login prompt for a session it will never
+	/// use, which is the objection <see cref="MSSPPlaintextProtocol"/> makes to sending
+	/// <c>MSSP-REQUEST</c> unbidden. Unlike that case the server did ask first, so answering is not
+	/// unsolicited -- it is merely pointless, and not free.
+	/// </para>
+	/// <para>
+	/// Ignored in server mode, which answers nothing: a server makes the offer.
+	/// </para>
+	/// </remarks>
+	public bool AnswersOffers { get; set; } = true;
+
+	/// <summary>
+	/// Sets <see cref="AnswersOffers"/> to false in a fluent manner.
+	/// </summary>
+	/// <returns>This instance for fluent chaining</returns>
+	public MudClientProtocol WithoutAnsweringOffers()
+	{
+		AnswersOffers = false;
+		return this;
+	}
+
+	/// <summary>
 	/// Registers the handler for one message name. Packages call this from their own
 	/// <c>InitializeAsync</c>, which is before any wire traffic can arrive.
 	/// </summary>
@@ -641,6 +674,13 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 			context.Logger.LogDebug("MCP {Version} established", Version);
 			await OnNegotiatedAsync(true);
 			await AnnounceEstablishedAsync(context);
+			return;
+		}
+
+		if (!AnswersOffers)
+		{
+			// The offer is consumed by the caller either way. This only declines the session.
+			context.Logger.LogDebug("Not answering the MCP offer: this client does not open MCP sessions");
 			return;
 		}
 

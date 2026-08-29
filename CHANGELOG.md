@@ -33,6 +33,11 @@ All notable changes to this project will be documented in this file.
     session nothing is quoted. `QuoteOutput` exposes the same transformation on its own. It is a
     separate call rather than a hook on the interpreter's send path because quoting is a line-level
     decision and that path is a byte stream.
+  - `MudClientProtocol.AnswersOffers` (fluent: `.WithoutAnsweringMcpOffers()`) takes MCP out of the
+    stream without ever speaking it — the offer is consumed, nothing is sent back, no session is
+    opened. For a consumer that reads connect screens from strangers and has no use for a session:
+    of the 57 lines beginning `#$#` across MUIndex's stored connect screens, 54 are exactly this
+    offer, in both the quoted and the unquoted spelling. Both are read.
   - New public models: `McpMessage` and `McpVersion`.
 
 ### Fixed

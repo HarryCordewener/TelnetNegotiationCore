@@ -477,6 +477,20 @@ line-level decision and that path is a byte stream: writing half a line, or seve
 ordinary use of it, and there is no honest place in the middle of that to decide what a line begins
 with.
 
+**A crawler wants the framing without the session.** `WithoutAnsweringMcpOffers()` consumes the
+offer — it is protocol, and does not belong in a connect screen shown to a reader — but sends nothing
+back, so no session is opened and every later `#$#` line is treated as it is outside one:
+
+```csharp
+.AddPlugin<MudClientProtocol>()
+    .WithoutAnsweringMcpOffers()      // read connect screens, never open a session
+```
+
+Worth having: of the 57 lines beginning `#$#` across the connect screens MUIndex has stored, 54 are
+exactly this offer — 37 written `#$#mcp version: 2.1 to: 2.1` and 17 with the versions quoted. Both
+spellings are read. Answering them would put text on a stranger's login prompt for a session the
+crawler will never use.
+
 Two rules follow from a peer being a stranger, and both are deliberate:
 
 - A line beginning `#$#` that fails to parse, or carries the wrong key, is **dropped inside a session

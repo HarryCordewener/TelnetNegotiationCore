@@ -62,11 +62,11 @@ public class MudClientProtocolTests : BaseTest
 		}
 	}
 
-	private static async Task<Peer> PeerAsync(TelnetInterpreter.TelnetMode mode)
+	private static async Task<Peer> PeerAsync(TelnetInterpreter.TelnetMode mode, bool answerOffers = true)
 	{
 		var peer = new Peer();
 
-		peer.Interpreter = await new TelnetInterpreterBuilder()
+		var builder = new TelnetInterpreterBuilder()
 			.UseMode(mode)
 			.UseLogger(logger)
 			.OnSubmit((data, encoding, _) =>
@@ -79,8 +79,11 @@ public class MudClientProtocolTests : BaseTest
 				peer.Write(data);
 				return ValueTask.CompletedTask;
 			})
-			.AddPlugin<MudClientProtocol>()
-			.BuildAsync();
+			.AddPlugin<MudClientProtocol>();
+
+		if (!answerOffers) builder = builder.WithoutAnsweringMcpOffers();
+
+		peer.Interpreter = await builder.BuildAsync();
 
 		return peer;
 	}
@@ -478,5 +481,51 @@ public class MudClientProtocolTests : BaseTest
 
 		await Assert.That(peer.Wired).Contains(
 			$"#$#* {tag} content: first\r\n#$#* {tag} content: second\r\n#$#* {tag} content: third\r\n#$#: {tag}\r\n");
+	}
+
+	/// <summary>
+	/// The version range is read whether or not the server quoted it. The unquoted spelling is not a
+	/// curiosity: of the 57 lines beginning <c>#$#</c> in MUIndex's stored connect screens, 37 are
+	/// <c>#$#mcp version: 2.1 to: 2.1</c> and 17 are the quoted form -- so the unquoted one is what
+	/// most servers that offer MCP actually send.
+	/// </summary>
+	[Test]
+	public async Task AnUnquotedVersionRangeIsReadTheSameAsAQuotedOne()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		await peer.FeedAsync("#$#mcp version: 2.1 to: 2.1\r\n");
+
+		await Assert.That(await PollUntilAsync(() => peer.Mcp.IsNegotiated, timeoutMs: 10000)).IsTrue();
+		await Assert.That(peer.Submitted).IsEmpty();
+	}
+
+	/// <summary>
+	/// A client can take MCP out of the stream without ever speaking it: the offer is consumed, and
+	/// nothing is put on the wire in reply.
+	/// </summary>
+	/// <remarks>
+	/// This is what a crawler wants. It reads connect screens from strangers and has no interest in
+	/// an MCP session, but the offer is protocol and does not belong in a screen shown to a reader --
+	/// 54 of the 57 lines beginning <c>#$#</c> in MUIndex's stored screens are exactly this offer.
+	/// Answering would put text on a stranger's login prompt for a session it will never use, which
+	/// is the same objection <c>MSSPPlaintextProtocol</c> makes to sending <c>MSSP-REQUEST</c>
+	/// unbidden.
+	/// </remarks>
+	[Test]
+	public async Task AClientThatDoesNotAnswerStillTakesTheOfferOutOfTheStream()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client, answerOffers: false);
+
+		await peer.FeedAsync("#$#mcp version: 2.1 to: 2.1\r\n");
+		await peer.FeedAsync("Welcome to the MOO.\r\n");
+
+		// Consumed: the reader of the connect screen never sees it.
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "Welcome to the MOO." });
+
+		// And nothing was said back.
+		await Assert.That(peer.Wired).DoesNotContain("authentication-key");
+		await Assert.That(peer.Mcp.IsNegotiated).IsFalse();
+		await Assert.That(peer.Mcp.AuthenticationKey).IsNull();
 	}
 }

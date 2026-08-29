@@ -713,4 +713,17 @@ public static class PluginConfigurationExtensions
         context.Plugin.OnNegotiationComplete(callback);
         return context;
     }
+
+    /// <summary>
+    /// Stops this client answering a server's offer of MCP, in a fluent manner. The offer is still
+    /// taken out of the stream. See <see cref="MudClientProtocol.AnswersOffers"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MudClientProtocol> WithoutAnsweringMcpOffers(
+        this PluginConfigurationContext<MudClientProtocol> context)
+    {
+        context.Plugin.WithoutAnsweringOffers();
+        return context;
+    }
 }
