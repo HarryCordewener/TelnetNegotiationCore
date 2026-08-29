@@ -15,8 +15,13 @@ All notable changes to this project will be documented in this file.
   `.SupportsMcpPackage(...)` and `.OnMcpNegotiationComplete(...)`.
   - Nothing MCP reaches `OnSubmit`: handshake, messages, continuation lines and terminators are
     taken out of the stream, and a line the peer quoted as `#$"…` is delivered unquoted.
-  - Multiline messages (`_data-tag`, `#$#* <tag> <key>: …`, `#$#: <tag>`) arrive whole and once, on
-    the terminator. Because the peer decides whether a terminator ever arrives, at most 8 may be
+  - Multiline messages (`_data-tag`, `#$#* <tag> <key>: …`, `#$#: <tag>`) are carried in both
+    directions: they arrive whole and once, on the terminator, and `SendMultilineAsync` writes one —
+    the direction `dns-org-mud-moo-simpleedit` needs, a server handing a client a buffer to edit. The
+    tag is generated per message and the whole message goes out under one lock, because the peer
+    reassembles by tag and a foreign line landing inside it would be read as belonging to whatever
+    tag it names. Continuation text runs verbatim to the end of the line, so a string containing line
+    breaks becomes several continuation lines rather than one that ends early. Because the peer decides whether a terminator ever arrives, at most 8 may be
     open at a time and at most 4096 continuation lines may accumulate in any one of them.
   - A line beginning `#$#` that fails to parse or carries the wrong authentication key is dropped
     inside a session and passed through outside one. Inside a session a server is obliged to quote

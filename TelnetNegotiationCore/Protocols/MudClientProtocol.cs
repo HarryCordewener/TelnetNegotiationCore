@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Stateless;
@@ -68,6 +69,9 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 
 	private string? _authenticationKey;
 
+	/// <summary>The number the next outbound data tag is built from.</summary>
+	private long _nextDataTag;
+
 	/// <summary>
 	/// The key that authenticates every MCP message in this session after the handshake, or
 	/// <see langword="null"/> until the handshake has produced one.
@@ -123,13 +127,7 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	/// <exception cref="InvalidOperationException">There is no MCP session on this connection.</exception>
 	public async ValueTask SendAsync(string name, params (string Key, string Value)[] values)
 	{
-		if (!IsNegotiated || _authenticationKey is null)
-		{
-			throw new InvalidOperationException(
-				"There is no MCP session on this connection, so there is no authentication key to send a message with.");
-		}
-
-		var line = new StringBuilder(Prefix).Append(name).Append(' ').Append(_authenticationKey);
+		var line = new StringBuilder(Prefix).Append(name).Append(' ').Append(RequireKey());
 
 		foreach (var (key, value) in values)
 		{
@@ -140,6 +138,121 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 
 		await Context.SendNegotiationAsync(Context.CurrentEncoding.GetBytes(line.ToString()));
 	}
+
+	/// <summary>
+	/// Sends one MCP message carrying content that does not fit on the line: the opening message, one
+	/// continuation line per line of content, and the line that closes the tag.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// This is the direction <c>dns-org-mud-moo-simpleedit</c> needs -- a server handing a client a
+	/// buffer to edit. The opening message names each continuation key with a trailing <c>*</c> and
+	/// carries a <c>_data-tag</c>; every continuation line quotes that tag, and its text runs verbatim
+	/// to the end of the line, with no quoting of its own.
+	/// </para>
+	/// <para>
+	/// <b>The whole message goes out under one lock</b>, because a second message interleaved into the
+	/// middle of this one is not merely out of order: the peer reassembles by data tag, so a foreign
+	/// line landing between the opening message and its terminator is read as belonging to whatever
+	/// tag it names, and this message's own lines arrive with a hole in them.
+	/// </para>
+	/// </remarks>
+	/// <param name="name">The message name</param>
+	/// <param name="values">The ordinary keyword arguments, in the order they should be written</param>
+	/// <param name="multiline">The continuation keys and their content</param>
+	/// <exception cref="InvalidOperationException">There is no MCP session on this connection.</exception>
+	public async ValueTask SendMultilineAsync(
+		string name,
+		IReadOnlyCollection<(string Key, string Value)> values,
+		params (string Key, IReadOnlyCollection<string> Lines)[] multiline)
+	{
+		if (values is null) throw new ArgumentNullException(nameof(values));
+		if (multiline is null) throw new ArgumentNullException(nameof(multiline));
+
+		if (multiline.Length == 0)
+		{
+			throw new ArgumentException(
+				"A multiline message needs at least one continuation key; use SendAsync for a message without one.",
+				nameof(multiline));
+		}
+
+		var key = RequireKey();
+
+		// Unique per direction, which is all the peer needs: it reassembles what this side sent, and
+		// this side's own inbound table is keyed by the tags the peer chose. Nothing has to agree.
+		var tag = Interlocked.Increment(ref _nextDataTag).ToString(CultureInfo.InvariantCulture);
+
+		var message = new StringBuilder(Prefix).Append(name).Append(' ').Append(key);
+
+		foreach (var (argument, value) in values)
+		{
+			message.Append(' ').Append(argument).Append(": ").Append(Quote(value));
+		}
+
+		foreach (var (argument, _) in multiline)
+		{
+			// The empty string is what goes in the place of a value that arrives elsewhere. It is
+			// convention rather than data, and the peer does not read it.
+			message.Append(' ').Append(argument).Append("*: \"\"");
+		}
+
+		message.Append(" _data-tag: ").Append(Quote(tag)).Append("\r\n");
+
+		foreach (var (argument, lines) in multiline)
+		{
+			foreach (var line in lines)
+			{
+				// Split rather than refused: a caller handing over a whole document as one string is
+				// ordinary use, and an embedded newline written straight to the wire would end the
+				// continuation line early and put the rest of the content out as ordinary output.
+				foreach (var single in SplitLines(line))
+				{
+					message.Append(Prefix).Append("* ").Append(tag).Append(' ')
+						.Append(argument).Append(": ").Append(single).Append("\r\n");
+				}
+			}
+		}
+
+		message.Append(Prefix).Append(": ").Append(tag).Append("\r\n");
+
+		await Context.SendNegotiationAsync(Context.CurrentEncoding.GetBytes(message.ToString()));
+	}
+
+	/// <summary>One string as the lines it holds, whatever line endings it was written with.</summary>
+	private static IEnumerable<string> SplitLines(string text)
+	{
+		if (text is null) throw new ArgumentNullException(nameof(text));
+
+		var at = 0;
+
+		while (true)
+		{
+			var end = text.IndexOfAny(['\r', '\n'], at);
+
+			if (end < 0)
+			{
+				yield return text.Substring(at);
+				yield break;
+			}
+
+			yield return text.Substring(at, end - at);
+
+			at = end + 1;
+
+			if (text[end] == '\r' && at < text.Length && text[at] == '\n') at++;
+
+			if (at == text.Length) yield break;
+		}
+	}
+
+	/// <summary>
+	/// This session's authentication key, or the reason there is not one.
+	/// </summary>
+	private string RequireKey() =>
+		IsNegotiated && _authenticationKey is not null
+			? _authenticationKey
+			: throw new InvalidOperationException(
+				"There is no MCP session on this connection, so there is no authentication key to send a message with.");
 
 	/// <summary>
 	/// Sends ordinary output with MCP's quoting applied, which is a server's half of the framing rule.

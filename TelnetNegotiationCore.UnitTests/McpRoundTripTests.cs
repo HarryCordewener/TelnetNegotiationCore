@@ -134,4 +134,67 @@ public class McpRoundTripTests : BaseTest
 		await Assert.That(clientPackages.Agreed.ContainsKey("dns-com-example-server-only")).IsFalse();
 		await Assert.That(serverPackages.Agreed.ContainsKey("dns-com-example-server-only")).IsFalse();
 	}
+
+	/// <summary>
+	/// A multiline message sent by one implementation is reassembled by the other: the framing this
+	/// side writes is the framing the other side reads.
+	/// </summary>
+	/// <remarks>
+	/// This is the exchange <c>dns-org-mud-moo-simpleedit</c> is built on, and the one a session layer
+	/// that could only receive multiline could not carry. The content is chosen to be awkward on
+	/// purpose -- a quote, a colon, a line that would look like protocol on its own, and an empty line
+	/// -- because continuation text runs verbatim to the end of the line and none of it is escaped.
+	/// </remarks>
+	[Test]
+	public async Task AMultilineMessageSurvivesTheTripBetweenTwoImplementations()
+	{
+		var wire = new Wire();
+		var received = new List<McpMessage>();
+
+		wire.Server = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(wire.FromServer)
+			.AddPlugin<MudClientProtocol>()
+			.BuildAsync();
+
+		wire.Client = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(wire.FromClient)
+			.AddPlugin<MudClientProtocol>()
+			.OnMcpMessage("dns-org-mud-moo-simpleedit-content", message =>
+			{
+				lock (received) received.Add(message);
+				return ValueTask.CompletedTask;
+			})
+			.BuildAsync();
+
+		await wire.SettleAsync();
+
+		var serverMcp = wire.Server.PluginManager!.GetPlugin<MudClientProtocol>()!;
+		await Assert.That(serverMcp.IsNegotiated).IsTrue();
+
+		string[] content =
+		[
+			"\"This is a test.\";",
+			"#$#not a message, just code",
+			"",
+			"return \"done: yes\";",
+		];
+
+		await serverMcp.SendMultilineAsync(
+			"dns-org-mud-moo-simpleedit-content",
+			[("reference", "#98:2"), ("name", "Test:look"), ("type", "moo-code")],
+			("content", content));
+
+		await wire.SettleAsync();
+
+		await Assert.That(received.Count).IsEqualTo(1);
+		await Assert.That(received[0].Value("reference")).IsEqualTo("#98:2");
+		await Assert.That(received[0].Value("name")).IsEqualTo("Test:look");
+		await Assert.That(received[0].Lines("content")).IsEquivalentTo(content);
+	}
 }

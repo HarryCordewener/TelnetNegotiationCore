@@ -500,6 +500,29 @@ continuation line:
 })
 ```
 
+**Sending one is `SendMultilineAsync`** — the direction `dns-org-mud-moo-simpleedit` needs, a server
+handing a client a buffer to edit:
+
+```csharp
+await mcp.SendMultilineAsync(
+    "dns-org-mud-moo-simpleedit-content",
+    [("reference", "#98:2"), ("name", "Test:look"), ("type", "moo-code")],
+    ("content", lines));
+```
+
+```text
+#$#dns-org-mud-moo-simpleedit-content 1234 reference: "#98:2" name: "Test:look" type: "moo-code" content*: "" _data-tag: "1"
+#$#* 1 content: "This is a test.";
+#$#* 1 content: return 1;
+#$#: 1
+```
+
+The data tag is generated per message, and the whole message goes out under one lock — a foreign line
+landing between the opening message and its terminator is not merely out of order, since the peer
+reassembles by tag and would read it as belonging to whatever tag it names. Continuation text runs
+verbatim to the end of the line with no quoting of its own, so a string containing line breaks becomes
+several continuation lines rather than one line with an embedded newline that would end it early.
+
 Agreement is worked out as each `mcp-negotiate-can` arrives rather than when the list ends, because
 a 1.0 peer never sends an end; `McpNegotiateProtocol.IsComplete` is the extra thing 2.0 buys, not a
 precondition for agreeing on anything. A package is in `Agreed` only if this side declared it, the

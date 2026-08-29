@@ -402,4 +402,81 @@ public class MudClientProtocolTests : BaseTest
 		await Assert.That(peer.Wired).Contains("#$#looks like protocol\r\n");
 		await Assert.That(peer.Wired).DoesNotContain("#$\"#$#looks like protocol");
 	}
+
+	/// <summary>
+	/// A multiline message goes out as the specification frames it: an opening message naming its
+	/// continuation keys with a trailing <c>*</c> and carrying a data tag, one continuation line per
+	/// line of content, and the line that closes the tag.
+	/// </summary>
+	/// <remarks>
+	/// This is the direction <c>dns-org-mud-moo-simpleedit</c> needs -- a server handing a client a
+	/// buffer to edit -- and the reason a session layer that could only receive multiline would be
+	/// half a framing implementation.
+	/// </remarks>
+	[Test]
+	public async Task AMultilineMessageGoesOutFramedAsTheSpecificationFramesIt()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+
+		await peer.FeedAsync("#$#mcp authentication-key: \"1234\" version: \"2.1\" to: \"2.1\"\r\n");
+		await Assert.That(await PollUntilAsync(() => peer.Mcp.IsNegotiated, timeoutMs: 10000)).IsTrue();
+
+		await peer.Mcp.SendMultilineAsync(
+			"dns-org-mud-moo-simpleedit-content",
+			[("reference", "#98:2"), ("name", "Test:look"), ("type", "moo-code")],
+			("content", new[] { "\"This is a test.\";", "return 1;" }));
+
+		var tag = System.Text.RegularExpressions.Regex.Match(peer.Wired, "_data-tag: \"([^\"]+)\"");
+		await Assert.That(tag.Success).IsTrue();
+
+		var tagValue = tag.Groups[1].Value;
+
+		await Assert.That(peer.Wired).Contains(
+			"#$#dns-org-mud-moo-simpleedit-content 1234 reference: \"#98:2\" name: \"Test:look\" "
+			+ $"type: \"moo-code\" content*: \"\" _data-tag: \"{tagValue}\"\r\n"
+			+ $"#$#* {tagValue} content: \"This is a test.\";\r\n"
+			+ $"#$#* {tagValue} content: return 1;\r\n"
+			+ $"#$#: {tagValue}\r\n");
+	}
+
+	/// <summary>
+	/// Every multiline message gets its own tag, so two in flight cannot be mistaken for each other.
+	/// </summary>
+	[Test]
+	public async Task EachMultilineMessageGetsItsOwnDataTag()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+
+		await peer.FeedAsync("#$#mcp authentication-key: \"1234\" version: \"2.1\" to: \"2.1\"\r\n");
+		await Assert.That(await PollUntilAsync(() => peer.Mcp.IsNegotiated, timeoutMs: 10000)).IsTrue();
+
+		await peer.Mcp.SendMultilineAsync("dns-com-example-test", [], ("content", new[] { "one" }));
+		await peer.Mcp.SendMultilineAsync("dns-com-example-test", [], ("content", new[] { "two" }));
+
+		var tags = System.Text.RegularExpressions.Regex.Matches(peer.Wired, "_data-tag: \"([^\"]+)\"");
+
+		await Assert.That(tags.Count).IsEqualTo(2);
+		await Assert.That(tags[0].Groups[1].Value).IsNotEqualTo(tags[1].Groups[1].Value);
+	}
+
+	/// <summary>
+	/// A caller that hands over text with line breaks in it gets one continuation line per line, not
+	/// one continuation line carrying an embedded newline -- which would end the line early and put
+	/// the rest of the content on the wire as ordinary output.
+	/// </summary>
+	[Test]
+	public async Task TextWithLineBreaksBecomesSeparateContinuationLines()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+
+		await peer.FeedAsync("#$#mcp authentication-key: \"1234\" version: \"2.1\" to: \"2.1\"\r\n");
+		await Assert.That(await PollUntilAsync(() => peer.Mcp.IsNegotiated, timeoutMs: 10000)).IsTrue();
+
+		await peer.Mcp.SendMultilineAsync("dns-com-example-test", [], ("content", new[] { "first\r\nsecond\nthird" }));
+
+		var tag = System.Text.RegularExpressions.Regex.Match(peer.Wired, "_data-tag: \"([^\"]+)\"").Groups[1].Value;
+
+		await Assert.That(peer.Wired).Contains(
+			$"#$#* {tag} content: first\r\n#$#* {tag} content: second\r\n#$#* {tag} content: third\r\n#$#: {tag}\r\n");
+	}
 }
