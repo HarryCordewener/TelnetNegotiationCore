@@ -483,4 +483,21 @@ public class McpCordProtocolTests : BaseTest
 		await Assert.That(peer.Cords.Open.Count).IsEqualTo(2);
 		await Assert.That(opened[0].IsOpen).IsTrue();
 	}
+
+	/// <summary>
+	/// A <c>configure</c> callback that throws leaves no cord behind. The identifier is reserved before
+	/// it runs, so a throw that escaped the cleanup would hold that identifier for a cord the peer was
+	/// never told about.
+	/// </summary>
+	[Test]
+	public async Task AConfigureCallbackThatThrowsLeavesNoCord()
+	{
+		await using var peer = await EstablishedClientAsync();
+
+		await Assert.That(async () => await peer.Cords.OpenAsync(
+				"dns-com-example-chat", _ => throw new InvalidOperationException("no")))
+			.Throws<InvalidOperationException>();
+
+		await Assert.That(peer.Cords.Open).IsEmpty();
+	}
 }

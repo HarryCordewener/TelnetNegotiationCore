@@ -803,4 +803,74 @@ public class MudClientProtocolTests : BaseTest
 				"dns-com-example-test", [("_data-tag", "mine")], ("body", new[] { "one" })))
 			.Throws<ArgumentException>();
 	}
+
+	/// <summary>
+	/// An underscore is a letter in MCP's grammar, so a key that contains one is a valid key.
+	/// </summary>
+	/// <remarks>
+	/// <c>&lt;alpha&gt; ::= 'a' | ... | 'Z' | '_'</c> -- the underscore is in the production, which is
+	/// also the only way <c>_data-tag</c> can be a keyword at all, since a keyword is an
+	/// <c>&lt;ident&gt;</c> and an <c>&lt;ident&gt;</c> starts with an <c>&lt;alpha&gt;</c>. Refusing
+	/// it turned a valid client handshake away.
+	/// </remarks>
+	[Test]
+	public async Task AnUnderscoreIsALetterInAKey()
+	{
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+
+		await peer.FeedAsync("#$#mcp authentication-key: \"key_with_underscore\" version: \"2.1\" to: \"2.1\"\r\n");
+
+		await Assert.That(await PollUntilAsync(() => peer.Mcp.IsNegotiated, timeoutMs: 10000)).IsTrue();
+		await Assert.That(peer.Mcp.AuthenticationKey).IsEqualTo("key_with_underscore");
+	}
+
+	/// <summary>The same letter, in a message name and in a keyword.</summary>
+	[Test]
+	public async Task AnUnderscoreIsALetterInNamesAndKeywords()
+	{
+		await using var peer = await EstablishedClientAsync();
+
+		await peer.Mcp.SendAsync("dns_com_example-test", ("some_key", "value"));
+
+		await Assert.That(peer.Wired).Contains("#$#dns_com_example-test ");
+		await Assert.That(peer.Wired).Contains("some_key: \"value\"");
+	}
+
+	/// <summary>
+	/// A data tag that cannot be written back on a continuation line cannot terminate the message it
+	/// opened, so the message is refused rather than left occupying one of the open slots forever.
+	/// </summary>
+	/// <remarks>
+	/// Eight of these would otherwise exhaust the ceiling and stop every later multiline message on
+	/// the connection -- an authenticated peer's cheapest way to switch the feature off.
+	/// </remarks>
+	[Test]
+	public async Task AMultilineMessageWithAnUnusableDataTagIsRefused()
+	{
+		await using var peer = await EstablishedClientAsync();
+		var received = new List<McpMessage>();
+
+		peer.Mcp.OnMessage("dns-com-example-test", message =>
+		{
+			lock (received) received.Add(message);
+			return ValueTask.CompletedTask;
+		});
+
+		var key = peer.Mcp.AuthenticationKey;
+
+		// Tags with a space in them can never be named by "#$#* <tag> ...", and each one is distinct so
+		// the duplicate-tag guard does not absorb them: without this fix they take every open slot.
+		for (var i = 0; i < 10; i++)
+		{
+			await peer.FeedAsync($"#$#dns-com-example-test {key} _data-tag: \"a b{i}\" lines*: \"\"\r\n");
+		}
+
+		// The slots were never taken, so a well-formed multiline message still works.
+		await peer.FeedAsync($"#$#dns-com-example-test {key} _data-tag: \"77\" lines*: \"\"\r\n");
+		await peer.FeedAsync("#$#* 77 lines: kept\r\n");
+		await peer.FeedAsync("#$#: 77\r\n");
+
+		await Assert.That(await PollUntilAsync(() => received.Count > 0, timeoutMs: 10000)).IsTrue();
+		await Assert.That(received[0].Lines("lines")).IsEquivalentTo(new[] { "kept" });
+	}
 }

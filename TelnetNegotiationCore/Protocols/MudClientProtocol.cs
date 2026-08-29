@@ -576,6 +576,15 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	{
 		var tag = message.DataTag!;
 
+		// A tag that cannot be written back on a continuation line cannot name this message, so nothing
+		// can ever continue or terminate it -- it would hold one of the open slots for the life of the
+		// connection. Eight of them is an authenticated peer's cheapest way to turn multiline off.
+		if (!IsToken(tag))
+		{
+			context.Logger.LogDebug("Dropping a multiline MCP message whose data tag is not a token");
+			return null;
+		}
+
 		lock (_open)
 		{
 			if (_open.Count >= MaxOpenMultilineMessages)
@@ -896,14 +905,12 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <summary>
-	/// An MCP keyword: a letter or underscore, then letters, digits, hyphens and underscores. The
-	/// leading underscore is the protocol's own reserved space -- <c>_data-tag</c>, and cords' <c>_id</c>,
-	/// <c>_type</c> and <c>_message</c>.
+	/// An MCP keyword: an <c>&lt;ident&gt;</c>. The protocol's own reserved keys -- <c>_data-tag</c>,
+	/// and cords' <c>_id</c>, <c>_type</c> and <c>_message</c> -- need no special case, because an
+	/// underscore is a letter here.
 	/// </summary>
 	private static bool IsArgumentName(string name) =>
-		!string.IsNullOrEmpty(name)
-		&& (IsLetter(name[0]) || name[0] == '_')
-		&& AllOf(name, c => IsNameChar(c) || c == '_');
+		!string.IsNullOrEmpty(name) && IsLetter(name[0]) && AllOf(name, IsNameChar);
 
 	private static bool AllOf(string value, Func<char, bool> predicate)
 	{
@@ -917,7 +924,12 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 
 	private static bool IsNameChar(char c) => IsLetter(c) || (c >= '0' && c <= '9') || c == '-';
 
-	private static bool IsLetter(char c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+	/// <summary>
+	/// MCP's <c>&lt;alpha&gt;</c>, which includes the underscore -- see <see cref="McpMessage"/> for
+	/// why that matters.
+	/// </summary>
+	private static bool IsLetter(char c) =>
+		(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 
 	/// <summary>
 	/// Whether a value can be written unquoted, which is what the authentication key has to be.
@@ -936,10 +948,7 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 
 		foreach (var c in value)
 		{
-			var simple = (c >= 'a' && c <= 'z')
-				|| (c >= 'A' && c <= 'Z')
-				|| (c >= '0' && c <= '9')
-				|| OtherSimple.IndexOf(c) >= 0;
+			var simple = IsLetter(c) || (c >= '0' && c <= '9') || OtherSimple.IndexOf(c) >= 0;
 
 			if (!simple) return false;
 		}

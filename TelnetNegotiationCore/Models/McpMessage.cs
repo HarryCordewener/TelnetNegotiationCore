@@ -276,23 +276,33 @@ public sealed class McpMessage
 	}
 
 	/// <summary>
-	/// An argument name: a letter or underscore, then letters, digits, hyphens and underscores. The
-	/// leading underscore is reserved for the protocol's own keys, of which <c>_data-tag</c> is the
-	/// one this implements.
+	/// An argument name, which is an <c>&lt;ident&gt;</c> like a message name. The protocol's own keys
+	/// -- <c>_data-tag</c>, and cords' <c>_id</c>, <c>_type</c> and <c>_message</c> -- need no special
+	/// case: an underscore is a letter here.
 	/// </summary>
 	private static bool IsArgumentName(string name)
 	{
-		if (name.Length == 0 || (!IsLetter(name[0]) && name[0] != '_')) return false;
+		if (name.Length == 0 || !IsLetter(name[0])) return false;
 
 		foreach (var c in name)
 		{
-			if (!IsLetter(c) && !IsDigit(c) && c != '-' && c != '_') return false;
+			if (!IsLetter(c) && !IsDigit(c) && c != '-') return false;
 		}
 
 		return true;
 	}
 
-	private static bool IsLetter(char c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+	/// <summary>
+	/// MCP's <c>&lt;alpha&gt;</c>, which includes the underscore:
+	/// <c>&lt;alpha&gt; ::= 'a' | ... | 'z' | 'A' | ... | 'Z' | '_'</c>.
+	/// </summary>
+	/// <remarks>
+	/// The underscore being a letter is what makes <c>_data-tag</c> a keyword at all -- a keyword is
+	/// an <c>&lt;ident&gt;</c>, and an <c>&lt;ident&gt;</c> begins with an <c>&lt;alpha&gt;</c>. It
+	/// follows into <c>&lt;simple-char&gt;</c> too, so an authentication key may hold one.
+	/// </remarks>
+	private static bool IsLetter(char c) =>
+		(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 
 	private static bool IsDigit(char c) => c >= '0' && c <= '9';
 }

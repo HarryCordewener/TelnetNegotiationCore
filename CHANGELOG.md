@@ -46,6 +46,14 @@ All notable changes to this project will be documented in this file.
     defined way to resolve it, so taking either value is a guess), and a multiline message whose
     continuation names a key the opening message never declared (delivering what survived would hand
     a consumer a message missing content the peer believes it sent).
+  - MCP's `<alpha>` includes the underscore (`<alpha> ::= 'a' | … | 'Z' | '_'`), so message names,
+    keywords, package names and authentication keys may all hold one. This is also the only way
+    `_data-tag` can be a keyword at all, since a keyword is an `<ident>` and an `<ident>` begins with
+    an `<alpha>`. Validators that excluded it turned valid client handshakes away.
+  - A multiline message whose `_data-tag` is not an unquoted token is refused. Such a tag can never be
+    named on a continuation line, so the message can be neither continued nor terminated and would
+    hold one of the eight open slots for the life of the connection — an authenticated peer's cheapest
+    way to switch multiline off.
   - Refused rather than mishandled, all three found in review: an authentication key that is not a
     single unquoted token (it is written back unquoted, so a key with a space in it would give a
     session that reports as established and messages that are all malformed); a value carrying a line
@@ -67,7 +75,8 @@ All notable changes to this project will be documented in this file.
     Identifiers follow the specification's role-prefix scheme (`I` for the endpoint that initiated
     MCP, `R` for the responder), messages may be single-line or multiline, an unsupported cord type
     or a message for an unknown cord is dropped, a duplicate close is ignored, and sending on a
-    closed cord throws rather than being swallowed. At most 64 peer-opened cords at once. Opening one
+    closed cord throws rather than being swallowed, and a `configure` callback that throws leaves no
+    reserved identifier behind. At most 64 peer-opened cords at once. Opening one
     requires the peer to have agreed the package — it is optional, and opening against a peer that
     never advertised it would send a message that peer is obliged to drop.
   - New public models: `McpMessage`, `McpVersion` and `McpCord`.

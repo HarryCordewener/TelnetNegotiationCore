@@ -195,11 +195,13 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 			_open[id] = cord;
 		}
 
-		// Before anything is written, so a peer that answers at once cannot beat the caller to it.
-		configure?.Invoke(cord);
-
 		try
 		{
+			// Before anything is written, so a peer that answers at once cannot beat the caller to it --
+			// and inside the cleanup, so a callback that throws does not leave the identifier reserved
+			// for a cord the peer was never told about.
+			configure?.Invoke(cord);
+
 			await Mcp.SendAsync(OpenMessage, ("_id", cord.Id), ("_type", type));
 		}
 		catch
