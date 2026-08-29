@@ -67,6 +67,8 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	/// <summary>Multiline messages opened but not yet closed, keyed by their data tag.</summary>
 	private readonly Dictionary<string, McpMessage> _open = new(StringComparer.Ordinal);
 
+	private Func<McpVersion, McpVersion, ValueTask>? _onOffered;
+
 	private string? _authenticationKey;
 
 	/// <summary>The number the next outbound data tag is built from.</summary>
@@ -105,6 +107,26 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	/// </para>
 	/// </remarks>
 	public bool AnswersOffers { get; set; } = true;
+
+	/// <summary>
+	/// Sets the callback that reports a server's offer of MCP, with the version range the server
+	/// named -- not the one this side settled on.
+	/// </summary>
+	/// <remarks>
+	/// Fires for every well-formed offer, whether or not this side answers it and whether or not the
+	/// ranges overlap. The offer is the evidence that a server speaks MCP at all, and for a client
+	/// that declines it is the only evidence there will ever be: <see cref="IsNegotiated"/> stays
+	/// false, correctly, because no session was opened. A consumer recording what a peer supports
+	/// needs that fact separated from the session, or it has to open one it does not want in order to
+	/// learn it.
+	/// </remarks>
+	/// <param name="callback">Receives the lowest and highest versions the peer offered</param>
+	/// <returns>This instance for fluent chaining</returns>
+	public MudClientProtocol OnOffered(Func<McpVersion, McpVersion, ValueTask>? callback)
+	{
+		_onOffered = callback;
+		return this;
+	}
 
 	/// <summary>
 	/// Sets <see cref="AnswersOffers"/> to false in a fluent manner.
@@ -649,6 +671,13 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 		{
 			context.Logger.LogDebug("Ignoring an MCP handshake that does not state a version range");
 			return;
+		}
+
+		// Reported before anything is decided about it: what the peer offered is a fact about the
+		// peer, and stays true whether this side answers, declines, or shares no version with it.
+		if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client && _onOffered is not null)
+		{
+			await _onOffered(lowest, highest);
 		}
 
 		if (lowest > highest || lowest > Version || highest < Version)

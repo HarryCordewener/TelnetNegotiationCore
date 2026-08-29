@@ -483,8 +483,15 @@ back, so no session is opened and every later `#$#` line is treated as it is out
 
 ```csharp
 .AddPlugin<MudClientProtocol>()
-    .WithoutAnsweringMcpOffers()      // read connect screens, never open a session
+    .WithoutAnsweringMcpOffers()                        // read connect screens, never open a session
+    .OnMcpOffered((lowest, highest) => Record("MCP"))   // the offer is still the evidence
 ```
+
+`.OnMcpOffered` fires for every well-formed offer, whether or not this side answers it and whether or
+not the ranges overlap, and reports the range the *server* named. For a client that declines it is the
+only evidence there will be — `IsNegotiated` stays false, correctly, because no session was opened —
+so a consumer recording what a peer supports does not have to open a session it does not want in order
+to learn it.
 
 Worth having: of the 57 lines beginning `#$#` across the connect screens MUIndex has stored, 54 are
 exactly this offer — 37 written `#$#mcp version: 2.1 to: 2.1` and 17 with the versions quoted. Both

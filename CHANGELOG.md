@@ -38,6 +38,10 @@ All notable changes to this project will be documented in this file.
     opened. For a consumer that reads connect screens from strangers and has no use for a session:
     of the 57 lines beginning `#$#` across MUIndex's stored connect screens, 54 are exactly this
     offer, in both the quoted and the unquoted spelling. Both are read.
+  - `MudClientProtocol.OnOffered` (fluent: `.OnMcpOffered(...)`) reports a server's offer with the
+    range the server named, for every well-formed offer, whether or not this side answers it. For a
+    client that declines it is the only evidence there will be — `IsNegotiated` stays false because
+    no session was opened — so recording that a peer speaks MCP does not require opening a session.
   - New public models: `McpMessage` and `McpVersion`.
 
 ### Fixed

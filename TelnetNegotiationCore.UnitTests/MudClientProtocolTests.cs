@@ -62,7 +62,10 @@ public class MudClientProtocolTests : BaseTest
 		}
 	}
 
-	private static async Task<Peer> PeerAsync(TelnetInterpreter.TelnetMode mode, bool answerOffers = true)
+	private static async Task<Peer> PeerAsync(
+		TelnetInterpreter.TelnetMode mode,
+		bool answerOffers = true,
+		Func<McpVersion, McpVersion, ValueTask>? onOffered = null)
 	{
 		var peer = new Peer();
 
@@ -82,6 +85,8 @@ public class MudClientProtocolTests : BaseTest
 			.AddPlugin<MudClientProtocol>();
 
 		if (!answerOffers) builder = builder.WithoutAnsweringMcpOffers();
+
+		if (onOffered is not null) builder = builder.OnMcpOffered(onOffered);
 
 		peer.Interpreter = await builder.BuildAsync();
 
@@ -527,5 +532,37 @@ public class MudClientProtocolTests : BaseTest
 		await Assert.That(peer.Wired).DoesNotContain("authentication-key");
 		await Assert.That(peer.Mcp.IsNegotiated).IsFalse();
 		await Assert.That(peer.Mcp.AuthenticationKey).IsNull();
+	}
+
+	/// <summary>
+	/// A server's offer is reported whether or not this side answers it, and with the range the
+	/// server named rather than the one this side settled on.
+	/// </summary>
+	/// <remarks>
+	/// The offer is the evidence that a server speaks MCP, and it is the only evidence a client that
+	/// declines will ever have -- <see cref="MudClientProtocol.IsNegotiated"/> stays false, correctly,
+	/// because no session was opened. A crawler recording what a game supports needs the fact
+	/// separated from the session, or it has to open a session it does not want in order to learn it.
+	/// </remarks>
+	[Test]
+	public async Task AnOfferIsReportedEvenWhenItIsNotAnswered()
+	{
+		var offered = new List<(McpVersion Lowest, McpVersion Highest)>();
+
+		var peer = await PeerAsync(
+			TelnetInterpreter.TelnetMode.Client,
+			answerOffers: false,
+			onOffered: (lowest, highest) =>
+			{
+				lock (offered) offered.Add((lowest, highest));
+				return ValueTask.CompletedTask;
+			});
+
+		await peer.FeedAsync("#$#mcp version: 1.0 to: 2.1\r\n");
+
+		await Assert.That(await PollUntilAsync(() => offered.Count > 0, timeoutMs: 10000)).IsTrue();
+		await Assert.That(offered[0].Lowest).IsEqualTo(new McpVersion(1, 0));
+		await Assert.That(offered[0].Highest).IsEqualTo(new McpVersion(2, 1));
+		await Assert.That(peer.Mcp.IsNegotiated).IsFalse();
 	}
 }

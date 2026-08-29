@@ -726,4 +726,19 @@ public static class PluginConfigurationExtensions
         context.Plugin.WithoutAnsweringOffers();
         return context;
     }
+
+    /// <summary>
+    /// Sets the callback that reports a server's offer of MCP, in a fluent manner.
+    /// See <see cref="MudClientProtocol.OnOffered"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">Receives the lowest and highest versions the peer offered</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MudClientProtocol> OnMcpOffered(
+        this PluginConfigurationContext<MudClientProtocol> context,
+        Func<Models.McpVersion, Models.McpVersion, ValueTask>? callback)
+    {
+        context.Plugin.OnOffered(callback);
+        return context;
+    }
 }
