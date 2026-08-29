@@ -688,4 +688,66 @@ public class MudClientProtocolTests : BaseTest
 				"dns-com-example-test", ("name", "one"), ("NAME", "two")))
 			.Throws<ArgumentException>();
 	}
+
+	/// <summary>
+	/// A message carrying the same keyword twice is mangled, and a mangled message is ignored rather
+	/// than half-obeyed.
+	/// </summary>
+	/// <remarks>
+	/// The specification forbids sending one and gives a receiver no way to resolve it, so taking
+	/// either value is a guess. Guessing is worse than dropping: the peer believes it said something
+	/// specific, and whichever half this side kept, it is not reliably the one the peer meant.
+	/// </remarks>
+	[Test]
+	public async Task AMessageCarryingTheSameKeywordTwiceIsIgnored()
+	{
+		await using var peer = await EstablishedClientAsync();
+		var received = new List<McpMessage>();
+
+		peer.Mcp.OnMessage("dns-com-example-test", message =>
+		{
+			lock (received) received.Add(message);
+			return ValueTask.CompletedTask;
+		});
+
+		await peer.FeedAsync(
+			$"#$#dns-com-example-test {peer.Mcp.AuthenticationKey} name: \"one\" name: \"two\"\r\n");
+		await peer.FeedAsync("after\r\n");
+
+		await Assert.That(await PollUntilAsync(() => peer.Submitted.Count > 0, timeoutMs: 10000)).IsTrue();
+		await Assert.That(received).IsEmpty();
+	}
+
+	/// <summary>
+	/// A continuation line naming a key the message never opened makes the whole message mangled: it
+	/// is dropped, not delivered with the stray line quietly discarded.
+	/// </summary>
+	/// <remarks>
+	/// The specification lists this among its examples of a mangled message -- a keyword carrying
+	/// <c>*</c> in the opening message but not in the continuation, and the converse. Delivering what
+	/// survived would hand a consumer a message that is missing content the peer believes it sent.
+	/// </remarks>
+	[Test]
+	public async Task AContinuationForAKeyTheMessageNeverOpenedMangesTheWholeMessage()
+	{
+		await using var peer = await EstablishedClientAsync();
+		var received = new List<McpMessage>();
+
+		peer.Mcp.OnMessage("dns-com-example-test", message =>
+		{
+			lock (received) received.Add(message);
+			return ValueTask.CompletedTask;
+		});
+
+		var key = peer.Mcp.AuthenticationKey;
+
+		await peer.FeedAsync($"#$#dns-com-example-test {key} _data-tag: 77 lines*: \"\"\r\n");
+		await peer.FeedAsync("#$#* 77 lines: kept\r\n");
+		await peer.FeedAsync("#$#* 77 somethingelse: stray\r\n");
+		await peer.FeedAsync("#$#: 77\r\n");
+		await peer.FeedAsync("after\r\n");
+
+		await Assert.That(await PollUntilAsync(() => peer.Submitted.Count > 0, timeoutMs: 10000)).IsTrue();
+		await Assert.That(received).IsEmpty();
+	}
 }

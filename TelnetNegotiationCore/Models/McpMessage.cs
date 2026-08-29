@@ -175,6 +175,11 @@ public sealed class McpMessage
 
 			if (value is null) return false;
 
+			// Mangled: the specification forbids sending the same keyword twice and gives a receiver no
+			// way to resolve one, so taking either value is a guess. The peer believes it said
+			// something specific, and whichever half were kept would not reliably be the one it meant.
+			if (values.ContainsKey(argumentName) || lines.ContainsKey(argumentName)) return false;
+
 			if (isContinuation)
 			{
 				lines[argumentName] = [];

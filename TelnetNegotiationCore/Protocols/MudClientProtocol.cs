@@ -634,9 +634,17 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 			return null;
 		}
 
+		// A continuation naming a key the opening message never declared is one of the specification's
+		// own examples of a mangled message, and a mangled message is ignored rather than half
+		// delivered: handing the consumer what survived would give it a message missing content the
+		// peer believes it sent. The whole thing goes, and the tag with it, so the terminator that
+		// eventually arrives finds nothing open and is dropped in its turn.
 		if (!open.AppendLine(key, text))
 		{
-			context.Logger.LogDebug("Ignoring a continuation line for a key the message did not open: {Key}", key);
+			context.Logger.LogDebug(
+				"Dropping a multiline MCP message: a continuation names {Key}, which it never opened", key);
+
+			lock (_open) _open.Remove(tag);
 		}
 
 		return null;

@@ -520,6 +520,11 @@ Two rules, the first from the specification and the second from the peer being a
   ever does — so at most 8 may be open at once, and at most 4096 continuation lines may accumulate in
   any one of them.
 
+A *mangled* message is ignored rather than half-obeyed, following the specification's own examples: one
+carrying the same keyword twice, and a multiline message whose continuation names a key the opening
+message never declared. Delivering what survived would hand you a message missing content the peer
+believes it sent.
+
 Refused rather than mishandled, all at the point the value is made: an authentication key that is not
 a single `<simple-char>` token (it is written back unquoted and could not survive the trip), a value
 carrying a line ending passed to `SendAsync` (use `SendMultilineAsync`), the same keyword twice in one

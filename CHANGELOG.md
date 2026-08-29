@@ -42,6 +42,11 @@ All notable changes to this project will be documented in this file.
     range the server named, for every well-formed offer, whether or not this side answers it. For a
     client that declines it is the only evidence there will be — `IsNegotiated` stays false because
     no session was opened — so recording that a peer speaks MCP does not require opening a session.
+  - A mangled message is ignored rather than half-obeyed, per the specification's own list of what
+    counts as mangled: one carrying the same keyword twice (forbidden to send, and a receiver has no
+    defined way to resolve it, so taking either value is a guess), and a multiline message whose
+    continuation names a key the opening message never declared (delivering what survived would hand
+    a consumer a message missing content the peer believes it sent).
   - Refused rather than mishandled, all three found in review: an authentication key that is not a
     single unquoted token (it is written back unquoted, so a key with a space in it would give a
     session that reports as established and messages that are all malformed); a value carrying a line
