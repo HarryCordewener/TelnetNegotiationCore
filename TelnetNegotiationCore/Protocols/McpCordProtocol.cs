@@ -120,9 +120,15 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <inheritdoc />
+	/// <remarks>
+	/// Emptying the table is not enough. A cord handed to a consumer outlives the table, and one that
+	/// still reports itself open is one <see cref="McpCord.SendAsync"/> will still write to the wire --
+	/// the MCP session underneath is untouched, so those messages would go out for real, naming a cord
+	/// this side no longer knows about.
+	/// </remarks>
 	protected override ValueTask OnProtocolDisabledAsync()
 	{
-		lock (_open) _open.Clear();
+		CloseAll();
 
 		return default(ValueTask);
 	}
@@ -130,9 +136,19 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 	/// <inheritdoc />
 	protected override ValueTask OnDisposeAsync()
 	{
-		lock (_open) _open.Clear();
+		CloseAll();
 
 		return default(ValueTask);
+	}
+
+	private void CloseAll()
+	{
+		lock (_open)
+		{
+			foreach (var cord in _open.Values) cord.IsOpen = false;
+
+			_open.Clear();
+		}
 	}
 
 	private MudClientProtocol Mcp =>
@@ -155,6 +171,12 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 	public async ValueTask<McpCord> OpenAsync(string type, Action<McpCord>? configure = null)
 	{
 		if (string.IsNullOrEmpty(type)) throw new ArgumentException("A cord type is required.", nameof(type));
+
+		if (!IsEnabled)
+		{
+			throw new InvalidOperationException(
+				$"{nameof(McpCordProtocol)} is disabled on this connection, so it will not open a cord.");
+		}
 
 		// Checked before a cord exists rather than left to the send: failing afterwards would leave a
 		// cord this side believes is open that the peer was never told about.
@@ -275,6 +297,10 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 
 	private async ValueTask OnOpenAsync(McpMessage message)
 	{
+		// Registered on the session layer for the life of the connection, so a disabled plugin has to
+		// decline for itself rather than rely on being unhooked.
+		if (!IsEnabled) return;
+
 		var id = message.Value("_id");
 		var type = message.Value("_type");
 
@@ -326,6 +352,10 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 
 	private async ValueTask OnCordAsync(McpMessage message)
 	{
+		// Registered on the session layer for the life of the connection, so a disabled plugin has to
+		// decline for itself rather than rely on being unhooked.
+		if (!IsEnabled) return;
+
 		var id = message.Value("_id");
 
 		if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(message.Value("_message")))
@@ -349,6 +379,10 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 
 	private async ValueTask OnClosedAsync(McpMessage message)
 	{
+		// Registered on the session layer for the life of the connection, so a disabled plugin has to
+		// decline for itself rather than rely on being unhooked.
+		if (!IsEnabled) return;
+
 		var id = message.Value("_id");
 
 		if (string.IsNullOrEmpty(id)) return;

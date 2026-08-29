@@ -500,4 +500,55 @@ public class McpCordProtocolTests : BaseTest
 
 		await Assert.That(peer.Cords.Open).IsEmpty();
 	}
+
+	/// <summary>
+	/// Disabling the plugin closes the cords it was holding, so a caller that kept one cannot go on
+	/// sending down it.
+	/// </summary>
+	/// <remarks>
+	/// Clearing the table is not enough: a cord handed to a consumer outlives the table, and one that
+	/// still reports itself open is one <see cref="McpCord.SendAsync"/> will still write to the wire.
+	/// The MCP session underneath is still up, so those messages would go out for real, naming a cord
+	/// this side no longer knows about.
+	/// </remarks>
+	[Test]
+	public async Task DisablingTheCordsPluginClosesTheCordsItHeld()
+	{
+		await using var peer = await EstablishedClientAsync();
+
+		var cord = await peer.Cords.OpenAsync("dns-com-example-chat");
+		await Assert.That(cord.IsOpen).IsTrue();
+
+		await peer.Cords.OnDisabledAsync();
+
+		await Assert.That(cord.IsOpen).IsFalse();
+		await Assert.That(peer.Cords.Open).IsEmpty();
+		await Assert.That(async () => await cord.SendAsync("say", ("text", "too late")))
+			.Throws<InvalidOperationException>();
+	}
+
+	/// <summary>
+	/// A disabled plugin does not accept cords either. Its message handlers stay registered on the
+	/// session layer, so they have to decline for themselves.
+	/// </summary>
+	[Test]
+	public async Task ADisabledCordsPluginDoesNotAcceptNewCords()
+	{
+		var opened = new List<McpCord>();
+
+		await using var peer = await EstablishedClientAsync(cords =>
+			cords.SupportsCordType("dns-com-example-chat", cord =>
+			{
+				lock (opened) opened.Add(cord);
+				return ValueTask.CompletedTask;
+			}));
+
+		await peer.Cords.OnDisabledAsync();
+
+		await peer.FeedAsync(
+			$"#$#mcp-cord-open {peer.Mcp.AuthenticationKey} _id: \"I1\" _type: \"dns-com-example-chat\"\r\n");
+
+		await Assert.That(opened).IsEmpty();
+		await Assert.That(peer.Cords.Open).IsEmpty();
+	}
 }

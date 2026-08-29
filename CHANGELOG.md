@@ -76,7 +76,10 @@ All notable changes to this project will be documented in this file.
     MCP, `R` for the responder), messages may be single-line or multiline, an unsupported cord type
     or a message for an unknown cord is dropped, a duplicate close is ignored, and sending on a
     closed cord throws rather than being swallowed, and a `configure` callback that throws leaves no
-    reserved identifier behind. At most 64 peer-opened cords at once. Opening one
+    reserved identifier behind. At most 64 peer-opened cords at once. Disabling the plugin closes the
+    cords it held rather than only forgetting them — a cord handed to a consumer outlives the table,
+    and one still reporting itself open would still write to a session that is untouched — and its
+    handlers, which stay registered on the session layer, decline while it is disabled. Opening one
     requires the peer to have agreed the package — it is optional, and opening against a peer that
     never advertised it would send a message that peer is obliged to drop.
   - New public models: `McpMessage`, `McpVersion` and `McpCord`.
