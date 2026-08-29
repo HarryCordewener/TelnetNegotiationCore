@@ -127,6 +127,16 @@ public class McpNegotiateProtocol : TelnetProtocolPluginBase
 			throw new ArgumentException("A package name is required.", nameof(package));
 		}
 
+		// Refused where it is declared rather than advertised as malformed framing that the peer can
+		// only drop. A package name is built on the same identifier production as everything else in
+		// MCP.
+		if (!McpMessage.IsIdentifier(package))
+		{
+			throw new ArgumentException(
+				$"'{package}' is not an MCP package name: a letter, then letters, digits and hyphens.",
+				nameof(package));
+		}
+
 		if (minimum > maximum)
 		{
 			throw new ArgumentOutOfRangeException(
@@ -222,7 +232,8 @@ public class McpNegotiateProtocol : TelnetProtocolPluginBase
 
 		var package = message.Value("package");
 
-		if (string.IsNullOrEmpty(package)
+		// The same rule reading as writing: something that is not a package name is not recorded as one.
+		if (!McpMessage.IsIdentifier(package)
 			|| !message.TryGetVersion("min-version", out var theirMin)
 			|| !message.TryGetVersion("max-version", out var theirMax))
 		{

@@ -168,11 +168,39 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 				"There is no MCP session on this connection, so a cord cannot be opened on it.");
 		}
 
-		var cord = new McpCord(this, NewId(), type);
+		// And cords are an optional package, not part of the session layer. Opening one against a peer
+		// that never advertised mcp-cord sends a message it is obliged to drop, while this side goes on
+		// believing the cord exists. A consumer that wants one waits for negotiation to finish --
+		// OnMcpNegotiationComplete, or Agreed filling in.
+		if (!Negotiate.Agreed.ContainsKey(PackageName))
+		{
+			throw new InvalidOperationException(
+				$"The peer has not agreed the {PackageName} package, so a cord cannot be opened.");
+		}
 
+		McpCord cord;
+
+		// Generated and reserved in one critical section. The role prefixes keep the two ends apart by
+		// convention, but a peer is not obliged to honour them and an identifier that arrives is an
+		// opaque string -- so a peer that opened "R1" against this client would otherwise have its cord
+		// silently replaced here by the client's own first "R1": still open as far as the peer is
+		// concerned, and unreachable from this side.
+		lock (_open)
+		{
+			string id;
+
+			do
+			{
+				id = NewId();
+			}
+			while (_open.ContainsKey(id));
+
+			cord = new McpCord(this, id, type);
+			_open[id] = cord;
+		}
+
+		// Before anything is written, so a peer that answers at once cannot beat the caller to it.
 		configure?.Invoke(cord);
-
-		lock (_open) _open[cord.Id] = cord;
 
 		try
 		{

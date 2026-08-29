@@ -58,7 +58,9 @@ public class McpCordProtocolTests : BaseTest
 	}
 
 	/// <summary>A client with the MCP session already up and cords available.</summary>
-	private static async Task<Peer> EstablishedClientAsync(Action<McpCordProtocol>? configure = null)
+	private static async Task<Peer> EstablishedClientAsync(
+		Action<McpCordProtocol>? configure = null,
+		bool agreeCords = true)
 	{
 		var peer = new Peer();
 
@@ -81,6 +83,22 @@ public class McpCordProtocolTests : BaseTest
 
 		await peer.FeedAsync("#$#mcp version: \"2.1\" to: \"2.1\"\r\n");
 		await Assert.That(await PollUntilAsync(() => peer.Mcp.IsNegotiated, timeoutMs: 10000)).IsTrue();
+
+		if (agreeCords)
+		{
+			// Cords are an optional negotiated package, so nothing may use one until both sides have
+			// said they speak it.
+			var key = peer.Mcp.AuthenticationKey;
+
+			await peer.FeedAsync(
+				$"#$#mcp-negotiate-can {key} package: \"mcp-cord\" min-version: \"1.0\" max-version: \"1.0\"\r\n");
+			await peer.FeedAsync($"#$#mcp-negotiate-end {key}\r\n");
+
+			await Assert.That(await PollUntilAsync(
+				() => peer.Interpreter.PluginManager!.GetPlugin<McpNegotiateProtocol>()!
+					.Agreed.ContainsKey(McpCordProtocol.PackageName),
+				timeoutMs: 10000)).IsTrue();
+		}
 
 		return peer;
 	}
@@ -416,5 +434,56 @@ public class McpCordProtocolTests : BaseTest
 			$"#$#mcp-cord-open {peer.Mcp.AuthenticationKey} _id: \"I1\" _type: \"dns-com-example-chat\"\r\n");
 
 		await Assert.That(await PollUntilAsync(() => opened.Count > 0, timeoutMs: 10000)).IsTrue();
+	}
+
+	/// <summary>
+	/// A cord cannot be opened until the peer has said it speaks the package. <c>mcp-cord</c> is an
+	/// optional negotiated package, and opening one against a peer that never advertised it sends a
+	/// message the peer will drop while this side goes on believing the cord exists.
+	/// </summary>
+	[Test]
+	public async Task ACordCannotBeOpenedBeforeThePackageIsAgreed()
+	{
+		await using var peer = await EstablishedClientAsync(agreeCords: false);
+
+		await Assert.That(async () => await peer.Cords.OpenAsync("dns-com-example-chat"))
+			.Throws<InvalidOperationException>();
+
+		await Assert.That(peer.Cords.Open).IsEmpty();
+	}
+
+	/// <summary>
+	/// A cord the peer opened is not displaced by one this side opens afterwards, whatever identifier
+	/// the peer chose.
+	/// </summary>
+	/// <remarks>
+	/// The role prefixes are a convention the peer is not obliged to honour, and an identifier that
+	/// arrives is an opaque string. A peer that opens <c>R1</c> against a client whose own next
+	/// identifier is <c>R1</c> used to have its cord silently replaced in the table -- still open as
+	/// far as it was concerned, and unreachable from here.
+	/// </remarks>
+	[Test]
+	public async Task APeersCordIsNotDisplacedByOneOpenedAfterwards()
+	{
+		var opened = new List<McpCord>();
+
+		await using var peer = await EstablishedClientAsync(cords =>
+			cords.SupportsCordType("dns-com-example-chat", cord =>
+			{
+				lock (opened) opened.Add(cord);
+				return ValueTask.CompletedTask;
+			}));
+
+		// The identifier this client would otherwise hand out first.
+		await peer.FeedAsync(
+			$"#$#mcp-cord-open {peer.Mcp.AuthenticationKey} _id: \"R1\" _type: \"dns-com-example-chat\"\r\n");
+
+		await Assert.That(await PollUntilAsync(() => opened.Count > 0, timeoutMs: 10000)).IsTrue();
+
+		var mine = await peer.Cords.OpenAsync("dns-com-example-chat");
+
+		await Assert.That(mine.Id).IsNotEqualTo("R1");
+		await Assert.That(peer.Cords.Open.Count).IsEqualTo(2);
+		await Assert.That(opened[0].IsOpen).IsTrue();
 	}
 }

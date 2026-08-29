@@ -252,6 +252,13 @@ public sealed class McpMessage
 	}
 
 	/// <summary>
+	/// Whether a string is an MCP identifier: a letter, then letters, digits and hyphens. Message
+	/// names, keywords and package names are all built on this one production, so they are all checked
+	/// against this one method.
+	/// </summary>
+	public static bool IsIdentifier(string? value) => value is not null && IsMessageName(value);
+
+	/// <summary>
 	/// A message name: a letter, then letters, digits and hyphens. Checked rather than assumed,
 	/// because the alternative is treating a line of ordinary output that happens to start with
 	/// <c>#$#</c> as protocol.

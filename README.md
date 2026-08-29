@@ -439,8 +439,9 @@ alone throws at `BuildAsync()` rather than going quiet on the wire.
 ```
 
 **The handshake is asymmetric and the server opens it**, because nothing else can: a client has no
-way to know MCP is on offer until the server says so. The server's offer is the only message in the
-protocol that carries no authentication key.
+way to know MCP is on offer until the server says so. The two handshake messages are the protocol's
+only exception to the key rule — the server's offer carries none at all, and the client's reply is
+where the key is introduced rather than presented — so every message after them carries it.
 
 ```text
 S: #$#mcp version: "2.1" to: "2.1"
@@ -620,6 +621,8 @@ Cords depend on package negotiation, which depends on the session layer, so all 
 ```csharp
 var cords = telnet.PluginManager!.GetPlugin<McpCordProtocol>()!;
 
+// Cords are an optional negotiated package: wait until the peer has agreed it, which
+// OnMcpNegotiationComplete tells you, or watch Agreed fill in. Opening before that throws.
 McpCord cord = await cords.OpenAsync("dns-com-example-chat", c =>
 {
     // Wired here, not after the call returns: mcp-cord-open has already gone out by then, and a

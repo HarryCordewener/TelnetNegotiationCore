@@ -358,4 +358,37 @@ public class McpNegotiateProtocolTests : BaseTest
 		await Assert.That(peer.Negotiate.PeerPackages.ContainsKey("dns-com-example-test")).IsFalse();
 		await Assert.That(peer.Negotiate.Agreed.ContainsKey("dns-com-example-test")).IsFalse();
 	}
+
+	/// <summary>
+	/// A package name that is not an MCP identifier is refused where it is declared, rather than
+	/// advertised as malformed framing.
+	/// </summary>
+	[Test]
+	public async Task APackageNameMustBeAnIdentifier()
+	{
+		await using var peer = await EstablishedClientAsync();
+
+		await Assert.That(() => peer.Negotiate.Supports(
+				"dns-com-example bad", new McpVersion(1, 0), new McpVersion(1, 0)))
+			.Throws<ArgumentException>();
+	}
+
+	/// <summary>
+	/// The same rule reading as writing: a <c>can</c> line naming something that is not a package name
+	/// is not recorded as one.
+	/// </summary>
+	[Test]
+	public async Task APeersMalformedPackageNameIsNotRecorded()
+	{
+		await using var peer = await EstablishedClientAsync();
+
+		var key = peer.Mcp.AuthenticationKey;
+
+		await peer.FeedAsync(
+			$"#$#mcp-negotiate-can {key} package: \"not a package\" min-version: \"1.0\" max-version: \"1.0\"\r\n");
+		await peer.FeedAsync($"#$#mcp-negotiate-end {key}\r\n");
+
+		await Assert.That(await PollUntilAsync(() => peer.Negotiate.IsComplete, timeoutMs: 10000)).IsTrue();
+		await Assert.That(peer.Negotiate.PeerPackages.ContainsKey("not a package")).IsFalse();
+	}
 }

@@ -68,7 +68,9 @@ All notable changes to this project will be documented in this file.
     Identifiers follow the specification's role-prefix scheme (`I` for the endpoint that initiated
     MCP, `R` for the responder), messages may be single-line or multiline, an unsupported cord type
     or a message for an unknown cord is dropped, a duplicate close is ignored, and sending on a
-    closed cord throws rather than being swallowed. At most 64 peer-opened cords at once.
+    closed cord throws rather than being swallowed. At most 64 peer-opened cords at once. Opening one
+    requires the peer to have agreed the package — it is optional, and opening against a peer that
+    never advertised it would send a message that peer is obliged to drop.
   - New public models: `McpMessage`, `McpVersion` and `McpCord`.
 
 ### Fixed
