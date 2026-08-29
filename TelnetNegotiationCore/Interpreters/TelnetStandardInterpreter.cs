@@ -137,9 +137,9 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
     /// <summary>
     /// Observers that see each assembled line before <see cref="CallbackOnSubmitAsync"/> does, and
-    /// may consume it. See <see cref="RegisterInputLineObserver"/>.
+    /// may rewrite or consume it. See <see cref="RegisterInputLineObserver"/>.
     /// </summary>
-    private readonly List<Func<byte[], Encoding, ValueTask<bool>>> _inputLineObservers = [];
+    private readonly List<Func<byte[], Encoding, ValueTask<byte[]?>>> _inputLineObservers = [];
 
     /// <summary>
     /// Written to <see cref="_byteChannel"/> in place of a wire byte, so
@@ -474,17 +474,29 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
     /// <summary>
     /// Registers an observer that sees each assembled line of ordinary input before
-    /// <see cref="CallbackOnSubmitAsync"/> does, and returns true to consume it.
+    /// <see cref="CallbackOnSubmitAsync"/> does, and may rewrite or consume it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// This exists for protocols that are carried as text rather than as negotiation — the plaintext
-    /// MSSP exchange is the only one today — where the protocol's own lines must not be handed to the
-    /// host application as if a user had typed them. Observers run in registration order and the
-    /// first one to return true stops the line there.
+    /// MSSP exchange and MCP — where the protocol's own lines must not be handed to the host
+    /// application as if a user had typed them. Observers run in registration order, each one seeing
+    /// what the one before it returned, and the first to answer <see langword="null"/> stops the line
+    /// there.
+    /// </para>
+    /// <para>
+    /// <b>Rewriting is why this returns a line rather than a flag.</b> Consuming covers a protocol
+    /// whose lines are wholly its own, which is all plaintext MSSP ever needs. MCP's quoting rule is
+    /// not that shape: a line the peer sent as <c>#$"foo</c> must reach the application as
+    /// <c>foo</c> — neither delivered as it arrived nor dropped. An observer that could only answer
+    /// yes or no would have to consume the line and re-inject it, which reorders it against anything
+    /// already queued behind it.
+    /// </para>
     /// </remarks>
-    /// <param name="observer">Receives the line's bytes and the connection's encoding; returns true
-    /// if the line belongs to it and must not be delivered.</param>
-    internal void RegisterInputLineObserver(Func<byte[], Encoding, ValueTask<bool>> observer)
+    /// <param name="observer">Receives the line's bytes and the encoding it arrived in; returns the
+    /// line to carry on with — the same bytes, or different ones — or <see langword="null"/> if the
+    /// line belongs to it and must not be delivered.</param>
+    internal void RegisterInputLineObserver(Func<byte[], Encoding, ValueTask<byte[]?>> observer)
     {
         if (observer == null) throw new ArgumentNullException(nameof(observer));
 
@@ -593,10 +605,14 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
         foreach (var observer in _inputLineObservers)
         {
-            if (await observer(cp, lineEncoding))
+            var kept = await observer(cp, lineEncoding);
+
+            if (kept is null)
             {
                 return;
             }
+
+            cp = kept;
         }
 
         if (CallbackOnSubmitAsync is not null)

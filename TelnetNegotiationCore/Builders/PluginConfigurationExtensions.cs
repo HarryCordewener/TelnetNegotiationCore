@@ -662,4 +662,55 @@ public static class PluginConfigurationExtensions
         TelnetInterpreterBuilder builder = context;
         return builder.WithKeepAlive(interval, sendAsync);
     }
+
+    /// <summary>
+    /// Registers the handler for one MCP message name in a fluent manner.
+    /// See <see cref="MudClientProtocol.OnMessage"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="name">The message name, matched case-insensitively as MCP matches it</param>
+    /// <param name="handler">Called once per complete message</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MudClientProtocol> OnMcpMessage(
+        this PluginConfigurationContext<MudClientProtocol> context,
+        string name,
+        Func<Models.McpMessage, ValueTask> handler)
+    {
+        context.Plugin.OnMessage(name, handler);
+        return context;
+    }
+
+    /// <summary>
+    /// Declares a package this side speaks in a fluent manner.
+    /// See <see cref="McpNegotiateProtocol.Supports"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="package">The package name</param>
+    /// <param name="minimum">The lowest version this side can speak</param>
+    /// <param name="maximum">The highest version this side can speak</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<McpNegotiateProtocol> SupportsMcpPackage(
+        this PluginConfigurationContext<McpNegotiateProtocol> context,
+        string package,
+        Models.McpVersion minimum,
+        Models.McpVersion maximum)
+    {
+        context.Plugin.Supports(package, minimum, maximum);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback that runs when the peer finishes its package list, in a fluent manner.
+    /// See <see cref="McpNegotiateProtocol.OnNegotiationComplete"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle the agreed package set</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<McpNegotiateProtocol> OnMcpNegotiationComplete(
+        this PluginConfigurationContext<McpNegotiateProtocol> context,
+        Func<IReadOnlyDictionary<string, Models.McpVersion>, ValueTask>? callback)
+    {
+        context.Plugin.OnNegotiationComplete(callback);
+        return context;
+    }
 }

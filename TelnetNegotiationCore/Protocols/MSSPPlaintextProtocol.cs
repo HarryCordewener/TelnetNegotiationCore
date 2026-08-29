@@ -162,7 +162,8 @@ public class MSSPPlaintextProtocol : TelnetProtocolPluginBase
 	public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
 	{
 		context.Logger.LogInformation("Configuring plaintext MSSP");
-		context.Interpreter.RegisterInputLineObserver((line, encoding) => OnInputLineAsync(line, encoding, context));
+		context.Interpreter.RegisterInputLineObserver(async (line, encoding) =>
+			await OnInputLineAsync(line, encoding, context) ? null : line);
 	}
 
 	/// <inheritdoc />

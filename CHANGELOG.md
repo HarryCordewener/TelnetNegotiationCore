@@ -1,6 +1,44 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.13.0]
+
+### Added
+- **MCP, the MUD Client Protocol (2.1), as two plugins.** `MudClientProtocol` is the session layer:
+  the `#$#` framing, the `#$"` quoting rule, the version handshake and the authentication key.
+  `McpNegotiateProtocol` is the `mcp-negotiate` package that advertises which packages this side
+  speaks and settles the version of each. They are separate because the specification separates
+  them — `mcp-negotiate` is a package carried over the session layer, versioned on its own (1.0, and
+  2.0 which adds `mcp-negotiate-end`), exactly as `dns-org-mud-moo-simpleedit` is. The dependency
+  runs one way, so `McpNegotiateProtocol` declares `MudClientProtocol` and adding it alone throws at
+  `BuildAsync()`. Configure both from the builder chain with `.OnMcpMessage(...)`,
+  `.SupportsMcpPackage(...)` and `.OnMcpNegotiationComplete(...)`.
+  - Nothing MCP reaches `OnSubmit`: handshake, messages, continuation lines and terminators are
+    taken out of the stream, and a line the peer quoted as `#$"…` is delivered unquoted.
+  - Multiline messages (`_data-tag`, `#$#* <tag> <key>: …`, `#$#: <tag>`) arrive whole and once, on
+    the terminator. Because the peer decides whether a terminator ever arrives, at most 8 may be
+    open at a time and at most 4096 continuation lines may accumulate in any one of them.
+  - A line beginning `#$#` that fails to parse or carries the wrong authentication key is dropped
+    inside a session and passed through outside one. Inside a session a server is obliged to quote
+    real output that looks like protocol, so an unquoted one is either an injection attempt or a
+    broken server; outside one, nothing is quoting anything yet and the line is ordinary output.
+  - `MudClientProtocol.SendOutputAsync` is a server's half of the framing rule: while a session is
+    up it quotes a line of real output that begins `#$#`, and one that begins `#$"` (which would
+    otherwise lose that prefix to the peer's unquoting). `#$#` mid-line is left alone, and outside a
+    session nothing is quoted. `QuoteOutput` exposes the same transformation on its own. It is a
+    separate call rather than a hook on the interpreter's send path because quoting is a line-level
+    decision and that path is a byte stream.
+  - New public models: `McpMessage` and `McpVersion`.
+
+### Changed
+- **The internal assembled-line observer hook can now rewrite a line, not only consume it.**
+  `TelnetInterpreter.RegisterInputLineObserver` takes a
+  `Func<byte[], Encoding, ValueTask<byte[]?>>`: an observer returns the line to carry on with — the
+  same bytes or different ones — or `null` to consume it. MCP's quoting rule needs the middle case,
+  which the previous `ValueTask<bool>` could only express by consuming the line and re-injecting it,
+  reordering it against anything already queued behind it. The hook is `internal`, so no public API
+  changed; `MSSPPlaintextProtocol` is the only other caller and is unaffected in behaviour.
+
 ## [2.12.0]
 
 ### Fixed

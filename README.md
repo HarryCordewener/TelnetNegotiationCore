@@ -40,6 +40,7 @@ This library is in a stable state. The legacy API remains fully supported for ba
 | [RFC 2941](http://www.faqs.org/rfcs/rfc2941.html)   | Authentication Negotiation         | Full       |                    |
 | [RFC 2946](http://www.faqs.org/rfcs/rfc2946.html)   | Encryption Negotiation             | Full       |                    |
 | [MXP](https://www.zuggsoft.com/zmud/mxp.htm)       | MUD eXtension Protocol             | Full       | Telnet option 91   |
+| [MCP](https://www.moo.mud.org/mcp/mcp2.html)        | MUD Client Protocol                | Full       | 2.1, out-of-band   |
 
 ## ANSI Support, ETC?
 Being a Telnet Negotiation Library, this library doesn't give support for extensions like ANSI or Pueblo at this time. MXP negotiation (telnet option 91) is supported — see the MXP protocol plugin.
@@ -177,6 +178,8 @@ All plugin callbacks and settings are set inline on the builder:
 - `.WithMaxMessageSize(bytes)` / `.OnGMCPMessageTooLarge(...)` / `.OnMSDPMessageTooLarge(...)` / `.OnMSSPMessageTooLarge(...)` — subnegotiation size limits (see below)
 - `.WithMaxTTableSize(bytes)` — TTABLE size limit (RFC 2066)
 - `.WithReplyTimeout(...)` — plaintext MSSP reply ceiling (`MSSPPlaintextProtocol`, see below)
+- `.OnMcpMessage("package-message", msg => ...)` — MCP messages (`MudClientProtocol`, see below)
+- `.SupportsMcpPackage(name, min, max)` / `.OnMcpNegotiationComplete(agreed => ...)` — MCP package negotiation (`McpNegotiateProtocol`)
 - `.WithMaxBufferSize(bytes)` — longest line of ordinary input the interpreter will assemble (default 5 MiB; a longer line is dropped, not truncated)
 
 ### Detecting Prompts
@@ -403,6 +406,108 @@ read by Grapevine's crawler. So: it was specified, the specification page no lon
 it is deployed anyway — more widely implemented than it is currently documented. This library's
 framing is matched against SmaugFUSS and exercised against a scripted peer; **no live host was
 contacted to confirm it.**
+
+### MCP (MUD Client Protocol)
+
+[MCP 2.1](https://www.moo.mud.org/mcp/mcp2.html) is the out-of-band layer LambdaMOO and its
+descendants carry over ordinary telnet text, on lines beginning `#$#`. It is not a telnet option:
+there is no `IAC DO`, nothing to negotiate at the option level, and everything happens on assembled
+lines of text.
+
+It is **two plugins**, because the specification describes two things:
+
+- **`MudClientProtocol`** — the session layer. Framing, quoting, the version handshake and the
+  authentication key.
+- **`McpNegotiateProtocol`** — the `mcp-negotiate` package, which tells the peer which packages this
+  side speaks and works out the version of each that both can use.
+
+`mcp-negotiate` is *itself a package* carried over the session layer, versioned on its own (1.0, and
+2.0 which adds the line that ends the list), exactly as `dns-org-mud-moo-simpleedit` is. The
+dependency runs one way — the session layer works with it absent, and it is meaningless without the
+session layer — so `McpNegotiateProtocol` declares `MudClientProtocol` as a dependency and adding it
+alone throws at `BuildAsync()` rather than going quiet on the wire.
+
+```csharp
+.AddPlugin<MudClientProtocol>()
+    .OnMcpMessage("dns-org-mud-moo-simpleedit-content", HandleEditAsync)
+.AddPlugin<McpNegotiateProtocol>()
+    .SupportsMcpPackage("dns-org-mud-moo-simpleedit", new McpVersion(1, 0), new McpVersion(1, 0))
+    .OnMcpNegotiationComplete(agreed => { /* what both sides settled on */ })
+```
+
+**The handshake is asymmetric and the server opens it**, because nothing else can: a client has no
+way to know MCP is on offer until the server says so. The server's offer is the only message in the
+protocol that carries no authentication key.
+
+```text
+S: #$#mcp version: "2.1" to: "2.1"
+C: #$#mcp authentication-key: "a3f1c0d29b4e7182" version: "2.1" to: "2.1"
+C: #$#mcp-negotiate-can a3f1c0d29b4e7182 package: "mcp-negotiate" min-version: "1.0" max-version: "2.0"
+C: #$#mcp-negotiate-end a3f1c0d29b4e7182
+S: #$#mcp-negotiate-can a3f1c0d29b4e7182 package: "mcp-negotiate" min-version: "1.0" max-version: "2.0"
+S: #$#mcp-negotiate-end a3f1c0d29b4e7182
+```
+
+The key is chosen by the **client** and adopted by the server, and both sides quote it on everything
+afterwards. It exists because anyone on a MUD can type `#$#` at the start of a line: without it,
+those keystrokes would reach the other player's client as protocol.
+
+**Nothing MCP reaches your `OnSubmit`.** Handshake, messages, continuation lines and terminators are
+all taken out of the stream. So is the quoting: a server in an MCP session prefixes any line of real
+output that would otherwise look like protocol with `#$"`, and that prefix is stripped before the
+line is delivered.
+
+**As a server, send your output through `SendOutputAsync` while a session is up**, which is the
+other half of that rule:
+
+```csharp
+var mcp = telnet.PluginManager!.GetPlugin<MudClientProtocol>()!;
+
+await mcp.SendOutputAsync("#$#not a message, just text\r\n");   // goes out as #$"#$#not a message…
+```
+
+It quotes a line that begins `#$#`, and a line that begins `#$"` for the same reason in reverse —
+unquoted, that one arrives at a peer which strips the prefix and the text loses three characters.
+`#$#` in the *middle* of a line is not quoted, because nothing reads it as protocol there. Outside a
+session nothing is quoted at all, since nothing is unquoting it. `MudClientProtocol.QuoteOutput` is
+the same transformation on its own, for a caller that reaches the wire another way.
+
+This is a separate call rather than a hook on the interpreter's own send path because quoting is a
+line-level decision and that path is a byte stream: writing half a line, or several at once, is
+ordinary use of it, and there is no honest place in the middle of that to decide what a line begins
+with.
+
+Two rules follow from a peer being a stranger, and both are deliberate:
+
+- A line beginning `#$#` that fails to parse, or carries the wrong key, is **dropped inside a session
+  and passed through outside one**. Inside a session the server is obliged to quote real output that
+  looks like protocol, so an unquoted one is either an injection attempt or a broken server, and
+  displaying it is what would make the attempt worth making. Outside a session nothing is quoting
+  anything yet, so the line is ordinary output.
+- A multiline message is held open until its terminator arrives, and the peer decides whether one
+  ever does — so at most 8 may be open at once, and at most 4096 continuation lines may accumulate in
+  any one of them.
+
+Multiline messages arrive **whole, once**, when the line that closes them arrives — not once per
+continuation line:
+
+```csharp
+.OnMcpMessage("dns-org-mud-moo-simpleedit-content", message =>
+{
+    string? reference = message.Value("reference");
+    IReadOnlyList<string> content = message.Lines("content");
+    return ValueTask.CompletedTask;
+})
+```
+
+Agreement is worked out as each `mcp-negotiate-can` arrives rather than when the list ends, because
+a 1.0 peer never sends an end; `McpNegotiateProtocol.IsComplete` is the extra thing 2.0 buys, not a
+precondition for agreeing on anything. A package is in `Agreed` only if this side declared it, the
+peer offered it, and the two ranges overlap — the agreed version being the highest both can speak.
+
+**Register every package before `BuildAsync()`**, or from a package plugin's own `InitializeAsync`.
+The whole list goes out in one burst the moment the session comes up, closed by `mcp-negotiate-end`,
+so a package that registers after that has told the peer nothing.
 
 ### Keep-Alive
 

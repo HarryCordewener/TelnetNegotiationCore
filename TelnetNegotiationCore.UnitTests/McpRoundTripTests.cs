@@ -1,0 +1,137 @@
+#nullable enable
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using TelnetNegotiationCore.Builders;
+using TelnetNegotiationCore.Interpreters;
+using TelnetNegotiationCore.Models;
+using TelnetNegotiationCore.Protocols;
+using TUnit.Core;
+
+namespace TelnetNegotiationCore.UnitTests;
+
+/// <summary>
+/// Both plugins, both ends, nothing scripted: a server interpreter and a client interpreter wired to
+/// each other, left to negotiate MCP between themselves.
+/// </summary>
+/// <remarks>
+/// The other MCP tests script one side, which proves each half against what the specification says
+/// the other half sends. This proves the halves against each other -- an implementation can satisfy a
+/// scripted peer at both ends and still not agree with itself.
+/// </remarks>
+public class McpRoundTripTests : BaseTest
+{
+	/// <summary>
+	/// Carries bytes between the two interpreters until neither has anything more to say.
+	/// </summary>
+	private sealed class Wire
+	{
+		private readonly List<byte[]> _toClient = [];
+		private readonly List<byte[]> _toServer = [];
+
+		public TelnetInterpreter Client { get; set; } = null!;
+		public TelnetInterpreter Server { get; set; } = null!;
+
+		public ValueTask FromServer(ReadOnlyMemory<byte> data)
+		{
+			lock (_toClient) _toClient.Add(data.ToArray());
+			return ValueTask.CompletedTask;
+		}
+
+		public ValueTask FromClient(ReadOnlyMemory<byte> data)
+		{
+			lock (_toServer) _toServer.Add(data.ToArray());
+			return ValueTask.CompletedTask;
+		}
+
+		/// <summary>Runs both sides until the wire falls quiet, or until it plainly never will.</summary>
+		public async Task SettleAsync()
+		{
+			for (var round = 0; round < 20; round++)
+			{
+				var delivered = await DrainAsync(_toClient, Client) | await DrainAsync(_toServer, Server);
+
+				if (!delivered) return;
+			}
+
+			throw new InvalidOperationException("The two sides never stopped talking to each other.");
+		}
+
+		private static async Task<bool> DrainAsync(List<byte[]> queue, TelnetInterpreter into)
+		{
+			byte[][] pending;
+			lock (queue)
+			{
+				pending = [.. queue];
+				queue.Clear();
+			}
+
+			foreach (var data in pending)
+			{
+				await into.InterpretByteArrayAsync(data);
+				await into.WaitForProcessingAsync();
+			}
+
+			return pending.Length > 0;
+		}
+	}
+
+	/// <summary>
+	/// The whole exchange: the server offers, the client answers with a key, both sides send their
+	/// package lists, and both end up agreeing the same versions of the same packages.
+	/// </summary>
+	[Test]
+	public async Task TwoInterpretersNegotiateMcpAndItsPackagesBetweenThemselves()
+	{
+		var wire = new Wire();
+
+		wire.Server = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(wire.FromServer)
+			.AddPlugin<MudClientProtocol>()
+			.AddPlugin<McpNegotiateProtocol>()
+			.SupportsMcpPackage("dns-com-example-editor", new McpVersion(1, 0), new McpVersion(2, 0))
+			.SupportsMcpPackage("dns-com-example-server-only", new McpVersion(1, 0), new McpVersion(1, 0))
+			.BuildAsync();
+
+		wire.Client = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(wire.FromClient)
+			.AddPlugin<MudClientProtocol>()
+			.AddPlugin<McpNegotiateProtocol>()
+			.SupportsMcpPackage("dns-com-example-editor", new McpVersion(1, 5), new McpVersion(3, 0))
+			.BuildAsync();
+
+		await wire.SettleAsync();
+
+		var serverMcp = wire.Server.PluginManager!.GetPlugin<MudClientProtocol>()!;
+		var clientMcp = wire.Client.PluginManager!.GetPlugin<MudClientProtocol>()!;
+
+		// One session, one key, chosen by the client and adopted by the server.
+		await Assert.That(clientMcp.IsNegotiated).IsTrue();
+		await Assert.That(serverMcp.IsNegotiated).IsTrue();
+		await Assert.That(serverMcp.AuthenticationKey).IsEqualTo(clientMcp.AuthenticationKey);
+
+		var serverPackages = wire.Server.PluginManager!.GetPlugin<McpNegotiateProtocol>()!;
+		var clientPackages = wire.Client.PluginManager!.GetPlugin<McpNegotiateProtocol>()!;
+
+		await Assert.That(serverPackages.IsComplete).IsTrue();
+		await Assert.That(clientPackages.IsComplete).IsTrue();
+
+		// 1.5-to-3.0 against 1.0-to-2.0 shares 1.5 to 2.0, and the highest of that is 2.0. Both sides
+		// work it out independently and have to reach the same answer.
+		await Assert.That(clientPackages.Agreed["dns-com-example-editor"]).IsEqualTo(new McpVersion(2, 0));
+		await Assert.That(serverPackages.Agreed["dns-com-example-editor"]).IsEqualTo(new McpVersion(2, 0));
+
+		// mcp-negotiate is a package like any other, and both sides said so.
+		await Assert.That(clientPackages.Agreed[McpNegotiateProtocol.PackageName]).IsEqualTo(new McpVersion(2, 0));
+
+		// A package only one side speaks is agreed by neither.
+		await Assert.That(clientPackages.Agreed.ContainsKey("dns-com-example-server-only")).IsFalse();
+		await Assert.That(serverPackages.Agreed.ContainsKey("dns-com-example-server-only")).IsFalse();
+	}
+}
