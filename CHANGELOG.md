@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 ## [2.13.0]
 
 ### Added
-- **MCP, the MUD Client Protocol (2.1), as two plugins.** `MudClientProtocol` is the session layer:
+- **MCP, the MUD Client Protocol (2.1), as three plugins.** `MudClientProtocol` is the session layer:
   the `#$#` framing, the `#$"` quoting rule, the version handshake and the authentication key.
   `McpNegotiateProtocol` is the `mcp-negotiate` package that advertises which packages this side
   speaks and settles the version of each. They are separate because the specification separates
@@ -61,7 +61,15 @@ All notable changes to this project will be documented in this file.
   - `McpNegotiateProtocol.PeerPackages`: everything the peer advertised, including packages this side
     does not speak. `Agreed` is an intersection and throws away the larger half, but "what does this
     peer support" is a different question from "what can the two of us do together".
-  - New public models: `McpMessage` and `McpVersion`.
+  - **`McpCordProtocol`, the `mcp-cord` package** — named, typed channels multiplexed over the one
+    session, which the specification calls strongly encouraged. A cord is not a negotiation: the
+    negotiating happened a layer down, and opening one is use of a capability already agreed. It is
+    the extension point that lets a consumer define its own channel without a plugin in this library.
+    Identifiers follow the specification's role-prefix scheme (`I` for the endpoint that initiated
+    MCP, `R` for the responder), messages may be single-line or multiline, an unsupported cord type
+    or a message for an unknown cord is dropped, a duplicate close is ignored, and sending on a
+    closed cord throws rather than being swallowed. At most 64 peer-opened cords at once.
+  - New public models: `McpMessage`, `McpVersion` and `McpCord`.
 
 ### Fixed
 - **`TelnetInterpreter.WaitForProcessingAsync` returned while the last byte was still being

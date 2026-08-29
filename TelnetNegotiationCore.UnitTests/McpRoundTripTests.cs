@@ -204,4 +204,94 @@ public class McpRoundTripTests : BaseTest
 		await Assert.That(received[0].Value("name")).IsEqualTo("Test:look");
 		await Assert.That(received[0].Lines("content")).IsEquivalentTo(content);
 	}
+
+	/// <summary>
+	/// A cord opened by one implementation is accepted by the other, carries a message each way, and
+	/// closes -- with neither side scripted.
+	/// </summary>
+	/// <remarks>
+	/// This is the whole point of cords: the two sides here exchange a message this library has never
+	/// heard of, on a channel type it has never heard of, without a plugin for either.
+	/// </remarks>
+	[Test]
+	public async Task ACordCarriesMessagesBetweenTwoImplementations()
+	{
+		await using var wire = new Wire();
+		var serverSaw = new List<McpMessage>();
+		var clientSaw = new List<McpMessage>();
+		McpCord? serverSide = null;
+
+		wire.Server = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(wire.FromServer)
+			.AddPlugin<MudClientProtocol>()
+			.AddPlugin<McpNegotiateProtocol>()
+			.AddPlugin<McpCordProtocol>()
+			.SupportsCordType("dns-com-example-chat", cord =>
+			{
+				serverSide = cord.OnMessage(message =>
+				{
+					lock (serverSaw) serverSaw.Add(message);
+					return ValueTask.CompletedTask;
+				});
+				return ValueTask.CompletedTask;
+			})
+			.BuildAsync();
+
+		wire.Client = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(wire.FromClient)
+			.AddPlugin<MudClientProtocol>()
+			.AddPlugin<McpNegotiateProtocol>()
+			.AddPlugin<McpCordProtocol>()
+			.BuildAsync();
+
+		await wire.SettleAsync();
+
+		var clientCords = wire.Client.PluginManager!.GetPlugin<McpCordProtocol>()!;
+		var clientNegotiate = wire.Client.PluginManager!.GetPlugin<McpNegotiateProtocol>()!;
+
+		// Both sides agreed on cords before either used one.
+		await Assert.That(clientNegotiate.Agreed[McpCordProtocol.PackageName]).IsEqualTo(new McpVersion(1, 0));
+
+		var cord = await clientCords.OpenAsync("dns-com-example-chat");
+		cord.OnMessage(message =>
+		{
+			lock (clientSaw) clientSaw.Add(message);
+			return ValueTask.CompletedTask;
+		});
+
+		await wire.SettleAsync();
+
+		// The server accepted it, and gave it the identifier the client chose.
+		await Assert.That(serverSide).IsNotNull();
+		await Assert.That(serverSide!.Id).IsEqualTo(cord.Id);
+		await Assert.That(cord.Id).StartsWith("R");
+
+		await cord.SendAsync("say", ("text", "hello there"));
+		await wire.SettleAsync();
+
+		await Assert.That(serverSaw.Count).IsEqualTo(1);
+		await Assert.That(serverSaw[0].Value("_message")).IsEqualTo("say");
+		await Assert.That(serverSaw[0].Value("text")).IsEqualTo("hello there");
+
+		// And back the other way, on the same cord.
+		await serverSide.SendAsync("say", ("text", "hello yourself"));
+		await wire.SettleAsync();
+
+		await Assert.That(clientSaw.Count).IsEqualTo(1);
+		await Assert.That(clientSaw[0].Value("text")).IsEqualTo("hello yourself");
+
+		// Closing from one end disposes it on both.
+		await cord.CloseAsync();
+		await wire.SettleAsync();
+
+		await Assert.That(cord.IsOpen).IsFalse();
+		await Assert.That(serverSide.IsOpen).IsFalse();
+		await Assert.That(wire.Server.PluginManager!.GetPlugin<McpCordProtocol>()!.Open).IsEmpty();
+	}
 }

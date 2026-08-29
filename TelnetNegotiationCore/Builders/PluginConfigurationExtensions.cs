@@ -741,4 +741,21 @@ public static class PluginConfigurationExtensions
         context.Plugin.OnOffered(callback);
         return context;
     }
+
+    /// <summary>
+    /// Declares a cord type this side accepts, in a fluent manner.
+    /// See <see cref="McpCordProtocol.SupportsCordType"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="type">The cord type, matched case-insensitively</param>
+    /// <param name="onOpened">Called with the new cord when the peer opens one of this type</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<McpCordProtocol> SupportsCordType(
+        this PluginConfigurationContext<McpCordProtocol> context,
+        string type,
+        Func<McpCord, ValueTask> onOpened)
+    {
+        context.Plugin.SupportsCordType(type, onOpened);
+        return context;
+    }
 }

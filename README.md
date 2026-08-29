@@ -40,7 +40,7 @@ This library is in a stable state. The legacy API remains fully supported for ba
 | [RFC 2941](http://www.faqs.org/rfcs/rfc2941.html)   | Authentication Negotiation         | Full       |                    |
 | [RFC 2946](http://www.faqs.org/rfcs/rfc2946.html)   | Encryption Negotiation             | Full       |                    |
 | [MXP](https://www.zuggsoft.com/zmud/mxp.htm)       | MUD eXtension Protocol             | Full       | Telnet option 91   |
-| [MCP](https://www.moo.mud.org/mcp/mcp2.html)        | MUD Client Protocol                | Full       | 2.1, out-of-band   |
+| [MCP](https://www.moo.mud.org/mcp/mcp2.html)        | MUD Client Protocol                | Full       | 2.1, negotiate, cord |
 
 ## ANSI Support, ETC?
 Being a Telnet Negotiation Library, this library doesn't give support for extensions like ANSI or Pueblo at this time. MXP negotiation (telnet option 91) is supported — see the MXP protocol plugin.
@@ -180,6 +180,7 @@ All plugin callbacks and settings are set inline on the builder:
 - `.WithReplyTimeout(...)` — plaintext MSSP reply ceiling (`MSSPPlaintextProtocol`, see below)
 - `.OnMcpMessage("package-message", msg => ...)` — MCP messages (`MudClientProtocol`, see below)
 - `.SupportsMcpPackage(name, min, max)` / `.OnMcpNegotiationComplete(agreed => ...)` — MCP package negotiation (`McpNegotiateProtocol`)
+- `.SupportsCordType("type", cord => ...)` — accept a cord type (`McpCordProtocol`, see below)
 - `.WithMaxBufferSize(bytes)` — longest line of ordinary input the interpreter will assemble (default 5 MiB; a longer line is dropped, not truncated)
 
 ### Detecting Prompts
@@ -420,6 +421,8 @@ It is **two plugins**, because the specification describes two things:
   authentication key.
 - **`McpNegotiateProtocol`** — the `mcp-negotiate` package, which tells the peer which packages this
   side speaks and works out the version of each that both can use.
+- **`McpCordProtocol`** — the `mcp-cord` package: named, typed channels multiplexed over the session,
+  and the extension point that lets you define your own channel without a plugin in this library.
 
 `mcp-negotiate` is *itself a package* carried over the session layer, versioned on its own (1.0, and
 2.0 which adds the line that ends the list), exactly as `dns-org-mud-moo-simpleedit` is. The
@@ -582,6 +585,45 @@ stays the set that was agreed.
 side does not speak — `Agreed` is an intersection and throws away the larger half. "What does this peer
 support" and "what can the two of us do together" are different questions, and only the first survives
 in `PeerPackages`.
+
+### Cords
+
+`mcp-cord` gives you named, typed channels over the one session. **A cord is not a negotiation**,
+which is worth saying because its open/close lifecycle looks like one — the negotiating happened a
+layer down, when `mcp-negotiate` established that both sides speak `mcp-cord`. Opening one is use of
+a capability already agreed: no offer, no counter-offer, no version intersection. Closer to opening a
+connection on an agreed port than to agreeing which ports exist.
+
+What it buys is that **you can define your own channel without a plugin in this library**:
+
+```csharp
+.AddPlugin<McpCordProtocol>()
+    .SupportsCordType("dns-com-example-chat", cord =>
+    {
+        cord.OnMessage(m => Handle(m.Value("_message"), m));
+        cord.OnClosed(() => Forget(cord.Id));
+        return ValueTask.CompletedTask;
+    })
+```
+
+```csharp
+var cords = telnet.PluginManager!.GetPlugin<McpCordProtocol>()!;
+
+McpCord cord = await cords.OpenAsync("dns-com-example-chat");
+await cord.SendAsync("say", ("text", "hello there"));
+await cord.SendMultilineAsync("content", [("name", "note")], ("body", lines));
+await cord.CloseAsync();
+```
+
+Identifiers carry a role prefix, which is the specification's own scheme for keeping the two ends from
+colliding: the endpoint that initiated MCP — the server, which makes the offer — prefixes `I`, the
+responder prefixes `R`, and each side is then only obliged to be unique against itself.
+
+A cord of a type you never declared is dropped, as is a message for a cord that was never opened or
+has been closed (*"treat as an unrecognized MCP message, silently dropping it"*). A duplicate
+`mcp-cord-closed` is ignored, because the specification says race conditions produce them. Sending on
+a closed cord throws rather than being dropped — a message the peer will never see is a mistake by the
+caller, not something to swallow. At most 64 peer-opened cords may be held at once.
 
 **Register every package before `BuildAsync()`**, or from a package plugin's own `InitializeAsync`.
 The whole list goes out in one burst the moment the session comes up, closed by `mcp-negotiate-end`,
