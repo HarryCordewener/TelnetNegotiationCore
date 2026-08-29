@@ -114,6 +114,13 @@ public class McpNegotiateProtocol : TelnetProtocolPluginBase
 	/// <summary>
 	/// Sets the callback that runs when the peer says its list is finished, with the agreed packages.
 	/// </summary>
+	/// <remarks>
+	/// <b>Fires on the peer's <c>mcp-negotiate-end</c>, so against a 1.0 peer it never fires at all</b>
+	/// -- that version has no such line. It is therefore the wrong place to hang anything needed
+	/// against every peer; read <see cref="Agreed"/>, which fills in as each <c>can</c> arrives.
+	/// Once the end line has been seen the negotiation is terminal, so the set handed to this callback
+	/// stays the set that was agreed.
+	/// </remarks>
 	/// <param name="callback">The callback, or null to remove one</param>
 	/// <returns>This instance for fluent chaining</returns>
 	public McpNegotiateProtocol OnNegotiationComplete(
@@ -178,6 +185,15 @@ public class McpNegotiateProtocol : TelnetProtocolPluginBase
 	/// </summary>
 	private ValueTask OnCanAsync(McpMessage message)
 	{
+		// The list is finished when the peer says it is finished. A can line arriving afterwards must
+		// not change what was agreed: OnNegotiationComplete has already been handed a snapshot, and a
+		// table that keeps moving under it is a snapshot of nothing.
+		if (IsComplete)
+		{
+			Context.Logger.LogDebug("Ignoring {Message}: the peer already ended its package list", CanMessage);
+			return default(ValueTask);
+		}
+
 		var package = message.Value("package");
 
 		if (string.IsNullOrEmpty(package)
@@ -218,6 +234,13 @@ public class McpNegotiateProtocol : TelnetProtocolPluginBase
 	/// <summary>The peer's list is finished.</summary>
 	private async ValueTask OnEndAsync(McpMessage message)
 	{
+		// Announced once. A repeated end line is not a second negotiation.
+		if (IsComplete)
+		{
+			Context.Logger.LogDebug("Ignoring a repeated {Message}", EndMessage);
+			return;
+		}
+
 		IsComplete = true;
 		await OnNegotiatedAsync(true);
 

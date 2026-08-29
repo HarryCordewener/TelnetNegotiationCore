@@ -42,6 +42,15 @@ All notable changes to this project will be documented in this file.
     range the server named, for every well-formed offer, whether or not this side answers it. For a
     client that declines it is the only evidence there will be — `IsNegotiated` stays false because
     no session was opened — so recording that a peer speaks MCP does not require opening a session.
+  - Refused rather than mishandled, all three found in review: an authentication key that is not a
+    single unquoted token (it is written back unquoted, so a key with a space in it would give a
+    session that reports as established and messages that are all malformed); a value carrying a line
+    ending passed to `SendAsync` (it would end the message early and put the rest on the wire as a
+    line of its own — `SendMultilineAsync` is the mechanism for that); and a negative `McpVersion`
+    component (the grammar has no sign, so it could not be read back by any peer).
+  - `mcp-negotiate` is terminal after the peer's `mcp-negotiate-end`: a later `mcp-negotiate-can` no
+    longer changes `Agreed` after `OnNegotiationComplete` has been handed its snapshot, and a
+    repeated end no longer invokes the callback twice.
   - New public models: `McpMessage` and `McpVersion`.
 
 ### Fixed

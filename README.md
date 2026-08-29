@@ -448,9 +448,13 @@ S: #$#mcp-negotiate-can a3f1c0d29b4e7182 package: "mcp-negotiate" min-version: "
 S: #$#mcp-negotiate-end a3f1c0d29b4e7182
 ```
 
-The key is chosen by the **client** and adopted by the server, and both sides quote it on everything
-afterwards. It exists because anyone on a MUD can type `#$#` at the start of a line: without it,
-those keystrokes would reach the other player's client as protocol.
+The key is chosen by the **client** and adopted by the server, and from then on both sides *carry* it
+as the first, unnamed argument of every message they send, rejecting any that arrives without it. It
+exists because anyone on a MUD can type `#$#` at the start of a line: without it, those keystrokes
+would reach the other player's client as protocol. (This is a different mechanism from the `#$"`
+quoting below, which is about ordinary output that happens to look like protocol — the key
+authenticates messages, the prefix hides non-messages.) A key that is not a single unquoted token is
+refused, because it is written back unquoted and could not survive the trip.
 
 **Nothing MCP reaches your `OnSubmit`.** Handshake, messages, continuation lines and terminators are
 all taken out of the stream. So is the quoting: a server in an MCP session prefixes any line of real
@@ -548,6 +552,13 @@ Agreement is worked out as each `mcp-negotiate-can` arrives rather than when the
 a 1.0 peer never sends an end; `McpNegotiateProtocol.IsComplete` is the extra thing 2.0 buys, not a
 precondition for agreeing on anything. A package is in `Agreed` only if this side declared it, the
 peer offered it, and the two ranges overlap — the agreed version being the highest both can speak.
+
+**`OnMcpNegotiationComplete` fires on the peer's `mcp-negotiate-end`, so against a 1.0 peer it never
+fires at all.** That is not a failure — 1.0 has no such line — but it means the callback is the wrong
+place to hang anything you need against every peer. Read `Agreed` instead, which fills in as each
+`can` arrives. Once the end line has been seen the negotiation is terminal: a later `can` does not
+change `Agreed`, and a repeated end does not announce it twice, so the set the callback was handed
+stays the set that was agreed.
 
 **Register every package before `BuildAsync()`**, or from a package plugin's own `InitializeAsync`.
 The whole list goes out in one burst the moment the session comes up, closed by `mcp-negotiate-end`,

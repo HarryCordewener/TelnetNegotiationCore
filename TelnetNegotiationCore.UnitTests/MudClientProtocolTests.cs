@@ -38,9 +38,12 @@ public class MudClientProtocolTests : BaseTest
 	/// One interpreter plus everything it told us about: the lines it passed through to the host
 	/// application, and every byte it put on the wire.
 	/// </summary>
-	private sealed class Peer
+	private sealed class Peer : IAsyncDisposable
 	{
 		public TelnetInterpreter Interpreter { get; set; } = null!;
+
+		/// <summary>Ends the interpreter's byte-processing task with the test that started it.</summary>
+		public ValueTask DisposeAsync() => Interpreter.DisposeAsync();
 		public MudClientProtocol Mcp => Interpreter.PluginManager!.GetPlugin<MudClientProtocol>()!;
 		public List<string> Submitted { get; } = [];
 		private readonly List<byte> _written = [];
@@ -101,7 +104,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AServerOffersMcpAsSoonAsItIsConnected()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
 
 		var offered = await PollUntilAsync(() => peer.Wired.Contains("#$#mcp "), timeoutMs: 10000);
 
@@ -116,7 +119,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AClientAnswersTheOfferWithTheKeyItChose()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
 		await peer.FeedAsync("#$#mcp version: \"2.1\" to: \"2.1\"\r\n");
 
@@ -136,7 +139,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AClientIsNegotiatedOnceItHasAnsweredTheOffer()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
 		await Assert.That(peer.Mcp.IsNegotiated).IsFalse();
 
@@ -152,7 +155,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AServerTakesTheKeyTheClientChose()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
 
 		await peer.FeedAsync("#$#mcp authentication-key: \"1234\" version: \"2.1\" to: \"2.1\"\r\n");
 
@@ -178,7 +181,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task OrdinaryOutputIsUntouched()
 	{
-		var peer = await EstablishedClientAsync();
+		await using var peer = await EstablishedClientAsync();
 
 		await peer.FeedAsync("You see a small mailbox here.\r\n");
 
@@ -193,7 +196,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AQuotedLineIsDeliveredWithoutItsQuoting()
 	{
-		var peer = await EstablishedClientAsync();
+		await using var peer = await EstablishedClientAsync();
 
 		await peer.FeedAsync("#$\"#$#mcp version: \"2.1\" to: \"2.1\"\r\n");
 
@@ -207,7 +210,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AQuotedLineIsNotUnquotedBeforeMcpIsRunning()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
 		await peer.FeedAsync("#$\"still just text\r\n");
 
@@ -223,7 +226,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AMessageWithTheWrongKeyIsNeitherObeyedNorShown()
 	{
-		var peer = await EstablishedClientAsync();
+		await using var peer = await EstablishedClientAsync();
 
 		await peer.FeedAsync("#$#mcp-negotiate-can not-the-key package: evil min-version: \"1.0\" max-version: \"1.0\"\r\n");
 		await peer.FeedAsync("after\r\n");
@@ -238,7 +241,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task ARegisteredHandlerReceivesTheMessagesItAskedFor()
 	{
-		var peer = await EstablishedClientAsync();
+		await using var peer = await EstablishedClientAsync();
 		var received = new List<McpMessage>();
 
 		peer.Mcp.OnMessage("dns-com-example-test", message =>
@@ -267,7 +270,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AMultilineMessageArrivesWholeAndOnlyOnce()
 	{
-		var peer = await EstablishedClientAsync();
+		await using var peer = await EstablishedClientAsync();
 		var received = new List<McpMessage>();
 
 		peer.Mcp.OnMessage("dns-com-example-test", message =>
@@ -301,7 +304,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AWiderOfferIsAcceptedAtTheVersionBothSidesShare()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
 		await peer.FeedAsync("#$#mcp version: \"1.0\" to: \"2.1\"\r\n");
 
@@ -316,7 +319,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AnOfferWithNoSharedVersionIsDeclined()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
 		await peer.FeedAsync("#$#mcp version: \"3.0\" to: \"4.0\"\r\n");
 
@@ -332,7 +335,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task DisablingThePluginEndsTheSession()
 	{
-		var peer = await EstablishedClientAsync();
+		await using var peer = await EstablishedClientAsync();
 
 		await peer.Mcp.OnDisabledAsync();
 
@@ -353,7 +356,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task ALineThatLooksLikeMcpOutsideASessionIsStillOutput()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
 		await peer.FeedAsync("#$#not a real message\r\n");
 		await peer.FeedAsync("#$#dns-com-example-test key-but-no-session\r\n");
@@ -378,7 +381,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AServerQuotesOutputThatWouldLookLikeProtocol()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
 
 		await peer.FeedAsync("#$#mcp authentication-key: \"1234\" version: \"2.1\" to: \"2.1\"\r\n");
 		await Assert.That(await PollUntilAsync(() => peer.Mcp.IsNegotiated, timeoutMs: 10000)).IsTrue();
@@ -403,7 +406,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task OutputIsNotQuotedWhenThereIsNoSession()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
 
 		await peer.Mcp.SendOutputAsync("#$#looks like protocol\r\n");
 
@@ -424,7 +427,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AMultilineMessageGoesOutFramedAsTheSpecificationFramesIt()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
 
 		await peer.FeedAsync("#$#mcp authentication-key: \"1234\" version: \"2.1\" to: \"2.1\"\r\n");
 		await Assert.That(await PollUntilAsync(() => peer.Mcp.IsNegotiated, timeoutMs: 10000)).IsTrue();
@@ -453,7 +456,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task EachMultilineMessageGetsItsOwnDataTag()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
 
 		await peer.FeedAsync("#$#mcp authentication-key: \"1234\" version: \"2.1\" to: \"2.1\"\r\n");
 		await Assert.That(await PollUntilAsync(() => peer.Mcp.IsNegotiated, timeoutMs: 10000)).IsTrue();
@@ -475,7 +478,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task TextWithLineBreaksBecomesSeparateContinuationLines()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
 
 		await peer.FeedAsync("#$#mcp authentication-key: \"1234\" version: \"2.1\" to: \"2.1\"\r\n");
 		await Assert.That(await PollUntilAsync(() => peer.Mcp.IsNegotiated, timeoutMs: 10000)).IsTrue();
@@ -497,7 +500,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AnUnquotedVersionRangeIsReadTheSameAsAQuotedOne()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
 		await peer.FeedAsync("#$#mcp version: 2.1 to: 2.1\r\n");
 
@@ -520,7 +523,7 @@ public class MudClientProtocolTests : BaseTest
 	[Test]
 	public async Task AClientThatDoesNotAnswerStillTakesTheOfferOutOfTheStream()
 	{
-		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client, answerOffers: false);
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client, answerOffers: false);
 
 		await peer.FeedAsync("#$#mcp version: 2.1 to: 2.1\r\n");
 		await peer.FeedAsync("Welcome to the MOO.\r\n");
@@ -549,7 +552,7 @@ public class MudClientProtocolTests : BaseTest
 	{
 		var offered = new List<(McpVersion Lowest, McpVersion Highest)>();
 
-		var peer = await PeerAsync(
+		await using var peer = await PeerAsync(
 			TelnetInterpreter.TelnetMode.Client,
 			answerOffers: false,
 			onOffered: (lowest, highest) =>
@@ -564,5 +567,43 @@ public class MudClientProtocolTests : BaseTest
 		await Assert.That(offered[0].Lowest).IsEqualTo(new McpVersion(1, 0));
 		await Assert.That(offered[0].Highest).IsEqualTo(new McpVersion(2, 1));
 		await Assert.That(peer.Mcp.IsNegotiated).IsFalse();
+	}
+
+	/// <summary>
+	/// A key that is not a single unquoted token is refused, and no session opens.
+	/// </summary>
+	/// <remarks>
+	/// The key is written back unquoted on every later message -- that is the grammar -- so a key with
+	/// a space in it cannot survive the trip. Accepting one produces the worst of both worlds: the
+	/// session reports as established, and every message sent on it is malformed, because the peer
+	/// reads only the text up to the space as the key and the rest as a broken argument.
+	/// </remarks>
+	[Test]
+	public async Task AKeyThatIsNotOneTokenIsRefused()
+	{
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Server);
+
+		await peer.FeedAsync("#$#mcp authentication-key: \"a b\" version: \"2.1\" to: \"2.1\"\r\n");
+
+		await Assert.That(peer.Mcp.IsNegotiated).IsFalse();
+		await Assert.That(peer.Mcp.AuthenticationKey).IsNull();
+	}
+
+	/// <summary>
+	/// A value carrying a line ending is refused rather than written, because writing it would end the
+	/// message early and put the rest of the value on the wire as a line of its own.
+	/// </summary>
+	/// <remarks>
+	/// MCP has a mechanism for content that does not fit on a line, and it is
+	/// <see cref="MudClientProtocol.SendMultilineAsync"/>. Silently emitting two lines from one call
+	/// is not that mechanism.
+	/// </remarks>
+	[Test]
+	public async Task AValueCarryingALineEndingIsRefused()
+	{
+		await using var peer = await EstablishedClientAsync();
+
+		await Assert.That(async () => await peer.Mcp.SendAsync("dns-com-example-test", ("content", "first\r\nsecond")))
+			.Throws<ArgumentException>();
 	}
 }

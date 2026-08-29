@@ -24,7 +24,7 @@ public class McpRoundTripTests : BaseTest
 	/// <summary>
 	/// Carries bytes between the two interpreters until neither has anything more to say.
 	/// </summary>
-	private sealed class Wire
+	private sealed class Wire : IAsyncDisposable
 	{
 		private readonly List<byte[]> _toClient = [];
 		private readonly List<byte[]> _toServer = [];
@@ -42,6 +42,13 @@ public class McpRoundTripTests : BaseTest
 		{
 			lock (_toServer) _toServer.Add(data.ToArray());
 			return ValueTask.CompletedTask;
+		}
+
+		/// <summary>Ends both interpreters' byte-processing tasks with the test that started them.</summary>
+		public async ValueTask DisposeAsync()
+		{
+			if (Client is not null) await Client.DisposeAsync();
+			if (Server is not null) await Server.DisposeAsync();
 		}
 
 		/// <summary>Runs both sides until the wire falls quiet, or until it plainly never will.</summary>
@@ -83,7 +90,7 @@ public class McpRoundTripTests : BaseTest
 	[Test]
 	public async Task TwoInterpretersNegotiateMcpAndItsPackagesBetweenThemselves()
 	{
-		var wire = new Wire();
+		await using var wire = new Wire();
 
 		wire.Server = await new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Server)
@@ -148,7 +155,7 @@ public class McpRoundTripTests : BaseTest
 	[Test]
 	public async Task AMultilineMessageSurvivesTheTripBetweenTwoImplementations()
 	{
-		var wire = new Wire();
+		await using var wire = new Wire();
 		var received = new List<McpMessage>();
 
 		wire.Server = await new TelnetInterpreterBuilder()

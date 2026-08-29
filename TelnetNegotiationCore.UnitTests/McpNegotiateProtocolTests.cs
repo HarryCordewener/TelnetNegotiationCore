@@ -30,9 +30,12 @@ public class McpNegotiateProtocolTests : BaseTest
 {
 	private static readonly Encoding Wire = Encoding.GetEncoding("iso-8859-1");
 
-	private sealed class Peer
+	private sealed class Peer : IAsyncDisposable
 	{
 		public TelnetInterpreter Interpreter { get; set; } = null!;
+
+		/// <summary>Ends the interpreter's byte-processing task with the test that started it.</summary>
+		public ValueTask DisposeAsync() => Interpreter.DisposeAsync();
 		public MudClientProtocol Mcp => Interpreter.PluginManager!.GetPlugin<MudClientProtocol>()!;
 		public McpNegotiateProtocol Negotiate => Interpreter.PluginManager!.GetPlugin<McpNegotiateProtocol>()!;
 		private readonly List<byte> _written = [];
@@ -109,7 +112,7 @@ public class McpNegotiateProtocolTests : BaseTest
 	[Test]
 	public async Task ThePackageListGoesOutAsSoonAsTheSessionIsUp()
 	{
-		var peer = await EstablishedClientAsync(
+		await using var peer = await EstablishedClientAsync(
 			negotiate => negotiate.Supports("dns-com-example-test", new McpVersion(1, 0), new McpVersion(2, 0)));
 
 		var key = peer.Mcp.AuthenticationKey;
@@ -129,7 +132,7 @@ public class McpNegotiateProtocolTests : BaseTest
 	[Test]
 	public async Task NegotiateAdvertisesItself()
 	{
-		var peer = await EstablishedClientAsync();
+		await using var peer = await EstablishedClientAsync();
 
 		await PollUntilAsync(() => peer.Wired.Contains("mcp-negotiate-end"), timeoutMs: 10000);
 
@@ -144,7 +147,7 @@ public class McpNegotiateProtocolTests : BaseTest
 	[Test]
 	public async Task TheAgreedVersionIsTheHighestBothSidesCanSpeak()
 	{
-		var peer = await EstablishedClientAsync(
+		await using var peer = await EstablishedClientAsync(
 			negotiate => negotiate.Supports("dns-com-example-test", new McpVersion(1, 0), new McpVersion(2, 0)));
 
 		var key = peer.Mcp.AuthenticationKey;
@@ -164,7 +167,7 @@ public class McpNegotiateProtocolTests : BaseTest
 	[Test]
 	public async Task RangesThatDoNotOverlapAgreeOnNothing()
 	{
-		var peer = await EstablishedClientAsync(
+		await using var peer = await EstablishedClientAsync(
 			negotiate => negotiate.Supports("dns-com-example-test", new McpVersion(1, 0), new McpVersion(1, 0)));
 
 		var key = peer.Mcp.AuthenticationKey;
@@ -184,7 +187,7 @@ public class McpNegotiateProtocolTests : BaseTest
 	[Test]
 	public async Task APackageThePeerNeverOfferedIsNotAgreed()
 	{
-		var peer = await EstablishedClientAsync(
+		await using var peer = await EstablishedClientAsync(
 			negotiate => negotiate.Supports("dns-com-example-test", new McpVersion(1, 0), new McpVersion(2, 0)));
 
 		var key = peer.Mcp.AuthenticationKey;
@@ -202,7 +205,7 @@ public class McpNegotiateProtocolTests : BaseTest
 	[Test]
 	public async Task BothPluginsAreConfigurableFromTheBuilderChain()
 	{
-		var peer = new Peer();
+		await using var peer = new Peer();
 
 		peer.Interpreter = await new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
@@ -235,7 +238,7 @@ public class McpNegotiateProtocolTests : BaseTest
 	[Test]
 	public async Task AServerAdvertisesItsPackagesOnceTheClientHasAnswered()
 	{
-		var peer = new Peer();
+		await using var peer = new Peer();
 
 		peer.Interpreter = await new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Server)
@@ -257,5 +260,46 @@ public class McpNegotiateProtocolTests : BaseTest
 			.IsTrue();
 		await Assert.That(peer.Wired).Contains(
 			"#$#mcp-negotiate-can 1234 package: \"dns-com-example-test\" min-version: \"1.0\" max-version: \"1.0\"\r\n");
+	}
+
+	/// <summary>
+	/// The package list is finished when the peer says it is finished. A <c>can</c> line arriving
+	/// afterwards does not change what was agreed, and a second <c>end</c> does not announce it twice.
+	/// </summary>
+	/// <remarks>
+	/// The callback is handed a snapshot of what was agreed. If a later <c>can</c> could still add to
+	/// the table, that snapshot stops being what the session actually settled on, and a consumer that
+	/// acted on it acted on something that has since changed underneath it.
+	/// </remarks>
+	[Test]
+	public async Task NothingAfterTheEndOfTheListChangesIt()
+	{
+		var completions = new List<int>();
+
+		await using var peer = await EstablishedClientAsync(negotiate => negotiate
+			.Supports("dns-com-example-test", new McpVersion(1, 0), new McpVersion(2, 0))
+			.Supports("dns-com-example-late", new McpVersion(1, 0), new McpVersion(1, 0))
+			.OnNegotiationComplete(agreed =>
+			{
+				lock (completions) completions.Add(agreed.Count);
+				return ValueTask.CompletedTask;
+			}));
+
+		var key = peer.Mcp.AuthenticationKey;
+
+		await peer.FeedAsync(
+			$"#$#mcp-negotiate-can {key} package: \"dns-com-example-test\" min-version: \"1.0\" max-version: \"2.0\"\r\n");
+		await peer.FeedAsync($"#$#mcp-negotiate-end {key}\r\n");
+
+		await Assert.That(await PollUntilAsync(() => completions.Count > 0, timeoutMs: 10000)).IsTrue();
+
+        // Late arrivals: a package the peer never mentioned before it said it was done, and a second
+        // end line.
+		await peer.FeedAsync(
+			$"#$#mcp-negotiate-can {key} package: \"dns-com-example-late\" min-version: \"1.0\" max-version: \"1.0\"\r\n");
+		await peer.FeedAsync($"#$#mcp-negotiate-end {key}\r\n");
+
+		await Assert.That(peer.Negotiate.Agreed.ContainsKey("dns-com-example-late")).IsFalse();
+		await Assert.That(completions.Count).IsEqualTo(1);
 	}
 }

@@ -378,6 +378,17 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	/// </summary>
 	private static string Quote(string value)
 	{
+		// Refused rather than escaped, because MCP has no escape for it: a line ending inside a value
+		// ends the message there and puts the rest of the value on the wire as a line of its own. The
+		// protocol's answer to content that does not fit on a line is SendMultilineAsync, and quietly
+		// emitting two lines from one call is not that answer.
+		if (value.IndexOf('\r') >= 0 || value.IndexOf('\n') >= 0)
+		{
+			throw new ArgumentException(
+				"An MCP value cannot contain a line ending; use SendMultilineAsync for content that spans lines.",
+				nameof(value));
+		}
+
 		var quoted = new StringBuilder(value.Length + 2).Append('"');
 
 		foreach (var c in value)
@@ -699,6 +710,17 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 				return;
 			}
 
+			// The key goes back out unquoted on every later message -- that is the grammar -- so one
+			// that is not a single token cannot survive the trip. Accepting it would give the worst of
+			// both worlds: a session that reports as established, and every message on it malformed,
+			// because the peer reads only the text up to the space as the key.
+			if (!IsToken(key!))
+			{
+				context.Logger.LogWarning(
+					"Refusing an MCP handshake: the authentication key is not a single unquoted token");
+				return;
+			}
+
 			_authenticationKey = key;
 			context.Logger.LogDebug("MCP {Version} established", Version);
 			await OnNegotiatedAsync(true);
@@ -742,6 +764,26 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 				context.Logger.LogError(exception, "An MCP package failed to open");
 			}
 		}
+	}
+
+	/// <summary>
+	/// Whether a value can be written unquoted, which is what the authentication key has to be.
+	/// </summary>
+	/// <remarks>
+	/// The characters MCP's unquoted-string production excludes: space, quote, backslash, asterisk and
+	/// colon. An empty string is not a token either -- it would leave nothing at all where the key
+	/// should be.
+	/// </remarks>
+	private static bool IsToken(string value)
+	{
+		if (value.Length == 0) return false;
+
+		foreach (var c in value)
+		{
+			if (c is ' ' or '"' or '\\' or '*' or ':' or '\r' or '\n') return false;
+		}
+
+		return true;
 	}
 
 	/// <summary>
