@@ -301,6 +301,17 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 		// decline for itself rather than rely on being unhooked.
 		if (!IsEnabled) return;
 
+		// The same gate OpenAsync applies, because it is a gate on the capability rather than on which
+		// side asked for it. Ungated, an authenticated peer could put this side into a cord
+		// conversation the two of them had never agreed to have.
+		if (!Mcp.Agreed.ContainsKey(PackageName))
+		{
+			Context.Logger.LogDebug(
+				"Ignoring {Message}: the {Package} package is not agreed on this session",
+				OpenMessage, PackageName);
+			return;
+		}
+
 		var id = message.Value("_id");
 		var type = message.Value("_type");
 

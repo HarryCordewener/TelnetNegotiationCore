@@ -551,4 +551,33 @@ public class McpCordProtocolTests : BaseTest
 		await Assert.That(opened).IsEmpty();
 		await Assert.That(peer.Cords.Open).IsEmpty();
 	}
+
+	/// <summary>
+	/// The peer cannot open a cord before the package is agreed either. The gate is on the capability,
+	/// not on which side asked for it.
+	/// </summary>
+	/// <remarks>
+	/// <see cref="McpCordProtocol.OpenAsync"/> already refused to open one this side, but the inbound
+	/// half went ungated -- so an authenticated peer could put this side into a cord conversation the
+	/// two of them had never agreed to have.
+	/// </remarks>
+	[Test]
+	public async Task ThePeerCannotOpenACordBeforeThePackageIsAgreed()
+	{
+		var opened = new List<McpCord>();
+
+		await using var peer = await EstablishedClientAsync(
+			cords => cords.SupportsCordType("dns-com-example-chat", cord =>
+			{
+				lock (opened) opened.Add(cord);
+				return ValueTask.CompletedTask;
+			}),
+			agreeCords: false);
+
+		await peer.FeedAsync(
+			$"#$#mcp-cord-open {peer.Mcp.AuthenticationKey} _id: \"I1\" _type: \"dns-com-example-chat\"\r\n");
+
+		await Assert.That(opened).IsEmpty();
+		await Assert.That(peer.Cords.Open).IsEmpty();
+	}
 }
