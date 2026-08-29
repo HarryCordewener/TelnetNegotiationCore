@@ -36,6 +36,12 @@ public sealed class McpCord
 	/// <summary>Whether this cord is still open. False once either end has closed it.</summary>
 	public bool IsOpen { get; internal set; } = true;
 
+	/// <summary>
+	/// Whether the peer opened this cord rather than this side. Only the peer's own count against the
+	/// ceiling on how many it may hold open.
+	/// </summary>
+	internal bool OpenedByPeer { get; init; }
+
 	/// <summary>Sets the handler for messages arriving on this cord.</summary>
 	/// <param name="handler">Called once per complete cord message</param>
 	/// <returns>This cord, for fluent chaining</returns>

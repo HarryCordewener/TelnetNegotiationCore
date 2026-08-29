@@ -146,18 +146,45 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 	/// <summary>
 	/// Opens a cord of the given type and tells the peer.
 	/// </summary>
+	/// <remarks>
+	/// <paramref name="configure"/> runs <em>before</em> <c>mcp-cord-open</c> is written, which is the
+	/// point of it: wiring handlers after this method returns is a race the caller cannot win on a
+	/// real socket, because the peer is free to send on the cord before the next statement runs.
+	/// </remarks>
 	/// <param name="type">The cord type</param>
+	/// <param name="configure">Runs on the new cord before it is announced -- where its
+	/// <see cref="McpCord.OnMessage"/> and <see cref="McpCord.OnClosed"/> handlers belong</param>
 	/// <returns>The new cord.</returns>
 	/// <exception cref="InvalidOperationException">There is no MCP session on this connection.</exception>
-	public async ValueTask<McpCord> OpenAsync(string type)
+	public async ValueTask<McpCord> OpenAsync(string type, Action<McpCord>? configure = null)
 	{
 		if (string.IsNullOrEmpty(type)) throw new ArgumentException("A cord type is required.", nameof(type));
 
+		// Checked before a cord exists rather than left to the send: failing afterwards would leave a
+		// cord this side believes is open that the peer was never told about.
+		if (!Mcp.IsNegotiated)
+		{
+			throw new InvalidOperationException(
+				"There is no MCP session on this connection, so a cord cannot be opened on it.");
+		}
+
 		var cord = new McpCord(this, NewId(), type);
+
+		configure?.Invoke(cord);
 
 		lock (_open) _open[cord.Id] = cord;
 
-		await Mcp.SendAsync(OpenMessage, ("_id", cord.Id), ("_type", type));
+		try
+		{
+			await Mcp.SendAsync(OpenMessage, ("_id", cord.Id), ("_type", type));
+		}
+		catch
+		{
+			// The peer was never told, so this side must not go on believing otherwise.
+			lock (_open) _open.Remove(cord.Id);
+			cord.IsOpen = false;
+			throw;
+		}
 
 		Context.Logger.LogDebug("Opened cord {Id} of type {Type}", cord.Id, type);
 		return cord;
@@ -242,11 +269,14 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 			return;
 		}
 
-		var cord = new McpCord(this, id!, type!);
+		var cord = new McpCord(this, id!, type!) { OpenedByPeer = true };
 
 		lock (_open)
 		{
-			if (_open.Count >= MaxPeerCords)
+			// Only the peer's own cords count against the peer's ceiling. Cords this side opened are
+			// this side's business, and letting them spend the allowance would have this endpoint
+			// refuse the peer's first valid cord after opening 64 of its own.
+			if (_open.Values.Count(existing => existing.OpenedByPeer) >= MaxPeerCords)
 			{
 				Context.Logger.LogWarning(
 					"Refusing cord {Id}: the peer already has {Count} open", id, MaxPeerCords);

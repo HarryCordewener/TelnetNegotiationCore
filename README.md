@@ -415,7 +415,7 @@ descendants carry over ordinary telnet text, on lines beginning `#$#`. It is not
 there is no `IAC DO`, nothing to negotiate at the option level, and everything happens on assembled
 lines of text.
 
-It is **two plugins**, because the specification describes two things:
+It is **three plugins**, because the specification describes three things:
 
 - **`MudClientProtocol`** — the session layer. Framing, quoting, the version handshake and the
   authentication key.
@@ -596,7 +596,12 @@ connection on an agreed port than to agreeing which ports exist.
 
 What it buys is that **you can define your own channel without a plugin in this library**:
 
+Cords depend on package negotiation, which depends on the session layer, so all three go on together
+— `McpCordProtocol` alone throws at `BuildAsync()`:
+
 ```csharp
+.AddPlugin<MudClientProtocol>()
+.AddPlugin<McpNegotiateProtocol>()
 .AddPlugin<McpCordProtocol>()
     .SupportsCordType("dns-com-example-chat", cord =>
     {
@@ -609,7 +614,14 @@ What it buys is that **you can define your own channel without a plugin in this 
 ```csharp
 var cords = telnet.PluginManager!.GetPlugin<McpCordProtocol>()!;
 
-McpCord cord = await cords.OpenAsync("dns-com-example-chat");
+McpCord cord = await cords.OpenAsync("dns-com-example-chat", c =>
+{
+    // Wired here, not after the call returns: mcp-cord-open has already gone out by then, and a
+    // peer is free to send on the cord before your next statement runs.
+    c.OnMessage(m => Handle(m));
+    c.OnClosed(() => Forget(c.Id));
+});
+
 await cord.SendAsync("say", ("text", "hello there"));
 await cord.SendMultilineAsync("content", [("name", "note")], ("body", lines));
 await cord.CloseAsync();
@@ -623,7 +635,7 @@ A cord of a type you never declared is dropped, as is a message for a cord that 
 has been closed (*"treat as an unrecognized MCP message, silently dropping it"*). A duplicate
 `mcp-cord-closed` is ignored, because the specification says race conditions produce them. Sending on
 a closed cord throws rather than being dropped — a message the peer will never see is a mistake by the
-caller, not something to swallow. At most 64 peer-opened cords may be held at once.
+caller, not something to swallow. At most 64 *peer-opened* cords may be held at once; cords you opened are your own business and do not spend that allowance.
 
 **Register every package before `BuildAsync()`**, or from a package plugin's own `InitializeAsync`.
 The whole list goes out in one burst the moment the session comes up, closed by `mcp-negotiate-end`,

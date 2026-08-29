@@ -331,4 +331,90 @@ public class McpCordProtocolTests : BaseTest
 			+ $"#$#* {tag} body: two\r\n"
 			+ $"#$#: {tag}\r\n");
 	}
+
+	/// <summary>
+	/// Handlers can be installed before the cord is announced, so a peer that answers immediately
+	/// cannot beat the caller to it.
+	/// </summary>
+	/// <remarks>
+	/// Wiring them after <c>OpenAsync</c> returns is a race the caller cannot win on a real socket:
+	/// <c>mcp-cord-open</c> has already gone out, and a peer is free to send on the cord before the
+	/// next statement runs. The configure callback closes it by running before anything is written.
+	/// </remarks>
+	[Test]
+	public async Task HandlersCanBeInstalledBeforeTheCordIsAnnounced()
+	{
+		await using var peer = await EstablishedClientAsync();
+
+		var announcedDuringConfigure = true;
+
+		var cord = await peer.Cords.OpenAsync("dns-com-example-chat", c =>
+		{
+			announcedDuringConfigure = peer.Wired.Contains("mcp-cord-open");
+			c.OnMessage(_ => ValueTask.CompletedTask);
+		});
+
+		await Assert.That(announcedDuringConfigure).IsFalse();
+		await Assert.That(peer.Wired).Contains($"_id: \"{cord.Id}\"");
+	}
+
+	/// <summary>
+	/// Opening a cord without an MCP session leaves no cord behind. The call fails either way; what
+	/// must not happen is a cord this side believes is open that the peer was never told about.
+	/// </summary>
+	[Test]
+	public async Task OpeningWithoutASessionLeavesNoCord()
+	{
+		var peer = new Peer();
+
+		peer.Interpreter = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(data =>
+			{
+				peer.Write(data);
+				return ValueTask.CompletedTask;
+			})
+			.AddPlugin<MudClientProtocol>()
+			.AddPlugin<McpNegotiateProtocol>()
+			.AddPlugin<McpCordProtocol>()
+			.BuildAsync();
+
+		await using (peer)
+		{
+			await Assert.That(async () => await peer.Cords.OpenAsync("dns-com-example-chat"))
+				.Throws<InvalidOperationException>();
+
+			await Assert.That(peer.Cords.Open).IsEmpty();
+		}
+	}
+
+	/// <summary>
+	/// The ceiling is on cords the peer opened. Cords this side opened are this side's own business,
+	/// and must not spend the peer's allowance.
+	/// </summary>
+	[Test]
+	public async Task CordsThisSideOpenedDoNotSpendThePeersAllowance()
+	{
+		var opened = new List<McpCord>();
+
+		await using var peer = await EstablishedClientAsync(cords =>
+			cords.SupportsCordType("dns-com-example-chat", cord =>
+			{
+				lock (opened) opened.Add(cord);
+				return ValueTask.CompletedTask;
+			}));
+
+		// Comfortably past the peer ceiling, all of them ours.
+		for (var i = 0; i < 70; i++)
+		{
+			await peer.Cords.OpenAsync("dns-com-example-chat");
+		}
+
+		await peer.FeedAsync(
+			$"#$#mcp-cord-open {peer.Mcp.AuthenticationKey} _id: \"I1\" _type: \"dns-com-example-chat\"\r\n");
+
+		await Assert.That(await PollUntilAsync(() => opened.Count > 0, timeoutMs: 10000)).IsTrue();
+	}
 }
