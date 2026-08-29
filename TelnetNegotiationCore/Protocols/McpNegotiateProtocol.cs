@@ -230,6 +230,17 @@ public class McpNegotiateProtocol : TelnetProtocolPluginBase
 			return default(ValueTask);
 		}
 
+		// A minimum above a maximum describes no range at all. The overlap check below would refuse to
+		// agree on it anyway, but recording it would hand a consumer asking "what does this peer
+		// support" a claim that cannot be true.
+		if (theirMin > theirMax)
+		{
+			Context.Logger.LogDebug(
+				"Ignoring {Message} for {Package}: the range {Min} to {Max} is inverted",
+				CanMessage, package, theirMin, theirMax);
+			return default(ValueTask);
+		}
+
 		lock (_peer) _peer[package!] = (theirMin, theirMax);
 
 		(McpVersion Min, McpVersion Max) ours;

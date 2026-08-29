@@ -23,10 +23,10 @@ All notable changes to this project will be documented in this file.
     tag it names. Continuation text runs verbatim to the end of the line, so a string containing line
     breaks becomes several continuation lines rather than one that ends early. Because the peer decides whether a terminator ever arrives, at most 8 may be
     open at a time and at most 4096 continuation lines may accumulate in any one of them.
-  - A line beginning `#$#` that fails to parse or carries the wrong authentication key is dropped
-    inside a session and passed through outside one. Inside a session a server is obliged to quote
-    real output that looks like protocol, so an unquoted one is either an injection attempt or a
-    broken server; outside one, nothing is quoting anything yet and the line is ordinary output.
+  - A line beginning `#$#` that fails to parse, carries an unknown message name, or carries the wrong
+    authentication key is dropped rather than shown — in a session or outside one, as the
+    specification requires of an unrecognised or mangled request. The rule is line-initial, so `#$#`
+    inside ASCII art is untouched.
   - `MudClientProtocol.SendOutputAsync` is a server's half of the framing rule: while a session is
     up it quotes a line of real output that begins `#$#`, and one that begins `#$"` (which would
     otherwise lose that prefix to the peer's unquoting). `#$#` mid-line is left alone, and outside a

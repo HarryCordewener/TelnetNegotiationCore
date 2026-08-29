@@ -750,4 +750,57 @@ public class MudClientProtocolTests : BaseTest
 		await Assert.That(await PollUntilAsync(() => peer.Submitted.Count > 0, timeoutMs: 10000)).IsTrue();
 		await Assert.That(received).IsEmpty();
 	}
+
+	/// <summary>
+	/// A message name that is not an MCP identifier is refused rather than written as malformed
+	/// framing.
+	/// </summary>
+	[Test]
+	public async Task AMessageNameMustBeAnIdentifier()
+	{
+		await using var peer = await EstablishedClientAsync();
+
+		await Assert.That(async () => await peer.Mcp.SendAsync("bad name", ("k", "v")))
+			.Throws<ArgumentException>();
+		await Assert.That(async () => await peer.Mcp.SendAsync("1-leading-digit", ("k", "v")))
+			.Throws<ArgumentException>();
+	}
+
+	/// <summary>A keyword that is not an MCP identifier is refused for the same reason.</summary>
+	[Test]
+	public async Task AKeywordMustBeAnIdentifier()
+	{
+		await using var peer = await EstablishedClientAsync();
+
+		await Assert.That(async () => await peer.Mcp.SendAsync("dns-com-example-test", ("bad key", "v")))
+			.Throws<ArgumentException>();
+	}
+
+	/// <summary>
+	/// The duplicate-keyword ban covers continuation keys too: a key cannot be sent once as an
+	/// ordinary value and again as multiline content.
+	/// </summary>
+	[Test]
+	public async Task AKeyCannotBeBothOrdinaryAndMultiline()
+	{
+		await using var peer = await EstablishedClientAsync();
+
+		await Assert.That(async () => await peer.Mcp.SendMultilineAsync(
+				"dns-com-example-test", [("body", "one")], ("body", new[] { "two" })))
+			.Throws<ArgumentException>();
+	}
+
+	/// <summary>
+	/// <c>_data-tag</c> is the protocol's, not the caller's. A caller-supplied one would sit beside the
+	/// generated one and give the message two, which is a duplicate keyword and a mangled message.
+	/// </summary>
+	[Test]
+	public async Task ACallerCannotSupplyTheDataTag()
+	{
+		await using var peer = await EstablishedClientAsync();
+
+		await Assert.That(async () => await peer.Mcp.SendMultilineAsync(
+				"dns-com-example-test", [("_data-tag", "mine")], ("body", new[] { "one" })))
+			.Throws<ArgumentException>();
+	}
 }

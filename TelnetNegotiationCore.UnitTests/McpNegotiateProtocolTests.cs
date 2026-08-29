@@ -332,4 +332,30 @@ public class McpNegotiateProtocolTests : BaseTest
 		await Assert.That(peer.Negotiate.PeerPackages["dns-org-mud-moo-simpleedit"])
 			.IsEqualTo((new McpVersion(1, 0), new McpVersion(1, 0)));
 	}
+
+	/// <summary>
+	/// A peer offering a range whose minimum is above its maximum has described no range at all, and
+	/// it is not recorded as one.
+	/// </summary>
+	/// <remarks>
+	/// The overlap check already stops it being agreed. What it did not stop was the inverted range
+	/// reaching <see cref="McpNegotiateProtocol.PeerPackages"/>, where a consumer reading "what does
+	/// this peer support" would be handed a claim that cannot be true.
+	/// </remarks>
+	[Test]
+	public async Task AnInvertedPeerRangeIsNotRecordedAtAll()
+	{
+		await using var peer = await EstablishedClientAsync(negotiate =>
+			negotiate.Supports("dns-com-example-test", new McpVersion(1, 0), new McpVersion(3, 0)));
+
+		var key = peer.Mcp.AuthenticationKey;
+
+		await peer.FeedAsync(
+			$"#$#mcp-negotiate-can {key} package: \"dns-com-example-test\" min-version: \"2.0\" max-version: \"1.0\"\r\n");
+		await peer.FeedAsync($"#$#mcp-negotiate-end {key}\r\n");
+
+		await Assert.That(await PollUntilAsync(() => peer.Negotiate.IsComplete, timeoutMs: 10000)).IsTrue();
+		await Assert.That(peer.Negotiate.PeerPackages.ContainsKey("dns-com-example-test")).IsFalse();
+		await Assert.That(peer.Negotiate.Agreed.ContainsKey("dns-com-example-test")).IsFalse();
+	}
 }

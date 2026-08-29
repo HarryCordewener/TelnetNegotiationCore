@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -202,6 +203,7 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	/// <exception cref="InvalidOperationException">There is no MCP session on this connection.</exception>
 	public async ValueTask SendAsync(string name, params (string Key, string Value)[] values)
 	{
+		RequireMessageName(name);
 		RefuseDuplicateKeys(values);
 
 		var line = new StringBuilder(Prefix).Append(name).Append(' ').Append(RequireKey());
@@ -252,6 +254,14 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 				"A multiline message needs at least one continuation key; use SendAsync for a message without one.",
 				nameof(multiline));
 		}
+
+		RequireMessageName(name);
+
+		// One check across both halves: a key sent once as an ordinary value and again as continuation
+		// content is still the same keyword twice, and the ban is on the keyword, not on the shape.
+		// _data-tag is refused outright because this method generates one -- a caller-supplied one
+		// would sit beside it and give the message two.
+		RefuseDuplicateKeys([.. values, .. multiline.Select(m => (m.Key, string.Empty))], reserveDataTag: true);
 
 		var key = RequireKey();
 
@@ -826,12 +836,27 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	/// A receiver has no defined way to resolve one, so what the peer ends up with is whichever half
 	/// its parser happened to keep -- a silent, implementation-dependent loss rather than an error.
 	/// </remarks>
-	private static void RefuseDuplicateKeys(IEnumerable<(string Key, string Value)> values)
+	private static void RefuseDuplicateKeys(
+		IEnumerable<(string Key, string Value)> values,
+		bool reserveDataTag = false)
 	{
 		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 		foreach (var (key, _) in values)
 		{
+			if (!IsArgumentName(key))
+			{
+				throw new ArgumentException(
+					$"'{key}' is not an MCP keyword: a letter or underscore, then letters, digits, hyphens and underscores.",
+					nameof(values));
+			}
+
+			if (reserveDataTag && key.Equals(DataTagKey, StringComparison.OrdinalIgnoreCase))
+			{
+				throw new ArgumentException(
+					$"'{DataTagKey}' is generated for the message and cannot be supplied.", nameof(values));
+			}
+
 			if (!seen.Add(key))
 			{
 				throw new ArgumentException(
@@ -839,6 +864,47 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 			}
 		}
 	}
+
+	/// <summary>The reserved keyword that ties a message to its continuation lines.</summary>
+	private const string DataTagKey = "_data-tag";
+
+	/// <summary>
+	/// Refuses a message name that is not an MCP identifier, rather than writing malformed framing and
+	/// leaving the peer to drop it.
+	/// </summary>
+	private static void RequireMessageName(string name)
+	{
+		if (string.IsNullOrEmpty(name) || !IsLetter(name[0]) || !AllOf(name, IsNameChar))
+		{
+			throw new ArgumentException(
+				$"'{name}' is not an MCP message name: a letter, then letters, digits and hyphens.",
+				nameof(name));
+		}
+	}
+
+	/// <summary>
+	/// An MCP keyword: a letter or underscore, then letters, digits, hyphens and underscores. The
+	/// leading underscore is the protocol's own reserved space -- <c>_data-tag</c>, and cords' <c>_id</c>,
+	/// <c>_type</c> and <c>_message</c>.
+	/// </summary>
+	private static bool IsArgumentName(string name) =>
+		!string.IsNullOrEmpty(name)
+		&& (IsLetter(name[0]) || name[0] == '_')
+		&& AllOf(name, c => IsNameChar(c) || c == '_');
+
+	private static bool AllOf(string value, Func<char, bool> predicate)
+	{
+		foreach (var c in value)
+		{
+			if (!predicate(c)) return false;
+		}
+
+		return true;
+	}
+
+	private static bool IsNameChar(char c) => IsLetter(c) || (c >= '0' && c <= '9') || c == '-';
+
+	private static bool IsLetter(char c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 
 	/// <summary>
 	/// Whether a value can be written unquoted, which is what the authentication key has to be.

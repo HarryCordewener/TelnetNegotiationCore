@@ -452,7 +452,10 @@ S: #$#mcp-negotiate-end a3f1c0d29b4e7182
 ```
 
 The key is chosen by the **client** and adopted by the server, and from then on both sides *carry* it
-as the first, unnamed argument of every message they send, rejecting any that arrives without it. It
+as the first, unnamed argument of every **ordinary** message they send, rejecting any that arrives
+without it. The two multiline frames are the exception and carry the data tag in that position
+instead — `#$#* <tag> …` and `#$#: <tag>` — which is what authenticates them, since a tag is only ever
+known to a peer this side already opened a message with. It
 exists because anyone on a MUD can type `#$#` at the start of a line: without it, those keystrokes
 would reach the other player's client as protocol. (This is a different mechanism from the `#$"`
 quoting below, which is about ordinary output that happens to look like protocol — the key
@@ -501,8 +504,11 @@ so a consumer recording what a peer supports does not have to open a session it 
 to learn it. `MudClientProtocol.OfferedVersions` is the same fact as a property, and
 `NegotiatedVersion` is what a session settled on (`min(server-max, client-max)`), null when none did.
 
-Note that declining still leaves the framing on: the offer is consumed, and so is any later
-line-initial `#$#`, because that rule is not conditional on a session.
+Note that declining still leaves the *inbound* framing on: the offer is consumed, and so is any later
+line-initial `#$#`, and a leading `#$"` is still stripped — none of those rules is conditional on a
+session. **Outbound is the other way round**: `SendOutputAsync` and `QuoteOutput` add quoting only
+while a session is up, because nothing is unquoting it before then and a peer with no session would
+show the prefix to its reader as text.
 
 Worth having: of the 57 lines beginning `#$#` across the connect screens MUIndex has stored, 54 are
 exactly this offer — 37 written `#$#mcp version: 2.1 to: 2.1` and 17 with the versions quoted. Both

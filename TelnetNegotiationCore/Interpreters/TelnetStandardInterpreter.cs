@@ -818,8 +818,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// <returns>ValueTask</returns>
     public async ValueTask InterpretAsync(byte bt)
     {
-        await _byteChannel.Writer.WriteAsync(bt);
-        Interlocked.Increment(ref _itemsQueued);
+        await QueueAsync(bt);
     }
 
     /// <summary>
@@ -835,8 +834,37 @@ public partial class TelnetInterpreter : IAsyncDisposable
         // so it is safe to hold across await boundaries.
         for (int i = 0; i < byteArray.Length; i++)
         {
-            await _byteChannel.Writer.WriteAsync(byteArray.Span[i]);
-            Interlocked.Increment(ref _itemsQueued);
+            await QueueAsync(byteArray.Span[i]);
+        }
+    }
+
+    /// <summary>
+    /// Puts one item on the channel, counting it as pending before it can be seen.
+    /// </summary>
+    /// <remarks>
+    /// <b>Counted before it is published, which is defensive rather than load-bearing.</b> Publishing
+    /// first leaves a window in which the reader can have taken an item that <see cref="_itemsQueued"/>
+    /// does not yet know about, so a concurrent <see cref="WaitForProcessingAsync"/> would compute a
+    /// target excluding it. That is not strictly a contract violation -- the barrier promises to cover
+    /// what was fed in <em>before</em> the call, and a write still in flight on another thread was not
+    /// -- but the window is invisible to a caller and the library enqueues on its own account too
+    /// (<see cref="TryEnqueueInferredPrompt"/>, from a timer). Counting first can only overshoot, and
+    /// an overshoot merely makes the barrier wait a moment longer than it had to; counting second can
+    /// undershoot. The count is put back if the write never lands, so a closed channel does not leave
+    /// phantom pending work the barrier can never see completed.
+    /// </remarks>
+    private async ValueTask QueueAsync(byte bt)
+    {
+        Interlocked.Increment(ref _itemsQueued);
+
+        try
+        {
+            await _byteChannel.Writer.WriteAsync(bt);
+        }
+        catch
+        {
+            Interlocked.Decrement(ref _itemsQueued);
+            throw;
         }
     }
 
@@ -1065,10 +1093,14 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// <returns>False if the sentinel could not be enqueued (the channel is full or closed).</returns>
     internal bool TryEnqueueInferredPrompt()
     {
-        if (!_byteChannel.Writer.TryWrite(InferredPromptSentinel)) return false;
-
+        // Counted before it is published, for the reason in QueueAsync, and put back if the write is
+        // refused.
         Interlocked.Increment(ref _itemsQueued);
-        return true;
+
+        if (_byteChannel.Writer.TryWrite(InferredPromptSentinel)) return true;
+
+        Interlocked.Decrement(ref _itemsQueued);
+        return false;
     }
 
     /// <summary>
