@@ -44,6 +44,9 @@ public class McpNegotiateProtocol : TelnetProtocolPluginBase
 
 	private readonly Dictionary<string, McpVersion> _agreed = new(StringComparer.OrdinalIgnoreCase);
 
+	private readonly Dictionary<string, (McpVersion Min, McpVersion Max)> _peer =
+		new(StringComparer.OrdinalIgnoreCase);
+
 	private Func<IReadOnlyDictionary<string, McpVersion>, ValueTask>? _onComplete;
 
 	/// <inheritdoc />
@@ -70,6 +73,29 @@ public class McpNegotiateProtocol : TelnetProtocolPluginBase
 	public IReadOnlyDictionary<string, McpVersion> Agreed
 	{
 		get { lock (_agreed) return new Dictionary<string, McpVersion>(_agreed, StringComparer.OrdinalIgnoreCase); }
+	}
+
+	/// <summary>
+	/// Every package the peer said it speaks, with the range it named -- including packages this side
+	/// does not speak.
+	/// </summary>
+	/// <remarks>
+	/// <see cref="Agreed"/> is an intersection, and so throws away the larger half of what the peer
+	/// said. This keeps all of it, because "what does this peer support" is a different question from
+	/// "what can the two of us do together", and only the first one survives here. A directory
+	/// recording that a game offers <c>dns-org-mud-moo-simpleedit</c> cares that the game offers it,
+	/// not that this client happens not to implement it.
+	/// </remarks>
+	public IReadOnlyDictionary<string, (McpVersion Min, McpVersion Max)> PeerPackages
+	{
+		get
+		{
+			lock (_peer)
+			{
+				return new Dictionary<string, (McpVersion Min, McpVersion Max)>(
+					_peer, StringComparer.OrdinalIgnoreCase);
+			}
+		}
 	}
 
 	/// <summary>
@@ -203,6 +229,8 @@ public class McpNegotiateProtocol : TelnetProtocolPluginBase
 			Context.Logger.LogDebug("Ignoring a malformed {Message}", CanMessage);
 			return default(ValueTask);
 		}
+
+		lock (_peer) _peer[package!] = (theirMin, theirMax);
 
 		(McpVersion Min, McpVersion Max) ours;
 		lock (_supported)

@@ -71,6 +71,10 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 
 	private string? _authenticationKey;
 
+	private McpVersion? _negotiatedVersion;
+
+	private (McpVersion Lowest, McpVersion Highest)? _offered;
+
 	/// <summary>The number the next outbound data tag is built from.</summary>
 	private long _nextDataTag;
 
@@ -84,6 +88,22 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	/// start of a line, and without a key those keystrokes would reach this client as protocol.
 	/// </remarks>
 	public string? AuthenticationKey => _authenticationKey;
+
+	/// <summary>
+	/// The version this session settled on -- the highest both sides can speak -- or
+	/// <see langword="null"/> if no session was established.
+	/// </summary>
+	public McpVersion? NegotiatedVersion => _negotiatedVersion;
+
+	/// <summary>
+	/// The range the peer offered, or <see langword="null"/> if it has not offered. Recorded whether
+	/// or not the offer was answered, and whether or not the ranges overlapped.
+	/// </summary>
+	/// <remarks>
+	/// The property form of <see cref="OnOffered"/>, for a consumer that would rather ask afterwards
+	/// than be told at the time.
+	/// </remarks>
+	public (McpVersion Lowest, McpVersion Highest)? OfferedVersions => _offered;
 
 	/// <summary>
 	/// Whether this client answers a server's offer of MCP. True by default.
@@ -182,6 +202,8 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	/// <exception cref="InvalidOperationException">There is no MCP session on this connection.</exception>
 	public async ValueTask SendAsync(string name, params (string Key, string Value)[] values)
 	{
+		RefuseDuplicateKeys(values);
+
 		var line = new StringBuilder(Prefix).Append(name).Append(' ').Append(RequireKey());
 
 		foreach (var (key, value) in values)
@@ -434,6 +456,7 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	protected override async ValueTask OnProtocolDisabledAsync()
 	{
 		_authenticationKey = null;
+		_negotiatedVersion = null;
 
 		lock (_open) _open.Clear();
 
@@ -474,9 +497,12 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	{
 		if (!IsEnabled) return line;
 
-		// Unquoting is a fact about a running session rather than about the characters: a server only
-		// quotes once MCP is up, so before that a line beginning #$" is just what it looks like.
-		if (IsNegotiated && StartsWith(line, QuotePrefixBytes))
+		// Unconditional, as the specification states it: "A received network line that begins with the
+		// characters #$" must be translated to an in-band line consisting of the network line with the
+		// prefix #$" removed." No clause makes it wait for a session, and a server has already begun
+		// speaking MCP by the time it makes its offer -- a client that waited would show the prefix to
+		// the reader.
+		if (StartsWith(line, QuotePrefixBytes))
 		{
 			var unquoted = new byte[line.Length - QuotePrefixBytes.Length];
 			Array.Copy(line, QuotePrefixBytes.Length, unquoted, 0, unquoted.Length);
@@ -633,20 +659,25 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <summary>
-	/// Refuses a line that arrived looking like MCP: dropped inside a session, passed through outside
-	/// one.
+	/// Refuses a line that arrived looking like MCP. It is dropped, not displayed.
 	/// </summary>
 	/// <remarks>
-	/// Anyone on a MUD can type <c>#$#</c> at the start of a line, and a server in an MCP session is
-	/// obliged to quote real output that would look like that -- so an unquoted one that fails to
-	/// parse or fails the key is either an injection attempt or a broken server, and displaying it is
-	/// what would make the attempt worth making. Outside a session none of that holds: nothing is
-	/// quoting anything yet, so the line is ordinary output and is delivered as such.
+	/// <para>
+	/// The specification's own words: "If an unrecognized or mangled MCP request is received, the
+	/// implementation should either silently drop it on the floor, or notify the user in some
+	/// reasonably unobtrusive way"; of an unknown message name, "the message should be ignored"; of a
+	/// bad authentication key, "if it is incorrect, the message should be ignored". Putting it in the
+	/// output is none of those, and anyone on a MUD can type <c>#$#</c> at the start of a line -- so
+	/// displaying it is what would make the attempt worth making.
+	/// </para>
+	/// <para>
+	/// Line-initial is what keeps this safe. <c>#$#</c> in the middle of a line is untouched: across
+	/// the 918 connect screens in MUIndex's catalogue every line-initial <c>#$#</c> is protocol, and
+	/// every mid-line one is ASCII art.
+	/// </para>
 	/// </remarks>
 	private byte[]? Reject(IProtocolContext context, string reason, byte[] line)
 	{
-		if (!IsNegotiated) return line;
-
 		context.Logger.LogDebug("Dropping a line that looks like MCP because {Reason}", reason);
 		return null;
 	}
@@ -684,11 +715,16 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 			return;
 		}
 
-		// Reported before anything is decided about it: what the peer offered is a fact about the
-		// peer, and stays true whether this side answers, declines, or shares no version with it.
-		if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client && _onOffered is not null)
+		// Recorded and reported before anything is decided about it: what the peer offered is a fact
+		// about the peer, and stays true whether this side answers, declines, or shares no version.
+		if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client)
 		{
-			await _onOffered(lowest, highest);
+			_offered = (lowest, highest);
+
+			if (_onOffered is not null)
+			{
+				await _onOffered(lowest, highest);
+			}
 		}
 
 		if (lowest > highest || lowest > Version || highest < Version)
@@ -722,7 +758,8 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 			}
 
 			_authenticationKey = key;
-			context.Logger.LogDebug("MCP {Version} established", Version);
+			_negotiatedVersion = Highest(highest);
+			context.Logger.LogDebug("MCP {Version} established", _negotiatedVersion);
 			await OnNegotiatedAsync(true);
 			await AnnounceEstablishedAsync(context);
 			return;
@@ -736,15 +773,22 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 		}
 
 		_authenticationKey = NewAuthenticationKey();
+		_negotiatedVersion = Highest(highest);
 
 		var line = $"{Prefix}{McpMessage.Handshake} authentication-key: \"{_authenticationKey}\" "
 			+ $"version: \"{Version}\" to: \"{Version}\"\r\n";
 		await context.SendNegotiationAsync(context.CurrentEncoding.GetBytes(line));
 
-		context.Logger.LogDebug("MCP {Version} established", Version);
+		context.Logger.LogDebug("MCP {Version} established", _negotiatedVersion);
 		await OnNegotiatedAsync(true);
 		await AnnounceEstablishedAsync(context);
 	}
+
+	/// <summary>
+	/// The version a session runs at: "min(server-max, client-max)", which given the range has already
+	/// been checked for overlap is the lower of the peer's ceiling and this implementation's.
+	/// </summary>
+	private static McpVersion Highest(McpVersion peerHighest) => peerHighest < Version ? peerHighest : Version;
 
 	private async ValueTask AnnounceEstablishedAsync(IProtocolContext context)
 	{
@@ -767,12 +811,37 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <summary>
+	/// Refuses a message that would carry the same keyword twice, which the specification forbids
+	/// outright: an implementation "must not send duplicate keywords in a single message line".
+	/// </summary>
+	/// <remarks>
+	/// A receiver has no defined way to resolve one, so what the peer ends up with is whichever half
+	/// its parser happened to keep -- a silent, implementation-dependent loss rather than an error.
+	/// </remarks>
+	private static void RefuseDuplicateKeys(IEnumerable<(string Key, string Value)> values)
+	{
+		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		foreach (var (key, _) in values)
+		{
+			if (!seen.Add(key))
+			{
+				throw new ArgumentException(
+					$"An MCP message cannot carry the keyword '{key}' twice.", nameof(values));
+			}
+		}
+	}
+
+	/// <summary>
 	/// Whether a value can be written unquoted, which is what the authentication key has to be.
 	/// </summary>
 	/// <remarks>
-	/// The characters MCP's unquoted-string production excludes: space, quote, backslash, asterisk and
-	/// colon. An empty string is not a token either -- it would leave nothing at all where the key
-	/// should be.
+	/// The specification's <c>&lt;unquoted-string&gt;</c> is one or more <c>&lt;simple-char&gt;</c>,
+	/// and <c>&lt;simple-char&gt;</c> is an allow-list -- letters, digits, and a named set of
+	/// punctuation -- rather than "anything but a space". Checked as the allow-list it is, so a
+	/// control character or anything outside it is refused rather than written out to a peer whose
+	/// parser will not read it back. An empty string is not a token either: it would leave nothing at
+	/// all where the key should be.
 	/// </remarks>
 	private static bool IsToken(string value)
 	{
@@ -780,11 +849,19 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 
 		foreach (var c in value)
 		{
-			if (c is ' ' or '"' or '\\' or '*' or ':' or '\r' or '\n') return false;
+			var simple = (c >= 'a' && c <= 'z')
+				|| (c >= 'A' && c <= 'Z')
+				|| (c >= '0' && c <= '9')
+				|| OtherSimple.IndexOf(c) >= 0;
+
+			if (!simple) return false;
 		}
 
 		return true;
 	}
+
+	/// <summary>The specification's <c>&lt;other-simple&gt;</c>: the punctuation a token may hold.</summary>
+	private const string OtherSimple = "-~`!@#$%^&()=+{}[]|';?/><.,";
 
 	/// <summary>
 	/// A key no other player on the MUD can guess, which is the whole of what it is for.

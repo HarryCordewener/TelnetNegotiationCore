@@ -495,23 +495,36 @@ back, so no session is opened and every later `#$#` line is treated as it is out
 not the ranges overlap, and reports the range the *server* named. For a client that declines it is the
 only evidence there will be — `IsNegotiated` stays false, correctly, because no session was opened —
 so a consumer recording what a peer supports does not have to open a session it does not want in order
-to learn it.
+to learn it. `MudClientProtocol.OfferedVersions` is the same fact as a property, and
+`NegotiatedVersion` is what a session settled on (`min(server-max, client-max)`), null when none did.
+
+Note that declining still leaves the framing on: the offer is consumed, and so is any later
+line-initial `#$#`, because that rule is not conditional on a session.
 
 Worth having: of the 57 lines beginning `#$#` across the connect screens MUIndex has stored, 54 are
 exactly this offer — 37 written `#$#mcp version: 2.1 to: 2.1` and 17 with the versions quoted. Both
 spellings are read. Answering them would put text on a stranger's login prompt for a session the
 crawler will never use.
 
-Two rules follow from a peer being a stranger, and both are deliberate:
+Two rules, the first from the specification and the second from the peer being a stranger:
 
-- A line beginning `#$#` that fails to parse, or carries the wrong key, is **dropped inside a session
-  and passed through outside one**. Inside a session the server is obliged to quote real output that
-  looks like protocol, so an unquoted one is either an injection attempt or a broken server, and
-  displaying it is what would make the attempt worth making. Outside a session nothing is quoting
-  anything yet, so the line is ordinary output.
+- A line beginning `#$#` that fails to parse, carries an unknown message name, or carries the wrong
+  key is **dropped, not displayed** — in a session or outside one. The specification is explicit:
+  *"If an unrecognized or mangled MCP request is received, the implementation should either silently
+  drop it on the floor, or notify the user in some reasonably unobtrusive way"*; of an unknown name,
+  *"the message should be ignored"*; of a bad key, *"if it is incorrect, the message should be
+  ignored"*. The rule is **line-initial**, which is what makes it safe — `#$#` in the middle of a line
+  is untouched, and across the 918 connect screens in MUIndex's catalogue every line-initial `#$#` is
+  protocol while every mid-line one is ASCII art.
 - A multiline message is held open until its terminator arrives, and the peer decides whether one
   ever does — so at most 8 may be open at once, and at most 4096 continuation lines may accumulate in
   any one of them.
+
+Refused rather than mishandled, all at the point the value is made: an authentication key that is not
+a single `<simple-char>` token (it is written back unquoted and could not survive the trip), a value
+carrying a line ending passed to `SendAsync` (use `SendMultilineAsync`), the same keyword twice in one
+message (the specification forbids it and no receiver has a defined way to resolve it), and a negative
+`McpVersion` component (the grammar has no sign, so no peer could read it back).
 
 Multiline messages arrive **whole, once**, when the line that closes them arrives — not once per
 continuation line:
@@ -559,6 +572,11 @@ place to hang anything you need against every peer. Read `Agreed` instead, which
 `can` arrives. Once the end line has been seen the negotiation is terminal: a later `can` does not
 change `Agreed`, and a repeated end does not announce it twice, so the set the callback was handed
 stays the set that was agreed.
+
+`McpNegotiateProtocol.PeerPackages` keeps **everything the peer advertised**, including packages this
+side does not speak — `Agreed` is an intersection and throws away the larger half. "What does this peer
+support" and "what can the two of us do together" are different questions, and only the first survives
+in `PeerPackages`.
 
 **Register every package before `BuildAsync()`**, or from a package plugin's own `InitializeAsync`.
 The whole list goes out in one burst the moment the session comes up, closed by `mcp-negotiate-end`,

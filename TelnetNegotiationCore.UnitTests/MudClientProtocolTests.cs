@@ -204,17 +204,23 @@ public class MudClientProtocolTests : BaseTest
 	}
 
 	/// <summary>
-	/// Unquoting is a fact about a running session, not about the characters. A server only quotes
-	/// once MCP is up, so before that a line beginning <c>#$"</c> is just what it looks like.
+	/// Unquoting does not wait for a session. The specification states the translation without
+	/// condition: "A received network line that begins with the characters <c>#$"</c> must be
+	/// translated to an in-band line consisting of the network line with the prefix <c>#$"</c>
+	/// removed."
 	/// </summary>
+	/// <remarks>
+	/// A server may quote before the handshake completes -- it has already begun speaking MCP by the
+	/// time it makes its offer -- and a client that waited would show the prefix to the reader.
+	/// </remarks>
 	[Test]
-	public async Task AQuotedLineIsNotUnquotedBeforeMcpIsRunning()
+	public async Task AQuotedLineIsUnquotedEvenBeforeTheHandshake()
 	{
 		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
 		await peer.FeedAsync("#$\"still just text\r\n");
 
-		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "#$\"still just text" });
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "still just text" });
 	}
 
 	/// <summary>
@@ -342,30 +348,53 @@ public class MudClientProtocolTests : BaseTest
 		await Assert.That(peer.Mcp.IsNegotiated).IsFalse();
 		await Assert.That(peer.Mcp.AuthenticationKey).IsNull();
 
-		// And the stream goes back to being ordinary text, quoting included.
+		// A disabled plugin is out of the stream altogether: it neither unquotes nor drops.
 		await peer.FeedAsync("#$\"still just text\r\n");
 		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "#$\"still just text" });
 	}
 
 	/// <summary>
-	/// Outside a session, a line that merely begins <c>#$#</c> is ordinary output and is delivered as
-	/// such. Nothing is quoting anything before the handshake, so there is no basis for reading it as
-	/// protocol -- and a consumer that adds this plugin but never completes a handshake, a crawler
-	/// reading connect screens being the obvious one, must not lose text to it.
+	/// A line beginning <c>#$#</c> is an MCP message by the specification's own framing rule, and one
+	/// that cannot be acted on is dropped rather than shown -- inside a session or outside one.
 	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// "If an unrecognized or mangled MCP request is received, the implementation should either
+	/// silently drop it on the floor, or notify the user in some reasonably unobtrusive way"; and of
+	/// an unknown message name, "the message should be ignored". Putting it in the output is neither.
+	/// </para>
+	/// <para>
+	/// The rule is line-initial, which is what keeps it safe: <c>#$#</c> in the middle of a line is
+	/// untouched, and across the 918 connect screens in MUIndex's catalogue every line-initial
+	/// <c>#$#</c> is protocol while every mid-line one is ASCII art.
+	/// </para>
+	/// </remarks>
 	[Test]
-	public async Task ALineThatLooksLikeMcpOutsideASessionIsStillOutput()
+	public async Task ALineThatLooksLikeMcpIsDroppedRatherThanShown()
 	{
 		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
 
 		await peer.FeedAsync("#$#not a real message\r\n");
 		await peer.FeedAsync("#$#dns-com-example-test key-but-no-session\r\n");
+		await peer.FeedAsync("#$#LOGIN_TRIGGER\r\n");
+		await peer.FeedAsync("ordinary output\r\n");
 
-		await Assert.That(peer.Submitted).IsEquivalentTo(new[]
-		{
-			"#$#not a real message",
-			"#$#dns-com-example-test key-but-no-session",
-		});
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "ordinary output" });
+	}
+
+	/// <summary>
+	/// Mid-line is not line-initial. Nothing reads <c>#$#</c> as protocol there, and ASCII art is
+	/// full of it.
+	/// </summary>
+	[Test]
+	public async Task HashDollarHashInTheMiddleOfALineIsLeftAlone()
+	{
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		await peer.FeedAsync("  .'.;       :..d########   #$#              .$##$$Y\r\n");
+
+		await Assert.That(peer.Submitted)
+			.IsEquivalentTo(new[] { "  .'.;       :..d########   #$#              .$##$$Y" });
 	}
 
 	/// <summary>
@@ -604,6 +633,59 @@ public class MudClientProtocolTests : BaseTest
 		await using var peer = await EstablishedClientAsync();
 
 		await Assert.That(async () => await peer.Mcp.SendAsync("dns-com-example-test", ("content", "first\r\nsecond")))
+			.Throws<ArgumentException>();
+	}
+
+	/// <summary>
+	/// The session runs at the highest version both sides can speak -- "min(server-max, client-max)"
+	/// -- which is reported rather than left for a consumer to re-derive.
+	/// </summary>
+	[Test]
+	public async Task TheSessionReportsTheVersionItSettledOn()
+	{
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		await Assert.That(peer.Mcp.NegotiatedVersion).IsNull();
+
+		await peer.FeedAsync("#$#mcp version: 1.0 to: 2.1\r\n");
+
+		await Assert.That(await PollUntilAsync(() => peer.Mcp.IsNegotiated, timeoutMs: 10000)).IsTrue();
+		await Assert.That(peer.Mcp.NegotiatedVersion).IsEqualTo(new McpVersion(2, 1));
+		await Assert.That(peer.Mcp.OfferedVersions).IsEqualTo((new McpVersion(1, 0), new McpVersion(2, 1)));
+	}
+
+	/// <summary>
+	/// A peer whose ceiling is below this implementation's settles at the peer's, not at this one's.
+	/// </summary>
+	[Test]
+	public async Task ASessionSettlesAtTheLowerOfTheTwoCeilings()
+	{
+		await using var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		await peer.FeedAsync("#$#mcp version: 1.0 to: 2.1\r\n");
+		await PollUntilAsync(() => peer.Mcp.IsNegotiated, timeoutMs: 10000);
+
+		// This implementation speaks 2.1 and the peer offered up to 2.1, so 2.1 it is. The interesting
+		// half is that OfferedVersions keeps what the peer said rather than what was settled.
+		await Assert.That(peer.Mcp.NegotiatedVersion).IsEqualTo(new McpVersion(2, 1));
+		await Assert.That(peer.Mcp.OfferedVersions!.Value.Lowest).IsEqualTo(new McpVersion(1, 0));
+	}
+
+	/// <summary>
+	/// The same keyword twice in one message is refused, which the specification forbids outright:
+	/// an implementation "must not send duplicate keywords in a single message line".
+	/// </summary>
+	/// <remarks>
+	/// A receiver has no defined way to resolve one, so what the peer keeps is whichever half its
+	/// parser happened to take -- a silent, implementation-dependent loss rather than an error.
+	/// </remarks>
+	[Test]
+	public async Task AMessageCannotCarryTheSameKeywordTwice()
+	{
+		await using var peer = await EstablishedClientAsync();
+
+		await Assert.That(async () => await peer.Mcp.SendAsync(
+				"dns-com-example-test", ("name", "one"), ("NAME", "two")))
 			.Throws<ArgumentException>();
 	}
 }

@@ -302,4 +302,34 @@ public class McpNegotiateProtocolTests : BaseTest
 		await Assert.That(peer.Negotiate.Agreed.ContainsKey("dns-com-example-late")).IsFalse();
 		await Assert.That(completions.Count).IsEqualTo(1);
 	}
+
+	/// <summary>
+	/// Everything the peer said it speaks is kept, including packages this side does not -- which is
+	/// most of what a peer offers, and the only place the fact survives.
+	/// </summary>
+	/// <remarks>
+	/// <see cref="McpNegotiateProtocol.Agreed"/> is an intersection and so throws away the larger
+	/// half: a directory recording that a game offers <c>dns-org-mud-moo-simpleedit</c> cares that the
+	/// game offers it, not that this crawler happens not to implement it.
+	/// </remarks>
+	[Test]
+	public async Task WhatThePeerOffersIsKeptEvenWhenThisSideCannotSpeakIt()
+	{
+		await using var peer = await EstablishedClientAsync();
+
+		var key = peer.Mcp.AuthenticationKey;
+
+		await peer.FeedAsync(
+			$"#$#mcp-negotiate-can {key} package: \"dns-org-mud-moo-simpleedit\" min-version: \"1.0\" max-version: \"1.0\"\r\n");
+		await peer.FeedAsync($"#$#mcp-negotiate-end {key}\r\n");
+
+		await Assert.That(await PollUntilAsync(() => peer.Negotiate.IsComplete, timeoutMs: 10000)).IsTrue();
+
+		// Not agreed -- this side never declared it.
+		await Assert.That(peer.Negotiate.Agreed.ContainsKey("dns-org-mud-moo-simpleedit")).IsFalse();
+
+		// But recorded, with the range the peer named.
+		await Assert.That(peer.Negotiate.PeerPackages["dns-org-mud-moo-simpleedit"])
+			.IsEqualTo((new McpVersion(1, 0), new McpVersion(1, 0)));
+	}
 }

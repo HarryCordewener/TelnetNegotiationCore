@@ -51,6 +51,11 @@ All notable changes to this project will be documented in this file.
   - `mcp-negotiate` is terminal after the peer's `mcp-negotiate-end`: a later `mcp-negotiate-can` no
     longer changes `Agreed` after `OnNegotiationComplete` has been handed its snapshot, and a
     repeated end no longer invokes the callback twice.
+  - `MudClientProtocol.NegotiatedVersion` (what the session settled on, `min(server-max, client-max)`)
+    and `OfferedVersions` (the range the peer named, recorded whether or not it was answered).
+  - `McpNegotiateProtocol.PeerPackages`: everything the peer advertised, including packages this side
+    does not speak. `Agreed` is an intersection and throws away the larger half, but "what does this
+    peer support" is a different question from "what can the two of us do together".
   - New public models: `McpMessage` and `McpVersion`.
 
 ### Fixed
@@ -71,6 +76,16 @@ All notable changes to this project will be documented in this file.
   faster for it.
 
 ### Changed
+- **Two framing rules now follow the specification rather than a stricter reading of it**, both found
+  by re-reading MCP 2.1 against the implementation.
+  - A line beginning `#$"` is unquoted **unconditionally**, not only once a session is negotiated.
+    The specification states the translation without any condition, and a server has already begun
+    speaking MCP by the time it makes its offer — so a client that waited showed the prefix to the
+    reader.
+  - A line beginning `#$#` that fails to parse, carries an unknown message name, or carries the wrong
+    key is **dropped rather than displayed**, outside a session as well as inside one. The
+    specification says to silently drop it or notify unobtrusively; putting it in the output is
+    neither. The rule stays line-initial, so `#$#` inside ASCII art is untouched.
 - **The internal assembled-line observer hook can now rewrite a line, not only consume it.**
   `TelnetInterpreter.RegisterInputLineObserver` takes a
   `Func<byte[], Encoding, ValueTask<byte[]?>>`: an observer returns the line to carry on with — the
