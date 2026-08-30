@@ -662,4 +662,100 @@ public static class PluginConfigurationExtensions
         TelnetInterpreterBuilder builder = context;
         return builder.WithKeepAlive(interval, sendAsync);
     }
+
+    /// <summary>
+    /// Registers the handler for one MCP message name in a fluent manner.
+    /// See <see cref="MudClientProtocol.OnMessage"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="name">The message name, matched case-insensitively as MCP matches it</param>
+    /// <param name="handler">Called once per complete message</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MudClientProtocol> OnMcpMessage(
+        this PluginConfigurationContext<MudClientProtocol> context,
+        string name,
+        Func<Models.McpMessage, ValueTask> handler)
+    {
+        context.Plugin.OnMessage(name, handler);
+        return context;
+    }
+
+    /// <summary>
+    /// Declares a package this side speaks in a fluent manner.
+    /// See <see cref="MudClientProtocol.Supports"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="package">The package name</param>
+    /// <param name="minimum">The lowest version this side can speak</param>
+    /// <param name="maximum">The highest version this side can speak</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MudClientProtocol> SupportsMcpPackage(
+        this PluginConfigurationContext<MudClientProtocol> context,
+        string package,
+        Models.McpVersion minimum,
+        Models.McpVersion maximum)
+    {
+        context.Plugin.Supports(package, minimum, maximum);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback that runs when the peer finishes its package list, in a fluent manner.
+    /// See <see cref="MudClientProtocol.OnNegotiationComplete"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle the agreed package set</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MudClientProtocol> OnMcpNegotiationComplete(
+        this PluginConfigurationContext<MudClientProtocol> context,
+        Func<IReadOnlyDictionary<string, Models.McpVersion>, ValueTask>? callback)
+    {
+        context.Plugin.OnNegotiationComplete(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Stops this client answering a server's offer of MCP, in a fluent manner. The offer is still
+    /// taken out of the stream. See <see cref="MudClientProtocol.AnswersOffers"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MudClientProtocol> WithoutAnsweringMcpOffers(
+        this PluginConfigurationContext<MudClientProtocol> context)
+    {
+        context.Plugin.WithoutAnsweringOffers();
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback that reports a server's offer of MCP, in a fluent manner.
+    /// See <see cref="MudClientProtocol.OnOffered"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">Receives the lowest and highest versions the peer offered</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MudClientProtocol> OnMcpOffered(
+        this PluginConfigurationContext<MudClientProtocol> context,
+        Func<Models.McpVersion, Models.McpVersion, ValueTask>? callback)
+    {
+        context.Plugin.OnOffered(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Declares a cord type this side accepts, in a fluent manner.
+    /// See <see cref="McpCordProtocol.SupportsCordType"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="type">The cord type, matched case-insensitively</param>
+    /// <param name="onOpened">Called with the new cord when the peer opens one of this type</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<McpCordProtocol> SupportsCordType(
+        this PluginConfigurationContext<McpCordProtocol> context,
+        string type,
+        Func<McpCord, ValueTask> onOpened)
+    {
+        context.Plugin.SupportsCordType(type, onOpened);
+        return context;
+    }
 }

@@ -107,6 +107,7 @@ namespace TelnetNegotiationCore.UnitTests
 					await client_ti.InterpretAsync(x);
 				}
 				await client_ti.WaitForProcessingAsync();
+
 				await Assert.That(client_ti.CurrentEncoding).IsEqualTo(shouldHaveCurrentEncoding);
 				await AssertByteArraysEqual(negotiationOutput, clientShouldRespond);
 			}

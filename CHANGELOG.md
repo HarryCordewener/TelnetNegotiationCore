@@ -1,6 +1,125 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.13.0]
+
+### Added
+- **MCP, the MUD Client Protocol (2.1), as two plugins.** `MudClientProtocol` is the session layer and its
+  package negotiation: the `#$#` framing, the `#$"` quoting rule, the version handshake, the
+  authentication key, and the `mcp-negotiate` exchange that settles which packages the two sides
+  share. `mcp-negotiate` is a package in the specification's terms, but it is the one package every
+  MCP 2.1 implementation is REQUIRED to speak, so it is not a choice a consumer makes and is not a
+  plugin they have to register. Packages that *are* a choice get their own plugin depending on this
+  one. Configure it all from one builder chain with `.OnMcpMessage(...)`,
+  `.SupportsMcpPackage(...)` and `.OnMcpNegotiationComplete(...)`.
+  - Nothing MCP reaches `OnSubmit`: handshake, messages, continuation lines and terminators are
+    taken out of the stream, and a line the peer quoted as `#$"…` is delivered unquoted.
+  - Multiline messages (`_data-tag`, `#$#* <tag> <key>: …`, `#$#: <tag>`) are carried in both
+    directions: they arrive whole and once, on the terminator, and `SendMultilineAsync` writes one —
+    the direction `dns-org-mud-moo-simpleedit` needs, a server handing a client a buffer to edit. The
+    tag is generated per message and the whole message goes out under one lock, because the peer
+    reassembles by tag and a foreign line landing inside it would be read as belonging to whatever
+    tag it names. Continuation text runs verbatim to the end of the line, so a string containing line
+    breaks becomes several continuation lines rather than one that ends early. Because the peer decides whether a terminator ever arrives, at most 8 may be
+    open at a time and at most 4096 continuation lines may accumulate in any one of them.
+  - A line beginning `#$#` that fails to parse, carries an unknown message name, or carries the wrong
+    authentication key is dropped rather than shown — in a session or outside one, as the
+    specification requires of an unrecognised or mangled request. The rule is line-initial, so `#$#`
+    inside ASCII art is untouched.
+  - `MudClientProtocol.SendOutputAsync` is a server's half of the framing rule: while a session is
+    up it quotes a line of real output that begins `#$#`, and one that begins `#$"` (which would
+    otherwise lose that prefix to the peer's unquoting). `#$#` mid-line is left alone, and outside a
+    session nothing is quoted. `QuoteOutput` exposes the same transformation on its own. It is a
+    separate call rather than a hook on the interpreter's send path because quoting is a line-level
+    decision and that path is a byte stream.
+  - `MudClientProtocol.AnswersOffers` (fluent: `.WithoutAnsweringMcpOffers()`) takes MCP out of the
+    stream without ever speaking it — the offer is consumed, nothing is sent back, no session is
+    opened. For a consumer that reads connect screens from strangers and has no use for a session:
+    of the 57 lines beginning `#$#` across MUIndex's stored connect screens, 54 are exactly this
+    offer, in both the quoted and the unquoted spelling. Both are read.
+  - `MudClientProtocol.OnOffered` (fluent: `.OnMcpOffered(...)`) reports a server's offer with the
+    range the server named, for every well-formed offer, whether or not this side answers it. For a
+    client that declines it is the only evidence there will be — `IsNegotiated` stays false because
+    no session was opened — so recording that a peer speaks MCP does not require opening a session.
+  - A mangled message is ignored rather than half-obeyed, per the specification's own list of what
+    counts as mangled: one carrying the same keyword twice (forbidden to send, and a receiver has no
+    defined way to resolve it, so taking either value is a guess), and a multiline message whose
+    continuation names a key the opening message never declared (delivering what survived would hand
+    a consumer a message missing content the peer believes it sent).
+  - MCP's `<alpha>` includes the underscore (`<alpha> ::= 'a' | … | 'Z' | '_'`), so message names,
+    keywords, package names and authentication keys may all hold one. This is also the only way
+    `_data-tag` can be a keyword at all, since a keyword is an `<ident>` and an `<ident>` begins with
+    an `<alpha>`. Validators that excluded it turned valid client handshakes away.
+  - A multiline message whose `_data-tag` is not an unquoted token is refused. Such a tag can never be
+    named on a continuation line, so the message can be neither continued nor terminated and would
+    hold one of the eight open slots for the life of the connection — an authenticated peer's cheapest
+    way to switch multiline off.
+  - Refused rather than mishandled, all three found in review: an authentication key that is not a
+    single unquoted token (it is written back unquoted, so a key with a space in it would give a
+    session that reports as established and messages that are all malformed); a value carrying a line
+    ending passed to `SendAsync` (it would end the message early and put the rest on the wire as a
+    line of its own — `SendMultilineAsync` is the mechanism for that); and a negative `McpVersion`
+    component (the grammar has no sign, so it could not be read back by any peer).
+  - `mcp-negotiate` is terminal after the peer's `mcp-negotiate-end`: a later `mcp-negotiate-can` no
+    longer changes `Agreed` after `OnNegotiationComplete` has been handed its snapshot, and a
+    repeated end no longer invokes the callback twice.
+  - `MudClientProtocol.NegotiatedVersion` (what the session settled on, `min(server-max, client-max)`)
+    and `OfferedVersions` (the range the peer named, recorded whether or not it was answered).
+  - `MudClientProtocol.PeerPackages`: everything the peer advertised, including packages this side
+    does not speak. `Agreed` is an intersection and throws away the larger half, but "what does this
+    peer support" is a different question from "what can the two of us do together".
+  - **`McpCordProtocol`, the `mcp-cord` package** — named, typed channels multiplexed over the one
+    session, which the specification calls strongly encouraged. A cord is not a negotiation: the
+    negotiating happened a layer down, and opening one is use of a capability already agreed. It is
+    the extension point that lets a consumer define its own channel without a plugin in this library.
+    Identifiers follow the specification's role-prefix scheme (`I` for the endpoint that initiated
+    MCP, `R` for the responder), messages may be single-line or multiline, an unsupported cord type
+    or a message for an unknown cord is dropped, a duplicate close is ignored, and sending on a
+    closed cord throws rather than being swallowed, and a `configure` callback that throws leaves no
+    reserved identifier behind. At most 64 peer-opened cords at once. Disabling the plugin closes the
+    cords it held rather than only forgetting them — a cord handed to a consumer outlives the table,
+    and one still reporting itself open would still write to a session that is untouched — and its
+    handlers, which stay registered on the session layer, decline while it is disabled. Opening one
+    requires the peer to have agreed the package — it is optional, and opening against a peer that
+    never advertised it would send a message that peer is obliged to drop.
+  - New public models: `McpMessage`, `McpVersion` and `McpCord`.
+
+### Fixed
+- **`TelnetInterpreter.WaitForProcessingAsync` returned while the last byte was still being
+  handled.** It watched `_byteChannel.Reader.Count`, which goes to zero when a byte is *dequeued*,
+  not when the state machine and the consumer's callbacks have finished with it — and the byte still
+  in flight is the one that completes a subnegotiation or submits a line. A fixed 100ms delay
+  afterwards covered the gap on an idle machine and stopped covering it on a loaded one, which is a
+  CI flake rather than a barrier: `CharsetTests.ServerEvaluationCheck` failed on GitHub Actions
+  against a server that had answered correctly, and passed on re-run with nothing changed. The wait
+  is now on a pair of counters — items accepted onto the channel, items the processing loop has
+  finished handling — so it covers the handling and not just the queue. Counted per channel item,
+  which is the unit that gets queued, so a caller waiting on compressed input waits for the decoded
+  bytes too; and counted in a `finally`, so a callback that throws cannot strand every later barrier
+  on a target it can never reach. `additionalDelayMs` stays, and stays at 100ms by default, but it
+  now covers only work a consumer starts that is not itself the handling of an input byte — a timer
+  a plugin arms, say. Nothing inside byte handling needs it. The unit suite runs about 9 seconds
+  faster for it.
+
+### Changed
+- **Two framing rules now follow the specification rather than a stricter reading of it**, both found
+  by re-reading MCP 2.1 against the implementation.
+  - A line beginning `#$"` is unquoted **unconditionally**, not only once a session is negotiated.
+    The specification states the translation without any condition, and a server has already begun
+    speaking MCP by the time it makes its offer — so a client that waited showed the prefix to the
+    reader.
+  - A line beginning `#$#` that fails to parse, carries an unknown message name, or carries the wrong
+    key is **dropped rather than displayed**, outside a session as well as inside one. The
+    specification says to silently drop it or notify unobtrusively; putting it in the output is
+    neither. The rule stays line-initial, so `#$#` inside ASCII art is untouched.
+- **The internal assembled-line observer hook can now rewrite a line, not only consume it.**
+  `TelnetInterpreter.RegisterInputLineObserver` takes a
+  `Func<byte[], Encoding, ValueTask<byte[]?>>`: an observer returns the line to carry on with — the
+  same bytes or different ones — or `null` to consume it. MCP's quoting rule needs the middle case,
+  which the previous `ValueTask<bool>` could only express by consuming the line and re-injecting it,
+  reordering it against anything already queued behind it. The hook is `internal`, so no public API
+  changed; `MSSPPlaintextProtocol` is the only other caller and is unaffected in behaviour.
+
 ## [2.12.0]
 
 ### Fixed
