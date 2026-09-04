@@ -46,8 +46,16 @@ public partial class TelnetInterpreter : IAsyncDisposable
     public Encoding CurrentEncoding { get; internal set; } = Encoding.UTF8;
 
     /// <summary>
-    /// Telnet state machine
+    /// Telnet state machine.
     /// </summary>
+    /// <remarks>
+    /// <b><c>OnTransitioned</c> does not see every byte.</b> Ordinary text in
+    /// <see cref="State.ReadingCharacters"/> is written to the line buffer directly rather than fired
+    /// through the machine -- see <see cref="FireByteAsync"/> for why -- so a subscriber gets the
+    /// negotiation transitions and the line boundaries, and not the re-entry per text byte. That is
+    /// most of a text stream. Configuring the machine, which is what <c>ProtocolContext.StateMachine</c>
+    /// is for, is unaffected; only observing transitions is.
+    /// </remarks>
     public StateMachine<State, Trigger> TelnetStateMachine { get; }
 
     /// <summary>
@@ -269,6 +277,16 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// </summary>
     private readonly ILogger _logger;
 
+    /// <summary>
+    /// Whether this class subscribed its own transition logger, which it does only at trace level.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not "whether anything is watching transitions": <see cref="TelnetStateMachine"/>
+    /// is public and Stateless publishes no way to ask whether a handler is registered, so a
+    /// subscriber other than ours cannot be detected. What that costs is documented on that property.
+    /// </remarks>
+    private readonly bool _tracingTransitions;
+
     public enum TelnetMode
     {
         Error = 0,
@@ -329,7 +347,9 @@ public partial class TelnetInterpreter : IAsyncDisposable
             SetupStandardProtocol
         }.AggregateRight(TelnetStateMachine, (func, stateMachine) => func(stateMachine));
 
-        if (logger.IsEnabled(LogLevel.Trace))
+        _tracingTransitions = logger.IsEnabled(LogLevel.Trace);
+
+        if (_tracingTransitions)
         {
             TelnetStateMachine.OnTransitioned(transition => _logger.LogTrace(
                 "Telnet StateMachine: {Source} --[{Trigger}({TriggerByte})]--> {Destination}",
@@ -525,7 +545,11 @@ public partial class TelnetInterpreter : IAsyncDisposable
     private async ValueTask WriteToBufferAndAdvanceAsync(OneOf<byte, Trigger> b)
     {
         if (b.AsT0 == (byte)Trigger.CARRIAGERETURN) return;
-        _logger.LogTrace("Debug: Writing into buffer: {Byte}", b.AsT0);
+
+        if (_logger.IsEnabled(LogLevel.Trace))
+        {
+            _logger.LogTrace("Debug: Writing into buffer: {Byte}", b.AsT0);
+        }
 
         // The first byte of a line pins the encoding the whole line is delivered with. See _lineEncoding.
         _lineEncoding ??= CurrentEncoding;
@@ -1038,11 +1062,32 @@ public partial class TelnetInterpreter : IAsyncDisposable
             _isDefinedDictionary.Add(bt, triggerOrByte);
         }
 
-        _logger.LogTrace("Processing byte #{ByteNum}: {Byte:X2} (trigger: {Trigger}), current state: {State}",
-            byteCount, bt, triggerOrByte, TelnetStateMachine.State);
+        // Guarded: this built an argument array and boxed four values on every byte, whatever the level.
+        if (_logger.IsEnabled(LogLevel.Trace))
+        {
+            _logger.LogTrace("Processing byte #{ByteNum}: {Byte:X2} (trigger: {Trigger}), current state: {State}",
+                byteCount, bt, triggerOrByte, TelnetStateMachine.State);
+        }
+
         try
         {
-            await TelnetStateMachine.FireAsync(ParameterizedTrigger(triggerOrByte), bt);
+            // ReadingCharacters permits ReadNextCharacter as a re-entry whose only effect is
+            // WriteToBufferAndAdvanceAsync, so firing the machine for it bought nothing and cost
+            // ~3.3 KB a byte -- 92% of the cost of reading one.
+            //
+            // Held back while our own transition logger is subscribed, so trace output is unchanged.
+            // That is not the same as "nothing is watching": a caller can subscribe to the public
+            // TelnetStateMachine and would not see these re-entries. Documented there.
+            if (!_tracingTransitions
+                && triggerOrByte == Trigger.ReadNextCharacter
+                && TelnetStateMachine.State == State.ReadingCharacters)
+            {
+                await WriteToBufferAndAdvanceAsync(bt);
+            }
+            else
+            {
+                await TelnetStateMachine.FireAsync(ParameterizedTrigger(triggerOrByte), bt);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1053,8 +1098,12 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 "Dropping byte #{ByteNum} ({Byte:X2}, trigger {Trigger}) that could not be processed in state {State}. Connection continues.",
                 byteCount, bt, triggerOrByte, TelnetStateMachine.State);
         }
-        _logger.LogTrace("After byte #{ByteNum}, new state: {State}, buffer position: {BufferPos}",
-            byteCount, TelnetStateMachine.State, _bufferPosition);
+
+        if (_logger.IsEnabled(LogLevel.Trace))
+        {
+            _logger.LogTrace("After byte #{ByteNum}, new state: {State}, buffer position: {BufferPos}",
+                byteCount, TelnetStateMachine.State, _bufferPosition);
+        }
     }
 
     /// <summary>
