@@ -19,8 +19,8 @@ public class MSDPTests : BaseTest
 	/// Polls for a condition with timeout, useful for async callback assertions
 	/// </summary>
 	[Test]
-	[MethodDataSource(nameof(FSharpScanTestSequences))]
-	public async Task TestFSharpScan(byte[] testcase, object expectedObject)
+	[MethodDataSource(nameof(MSDPScanTestSequences))]
+	public async Task TestMSDPScan(byte[] testcase, object expectedObject)
 	{
 		var result = Functional.MSDPLibrary.MSDPScan(testcase, Encoding);
 		logger.LogInformation("Serialized: {Serialized}", JsonSerializer.Serialize(result));
@@ -28,15 +28,15 @@ public class MSDPTests : BaseTest
 	}
 
 	[Test]
-	[MethodDataSource(nameof(FSharpReportTestSequences))]
-	public async Task TestFSharpReport(object obj, byte[] expectedSequence)
+	[MethodDataSource(nameof(MSDPReportTestSequences))]
+	public async Task TestMSDPReport(object obj, byte[] expectedSequence)
 	{
 		byte[] result = Functional.MSDPLibrary.Report(JsonSerializer.Serialize(obj), Encoding);
 		logger.LogInformation("Sequence: {Serialized}", BitConverter.ToString(result));
 		await AssertByteArraysEqual(result, expectedSequence);
 	}
 
-	public static IEnumerable<(byte[], object)> FSharpScanTestSequences()
+	public static IEnumerable<(byte[], object)> MSDPScanTestSequences()
 	{
 		yield return ((byte[])[
 				(byte)Trigger.MSDP_VAR,
@@ -93,7 +93,7 @@ public class MSDPTests : BaseTest
 			],
 			new { ROOM = new { AREA = "Haon Dor", EXITS = new { e = "6012", n = "6011" }, NAME = "The Forest clearing", VNUM = "6008" } });
 	}
-	public static IEnumerable<(object, byte[])> FSharpReportTestSequences()
+	public static IEnumerable<(object, byte[])> MSDPReportTestSequences()
 	{
 		yield return (new { LIST = "COMMANDS" }, (byte[])[
 			(byte)Trigger.MSDP_TABLE_OPEN,
@@ -131,6 +131,82 @@ public class MSDPTests : BaseTest
 			(byte)Trigger.MSDP_ARRAY_CLOSE,
 			(byte)Trigger.MSDP_ARRAY_CLOSE,
 			(byte)Trigger.MSDP_TABLE_CLOSE]);
+	}
+
+	/// <summary>
+	/// MSDP has no null: a JSON null is reported as <c>-1</c>, the conventional spelling, rather than
+	/// throwing on the way out. Both spellings of a null reach here - a null property value and a null
+	/// array element parse to a null node, not to a node of kind <c>Null</c>.
+	/// </summary>
+	[Test]
+	public async Task ReportWritesMinusOneForAJsonNull()
+	{
+		var result = Functional.MSDPLibrary.Report("""{"HP":null,"LIST":[null]}""", Encoding);
+
+		await AssertByteArraysEqual(result, (byte[])[
+			(byte)Trigger.MSDP_TABLE_OPEN,
+			(byte)Trigger.MSDP_VAR,
+			.. Encoding.GetBytes("HP"),
+			(byte)Trigger.MSDP_VAL,
+			.. Encoding.GetBytes("-1"),
+			(byte)Trigger.MSDP_VAR,
+			.. Encoding.GetBytes("LIST"),
+			(byte)Trigger.MSDP_VAL,
+			(byte)Trigger.MSDP_ARRAY_OPEN,
+			(byte)Trigger.MSDP_VAL,
+			.. Encoding.GetBytes("-1"),
+			(byte)Trigger.MSDP_ARRAY_CLOSE,
+			(byte)Trigger.MSDP_TABLE_CLOSE]);
+	}
+
+	/// <summary>
+	/// Nesting is what decides how deep the scanner recurses, and the payload comes from an untrusted
+	/// peer, so a message that nests past <see cref="Functional.MSDPLibrary.MaxDepth"/> is rejected
+	/// with an exception the caller can catch - rather than being followed down until the stack
+	/// overflows, which is not catchable and takes the process with it.
+	/// </summary>
+	[Test]
+	public async Task ScanRejectsAPayloadNestedPastMaxDepth()
+	{
+		var payload = new List<byte>();
+		for (var i = 0; i < Functional.MSDPLibrary.MaxDepth * 4; i++)
+		{
+			payload.Add((byte)Trigger.MSDP_VAR);
+			payload.AddRange(Encoding.GetBytes("K"));
+			payload.Add((byte)Trigger.MSDP_VAL);
+		}
+
+		await Assert.That(() => Functional.MSDPLibrary.MSDPScan(payload.ToArray(), Encoding))
+			.Throws<System.IO.InvalidDataException>();
+	}
+
+	/// <summary>
+	/// The bound is well clear of anything a real peer sends: MSDP data nests two or three levels, and
+	/// nesting right up to the limit still parses.
+	/// </summary>
+	[Test]
+	public async Task ScanAcceptsNestingUpToMaxDepth()
+	{
+		const int depth = 32;
+
+		var payload = new List<byte>();
+		for (var i = 0; i < depth; i++)
+		{
+			payload.Add((byte)Trigger.MSDP_VAR);
+			payload.AddRange(Encoding.GetBytes("K"));
+			payload.Add((byte)Trigger.MSDP_VAL);
+		}
+
+		payload.AddRange(Encoding.GetBytes("DEEP"));
+
+		var expected = "\"DEEP\"";
+		for (var i = 0; i < depth; i++)
+		{
+			expected = $$"""{"K":{{expected}}}""";
+		}
+
+		var result = Functional.MSDPLibrary.MSDPScan(payload.ToArray(), Encoding);
+		await Assert.That(JsonSerializer.Serialize(result)).IsEqualTo(expected);
 	}
 
 	/// <summary>

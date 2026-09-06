@@ -1,6 +1,50 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.15.0]
+
+### Changed
+- **The F# assembly is gone: MSDP's translation between bytes and JSON is C# now, inside the main
+  assembly.** `TelnetNegotiationCore.Functional.dll` was a second DLL in the package for one ~100-line
+  module, and — because F# code cannot run without it — it made `FSharp.Core` a hard dependency of
+  every consumer of this library, F# or not: an 11 MB restore (a 2.3 MB assembly plus thirteen
+  localised resource assemblies) to parse `MSDP_VAR`/`MSDP_VAL` byte pairs. It is now
+  `TelnetNegotiationCore/Functional/MSDPLibrary.cs`, the package ships one assembly per target
+  framework, and the `FSharp.Core` dependency is removed.
+  - **`MSDPLibrary.MSDPScan` and `MSDPLibrary.Report` keep their namespace, their names and their
+    signatures**, so calling code compiles unchanged. It is a binary break, not a source one: the type
+    now lives in `TelnetNegotiationCore.dll`.
+  - A scan returns `SortedDictionary<string, object>` / `List<object>` / `string` where it used to
+    return an F# `Map`, list and string. Keys stay ordinal-sorted, which is what F#'s `Map` gave, so
+    the JSON a caller serializes from a scan is byte-for-byte what it was.
+  - The F# module's own `Trigger` enum and its `MSDP_VAR`, `MSDP_VAL`, `MSDP_TABLE_OPEN`,
+    `MSDP_TABLE_CLOSE`, `MSDP_ARRAY_OPEN` and `MSDP_ARRAY_CLOSE` values are removed; they duplicated
+    `TelnetNegotiationCore.Models.Trigger`, which has had all six since before the F# project existed.
+  - Behaviour was checked by running both implementations side by side over 200,000 random byte
+    sequences and 100,000 random JSON documents: identical output, and identical exception types where
+    they throw, apart from the two fixes below.
+  - The scan is also no longer quadratic. The F# walked the payload with `Seq.skip`/`Seq.takeWhile`,
+    building a fresh chain of enumerators for every byte it consumed; the C# indexes the buffer.
+
+### Fixed
+- **A JSON null no longer throws on its way to the wire.** `MSDPLibrary.Report` had a branch for
+  `JsonValueKind.Null` that could never be reached — a null property value or array element parses to
+  a *null* `JsonNode`, not to a node of kind `Null` — so `{"HP":null}` came out as a
+  `NullReferenceException` from inside `MSDPServerHandler`'s send path rather than as MSDP's
+  conventional `-1`. It is `-1` now, as the unreachable branch always intended.
+- **A deeply nested MSDP payload can no longer take the process down.** Nesting decides how deep the
+  scanner recurses and the payload comes from an untrusted peer, so a megabyte of nested
+  `MSDP_VAR`/`MSDP_VAL` pairs overflowed the stack — which no `catch` can save you from. Anything
+  nested past `MSDPLibrary.MaxDepth` (64; real MSDP data nests two or three levels) is now rejected
+  with an `InvalidDataException`, which the MSDP receive path already catches, logs and drops the
+  message for.
+- **`System.Text.Json` is now declared as a `netstandard2.0` dependency of the package.** The library
+  has always used it there, but it reached the package only transitively through the F# project, whose
+  `PrivateAssets="all"` reference kept it out of the nuspec — the same shape as the missing
+  `FSharp.Core` fixed in 2.5.1, and the same symptom for a `netstandard2.0` consumer that does not
+  already reference it themselves: an assembly load failure on the first MSDP or GMCP message rather
+  than a missing package at restore.
+
 ## [2.13.0]
 
 ### Added

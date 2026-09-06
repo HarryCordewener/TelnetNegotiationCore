@@ -767,7 +767,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
         {
             context.Logger.LogDebug("Processing MSDP message with {ByteCount} bytes", _msdpBytes.Count);
 
-            // Parse MSDP bytes using the F# library
+            // Parse the MSDP payload into the object graph the callback is handed as JSON.
             var parsedData = Functional.MSDPLibrary.MSDPScan(_msdpBytes.Bytes, context.CurrentEncoding);
             var jsonString = JsonSerializer.Serialize(parsedData);
 
