@@ -45,6 +45,20 @@ namespace TelnetNegotiationCore.TestServer
 			Console.WriteLine(encoding.GetString(writeback));
 		}
 
+		/// <summary>
+		/// The value behind the ROOM variable, shaped like the table in the MSDP specification. A real
+		/// game would read this off the player's current room; the point here is that SEND and REPORT
+		/// answer with a value, and that a table value is one object.
+		/// </summary>
+		private static object CurrentRoom() => new
+		{
+			VNUM = "6008",
+			NAME = "The forest clearing",
+			AREA = "Haon Dor",
+			TERRAIN = "forest",
+			EXITS = new Dictionary<string, string> { { "n", "6011" }, { "e", "6007" } }
+		};
+
 		private async ValueTask MSDPUpdateBehavior(string resetVariable)
 		{
 			logger.LogDebug("MSDP Reset Request: {@Reset}", resetVariable);
@@ -61,8 +75,8 @@ namespace TelnetNegotiationCore.TestServer
 				{
 					Commands = () => ["help", "stats", "info"],
 					Configurable_Variables = () => ["CLIENT_NAME", "CLIENT_VERSION", "PLUGIN_ID"],
-					Reportable_Variables = () => ["ROOM"],
-					Sendable_Variables = () => ["ROOM"],
+					Reportable_Variables = new() { ["ROOM"] = () => CurrentRoom() },
+					Sendable_Variables = new() { ["ROOM"] = () => CurrentRoom() },
 				});
 
 				var (telnet, readTask) = await telnetFactory.CreateBuilder()

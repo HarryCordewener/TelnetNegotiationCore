@@ -26,7 +26,67 @@ All notable changes to this project will be documented in this file.
   - The scan is also no longer quadratic. The F# walked the payload with `Seq.skip`/`Seq.takeWhile`,
     building a fresh chain of enumerators for every byte it consumed; the C# indexes the buffer.
 
+- **`MSDPServerModel`'s shape changed with the MSDP fixes below.** `Sendable_Variables` and
+  `Reportable_Variables` are `Dictionary<string, Func<object?>>` rather than `Func<HashSet<string>>`;
+  `Reported_Variables` is an `IReadOnlyCollection<string>` of what is being reported rather than a
+  dictionary of callbacks; `NotifyChangeAsync(variable)` no longer takes the new value; and
+  `SetCallbackAsync` is new. `MSDPServerHandler` takes an optional `ILogger`, which is what says why
+  a request naming something the server does not offer went unanswered.
+
 ### Fixed
+- **`MSDPServerHandler` did not implement MSDP.** Every response in the specification is a
+  subnegotiation whose payload is one or more variable/value pairs —
+  `IAC SB MSDP MSDP_VAR "HINT" MSDP_VAL "THE GAME" IAC SE` — and not one of the handler's four
+  answering paths produced that. It is now checked against the specification's own examples.
+  - **Nothing it sent was framed.** The MSDP payload went to `WriteToNetworkAsync` bare, so control
+    bytes 1–6 and the variable names around them arrived as ordinary output, in the middle of the
+    game's text, with no `IAC SB MSDP` … `IAC SE` around them and no `IAC` escaping. Sending now goes
+    through `TelnetInterpreter.SendMSDPPayloadAsync`, which frames and escapes it — the same path
+    `SendMSDPCommand` uses, which is now written in terms of it.
+  - **`SEND` could not answer with a value.** It built `$"{{{var}:{val}}}"`, which is not valid JSON
+    (the name and value are unquoted), so it threw before sending anything; and `val` came from
+    `HashSet<string>.TryGetValue`, which hands back the name you looked up — so the value, had it
+    parsed, would have been the variable's own name. `Sendable_Variables` and `Reportable_Variables`
+    are now `Dictionary<string, Func<object?>>`: a name mapped to a function reading its current
+    value. The list a client is offered and the value it is then sent come from one place and cannot
+    disagree, and a value may be a string, a number, a collection (an MSDP array) or an object (an
+    MSDP table). A variable the server does not offer is left unanswered rather than answered with an
+    invented value.
+  - **`LIST` answered with an unnamed array.** `MSDP_ARRAY_OPEN MSDP_VAL "LIST" …` with no
+    `MSDP_VAR "COMMANDS" MSDP_VAL` in front of it leaves the client holding values it cannot
+    attribute to anything. The list is now named, as in the specification's handshake. `LISTS` — "an
+    array of lists supported by the server", promised in the handler's own documentation — is
+    answerable at last.
+  - **`REPORT` never reported.** `MSDPServerModel.Reported_Variables` was an expression-bodied
+    property returning a *new* empty dictionary on every access, so registering a variable wrote into
+    a throwaway, `NotifyChangeAsync` never found anything, and `LIST REPORTED_VARIABLES` was always
+    empty. It has a backing store now (a `ConcurrentDictionary`, since the registrations are written
+    from the read loop and read from game code), `REPORT` sends the variable immediately and again on
+    every change, and `UNREPORT` stops it. `NotifyChangeAsync(variable)` no longer takes the new value
+    — it re-reads it, so what a client is told and what a `SEND` would answer cannot differ.
+  - **`RESET` did nothing at all.** It looked the group up in `Reportable_Variables`, discarded the
+    result and returned, never calling the model's reset callback. It now hands each named group to
+    the consumer, and clears the reporting registrations for `REPORTED_VARIABLES`, whose initial
+    state is that nothing is being reported.
+  - **Every list was empty whatever the consumer configured.** `Lists` captured the `Commands`,
+    `Configurable_Variables` and other delegates while the constructor was running — before the
+    object initialiser that sets them had run — so it answered from the defaults for the life of the
+    connection. The groups are resolved when the client asks.
+  - **A configurable variable set by the client went nowhere.** A client answering
+    `MSDP_VAR "UTF_8" MSDP_VAL "0"` was dropped on the floor, though the server had advertised
+    `CONFIGURABLE_VARIABLES`. `MSDPServerModel.SetCallbackAsync` receives it — the callback the
+    constructor's documentation has described since it was written, while the parameter beside it
+    was wired to RESET. A variable that was never advertised as configurable is still ignored.
+  - **Only the first command in a message was answered**, though a subnegotiation may carry several
+    variables, as the specification's configurable-variable example does. All of them are answered
+    now, and several variables asked for in one `SEND` come back in one subnegotiation, in the order
+    asked.
+- **A variable carrying several values without an array around them scanned as garbage.** The
+  specification's own `SEND` example is `MSDP_VAR "SEND" MSDP_VAL "AREA_NAME" MSDP_VAL "ROOM_NAME"`;
+  the scanner read the second `MSDP_VAL` as the start of a new message, discarded the variable and
+  everything accumulated before it, and returned the bare string `"ROOM_NAME"` — which then threw in
+  the handler. Repeated values now scan as that variable's list of values. Checked against the F#
+  implementation over 100,000 random well-formed payloads: this is the only case where they differ.
 - **A JSON null no longer throws on its way to the wire.** `MSDPLibrary.Report` had a branch for
   `JsonValueKind.Null` that could never be reached — a null property value or array element parses to
   a *null* `JsonNode`, not to a node of kind `Null` — so `{"HP":null}` came out as a

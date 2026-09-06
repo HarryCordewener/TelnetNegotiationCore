@@ -39,20 +39,50 @@ public partial class TelnetInterpreter
 	/// </remarks>
 	/// <param name="variable">The MSDP command, as bytes.</param>
 	/// <param name="value">The command's argument, as bytes.</param>
-	public async ValueTask SendMSDPCommand(byte[] variable, byte[] value)
+	public ValueTask SendMSDPCommand(byte[] variable, byte[] value)
 	{
-		var safeVariable = TelnetSafeBytes(variable);
-		var safeValue = TelnetSafeBytes(value);
+		// MSDP_VAR <variable> MSDP_VAL <value>
+		var payload = new byte[1 + variable.Length + 1 + value.Length];
+		payload[0] = (byte)Trigger.MSDP_VAR;
+		variable.AsSpan().CopyTo(payload.AsSpan(1));
+		payload[1 + variable.Length] = (byte)Trigger.MSDP_VAL;
+		value.AsSpan().CopyTo(payload.AsSpan(1 + variable.Length + 1));
 
-		// IAC SB MSDP MSDP_VAR <variable> MSDP_VAL <value> IAC SE
-		var output = new byte[4 + safeVariable.Length + 1 + safeValue.Length + 2];
+		return SendMSDPPayloadAsync(payload);
+	}
+
+	/// <summary>
+	/// Sends an MSDP payload to the remote party, framed as a subnegotiation.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// The payload is the variable/value sequence
+	/// <c>MSDP_VAR &lt;name&gt; MSDP_VAL &lt;value&gt;</c> …, as
+	/// <see cref="Functional.MSDPLibrary.ReportVariables"/> produces it; this wraps it in
+	/// <c>IAC SB MSDP</c> … <c>IAC SE</c>. MSDP bytes written to the connection without that framing
+	/// are not MSDP at all — they are ordinary output with control bytes in it, which a client
+	/// renders as garbage.
+	/// </para>
+	/// <para>
+	/// RFC 854 requires a literal <c>IAC</c> (0xFF) inside the payload to be doubled, or the peer's
+	/// state machine reads it as the start of a command and the frame desyncs. MSDP says a variable
+	/// or value "cannot contain the MSDP_VAR, MSDP_VAL, IAC, or NUL byte", so this should never fire
+	/// on well-behaved data — but a non-ASCII <see cref="TelnetInterpreter.CurrentEncoding"/> can
+	/// still encode a single character to 0xFF (ISO-8859-1 'ÿ'). MSDP's own structural bytes are 1
+	/// through 6, so escaping the whole payload cannot disturb them.
+	/// </para>
+	/// </remarks>
+	/// <param name="payload">The MSDP variable/value sequence, without framing.</param>
+	public async ValueTask SendMSDPPayloadAsync(byte[] payload)
+	{
+		var safePayload = TelnetSafeBytes(payload);
+
+		// IAC SB MSDP <payload> IAC SE
+		var output = new byte[3 + safePayload.Length + 2];
 		output[0] = (byte)Trigger.IAC;
 		output[1] = (byte)Trigger.SB;
 		output[2] = (byte)Trigger.MSDP;
-		output[3] = (byte)Trigger.MSDP_VAR;
-		safeVariable.AsSpan().CopyTo(output.AsSpan(4));
-		output[4 + safeVariable.Length] = (byte)Trigger.MSDP_VAL;
-		safeValue.AsSpan().CopyTo(output.AsSpan(4 + safeVariable.Length + 1));
+		safePayload.AsSpan().CopyTo(output.AsSpan(3));
 		output[output.Length - 2] = (byte)Trigger.IAC;
 		output[output.Length - 1] = (byte)Trigger.SE;
 		await WriteToNetworkAsync(output);

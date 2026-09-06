@@ -134,6 +134,29 @@ public class MSDPTests : BaseTest
 	}
 
 	/// <summary>
+	/// "client - IAC SB MSDP MSDP_VAR "SEND" MSDP_VAL "AREA_NAME" MSDP_VAL "ROOM_NAME" IAC SE" - the
+	/// specification's own SEND example puts several values under one variable with no array around
+	/// them. They belong to that variable, so they scan as its list of values; reading the second one
+	/// as the start of something new loses the variable and everything before it.
+	/// </summary>
+	[Test]
+	public async Task RepeatedValuesUnderOneVariableScanAsAList()
+	{
+		byte[] payload = [
+			(byte)Trigger.MSDP_VAR,
+			.. Encoding.GetBytes("SEND"),
+			(byte)Trigger.MSDP_VAL,
+			.. Encoding.GetBytes("AREA_NAME"),
+			(byte)Trigger.MSDP_VAL,
+			.. Encoding.GetBytes("ROOM_NAME")];
+
+		var result = Functional.MSDPLibrary.MSDPScan(payload, Encoding);
+
+		await Assert.That(JsonSerializer.Serialize(result))
+			.IsEqualTo("""{"SEND":["AREA_NAME","ROOM_NAME"]}""");
+	}
+
+	/// <summary>
 	/// MSDP has no null: a JSON null is reported as <c>-1</c>, the conventional spelling, rather than
 	/// throwing on the way out. Both spellings of a null reach here - a null property value and a null
 	/// array element parse to a null node, not to a node of kind <c>Null</c>.

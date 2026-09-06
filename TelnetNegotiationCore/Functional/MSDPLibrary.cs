@@ -68,6 +68,45 @@ public static class MSDPLibrary
     }
 
     /// <summary>
+    /// Writes a JSON object as the payload of an MSDP subnegotiation: a sequence of
+    /// <c>MSDP_VAR &lt;name&gt; MSDP_VAL &lt;value&gt;</c> pairs.
+    /// </summary>
+    /// <param name="jsonObject">The variables to report, as a JSON object.</param>
+    /// <param name="encoding">The encoding to write text in.</param>
+    /// <returns>The payload, to be framed as <c>IAC SB MSDP … IAC SE</c>.</returns>
+    /// <remarks>
+    /// This is the top-level form every example in the specification uses —
+    /// <c>IAC SB MSDP MSDP_VAR "HINT" MSDP_VAL "THE GAME" IAC SE</c> — and it is not the same as
+    /// <see cref="Report"/>, which encodes a JSON <em>value</em> and so wraps an object in
+    /// <c>MSDP_TABLE_OPEN</c>/<c>MSDP_TABLE_CLOSE</c>. A table belongs around a nested value, not
+    /// around the payload itself.
+    /// </remarks>
+    /// <exception cref="JsonException"><paramref name="jsonObject"/> is not valid JSON.</exception>
+    /// <exception cref="InvalidDataException"><paramref name="jsonObject"/> is not a JSON object.</exception>
+    public static byte[] ReportVariables(string jsonObject, Encoding encoding)
+    {
+        if (encoding is null) throw new ArgumentNullException(nameof(encoding));
+
+        if (JsonNode.Parse(jsonObject) is not JsonObject variables)
+        {
+            throw new InvalidDataException(
+                "An MSDP payload is a sequence of variables, so it must be written from a JSON object.");
+        }
+
+        var output = new List<byte>();
+
+        foreach (var variable in variables)
+        {
+            output.Add(MsdpVar);
+            WriteText(variable.Key, encoding, output);
+            output.Add(MsdpVal);
+            WriteValue(variable.Value, encoding, output);
+        }
+
+        return output.ToArray();
+    }
+
+    /// <summary>
     /// Writes a JSON document as the MSDP byte sequence carrying the same data.
     /// </summary>
     /// <param name="jsonString">The JSON document to report.</param>
@@ -113,6 +152,24 @@ public static class MSDPLibrary
 
                     var key = encoding.GetString(buffer, keyStart, keyEnd - keyStart);
                     var (value, next) = Scan(buffer, keyEnd, NewTable(), encoding, depth + 1);
+
+                    // One variable may carry several values without an array around them - the
+                    // specification's own SEND example is MSDP_VAR "SEND" MSDP_VAL "AREA_NAME"
+                    // MSDP_VAL "ROOM_NAME". They belong to the variable just read, so collect them
+                    // rather than reading the second one as the start of something new.
+                    if (next < buffer.Length && buffer[next] == MsdpVal)
+                    {
+                        var values = new List<object> { value };
+
+                        while (next < buffer.Length && buffer[next] == MsdpVal)
+                        {
+                            var (extra, after) = Scan(buffer, next, NewTable(), encoding, depth + 1);
+                            values.Add(extra);
+                            next = after;
+                        }
+
+                        value = values;
+                    }
 
                     ((SortedDictionary<string, object>)accumulator)[key] = value;
                     index = next;

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -64,53 +65,123 @@ namespace TelnetNegotiationCore.Handlers;
 /// </summary>
 public class MSDPServerModel
 {
+    private readonly ConcurrentDictionary<string, Func<ValueTask>> _reportedVariables = new(StringComparer.Ordinal);
+
     /// <summary>
-    /// What lists we can report on.
+    /// The lists a client can ask for by name with <c>LIST</c>, and what each one contains.
     /// </summary>
+    /// <remarks>
+    /// Each entry reads the property below it when the client asks, rather than capturing whatever
+    /// was set while the constructor ran — a model is configured through an object initialiser,
+    /// which runs afterwards.
+    /// </remarks>
     public Dictionary<string, Func<HashSet<string>>> Lists { get; private init; }
 
+    /// <summary>
+    /// The commands this server understands, for <c>LIST COMMANDS</c>.
+    /// </summary>
     public Func<HashSet<string>> Commands { get; set; } = () => [];
 
+    /// <summary>
+    /// The variables a client may set, for <c>LIST CONFIGURABLE_VARIABLES</c>. A client setting one
+    /// of these reaches <see cref="SetCallbackAsync"/>; a variable that is not in this list is not
+    /// configurable and is ignored.
+    /// </summary>
     public Func<HashSet<string>> Configurable_Variables { get; set; } = () => [];
 
-    public Func<HashSet<string>> Reportable_Variables { get; set; } = () => [];
+    /// <summary>
+    /// The variables this server will report on change, and how to read each one's current value.
+    /// </summary>
+    /// <remarks>
+    /// A <c>REPORT</c> is answered from here immediately and again on every
+    /// <see cref="NotifyChangeAsync"/>, and the keys are what <c>LIST REPORTABLE_VARIABLES</c>
+    /// answers with — so the list a client is offered and the values it is then sent cannot
+    /// disagree.
+    /// </remarks>
+    public Dictionary<string, Func<object?>> Reportable_Variables { get; set; } = [];
 
-    public Dictionary<string, Func<string, ValueTask>> Reported_Variables => [];
+    /// <summary>
+    /// The variables this server will send on request, and how to read each one's current value.
+    /// A value may be any object: a string, a number, a collection (an MSDP array) or an object
+    /// (an MSDP table).
+    /// </summary>
+    public Dictionary<string, Func<object?>> Sendable_Variables { get; set; } = [];
 
-    public Func<HashSet<string>> Sendable_Variables { get; set; } = () => [];
+    /// <summary>
+    /// The variables currently being reported, for <c>LIST REPORTED_VARIABLES</c>.
+    /// </summary>
+    public IReadOnlyCollection<string> Reported_Variables => _reportedVariables.Keys.ToArray();
 
+    /// <summary>
+    /// Called when a client asks for a group of variables to be reset to its initial state; only the
+    /// game knows what that state is.
+    /// </summary>
     public Func<string, ValueTask> ResetCallbackAsync { get; }
+
+    /// <summary>
+    /// Called when a client sets one of the <see cref="Configurable_Variables"/>, with the variable
+    /// and the value it sent. Optional: implementing configurable variables is optional in MSDP.
+    /// </summary>
+    public Func<string, string, ValueTask>? SetCallbackAsync { get; set; }
 
     /// <summary>
     /// Creates the MSDP Server Model. 
     /// Define each public variable to implement MSDP.
     /// </summary>
-    /// <param name="setCallback">Function to call when a client wishes to set a server variable.</param>
+    /// <param name="resetCallback">Function to call when a client wishes to reset a group of variables.</param>
     public MSDPServerModel(Func<string, ValueTask> resetCallback)
     {
-        Lists = new()
+        var lists = new Dictionary<string, Func<HashSet<string>>>
         {
-            { "COMMANDS", Commands },
-            { "CONFIGURABLE_VARIABLES", Configurable_Variables },
-            { "REPORTABLE_VARIABLES", Reportable_Variables },
-            { "REPORTED_VARIABLES", () => Reported_Variables.Select(x => x.Key).ToHashSet() },
-            { "SENDABLE_VARIABLES", Sendable_Variables }
+            { "COMMANDS", () => Commands() },
+            { "CONFIGURABLE_VARIABLES", () => Configurable_Variables() },
+            { "REPORTABLE_VARIABLES", () => [.. Reportable_Variables.Keys] },
+            { "REPORTED_VARIABLES", () => [.. Reported_Variables] },
+            { "SENDABLE_VARIABLES", () => [.. Sendable_Variables.Keys] }
         };
+
+        // "LISTS - Request an array of lists supported by the server", which is these and itself.
+        lists.Add("LISTS", () => [.. lists.Keys]);
+
+        Lists = lists;
 
         ResetCallbackAsync = resetCallback;
     }
 
-    public async ValueTask ResetAsync(string configurableVariable) =>
-        await ResetCallbackAsync(configurableVariable);
+    /// <summary>
+    /// Asks the consumer to reset a group of variables to its initial state.
+    /// </summary>
+    public ValueTask ResetAsync(string group) => ResetCallbackAsync(group);
 
-    public void Report(string reportableVariable, Func<string, ValueTask> function) =>
-        Reported_Variables.Add(reportableVariable, function);
+    /// <summary>
+    /// Starts reporting a variable. Called by <see cref="MSDPServerHandler"/> when a client asks;
+    /// <paramref name="onChange"/> is what sends the variable's current value to that client.
+    /// </summary>
+    public void Report(string reportableVariable, Func<ValueTask> onChange) =>
+        _reportedVariables[reportableVariable] = onChange;
 
+    /// <summary>
+    /// Stops reporting a variable.
+    /// </summary>
     public void UnReport(string reportableVariable) =>
-        Reported_Variables.Remove(reportableVariable);
+        _reportedVariables.TryRemove(reportableVariable, out _);
 
-    public async ValueTask NotifyChangeAsync(string reportableVariable, string newValue) =>
-        await (Reported_Variables.TryGetValue(reportableVariable, out var function)
-            ? function(newValue)
-            : default(ValueTask));
+    /// <summary>
+    /// Stops reporting every variable — the initial state of <c>REPORTED_VARIABLES</c>.
+    /// </summary>
+    public void UnReportAll() => _reportedVariables.Clear();
+
+    /// <summary>
+    /// Tells the client that a reported variable has changed, sending its current value. Call this
+    /// from the game whenever a value behind <see cref="Reportable_Variables"/> changes.
+    /// </summary>
+    /// <remarks>
+    /// The value is read from <see cref="Reportable_Variables"/> at this point rather than passed in,
+    /// so what the client is told and what the server would answer a <c>SEND</c> with cannot differ.
+    /// A variable nobody asked to have reported is not sent.
+    /// </remarks>
+    public ValueTask NotifyChangeAsync(string reportableVariable) =>
+        _reportedVariables.TryGetValue(reportableVariable, out var onChange)
+            ? onChange()
+            : default;
 }

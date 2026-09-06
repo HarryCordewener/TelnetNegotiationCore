@@ -1734,13 +1734,20 @@ public override async Task OnConnectedAsync(ConnectionContext connection)
 {
     _logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
 
+    // Reportable and sendable variables map a name to a function reading its current value, so the
+    // list a client is offered and the value it is then sent come from one place. A value may be a
+    // string, a number, a collection (an MSDP array) or an object (an MSDP table).
     var msdpHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
     {
         Commands = () => ["help", "stats", "info"],
         Configurable_Variables = () => ["CLIENT_NAME", "CLIENT_VERSION", "PLUGIN_ID"],
-        Reportable_Variables = () => ["ROOM"],
-        Sendable_Variables = () => ["ROOM"],
+        Reportable_Variables = new() { ["ROOM"] = () => CurrentRoom() },
+        Sendable_Variables = new() { ["ROOM"] = () => CurrentRoom() },
+        SetCallbackAsync = (variable, value) => SetClientVariableAsync(variable, value),
     });
+
+    // When a reported variable changes, tell the client - the handler re-reads and re-sends it.
+    // await msdpHandler.Data.NotifyChangeAsync("ROOM");
 
     var (telnet, readTask) = await new TelnetInterpreterBuilder()
         .UseMode(TelnetInterpreter.TelnetMode.Server)
