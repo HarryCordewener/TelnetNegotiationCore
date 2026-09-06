@@ -49,6 +49,8 @@ All notable changes to this project will be documented in this file.
   dictionary of callbacks; `NotifyChangeAsync(variable)` no longer takes the new value; and
   `SetCallbackAsync` is new. `MSDPServerHandler` takes an optional `ILogger`, which is what says why
   a request naming something the server does not offer went unanswered.
+- **The package no longer depends on `Microsoft.CSharp` for `netstandard2.0`.** It was there for
+  `dynamic`, which is gone with the change below.
 - **`MSSPConfig.Extended` is `Dictionary<string, object>` rather than `Dictionary<string, dynamic>`.**
   The same type at runtime, and the code around it only ever type-switched on the values — but
   `dynamic` drags in the C# runtime binder, which needs runtime code generation and was the other
@@ -61,6 +63,10 @@ All notable changes to this project will be documented in this file.
   *except* `IAC`. So a value carrying one arrived a byte short, and the two directions disagreed
   about a message the library itself had written. (MSSP had this fixed in 2.9.0; these are its twins,
   one of them in the same file.)
+- **A variable declared inside an MSDP array threw `InvalidCastException`.** An array holds values,
+  so `MSDP_ARRAY_OPEN MSDP_VAR "X" …` is malformed — but the payload comes from an untrusted peer and
+  the documented contract for malformed input is `InvalidDataException`, which is what a direct
+  caller of `MSDPScan` now gets. (The protocol path caught it either way.)
 - **A value carrying an MSDP marker is refused instead of forging one.** "Variables and values cannot
   contain the NUL, MSDP_VAL, MSDP_VAR, MSDP_TABLE_OPEN, MSDP_TABLE_CLOSE, MSDP_ARRAY_OPEN,
   MSDP_ARRAY_CLOSE or IAC byte" — bytes 0 to 6 were written through verbatim, so a value containing

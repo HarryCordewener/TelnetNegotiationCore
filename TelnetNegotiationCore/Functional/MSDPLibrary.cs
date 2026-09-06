@@ -65,7 +65,9 @@ public static class MSDPLibrary
     /// ordinal-sorted, so the same variables always serialize to the same JSON regardless of the
     /// order the peer sent them in.
     /// </returns>
-    /// <exception cref="InvalidDataException">The payload nests deeper than <see cref="MaxDepth"/>.</exception>
+    /// <exception cref="InvalidDataException">
+    /// The payload nests deeper than <see cref="MaxDepth"/>, or declares a variable inside an array.
+    /// </exception>
     public static object MSDPScan(IEnumerable<byte> array, Encoding encoding)
     {
         if (array is null) throw new ArgumentNullException(nameof(array));
@@ -86,7 +88,9 @@ public static class MSDPLibrary
     /// The JSON is written directly from what was scanned rather than through
     /// <see cref="JsonSerializer"/>, so no type is reflected over and the path is safe to trim.
     /// </remarks>
-    /// <exception cref="InvalidDataException">The payload nests deeper than <see cref="MaxDepth"/>.</exception>
+    /// <exception cref="InvalidDataException">
+    /// The payload nests deeper than <see cref="MaxDepth"/>, or declares a variable inside an array.
+    /// </exception>
     public static string ScanToJson(IEnumerable<byte> array, Encoding encoding)
     {
         using var json = ScanToUtf8Json(array, encoding);
@@ -114,7 +118,9 @@ public static class MSDPLibrary
     /// <see cref="System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString"/> on the
     /// context, or a converter of its own.
     /// </remarks>
-    /// <exception cref="InvalidDataException">The payload nests deeper than <see cref="MaxDepth"/>.</exception>
+    /// <exception cref="InvalidDataException">
+    /// The payload nests deeper than <see cref="MaxDepth"/>, or declares a variable inside an array.
+    /// </exception>
     public static T? Scan<T>(IEnumerable<byte> array, Encoding encoding, JsonTypeInfo<T> typeInfo)
     {
         if (typeInfo is null) throw new ArgumentNullException(nameof(typeInfo));
@@ -339,7 +345,17 @@ public static class MSDPLibrary
                         value = values;
                     }
 
-                    ((SortedDictionary<string, object>)accumulator)[key] = value;
+                    // An array holds values, not variables, so a variable declared straight inside
+                    // one is malformed. The payload comes from an untrusted peer, so it is refused
+                    // the way the rest of malformed input is rather than with whatever exception the
+                    // cast would raise.
+                    if (accumulator is not SortedDictionary<string, object> table)
+                    {
+                        throw new InvalidDataException(
+                            "An MSDP array holds values, so a variable cannot be declared inside one.");
+                    }
+
+                    table[key] = value;
                     index = next;
                     continue;
                 }

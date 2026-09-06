@@ -157,6 +157,27 @@ public class MSDPTests : BaseTest
 	}
 
 	/// <summary>
+	/// An array holds values, so a variable declared straight inside one is malformed. It comes from
+	/// an untrusted peer like everything else in a payload, so it is refused the way the rest of
+	/// malformed input is - with <see cref="System.IO.InvalidDataException"/>, not with whatever
+	/// exception the internals happen to raise.
+	/// </summary>
+	[Test]
+	public async Task ScanRejectsAVariableDeclaredInsideAnArray()
+	{
+		byte[] payload = [
+			(byte)Trigger.MSDP_ARRAY_OPEN,
+			(byte)Trigger.MSDP_VAR,
+			.. Encoding.GetBytes("X"),
+			(byte)Trigger.MSDP_VAL,
+			.. Encoding.GetBytes("1"),
+			(byte)Trigger.MSDP_ARRAY_CLOSE];
+
+		await Assert.That(() => Functional.MSDPLibrary.MSDPScan(payload, Encoding))
+			.Throws<System.IO.InvalidDataException>();
+	}
+
+	/// <summary>
 	/// MSDP has no null: a JSON null is reported as <c>-1</c>, the conventional spelling, rather than
 	/// throwing on the way out. Both spellings of a null reach here - a null property value and a null
 	/// array element parse to a null node, not to a node of kind <c>Null</c>.

@@ -356,19 +356,19 @@ public class MSDPSpecificationTests : BaseTest
 
 		await client.SendMSDPCommand("LIST", "COMMANDS");
 		await SettleAsync(client, server);
-		await PollUntilAsync(() => fromServer.Count >= 1);
+		await PollUntilAsync(() => CountOf(fromServer) >= 1);
 
 		await client.SendMSDPCommand("LIST", "REPORTABLE_VARIABLES");
 		await SettleAsync(client, server);
-		await PollUntilAsync(() => fromServer.Count >= 2);
+		await PollUntilAsync(() => CountOf(fromServer) >= 2);
 
 		await client.SendMSDPCommand("SEND", "HINT");
 		await SettleAsync(client, server);
-		await PollUntilAsync(() => fromServer.Count >= 3);
+		await PollUntilAsync(() => CountOf(fromServer) >= 3);
 
-		await Assert.That(fromServer[0]).IsEqualTo("""{"COMMANDS":["LIST","REPORT","SEND"]}""");
-		await Assert.That(fromServer[1]).IsEqualTo("""{"REPORTABLE_VARIABLES":["HINT"]}""");
-		await Assert.That(fromServer[2]).IsEqualTo("""{"HINT":"THE GAME"}""");
+		await Assert.That(MessageAt(fromServer, 0)).IsEqualTo("""{"COMMANDS":["LIST","REPORT","SEND"]}""");
+		await Assert.That(MessageAt(fromServer, 1)).IsEqualTo("""{"REPORTABLE_VARIABLES":["HINT"]}""");
+		await Assert.That(MessageAt(fromServer, 2)).IsEqualTo("""{"HINT":"THE GAME"}""");
 
 		await client.DisposeAsync();
 		await server.DisposeAsync();
@@ -397,15 +397,15 @@ public class MSDPSpecificationTests : BaseTest
 
 		await client.SendMSDPCommand("REPORT", "MUD_TIME");
 		await SettleAsync(client, server);
-		await PollUntilAsync(() => fromServer.Count >= 1);
+		await PollUntilAsync(() => CountOf(fromServer) >= 1);
 
 		time = "15:00";
 		await model.NotifyChangeAsync("MUD_TIME");
 		await SettleAsync(client, server);
-		await PollUntilAsync(() => fromServer.Count >= 2);
+		await PollUntilAsync(() => CountOf(fromServer) >= 2);
 
-		await Assert.That(fromServer[0]).IsEqualTo("""{"MUD_TIME":"14:00"}""");
-		await Assert.That(fromServer[1]).IsEqualTo("""{"MUD_TIME":"15:00"}""");
+		await Assert.That(MessageAt(fromServer, 0)).IsEqualTo("""{"MUD_TIME":"14:00"}""");
+		await Assert.That(MessageAt(fromServer, 1)).IsEqualTo("""{"MUD_TIME":"15:00"}""");
 
 		await client.DisposeAsync();
 		await server.DisposeAsync();
@@ -607,6 +607,27 @@ public class MSDPSpecificationTests : BaseTest
 
 		await Assert.That(received).IsNotNull();
 		return received;
+	}
+
+	/// <summary>
+	/// The messages a server sent arrive on the client interpreter's processing thread while the test
+	/// reads them on its own, so both sides take the same lock: a <see cref="List{T}"/> read while it
+	/// is being written can show a count before it shows the element.
+	/// </summary>
+	private static int CountOf(List<string> messages)
+	{
+		lock (messages)
+		{
+			return messages.Count;
+		}
+	}
+
+	private static string MessageAt(List<string> messages, int index)
+	{
+		lock (messages)
+		{
+			return messages[index];
+		}
 	}
 
 	/// <summary>
