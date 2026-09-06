@@ -48,15 +48,20 @@ namespace TelnetNegotiationCore.TestServer
 		/// <summary>
 		/// The value behind the ROOM variable, shaped like the table in the MSDP specification. A real
 		/// game would read this off the player's current room; the point here is that SEND and REPORT
-		/// answer with a value, and that a table value is one object.
+		/// answer with a value, and that a value with named members is sent as a table.
 		/// </summary>
-		private static object CurrentRoom() => new
+		/// <remarks>
+		/// A type of the game's own, carried by the serializer contract in <see cref="MsdpJsonContext"/>
+		/// that the source generator writes at compile time — so this works in a server published with
+		/// Native AOT, where reflecting over <see cref="Room"/> would not.
+		/// </remarks>
+		private static Room CurrentRoom() => new()
 		{
-			VNUM = "6008",
-			NAME = "The forest clearing",
-			AREA = "Haon Dor",
-			TERRAIN = "forest",
-			EXITS = new Dictionary<string, string> { { "n", "6011" }, { "e", "6007" } }
+			Vnum = 6008,
+			Name = "The forest clearing",
+			Area = "Haon Dor",
+			Terrain = "forest",
+			Exits = new Dictionary<string, string> { { "n", "6011" }, { "e", "6007" } }
 		};
 
 		private async ValueTask MSDPUpdateBehavior(string resetVariable)
@@ -75,6 +80,7 @@ namespace TelnetNegotiationCore.TestServer
 				{
 					Commands = () => ["help", "stats", "info"],
 					Configurable_Variables = () => ["CLIENT_NAME", "CLIENT_VERSION", "PLUGIN_ID"],
+					SerializerOptions = MsdpJsonContext.Default.Options,
 					Reportable_Variables = new() { ["ROOM"] = () => CurrentRoom() },
 					Sendable_Variables = new() { ["ROOM"] = () => CurrentRoom() },
 				});
@@ -94,7 +100,7 @@ namespace TelnetNegotiationCore.TestServer
 						Name = "My Telnet Negotiated Server",
 						UTF_8 = true,
 						Gameplay = ["ABC", "DEF"],
-						Extended = new Dictionary<string, dynamic>
+						Extended = new Dictionary<string, object>
 						{
 							{ "Foo",  "Bar"},
 							{ "Baz", (string[])["Moo", "Meow"] }

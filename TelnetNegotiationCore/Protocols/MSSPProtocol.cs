@@ -629,7 +629,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
             yield return (attr.Name, value);
         }
 
-        foreach (var item in config.Extended ?? new Dictionary<string, dynamic>())
+        foreach (var item in config.Extended ?? new Dictionary<string, object>())
         {
             if (item.Value == null) continue;
             if (!written.Add(MSSPVariables.Canonicalize(item.Key))) continue;
@@ -647,7 +647,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// report received from a peer and sent back on could not round-trip, which
     /// <see cref="SendMSSPDataAsync"/> otherwise guarantees.
     /// </remarks>
-    private static byte[] ConvertToMSSP(string name, dynamic val, Encoding encoding)
+    private static byte[] ConvertToMSSP(string name, object val, Encoding encoding)
     {
         var bt = new List<byte> { (byte)Trigger.MSSP_VAR };
         AppendEscaped(bt, name, encoding);

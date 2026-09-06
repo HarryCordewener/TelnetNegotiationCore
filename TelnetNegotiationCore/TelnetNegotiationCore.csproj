@@ -19,6 +19,10 @@
 		<PackageReleaseNotes>https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/CHANGELOG.md</PackageReleaseNotes>
 		<Copyright>Copyright © TelnetNegotiationCore Contributors 2024-$([System.DateTime]::Now.ToString(yyyy))</Copyright>
 		<Nullable>enable</Nullable>
+		<!-- Native AOT / trimming: the analysers run for the frameworks that support them, so anything
+		     reflection-based in this library is a build error rather than a surprise in a consumer's
+		     published app. netstandard2.0 has no analyser support. -->
+		<IsAotCompatible Condition="'$(TargetFramework)' != 'netstandard2.0'">true</IsAotCompatible>
 		<!-- Suppress NU1510 for System.Memory - it's only needed for netstandard2.0 -->
 		<NoWarn>$(NoWarn);NU1510</NoWarn>
 	</PropertyGroup>

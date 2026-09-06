@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
@@ -258,11 +260,139 @@ public class MSDPServerHandler(MSDPServerModel model, ILogger? logger = null)
 
         foreach (var variable in variables)
         {
-            payload[variable.Key] = JsonSerializer.SerializeToNode(variable.Value);
+            if (TryConvert(variable.Key, variable.Value, out var value))
+            {
+                payload[variable.Key] = value;
+            }
         }
 
-        await telnet.SendMSDPPayloadAsync(
-            MSDPLibrary.ReportVariables(payload.ToJsonString(), telnet.CurrentEncoding));
+        if (payload.Count == 0)
+        {
+            return;
+        }
+
+        await telnet.SendMSDPPayloadAsync(MSDPLibrary.ReportVariables(payload, telnet.CurrentEncoding));
+    }
+
+    /// <summary>
+    /// Turns a variable's value into the JSON that becomes its MSDP value.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// MSDP has three shapes — a table, an array, and text — so that is all this has to decide:
+    /// anything with named members is a table, anything you can enumerate is an array, and everything
+    /// else is its text. None of that reflects over a type, which is what keeps a server that uses
+    /// this handler compilable ahead of time.
+    /// </para>
+    /// <para>
+    /// A type of your own is a fourth case, and needs its contract: either return a
+    /// <see cref="JsonNode"/> you built with one (<c>JsonSerializer.SerializeToNode(room,
+    /// MyContext.Default.Room)</c>), or set <see cref="MSDPServerModel.SerializerOptions"/> to a
+    /// source-generated context and return the object itself. Without either there is no
+    /// trim-safe way to read its properties, so the variable is dropped with an error rather than
+    /// sent as its type name.
+    /// </para>
+    /// </remarks>
+    private bool TryConvert(string variable, object? value, out JsonNode? node)
+    {
+        switch (value)
+        {
+            case null:
+                node = null;
+                return true;
+            // A node already belongs to whatever built it, so it is copied rather than re-parented.
+            case JsonNode json:
+                node = json.DeepClone();
+                return true;
+            case string text:
+                node = JsonValue.Create(text);
+                return true;
+            // MSDP spells a boolean 1 or 0, which the JSON writer already knows.
+            case bool flag:
+                node = JsonValue.Create(flag);
+                return true;
+            case IDictionary table:
+                node = ToTable(variable, table);
+                return true;
+            case IEnumerable items:
+                node = ToArray(variable, items);
+                return true;
+            case IConvertible convertible:
+                node = JsonValue.Create(convertible.ToString(CultureInfo.InvariantCulture));
+                return true;
+            default:
+                return TryConvertWithContract(variable, value, out node);
+        }
+    }
+
+    private JsonObject ToTable(string variable, IDictionary table)
+    {
+        var result = new JsonObject();
+
+        foreach (DictionaryEntry entry in table)
+        {
+            var key = entry.Key as string ?? entry.Key?.ToString();
+
+            if (key is null)
+            {
+                _logger.LogDebug("Dropping an entry of {Variable} whose key is not text.", variable);
+                continue;
+            }
+
+            if (TryConvert(variable, entry.Value, out var value))
+            {
+                result[key] = value;
+            }
+        }
+
+        return result;
+    }
+
+    private JsonArray ToArray(string variable, IEnumerable items)
+    {
+        var result = new JsonArray();
+
+        foreach (var item in items)
+        {
+            if (TryConvert(variable, item, out var value))
+            {
+                result.Add(value);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// The last resort for a type of the consumer's own: their serializer contract, if they gave one.
+    /// </summary>
+    private bool TryConvertWithContract(string variable, object value, out JsonNode? node)
+    {
+        node = null;
+
+        if (Data.SerializerOptions is null)
+        {
+            _logger.LogError(
+                "Cannot send {Variable}: {Type} is not text, a collection or a JsonNode, and MSDPServerModel.SerializerOptions is not set to a serializer context that describes it.",
+                variable, value.GetType());
+            return false;
+        }
+
+        try
+        {
+            // GetTypeInfo asks the resolver the consumer configured. With a source-generated context
+            // that is a lookup, not reflection; with a reflection-based one it is their choice, made
+            // in their own code.
+            node = JsonSerializer.SerializeToNode(value, Data.SerializerOptions.GetTypeInfo(value.GetType()));
+            return true;
+        }
+        catch (NotSupportedException ex)
+        {
+            _logger.LogError(ex,
+                "Cannot send {Variable}: the configured serializer context has no contract for {Type}.",
+                variable, value.GetType());
+            return false;
+        }
     }
 
     /// <summary>

@@ -115,7 +115,7 @@ public class MSSPTests : BaseTest
 			Gameplay = ["Adventure", "Roleplaying"],
 			Genre = "Fantasy",
 			Status = "Live",
-			Extended = new Dictionary<string, dynamic>
+			Extended = new Dictionary<string, object>
 			{
 				{ "CustomField", "CustomValue" }
 			}
@@ -223,7 +223,7 @@ public class MSSPTests : BaseTest
 			Gameplay = ["Adventure", "Roleplaying"],
 			Genre = "Fantasy",
 			Status = "Live",
-			Extended = new Dictionary<string, dynamic>
+			Extended = new Dictionary<string, object>
 			{
 				{ "CustomField", "CustomValue" }
 			}

@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace TelnetNegotiationCore.Handlers;
@@ -111,6 +112,21 @@ public class MSDPServerModel
     /// The variables currently being reported, for <c>LIST REPORTED_VARIABLES</c>.
     /// </summary>
     public IReadOnlyCollection<string> Reported_Variables => _reportedVariables.Keys.ToArray();
+
+    /// <summary>
+    /// How to read a variable whose value is a type of your own — a source-generated
+    /// <see cref="System.Text.Json.Serialization.JsonSerializerContext"/>'s
+    /// <c>Default.Options</c>, typically.
+    /// </summary>
+    /// <remarks>
+    /// Only needed for that case. Text, numbers, booleans, dictionaries, collections and
+    /// <see cref="System.Text.Json.Nodes.JsonNode"/>s are understood without it, because MSDP has
+    /// only three shapes — table, array and text — and none of them needs a type read to recognise.
+    /// Leaving this null keeps a server free of reflection, and so compilable ahead of time; a
+    /// variable whose value needs a contract that is not here is dropped with an error rather than
+    /// sent wrong.
+    /// </remarks>
+    public JsonSerializerOptions? SerializerOptions { get; set; }
 
     /// <summary>
     /// Called when a client asks for a group of variables to be reset to its initial state; only the

@@ -49,7 +49,7 @@ public class CreateDotGraph : BaseTest
             Name = "My Telnet Negotiated Server",
             UTF_8 = true,
             Gameplay = ["ABC", "DEF"],
-            Extended = new Dictionary<string, dynamic>
+            Extended = new Dictionary<string, object>
             {
                 { "Foo", "Bar" },
                 { "Baz", (string[]) ["Moo", "Meow"] }

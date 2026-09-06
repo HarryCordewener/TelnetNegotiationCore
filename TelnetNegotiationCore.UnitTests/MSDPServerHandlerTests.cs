@@ -165,9 +165,14 @@ public class MSDPServerHandlerTests : BaseTest
 	}
 
 	/// <summary>
-	/// The specification's table example, produced from a variable whose value is an object:
+	/// The specification's table example, produced from a variable whose value has named members:
 	/// "IAC SB MSDP MSDP_VAR "ROOM" MSDP_VAL MSDP_TABLE_OPEN MSDP_VAR "VNUM" MSDP_VAL "6008" ... IAC SE"
 	/// </summary>
+	/// <remarks>
+	/// MSDP has three shapes, and this is the one for named members — a dictionary, a
+	/// <see cref="System.Text.Json.Nodes.JsonObject"/>, or a type of your own with a serializer
+	/// contract, as the tests below show. None of them needs the handler to reflect over anything.
+	/// </remarks>
 	[Test]
 	public async Task SendAnswersATableValuedVariableAsATable()
 	{
@@ -175,11 +180,11 @@ public class MSDPServerHandlerTests : BaseTest
 		{
 			Sendable_Variables = new()
 			{
-				["ROOM"] = () => new
+				["ROOM"] = () => new System.Text.Json.Nodes.JsonObject
 				{
-					VNUM = "6008",
-					NAME = "The forest clearing",
-					EXITS = new { n = "6011", e = "6007" }
+					["VNUM"] = "6008",
+					["NAME"] = "The forest clearing",
+					["EXITS"] = new System.Text.Json.Nodes.JsonObject { ["n"] = "6011", ["e"] = "6007" }
 				}
 			}
 		});
@@ -196,6 +201,104 @@ public class MSDPServerHandlerTests : BaseTest
 			Trigger.MSDP_VAR, "e", Trigger.MSDP_VAL, "6007",
 			Trigger.MSDP_TABLE_CLOSE,
 			Trigger.MSDP_TABLE_CLOSE));
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A dictionary is a table and a collection is an array, with nothing to configure: those are
+	/// shapes, and recognising a shape needs no type read.
+	/// </summary>
+	[Test]
+	public async Task ADictionaryIsATableAndACollectionIsAnArray()
+	{
+		var (telnet, sent, handler) = await ServerAsync(new MSDPServerModel(NoResetAsync)
+		{
+			Sendable_Variables = new()
+			{
+				["EXITS"] = () => new Dictionary<string, string> { { "n", "6011" } },
+				["AFFECTS"] = () => new[] { "haste", "blind" },
+				["HEALTH"] = () => 50,
+				["SNEAKING"] = () => true
+			}
+		});
+
+		await handler.HandleAsync(telnet, """{"SEND":["EXITS","AFFECTS","HEALTH","SNEAKING"]}""");
+
+		await AssertByteArraysEqual(OnlyMessage(sent), Frame(
+			Trigger.MSDP_VAR, "EXITS",
+			Trigger.MSDP_VAL, Trigger.MSDP_TABLE_OPEN,
+			Trigger.MSDP_VAR, "n", Trigger.MSDP_VAL, "6011",
+			Trigger.MSDP_TABLE_CLOSE,
+			Trigger.MSDP_VAR, "AFFECTS",
+			Trigger.MSDP_VAL, Trigger.MSDP_ARRAY_OPEN,
+			Trigger.MSDP_VAL, "haste",
+			Trigger.MSDP_VAL, "blind",
+			Trigger.MSDP_ARRAY_CLOSE,
+			Trigger.MSDP_VAR, "HEALTH", Trigger.MSDP_VAL, "50",
+			// MSDP spells a boolean 1 or 0.
+			Trigger.MSDP_VAR, "SNEAKING", Trigger.MSDP_VAL, "1"));
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A type of your own, sent by giving the model the serializer context that describes it. The
+	/// context is written at compile time, so a server doing this still compiles ahead of time.
+	/// </summary>
+	[Test]
+	public async Task AVariableCanBeATypeOfYourOwn()
+	{
+		var (telnet, sent, handler) = await ServerAsync(new MSDPServerModel(NoResetAsync)
+		{
+			SerializerOptions = MsdpTestJsonContext.Default.Options,
+			Sendable_Variables = new()
+			{
+				["ROOM"] = () => new MSDPSpecificationTests.Room
+				{
+					Vnum = 6008,
+					Name = "The forest clearing",
+					Area = "Haon Dor",
+					Terrain = "forest",
+					Exits = new() { { "n", "6011" }, { "e", "6007" } }
+				}
+			}
+		});
+
+		await handler.HandleAsync(telnet, """{"SEND":"ROOM"}""");
+
+		await AssertByteArraysEqual(OnlyMessage(sent), Frame(
+			Trigger.MSDP_VAR, "ROOM",
+			Trigger.MSDP_VAL, Trigger.MSDP_TABLE_OPEN,
+			Trigger.MSDP_VAR, "VNUM", Trigger.MSDP_VAL, "6008",
+			Trigger.MSDP_VAR, "NAME", Trigger.MSDP_VAL, "The forest clearing",
+			Trigger.MSDP_VAR, "AREA", Trigger.MSDP_VAL, "Haon Dor",
+			Trigger.MSDP_VAR, "TERRAIN", Trigger.MSDP_VAL, "forest",
+			Trigger.MSDP_VAR, "EXITS", Trigger.MSDP_VAL, Trigger.MSDP_TABLE_OPEN,
+			Trigger.MSDP_VAR, "n", Trigger.MSDP_VAL, "6011",
+			Trigger.MSDP_VAR, "e", Trigger.MSDP_VAL, "6007",
+			Trigger.MSDP_TABLE_CLOSE,
+			Trigger.MSDP_TABLE_CLOSE));
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// Without a contract for it there is no trim-safe way to read a type's properties, so the
+	/// variable is dropped rather than sent as something it is not — its type name, say, which a
+	/// client would store as the value.
+	/// </summary>
+	[Test]
+	public async Task ATypeWithNoContractIsNotSent()
+	{
+		var (telnet, sent, handler) = await ServerAsync(new MSDPServerModel(NoResetAsync)
+		{
+			Sendable_Variables = new() { ["ROOM"] = () => new MSDPSpecificationTests.Room { Vnum = 6008 } }
+		});
+
+		await handler.HandleAsync(telnet, """{"SEND":"ROOM"}""");
+
+		await Assert.That(Messages(sent)).IsEmpty();
 
 		await telnet.DisposeAsync();
 	}

@@ -3,6 +3,23 @@ All notable changes to this project will be documented in this file.
 
 ## [2.15.0]
 
+### Added
+- **MSDP carries a type of your own, in both directions, without reflecting over it.**
+  `MSDPLibrary.ReportVariables(value, encoding, MyContext.Default.MyType)` writes one out and
+  `MSDPLibrary.Scan(bytes, encoding, MyContext.Default.MyType)` reads one back, through the contract
+  the `System.Text.Json` source generator writes at compile time. `MSDPServerModel.SerializerOptions`
+  is the same thing for a variable's value, so `Sendable_Variables` can hand back a `Room` rather
+  than a hand-built JSON string. There are `JsonNode` overloads for callers already holding one, and
+  `MSDPLibrary.ScanToJson` for callers who want the JSON.
+- **The library is checked for trimming and Native AOT.** `IsAotCompatible` is on for the `net8.0`
+  and `net10.0` builds, and warnings are errors, so a reflection-based call cannot get back in. What
+  it took to get there: MSDP's receive path wrote its JSON with `JsonSerializer.Serialize(object)`
+  and its send path read values with `JsonSerializer.SerializeToNode(object)` — both resolve types at
+  runtime. The JSON is now written straight from what was scanned with a `Utf8JsonWriter`, and a
+  value's shape is decided by what it *is* (named members, enumerable, or text) rather than by
+  reading its type. Verified beyond the analysers: a console app that round-trips a type through MSDP
+  publishes with `PublishAot` and runs as a 2.5 MB native binary.
+
 ### Changed
 - **The F# assembly is gone: MSDP's translation between bytes and JSON is C# now, inside the main
   assembly.** `TelnetNegotiationCore.Functional.dll` was a second DLL in the package for one ~100-line
@@ -32,8 +49,24 @@ All notable changes to this project will be documented in this file.
   dictionary of callbacks; `NotifyChangeAsync(variable)` no longer takes the new value; and
   `SetCallbackAsync` is new. `MSDPServerHandler` takes an optional `ILogger`, which is what says why
   a request naming something the server does not offer went unanswered.
+- **`MSSPConfig.Extended` is `Dictionary<string, object>` rather than `Dictionary<string, dynamic>`.**
+  The same type at runtime, and the code around it only ever type-switched on the values — but
+  `dynamic` drags in the C# runtime binder, which needs runtime code generation and was the other
+  thing standing between this library and Native AOT.
 
 ### Fixed
+- **A literal `IAC` inside an MSDP or GMCP payload was dropped on the way in.** `IAC IAC` in a
+  subnegotiation is one 0xFF data byte (RFC 854), and both protocols' send paths double it — but
+  neither captured the byte when un-escaping it, because the capture is registered for every trigger
+  *except* `IAC`. So a value carrying one arrived a byte short, and the two directions disagreed
+  about a message the library itself had written. (MSSP had this fixed in 2.9.0; these are its twins,
+  one of them in the same file.)
+- **A value carrying an MSDP marker is refused instead of forging one.** "Variables and values cannot
+  contain the NUL, MSDP_VAL, MSDP_VAR, MSDP_TABLE_OPEN, MSDP_TABLE_CLOSE, MSDP_ARRAY_OPEN,
+  MSDP_ARRAY_CLOSE or IAC byte" — bytes 0 to 6 were written through verbatim, so a value containing
+  byte 3 opened a table in the middle of the message and the peer read a different structure than the
+  one sent. Writing one now throws `InvalidDataException` naming the value. `IAC` remains allowed
+  because the send path doubles it, as RFC 854 requires.
 - **`MSDPServerHandler` did not implement MSDP.** Every response in the specification is a
   subnegotiation whose payload is one or more variable/value pairs —
   `IAC SB MSDP MSDP_VAR "HINT" MSDP_VAL "THE GAME" IAC SE` — and not one of the handler's four
@@ -81,6 +114,11 @@ All notable changes to this project will be documented in this file.
     variables, as the specification's configurable-variable example does. All of them are answered
     now, and several variables asked for in one `SEND` come back in one subnegotiation, in the order
     asked.
+- **MSDP is now verified against its specification, in both directions.** Every byte sequence the
+  document shows is decoded into what it means and written back out from that meaning, the two
+  spellings of a list of values are checked to agree, and the handshake runs end to end between a
+  real client and a real server wired to each other — including a reported variable changing and
+  reaching the client again.
 - **A variable carrying several values without an array around them scanned as garbage.** The
   specification's own `SEND` example is `MSDP_VAR "SEND" MSDP_VAL "AREA_NAME" MSDP_VAL "ROOM_NAME"`;
   the scanner read the second `MSDP_VAL` as the start of a new message, discarded the variable and
