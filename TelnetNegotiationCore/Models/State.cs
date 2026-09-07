@@ -105,6 +105,8 @@ public enum State : short
 	DontMXP,
 	WillMXP,
 	WontMXP,
+	NegotiatingMXP,
+	CompletingMXP,
 	#endregion MXP Negotiation
 	#region MSDP Negotiation
 	DontMSDP,
