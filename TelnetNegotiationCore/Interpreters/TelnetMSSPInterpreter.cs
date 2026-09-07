@@ -79,7 +79,7 @@ public partial class TelnetInterpreter
 		}
 		else
 		{
-			dynamic valueToSet = value.Count() > 1 ? value : value.First();
+			object valueToSet = value.Count() > 1 ? value : value.First();
 
 			if (!_msspConfig().Extended.ContainsKey(variable))
 			{
@@ -201,7 +201,7 @@ public partial class TelnetInterpreter
 		return msspBytes;
 	}
 
-	private byte[] ConvertToMSSP(string name, dynamic val)
+	private byte[] ConvertToMSSP(string name, object val)
 	{
 		byte[] bt = [(byte)Trigger.MSSP_VAR, .. ascii.GetBytes(name)];
 

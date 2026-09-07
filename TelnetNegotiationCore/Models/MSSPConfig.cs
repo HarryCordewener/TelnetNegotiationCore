@@ -278,7 +278,7 @@ public class MSSPConfig
 	/// variable, typed or not.
 	/// </remarks>
 	[Official(false)]
-	public Dictionary<string, dynamic> Extended { get; set; } = [];
+	public Dictionary<string, object> Extended { get; set; } = [];
 
 	/// <summary>
 	/// Every variable reported, with every value, in wire order -- the lossless record the strongly

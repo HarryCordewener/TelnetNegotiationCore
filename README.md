@@ -1734,13 +1734,23 @@ public override async Task OnConnectedAsync(ConnectionContext connection)
 {
     _logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
 
+    // Reportable and sendable variables map a name to a function reading its current value, so the
+    // list a client is offered and the value it is then sent come from one place. MSDP has three
+    // shapes: a dictionary or JsonObject is a table, a collection is an array, and everything else
+    // is text. A type of your own is carried by its serializer contract - see SerializerOptions
+    // below - which is source-generated, so a server doing this still publishes with Native AOT.
     var msdpHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
     {
         Commands = () => ["help", "stats", "info"],
         Configurable_Variables = () => ["CLIENT_NAME", "CLIENT_VERSION", "PLUGIN_ID"],
-        Reportable_Variables = () => ["ROOM"],
-        Sendable_Variables = () => ["ROOM"],
-    });
+        SerializerOptions = MsdpJsonContext.Default.Options,
+        Reportable_Variables = new() { ["ROOM"] = () => CurrentRoom() },
+        Sendable_Variables = new() { ["ROOM"] = () => CurrentRoom() },
+        SetCallbackAsync = (variable, value) => SetClientVariableAsync(variable, value),
+    }, _logger);
+
+    // When a reported variable changes, tell the client - the handler re-reads and re-sends it.
+    // await msdpHandler.Data.NotifyChangeAsync("ROOM");
 
     var (telnet, readTask) = await new TelnetInterpreterBuilder()
         .UseMode(TelnetInterpreter.TelnetMode.Server)
@@ -1771,4 +1781,36 @@ public override async Task OnConnectedAsync(ConnectionContext connection)
     await readTask;
     _logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
 }
+```
+
+#### MSDP and your own types
+
+MSDP is a tree of variables on the wire, and the library translates between that tree and either
+JSON or a type of yours. Nothing on the path reflects over a type, so it survives trimming and
+`PublishAot`; a type of your own is carried by the contract the `System.Text.Json` source generator
+writes for it.
+
+```csharp
+public sealed class Room
+{
+    [JsonPropertyName("VNUM")] public int Vnum { get; set; }
+    [JsonPropertyName("NAME")] public string Name { get; set; } = "";
+    [JsonPropertyName("EXITS")] public Dictionary<string, string> Exits { get; set; } = [];
+}
+
+// MSDP has no types beyond text, so numbers arrive as strings.
+[JsonSourceGenerationOptions(NumberHandling = JsonNumberHandling.AllowReadingFromString)]
+[JsonSerializable(typeof(Room))]
+public partial class MsdpJsonContext : JsonSerializerContext;
+```
+
+```csharp
+// Your type, out as the payload of a subnegotiation, and back again.
+var payload = MSDPLibrary.ReportVariables(room, encoding, MsdpJsonContext.Default.Room);
+await telnet.SendMSDPPayloadAsync(payload);
+
+var received = MSDPLibrary.Scan(payload, encoding, MsdpJsonContext.Default.Room);
+
+// Or as JSON, which is what OnMSDPMessage hands you.
+var json = MSDPLibrary.ScanToJson(payload, encoding);
 ```

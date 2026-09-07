@@ -30,7 +30,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\TelnetNegotiationCore.Functional\TelnetNegotiationCore.Functional.fsproj" />
     <ProjectReference Include="..\TelnetNegotiationCore\TelnetNegotiationCore.csproj" />
   </ItemGroup>
 

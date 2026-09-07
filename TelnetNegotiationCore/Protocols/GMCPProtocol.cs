@@ -193,6 +193,12 @@ public class GMCPProtocol : TelnetProtocolPluginBase
             .Permit(Trigger.IAC, State.EvaluatingGMCPValue)
             .Permit(Trigger.SE, State.CompletingGMCPValue);
 
+        // As for MSDP below: IAC IAC is one literal 0xFF data byte, and the capture above skips IAC,
+        // so the escaped byte was dropped on the way in while SendGMCPCommand doubles it on the way
+        // out.
+        stateMachine.Configure(State.EvaluatingGMCPValue)
+            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.IAC), RegisterGMCPValue);
+
         stateMachine.Configure(State.CompletingGMCPValue)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async x => await CompleteGMCPNegotiation(x, context));
@@ -676,6 +682,15 @@ public class MSDPProtocol : TelnetProtocolPluginBase
             .Permit(Trigger.IAC, State.EvaluatingMSDP)
             .Permit(Trigger.SE, State.CompletingMSDP);
 
+        // IAC IAC inside the payload is one literal 0xFF data byte (RFC 854, "the IAC need be
+        // doubled to be sent as data"), and the capture above is registered for every trigger
+        // *except* IAC - so without this the escaped byte was dropped and the value arrived a byte
+        // short. The send path doubles such a byte, so not undoing it here made the two directions
+        // disagree. Registering it on this one transition rather than widening the loop keeps the
+        // opening IAC of IAC SE out of the payload.
+        stateMachine.Configure(State.EvaluatingMSDP)
+            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.IAC), CaptureMSDPByte);
+
         stateMachine.Configure(State.CompletingMSDP)
             .SubstateOf(State.Accepting)
             .OnEntryAsync(async x => await CompleteMSDPNegotiation(x, context));
@@ -767,9 +782,10 @@ public class MSDPProtocol : TelnetProtocolPluginBase
         {
             context.Logger.LogDebug("Processing MSDP message with {ByteCount} bytes", _msdpBytes.Count);
 
-            // Parse MSDP bytes using the F# library
-            var parsedData = Functional.MSDPLibrary.MSDPScan(_msdpBytes.Bytes, context.CurrentEncoding);
-            var jsonString = JsonSerializer.Serialize(parsedData);
+            // Read the MSDP payload straight into the JSON the callback is handed. Written by
+            // MSDPLibrary rather than by JsonSerializer, so the receive path reflects over nothing
+            // and survives trimming.
+            var jsonString = Functional.MSDPLibrary.ScanToJson(_msdpBytes.Bytes, context.CurrentEncoding);
 
             // Invoke the callback if registered
             if (_onMSDPReceived != null)

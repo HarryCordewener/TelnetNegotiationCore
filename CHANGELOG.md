@@ -1,6 +1,154 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.15.0]
+
+### Added
+- **MSDP carries a type of your own, in both directions, without reflecting over it.**
+  `MSDPLibrary.ReportVariables(value, encoding, MyContext.Default.MyType)` writes one out and
+  `MSDPLibrary.Scan(bytes, encoding, MyContext.Default.MyType)` reads one back, through the contract
+  the `System.Text.Json` source generator writes at compile time. `MSDPServerModel.SerializerOptions`
+  is the same thing for a variable's value, so `Sendable_Variables` can hand back a `Room` rather
+  than a hand-built JSON string. There are `JsonNode` overloads for callers already holding one, and
+  `MSDPLibrary.ScanToJson` for callers who want the JSON.
+- **The library is checked for trimming and Native AOT.** `IsAotCompatible` is on for the `net8.0`
+  and `net10.0` builds, and warnings are errors, so a reflection-based call cannot get back in. What
+  it took to get there: MSDP's receive path wrote its JSON with `JsonSerializer.Serialize(object)`
+  and its send path read values with `JsonSerializer.SerializeToNode(object)` — both resolve types at
+  runtime. The JSON is now written straight from what was scanned with a `Utf8JsonWriter`, and a
+  value's shape is decided by what it *is* (named members, enumerable, or text) rather than by
+  reading its type. Verified beyond the analysers: a console app that round-trips a type through MSDP
+  publishes with `PublishAot` and runs as a 2.5 MB native binary.
+
+### Changed
+- **The F# assembly is gone: MSDP's translation between bytes and JSON is C# now, inside the main
+  assembly.** `TelnetNegotiationCore.Functional.dll` was a second DLL in the package for one ~100-line
+  module, and — because F# code cannot run without it — it made `FSharp.Core` a hard dependency of
+  every consumer of this library, F# or not: an 11 MB restore (a 2.3 MB assembly plus thirteen
+  localised resource assemblies) to parse `MSDP_VAR`/`MSDP_VAL` byte pairs. It is now
+  `TelnetNegotiationCore/Functional/MSDPLibrary.cs`, the package ships one assembly per target
+  framework, and the `FSharp.Core` dependency is removed.
+  - **`MSDPLibrary.MSDPScan` and `MSDPLibrary.Report` keep their namespace, their names and their
+    signatures**, so calling code compiles unchanged. It is a binary break, not a source one: the type
+    now lives in `TelnetNegotiationCore.dll`.
+  - A scan returns `SortedDictionary<string, object>` / `List<object>` / `string` where it used to
+    return an F# `Map`, list and string. Keys stay ordinal-sorted, which is what F#'s `Map` gave, so
+    the JSON a caller serializes from a scan is byte-for-byte what it was.
+  - The F# module's own `Trigger` enum and its `MSDP_VAR`, `MSDP_VAL`, `MSDP_TABLE_OPEN`,
+    `MSDP_TABLE_CLOSE`, `MSDP_ARRAY_OPEN` and `MSDP_ARRAY_CLOSE` values are removed; they duplicated
+    `TelnetNegotiationCore.Models.Trigger`, which has had all six since before the F# project existed.
+  - Behaviour was checked by running both implementations side by side over 200,000 random byte
+    sequences and 100,000 random JSON documents: identical output, and identical exception types where
+    they throw, apart from the two fixes below.
+  - The scan is also no longer quadratic. The F# walked the payload with `Seq.skip`/`Seq.takeWhile`,
+    building a fresh chain of enumerators for every byte it consumed; the C# indexes the buffer.
+
+- **`MSDPServerModel`'s shape changed with the MSDP fixes below.** `Sendable_Variables` and
+  `Reportable_Variables` are `Dictionary<string, Func<object?>>` rather than `Func<HashSet<string>>`;
+  `Reported_Variables` is an `IReadOnlyCollection<string>` of what is being reported rather than a
+  dictionary of callbacks; `NotifyChangeAsync(variable)` no longer takes the new value; and
+  `SetCallbackAsync` is new. `MSDPServerHandler` takes an optional `ILogger`, which is what says why
+  a request naming something the server does not offer went unanswered.
+- **The package no longer depends on `Microsoft.CSharp` for `netstandard2.0`.** It was there for
+  `dynamic`, which is gone with the change below.
+- **`MSSPConfig.Extended` is `Dictionary<string, object>` rather than `Dictionary<string, dynamic>`.**
+  The same type at runtime, and the code around it only ever type-switched on the values — but
+  `dynamic` drags in the C# runtime binder, which needs runtime code generation and was the other
+  thing standing between this library and Native AOT.
+
+### Fixed
+- **A literal `IAC` inside an MSDP or GMCP payload was dropped on the way in.** `IAC IAC` in a
+  subnegotiation is one 0xFF data byte (RFC 854), and both protocols' send paths double it — but
+  neither captured the byte when un-escaping it, because the capture is registered for every trigger
+  *except* `IAC`. So a value carrying one arrived a byte short, and the two directions disagreed
+  about a message the library itself had written. (MSSP had this fixed in 2.9.0; these are its twins,
+  one of them in the same file.)
+- **A variable declared inside an MSDP array threw `InvalidCastException`.** An array holds values,
+  so `MSDP_ARRAY_OPEN MSDP_VAR "X" …` is malformed — but the payload comes from an untrusted peer and
+  the documented contract for malformed input is `InvalidDataException`, which is what a direct
+  caller of `MSDPScan` now gets. (The protocol path caught it either way.)
+- **A value carrying an MSDP marker is refused instead of forging one.** "Variables and values cannot
+  contain the NUL, MSDP_VAL, MSDP_VAR, MSDP_TABLE_OPEN, MSDP_TABLE_CLOSE, MSDP_ARRAY_OPEN,
+  MSDP_ARRAY_CLOSE or IAC byte" — bytes 0 to 6 were written through verbatim, so a value containing
+  byte 3 opened a table in the middle of the message and the peer read a different structure than the
+  one sent. Writing one now throws `InvalidDataException` naming the value. `IAC` remains allowed
+  because the send path doubles it, as RFC 854 requires.
+- **`MSDPServerHandler` did not implement MSDP.** Every response in the specification is a
+  subnegotiation whose payload is one or more variable/value pairs —
+  `IAC SB MSDP MSDP_VAR "HINT" MSDP_VAL "THE GAME" IAC SE` — and not one of the handler's four
+  answering paths produced that. It is now checked against the specification's own examples.
+  - **Nothing it sent was framed.** The MSDP payload went to `WriteToNetworkAsync` bare, so control
+    bytes 1–6 and the variable names around them arrived as ordinary output, in the middle of the
+    game's text, with no `IAC SB MSDP` … `IAC SE` around them and no `IAC` escaping. Sending now goes
+    through `TelnetInterpreter.SendMSDPPayloadAsync`, which frames and escapes it — the same path
+    `SendMSDPCommand` uses, which is now written in terms of it.
+  - **`SEND` could not answer with a value.** It built `$"{{{var}:{val}}}"`, which is not valid JSON
+    (the name and value are unquoted), so it threw before sending anything; and `val` came from
+    `HashSet<string>.TryGetValue`, which hands back the name you looked up — so the value, had it
+    parsed, would have been the variable's own name. `Sendable_Variables` and `Reportable_Variables`
+    are now `Dictionary<string, Func<object?>>`: a name mapped to a function reading its current
+    value. The list a client is offered and the value it is then sent come from one place and cannot
+    disagree, and a value may be a string, a number, a collection (an MSDP array) or an object (an
+    MSDP table). A variable the server does not offer is left unanswered rather than answered with an
+    invented value.
+  - **`LIST` answered with an unnamed array.** `MSDP_ARRAY_OPEN MSDP_VAL "LIST" …` with no
+    `MSDP_VAR "COMMANDS" MSDP_VAL` in front of it leaves the client holding values it cannot
+    attribute to anything. The list is now named, as in the specification's handshake. `LISTS` — "an
+    array of lists supported by the server", promised in the handler's own documentation — is
+    answerable at last.
+  - **`REPORT` never reported.** `MSDPServerModel.Reported_Variables` was an expression-bodied
+    property returning a *new* empty dictionary on every access, so registering a variable wrote into
+    a throwaway, `NotifyChangeAsync` never found anything, and `LIST REPORTED_VARIABLES` was always
+    empty. It has a backing store now (a `ConcurrentDictionary`, since the registrations are written
+    from the read loop and read from game code), `REPORT` sends the variable immediately and again on
+    every change, and `UNREPORT` stops it. `NotifyChangeAsync(variable)` no longer takes the new value
+    — it re-reads it, so what a client is told and what a `SEND` would answer cannot differ.
+  - **`RESET` did nothing at all.** It looked the group up in `Reportable_Variables`, discarded the
+    result and returned, never calling the model's reset callback. It now hands each named group to
+    the consumer, and clears the reporting registrations for `REPORTED_VARIABLES`, whose initial
+    state is that nothing is being reported.
+  - **Every list was empty whatever the consumer configured.** `Lists` captured the `Commands`,
+    `Configurable_Variables` and other delegates while the constructor was running — before the
+    object initialiser that sets them had run — so it answered from the defaults for the life of the
+    connection. The groups are resolved when the client asks.
+  - **A configurable variable set by the client went nowhere.** A client answering
+    `MSDP_VAR "UTF_8" MSDP_VAL "0"` was dropped on the floor, though the server had advertised
+    `CONFIGURABLE_VARIABLES`. `MSDPServerModel.SetCallbackAsync` receives it — the callback the
+    constructor's documentation has described since it was written, while the parameter beside it
+    was wired to RESET. A variable that was never advertised as configurable is still ignored.
+  - **Only the first command in a message was answered**, though a subnegotiation may carry several
+    variables, as the specification's configurable-variable example does. All of them are answered
+    now, and several variables asked for in one `SEND` come back in one subnegotiation, in the order
+    asked.
+- **MSDP is now verified against its specification, in both directions.** Every byte sequence the
+  document shows is decoded into what it means and written back out from that meaning, the two
+  spellings of a list of values are checked to agree, and the handshake runs end to end between a
+  real client and a real server wired to each other — including a reported variable changing and
+  reaching the client again.
+- **A variable carrying several values without an array around them scanned as garbage.** The
+  specification's own `SEND` example is `MSDP_VAR "SEND" MSDP_VAL "AREA_NAME" MSDP_VAL "ROOM_NAME"`;
+  the scanner read the second `MSDP_VAL` as the start of a new message, discarded the variable and
+  everything accumulated before it, and returned the bare string `"ROOM_NAME"` — which then threw in
+  the handler. Repeated values now scan as that variable's list of values. Checked against the F#
+  implementation over 100,000 random well-formed payloads: this is the only case where they differ.
+- **A JSON null no longer throws on its way to the wire.** `MSDPLibrary.Report` had a branch for
+  `JsonValueKind.Null` that could never be reached — a null property value or array element parses to
+  a *null* `JsonNode`, not to a node of kind `Null` — so `{"HP":null}` came out as a
+  `NullReferenceException` from inside `MSDPServerHandler`'s send path rather than as MSDP's
+  conventional `-1`. It is `-1` now, as the unreachable branch always intended.
+- **A deeply nested MSDP payload can no longer take the process down.** Nesting decides how deep the
+  scanner recurses and the payload comes from an untrusted peer, so a megabyte of nested
+  `MSDP_VAR`/`MSDP_VAL` pairs overflowed the stack — which no `catch` can save you from. Anything
+  nested past `MSDPLibrary.MaxDepth` (64; real MSDP data nests two or three levels) is now rejected
+  with an `InvalidDataException`, which the MSDP receive path already catches, logs and drops the
+  message for.
+- **`System.Text.Json` is now declared as a `netstandard2.0` dependency of the package.** The library
+  has always used it there, but it reached the package only transitively through the F# project, whose
+  `PrivateAssets="all"` reference kept it out of the nuspec — the same shape as the missing
+  `FSharp.Core` fixed in 2.5.1, and the same symptom for a `netstandard2.0` consumer that does not
+  already reference it themselves: an assembly load failure on the first MSDP or GMCP message rather
+  than a missing package at restore.
+
 ## [2.13.0]
 
 ### Added

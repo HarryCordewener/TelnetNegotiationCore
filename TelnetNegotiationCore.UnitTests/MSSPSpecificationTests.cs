@@ -396,7 +396,7 @@ public class MSSPSpecificationTests : BaseTest
 			Players = 42,
 			Ansi = true,
 			Gameplay = ["Adventure", "Roleplaying"],
-			Extended = new Dictionary<string, dynamic> { { "CustomField", "CustomValue" } }
+			Extended = new Dictionary<string, object> { { "CustomField", "CustomValue" } }
 		});
 
 		await InterpretAndWaitAsync(server, new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSSP });

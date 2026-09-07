@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFrameworks>netstandard2.0;net8.0;net10.0</TargetFrameworks>
 		<LangVersion>latest</LangVersion>
-		<Version>2.13.0</Version>
+		<Version>2.15.0</Version>
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
 		<Title>Telnet Negotiation Core</Title>
 		<PackageId>$(AssemblyName)</PackageId>
@@ -19,6 +19,10 @@
 		<PackageReleaseNotes>https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/CHANGELOG.md</PackageReleaseNotes>
 		<Copyright>Copyright © TelnetNegotiationCore Contributors 2024-$([System.DateTime]::Now.ToString(yyyy))</Copyright>
 		<Nullable>enable</Nullable>
+		<!-- Native AOT / trimming: the analysers run for the frameworks that support them, so anything
+		     reflection-based in this library is a build error rather than a surprise in a consumer's
+		     published app. netstandard2.0 has no analyser support. -->
+		<IsAotCompatible Condition="'$(TargetFramework)' != 'netstandard2.0'">true</IsAotCompatible>
 		<!-- Suppress NU1510 for System.Memory - it's only needed for netstandard2.0 -->
 		<NoWarn>$(NoWarn);NU1510</NoWarn>
 	</PropertyGroup>
@@ -52,30 +56,19 @@
 		<PackageReference Include="OneOf" Version="3.0.271" />
 		<PackageReference Include="System.IO.Pipelines" Version="10.0.2" />
 		<PackageReference Include="stateless" Version="5.20.0" />
-		<!-- The bundled TelnetNegotiationCore.Functional.dll is an F# assembly (MSDP) that requires
-		     FSharp.Core at runtime. The Functional project is referenced with PrivateAssets="all"
-		     (so its build assets don't leak), which also means its FSharp.Core dependency is NOT
-		     forwarded into this package's nuspec. Declare it explicitly here so consumers restore it;
-		     without this, the first MSDP negotiation throws "Could not load file or assembly
-		     'FSharp.Core'" and crashes (notably a hard SIGSEGV under Mono/.NET-Android). -->
-		<PackageReference Include="FSharp.Core" Version="10.1.203" />
 	</ItemGroup>
 
 	<!-- Packages needed for netstandard2.0 -->
 	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
 		<PackageReference Include="System.Memory" Version="4.6.3" />
+		<PackageReference Include="System.Text.Json" Version="10.0.2" />
 		<PackageReference Include="System.Collections.Immutable" Version="10.0.2" />
 		<PackageReference Include="System.Threading.Channels" Version="10.0.2" />
 		<PackageReference Include="SharpZipLib" Version="1.4.2" />
-		<PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
 		<PackageReference Include="PolySharp" Version="1.15.0">
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
 		</PackageReference>
-	</ItemGroup>
-
-	<ItemGroup>
-		<ProjectReference Include="..\TelnetNegotiationCore.Functional\TelnetNegotiationCore.Functional.fsproj" PrivateAssets="all" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -88,14 +81,5 @@
 		                  OutputItemType="Analyzer"
 		                  ReferenceOutputAssembly="false" />
 	</ItemGroup>
-
-	<!-- Include Functional DLL in NuGet package -->
-	<Target Name="IncludeFunctionalDLL" AfterTargets="Build" BeforeTargets="_GetPackageFiles">
-		<ItemGroup>
-			<TfmSpecificPackageFile Include="..\TelnetNegotiationCore.Functional\bin\$(Configuration)\$(TargetFramework)\TelnetNegotiationCore.Functional.dll">
-				<PackagePath>lib\$(TargetFramework)</PackagePath>
-			</TfmSpecificPackageFile>
-		</ItemGroup>
-	</Target>
 
 </Project>
