@@ -1,6 +1,53 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.16.0]
+
+### Fixed
+- **MXP negotiated but never actually started.** `MXPProtocol` treated `IAC DO MXP` as the end of the
+  handshake, when it is the middle of it. Both the [MXP specification](https://www.zuggsoft.com/zmud/mxp.htm)
+  and [Gammon's server guide](https://www.gammon.com.au/mushclient/addingservermxp.htm) have the server
+  answer `DO` with `IAC SB MXP IAC SE` -- the marker that tells the client "MXP output starts here" --
+  and MUSHclient, among others, stays in plain telnet until it arrives. It was never sent: the plugin
+  set `_mxpEnabled = true`, fired `OnMXPEnabled`, and stopped, so a host that dutifully switched to
+  MXP rendering on that callback then wrote tags and entities to a client that was still showing them
+  to the player verbatim -- `&quot;` and `&lt;` printed as text, `ESC[1z` line modes discarded as an
+  unrecognised escape. MXP was the only protocol plugin here that never sent a subnegotiation.
+  - The server now sends `IAC SB MXP IAC SE` on `DO`, **before** invoking `OnMXPEnabled`, so a host
+    that swaps renderers in that callback cannot get a tag onto the wire ahead of the marker.
+  - The client now recognises the marker. It previously had no `SubNegotiation` transition for option
+    91 at all, so a correct server's marker fell through to the safety net and was skipped as an
+    unsupported subnegotiation -- this library could not talk to a conforming MUD either. Unlike
+    MCCP's identically shaped marker it does not reframe the stream, and a test covers ordinary text
+    continuing to arrive after it.
+  - A repeated `DO` (or a repeated marker) no longer re-sends the marker or re-runs `OnMXPEnabled`.
+    The marker means "output starts here"; restating it mid-session, in a stream whose tags are
+    already flowing, is not something to obey. This matches the transition-only `OnNegotiatedAsync`
+    contract from 2.9.0.
+  - A start marker with no `WILL`/`DO` exchange behind it is refused. The marker says when a
+    negotiated option *begins*; it cannot stand in for negotiating it, and obeying a cold one would
+    run the host's activation callback for an option the peer never asked for.
+  - `OnProtocolEnabledAsync` no longer sets `_mxpEnabled = true`. That hook means "the plugin is
+    attached and processing", which is what `IsEnabled` reports; letting it set `IsMXPActive`
+    recreated exactly the `IsEnabled`/`IsNegotiated` conflation 2.9.0 was added to end.
+
+### Changed
+- **`OnMXPEnabled` now fires when MXP output actually begins, not when the option is negotiated.**
+  On the server that is immediately after the start marker is sent, so in practice unchanged. On the
+  client it has moved: the callback used to fire on the server's `WILL`, which says only that the
+  server *can* speak MXP. A client that starts parsing tags there is parsing a stream that is not yet
+  MXP. `IsMXPActive` keeps its old meaning -- the option is negotiated -- and a new
+  `IsMxpModeStarted` reports whether the start marker has been sent (server) or seen (client).
+- `State.NegotiatingMXP` and `State.CompletingMXP` are appended to the end of the `State` enum
+  rather than filed under its MXP region. The enum is public with implicit values, and C# inlines an
+  enum constant into the assembly that names it — so a plugin compiled against an earlier package
+  carries the numbers, not the names. Inserting into a region renumbers every member after it, and
+  that plugin would then configure a state other than the one it was written against. A comment on
+  the enum now says so; anything new goes at the end.
+- Line modes (`ESC[0z` open, `ESC[1z` secure, `ESC[6z` lock secure, ...) are still deliberately not
+  sent from this library. They are in-band output, not negotiation, and which of its lines a game is
+  willing to let carry live tags is that game's policy.
+
 ## [2.15.0]
 
 ### Added
