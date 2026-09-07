@@ -270,6 +270,16 @@ public class MXPProtocol : TelnetProtocolPluginBase
     /// </summary>
     private async ValueTask StartMxpModeAsync(IProtocolContext context)
     {
+        // The marker says when a negotiated option begins, and cannot stand in for negotiating it.
+        // A peer that sends IAC SB MXP IAC SE without a WILL/DO exchange behind it would otherwise
+        // switch this side into MXP mode -- running the host's activation callback, and leaving
+        // IsMxpModeStarted true while IsMXPActive said the option was never agreed to.
+        if (_mxpEnabled != true)
+        {
+            context.Logger.LogWarning("Ignoring an MXP start marker: option 91 was never negotiated.");
+            return;
+        }
+
         if (_mxpModeStarted)
         {
             context.Logger.LogDebug("MXP mode already started; ignoring a repeated start marker.");

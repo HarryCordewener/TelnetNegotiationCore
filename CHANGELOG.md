@@ -24,6 +24,9 @@ All notable changes to this project will be documented in this file.
     The marker means "output starts here"; restating it mid-session, in a stream whose tags are
     already flowing, is not something to obey. This matches the transition-only `OnNegotiatedAsync`
     contract from 2.9.0.
+  - A start marker with no `WILL`/`DO` exchange behind it is refused. The marker says when a
+    negotiated option *begins*; it cannot stand in for negotiating it, and obeying a cold one would
+    run the host's activation callback for an option the peer never asked for.
   - `OnProtocolEnabledAsync` no longer sets `_mxpEnabled = true`. That hook means "the plugin is
     attached and processing", which is what `IsEnabled` reports; letting it set `IsMXPActive`
     recreated exactly the `IsEnabled`/`IsNegotiated` conflation 2.9.0 was added to end.
@@ -35,6 +38,12 @@ All notable changes to this project will be documented in this file.
   server *can* speak MXP. A client that starts parsing tags there is parsing a stream that is not yet
   MXP. `IsMXPActive` keeps its old meaning -- the option is negotiated -- and a new
   `IsMxpModeStarted` reports whether the start marker has been sent (server) or seen (client).
+- `State.NegotiatingMXP` and `State.CompletingMXP` are appended to the end of the `State` enum
+  rather than filed under its MXP region. The enum is public with implicit values, and C# inlines an
+  enum constant into the assembly that names it — so a plugin compiled against an earlier package
+  carries the numbers, not the names. Inserting into a region renumbers every member after it, and
+  that plugin would then configure a state other than the one it was written against. A comment on
+  the enum now says so; anything new goes at the end.
 - Line modes (`ESC[0z` open, `ESC[1z` secure, `ESC[6z` lock secure, ...) are still deliberately not
   sent from this library. They are in-band output, not negotiation, and which of its lines a game is
   willing to let carry live tags is that game's policy.

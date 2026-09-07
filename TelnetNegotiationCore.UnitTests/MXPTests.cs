@@ -421,6 +421,47 @@ public class MXPTests : BaseTest
 		await client_ti.DisposeAsync();
 	}
 
+	/// <summary>
+	/// The marker says when a negotiated option begins; it cannot stand in for negotiating it. A peer
+	/// that sends it cold must not switch this side into MXP mode, which would run the host's
+	/// activation callback for an option the peer never asked for.
+	/// </summary>
+	[Test]
+	public async Task ClientIgnoresAnMxpMarkerThatWasNeverNegotiated()
+	{
+		// Arrange
+		var callbackCount = 0;
+
+		ValueTask WriteBackToNegotiate(ReadOnlyMemory<byte> arg1) => ValueTask.CompletedTask;
+
+		var client_ti = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(WriteBackToNegotiate)
+			.AddPlugin<MXPProtocol>()
+				.OnMXPEnabled(() =>
+				{
+					Interlocked.Increment(ref callbackCount);
+					return ValueTask.CompletedTask;
+				})
+			.BuildAsync();
+
+		var mxpPlugin = client_ti.PluginManager!.GetPlugin<MXPProtocol>();
+
+		// Act - the marker arrives with no WILL MXP behind it
+		await client_ti.InterpretByteArrayAsync(MxpStartMarker);
+		await client_ti.WaitForProcessingAsync();
+		await Task.Delay(100);
+
+		// Assert
+		await Assert.That(mxpPlugin!.IsMXPActive).IsFalse();
+		await Assert.That(mxpPlugin!.IsMxpModeStarted).IsFalse();
+		await Assert.That(Volatile.Read(ref callbackCount)).IsEqualTo(0);
+
+		await client_ti.DisposeAsync();
+	}
+
 	/// <summary>IAC SB MXP IAC SE -- the marker that starts MXP mode.</summary>
 	private static readonly byte[] MxpStartMarker =
 		[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MXP, (byte)Trigger.IAC, (byte)Trigger.SE];

@@ -105,8 +105,6 @@ public enum State : short
 	DontMXP,
 	WillMXP,
 	WontMXP,
-	NegotiatingMXP,
-	CompletingMXP,
 	#endregion MXP Negotiation
 	#region MSDP Negotiation
 	DontMSDP,
@@ -231,6 +229,18 @@ public enum State : short
 	NegotiatingEncryptionSupport,
 	CompletingEncryptionNegotiation,
 	ProcessingEncryptionIs,
-	ProcessingEncryptionSupport
+	ProcessingEncryptionSupport,
 	#endregion Encryption Negotiation
+
+	// Appended, not filed under the protocol region they belong to. This enum is public, its values
+	// are implicit, and C# inlines an enum constant into the assembly that names it -- so a plugin
+	// compiled against an earlier package carries the numbers, not the names. Inserting a member into
+	// a region renumbers every member after it, and that plugin would then configure a state other
+	// than the one it was written against. Anything new goes here.
+	#region Appended after 2.15.0
+	/// <summary>MXP: reading <c>IAC SB MXP</c>, the start marker's option byte. See <c>MXPProtocol</c>.</summary>
+	NegotiatingMXP,
+	/// <summary>MXP: the start marker's second <c>IAC</c>; its <c>SE</c> has not been read yet.</summary>
+	CompletingMXP
+	#endregion Appended after 2.15.0
 }
