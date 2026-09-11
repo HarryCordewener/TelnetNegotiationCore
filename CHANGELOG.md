@@ -1,6 +1,22 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.18.0]
+
+### Added
+- **A `net11.0` build, compiled against .NET 11 RC1.** The package now ships `lib/net11.0` beside
+  `netstandard2.0`, `net8.0` and `net10.0`, and it passes the same Native AOT and trimming analysis
+  as the other .NET targets. .NET 11 moved `Microsoft.Extensions.DependencyInjection.Abstractions`,
+  `Microsoft.Extensions.Logging.Abstractions` and `System.IO.Pipelines` into the shared framework,
+  so the `net11.0` dependency group names only `OneOf` and `stateless`: a .NET 11 consumer takes
+  those three from the runtime instead of pulling 10.0 packages.
+  - The unit tests run on `net11.0` too, and CI tests all three runtimes.
+
+### Changed
+- **Building from source needs the .NET 11 SDK, RC1 or later.** `global.json` pins
+  `11.0.100-rc.1.26425.128` and rolls forward to any newer SDK, and CI installs the SDK it names.
+  Consumers are unaffected: the `net8.0` and `net10.0` assemblies are built the same way as before.
+
 ## [2.17.0]
 
 ### Fixed

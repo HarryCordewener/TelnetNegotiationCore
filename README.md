@@ -13,6 +13,8 @@ All outgoing writes — negotiation responses, `SendAsync`, `SendPromptAsync`, `
 ## State
 This library is in a stable state. The legacy API remains fully supported for backward compatibility, while a new plugin-based architecture is available for modern applications.
 
+The package targets `netstandard2.0`, `net8.0`, `net10.0` and `net11.0`. Building it from source needs the .NET 11 SDK (RC1 or later), which `global.json` pins.
+
 ## Support
 | RFC                                                 | Description                        | Supported  | Comments           |
 | --------------------------------------------------- | ---------------------------------- |------------| ------------------ |
