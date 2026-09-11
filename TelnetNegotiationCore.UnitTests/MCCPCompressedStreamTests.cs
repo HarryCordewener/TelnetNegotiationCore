@@ -561,11 +561,16 @@ public class MCCPCompressedStreamTests : BaseTest
 	}
 
 	/// <summary>
-	/// Only a server compresses with v1, so a server does not listen for the marker: from a client it
-	/// is skipped as the unsupported subnegotiation it is, and plain text carries on being read.
+	/// Only a server compresses with v1, so a server that reads the marker from a client consumes it
+	/// without inflating anything, and plain text carries on being read.
 	/// </summary>
+	/// <remarks>
+	/// The marker's <c>SE</c> has no <c>IAC</c> before it, so it cannot be left to the
+	/// unsupported-subnegotiation skipper, which ends only on <c>IAC SE</c>: that would read on past
+	/// the marker and swallow the client's text as payload until one turned up.
+	/// </remarks>
 	[Test]
-	public async Task AServerSkipsACompressSubnegotiationAndKeepsReadingPlainText()
+	public async Task AServerConsumesTheV1MarkerAndKeepsReadingPlainText()
 	{
 		var submitted = new List<string>();
 		var compressionEvents = new List<(int Version, bool Enabled)>();
@@ -585,13 +590,12 @@ public class MCCPCompressedStreamTests : BaseTest
 					return ValueTask.CompletedTask;
 				}));
 
-		await InterpretAndWaitAsync(server, Concat(
-			[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP1, (byte)Trigger.WILL, (byte)Trigger.IAC, (byte)Trigger.SE],
-			"look\n"u8.ToArray()));
+		await InterpretAndWaitAsync(server, Concat(s_startMccp1, "look\n"u8.ToArray()));
 		await PollUntilAsync(() => submitted.Count > 0);
 
 		await Assert.That(submitted).IsEquivalentTo(new[] { "look" });
 		await Assert.That(compressionEvents).IsEmpty();
+		await Assert.That(server.PluginManager!.GetPlugin<MCCPProtocol>()!.IsMCCP3Enabled).IsFalse();
 
 		await server.DisposeAsync();
 	}

@@ -147,6 +147,13 @@ public class MCCPProtocol : TelnetProtocolPluginBase
             ConfigureCompressionMarker(stateMachine, context, version: 3,
                 Trigger.MCCP3, Trigger.IAC, State.NegotiatingMCCP3, State.CompletingMCCP3);
 
+            // v1 only ever compressed server output, so a client sending its marker is starting
+            // nothing a server could inflate. It is still consumed here rather than left to the
+            // unsupported-subnegotiation skipper: its SE has no IAC before it, and the skipper ends
+            // only on IAC SE, so it would read on past the marker and swallow the client's plain text.
+            ConfigureCompressionMarker(stateMachine, context, version: 1,
+                Trigger.MCCP1, Trigger.WILL, State.NegotiatingMCCP1, State.CompletingMCCP1, inflates: false);
+
             // Server initiates MCCP on connection
             context.RegisterInitialNegotiation(async () => await InitiateMCCPServerAsync(context));
         }
@@ -203,7 +210,8 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     /// The completing state is entered on the byte before the <c>SE</c> — the marker's second
     /// <c>IAC</c>, or v1's <c>WILL</c> — so the inflater goes in on the way <i>out</i> of that state,
     /// which is the moment the <c>SE</c> is consumed and the compressed stream begins. Installing it
-    /// on entry instead would feed the <c>SE</c> itself to zlib.
+    /// on entry instead would feed the <c>SE</c> itself to zlib. With <paramref name="inflates"/>
+    /// false the marker is only consumed, for a side that recognises it but has nothing to inflate.
     /// </remarks>
     private void ConfigureCompressionMarker(
         StateMachine<State, Trigger> stateMachine,
@@ -212,7 +220,8 @@ public class MCCPProtocol : TelnetProtocolPluginBase
         Trigger option,
         Trigger beforeSe,
         State negotiating,
-        State completing)
+        State completing,
+        bool inflates = true)
     {
         stateMachine.Configure(State.SubNegotiation)
             .Permit(option, negotiating);
@@ -226,9 +235,19 @@ public class MCCPProtocol : TelnetProtocolPluginBase
             {
                 // Any other trigger out of here is the safety net recovering from a malformed
                 // marker, not the peer starting to compress.
-                if (transition.Trigger == Trigger.SE)
+                if (transition.Trigger != Trigger.SE)
+                {
+                    return;
+                }
+
+                if (inflates)
                 {
                     await StartInflatingAsync(context, version);
+                }
+                else
+                {
+                    context.Logger.LogDebug(
+                        "MCCP{Version}: ignoring a start marker from a peer that cannot compress with it", version);
                 }
             });
     }

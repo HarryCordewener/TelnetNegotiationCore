@@ -19,7 +19,12 @@ All notable changes to this project will be documented in this file.
     `IsMCCP2Enabled` is true for it: v1 and v2 are the same server-to-client stream announced two ways,
     and share one flag, so either marker arriving while that stream runs is a repeat and is ignored
     rather than allowed to replace the inflater.
-  - `Trigger.MCCP1 = 85` is new.
+  - A server consumes the marker without inflating anything: v1 only ever compressed server output.
+    It is not left to the unsupported-subnegotiation skipper, whose exit is `IAC SE`, because the
+    marker's bare `SE` would not end the skip and the client's plain text would be read as payload.
+  - `Trigger.MCCP1 = 85` is new. `State.NegotiatingMCCP1` and `State.CompletingMCCP1` are appended
+    to the end of the `State` enum, like 2.16.0's MXP states, so no released member is renumbered. A
+    new test pins the last member of each release, so a future insertion fails the build.
 - **An offer of an option with no trigger was refused as option 0.** Such a byte reaches the state
   machine as `Trigger.ReadNextCharacter`, whose value is 256, and the safety net wrote the *trigger*
   back as the option byte -- `(byte)256`, so `IAC WILL 200` was answered `IAC DONT 0`. The peer was
