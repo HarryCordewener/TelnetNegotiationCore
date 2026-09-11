@@ -12,17 +12,22 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        dotnet-version: ['8.0.x', '10.0.x']
+        framework: ['net8.0', 'net10.0', 'net11.0']
 
     steps:
     - uses: actions/checkout@v6
     - name: Setup .NET
       uses: actions/setup-dotnet@v5
       with:
-        dotnet-version: ${{ matrix.dotnet-version }}
+        # global.json pins the SDK that builds every target; 8.0.x and 10.0.x bring the runtimes
+        # the net8.0 and net10.0 tests run on.
+        global-json-file: global.json
+        dotnet-version: |
+          8.0.x
+          10.0.x
     - name: Restore dependencies
       run: dotnet restore
     - name: Build
       run: dotnet build --no-restore
-    - name: Test with TUnit (.NET ${{ matrix.dotnet-version }})
-      run: dotnet run --project TelnetNegotiationCore.UnitTests --configuration Debug --no-build --framework net${{ matrix.dotnet-version == '8.0.x' && '8.0' || '10.0' }}
+    - name: Test with TUnit (${{ matrix.framework }})
+      run: dotnet run --project TelnetNegotiationCore.UnitTests --configuration Debug --no-build --framework ${{ matrix.framework }}
