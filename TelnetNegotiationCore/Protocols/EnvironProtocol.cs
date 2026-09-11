@@ -5,7 +5,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
@@ -304,12 +303,12 @@ public class EnvironProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
-    private void CaptureCommandType(OneOf<byte, Trigger> b)
+    private void CaptureCommandType(ByteOrTrigger b)
     {
-        _commandType = b.AsT0;
+        if (b is byte value) _commandType = value;
     }
 
-    private void StartNewVar(OneOf<byte, Trigger> _)
+    private void StartNewVar(ByteOrTrigger _)
     {
         SaveCurrentVariable();
         _collectingVar = true;
@@ -317,14 +316,14 @@ public class EnvironProtocol : TelnetProtocolPluginBase
         _currentVar.Clear();
     }
 
-    private void StartNewValue(OneOf<byte, Trigger> _)
+    private void StartNewValue(ByteOrTrigger _)
     {
         _collectingVar = false;
         _collectingValue = true;
         _currentValue.Clear();
     }
 
-    private void StartRequestedVar(OneOf<byte, Trigger> _)
+    private void StartRequestedVar(ByteOrTrigger _)
     {
         FlushRequestedVariable();
         _collectingVar = true;
@@ -348,19 +347,19 @@ public class EnvironProtocol : TelnetProtocolPluginBase
         _collectingVar = false;
     }
 
-    private void CaptureVarByte(OneOf<byte, Trigger> b)
+    private void CaptureVarByte(ByteOrTrigger b)
     {
-        if (_collectingVar)
+        if (_collectingVar && b is byte value)
         {
-            _currentVar.Add(b.AsT0);
+            _currentVar.Add(value);
         }
     }
 
-    private void CaptureValueByte(OneOf<byte, Trigger> b)
+    private void CaptureValueByte(ByteOrTrigger b)
     {
-        if (_collectingValue)
+        if (_collectingValue && b is byte value)
         {
-            _currentValue.Add(b.AsT0);
+            _currentValue.Add(value);
         }
     }
 

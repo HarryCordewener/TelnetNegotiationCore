@@ -171,7 +171,7 @@ public partial class TelnetInterpreter
 					tsm.Configure(badState)
 						.OnEntryFromAsync(ParameterizedTrigger(trigger), async b =>
 						{
-							var option = b.IsT0 ? b.AsT0 : (byte)b.AsT1;
+							var option = b switch { byte arrived => arrived, Trigger unnamed => (byte)unnamed };
 							_logger.LogDebug("Connection: refusing option {Option} with {Refusal}.", option, refusal);
 							await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)refusal, option]);
 						});
@@ -200,7 +200,7 @@ public partial class TelnetInterpreter
 		TriggerHelper.ForAllTriggers(t => tsm.Configure(State.BadSubNegotiation)
 			.OnEntryFrom(ParameterizedTrigger(t), b => _logger.LogDebug(
 				"Connection: Unsupported SubNegotiation for option {Option}. Skipping its payload until IAC SE.",
-				b.IsT0 ? b.AsT0 : (short)b.AsT1)));
+				b switch { byte option => option, Trigger unnamed => (short)unnamed })));
 		// RFC 855: "the receiver may locate the end of a parameter string by searching for the SE
 		// command (i.e., the string IAC SE), even if the receiver is unable to parse the parameters."
 		// Without this transition the only unsupported subnegotiation that could be skipped was the

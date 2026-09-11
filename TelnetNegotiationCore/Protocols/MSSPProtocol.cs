@@ -8,7 +8,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Helpers;
@@ -727,9 +726,9 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// One payload byte of the field being accumulated, whether it is a variable name or a value:
     /// the two differ only in what <see cref="FlushField"/> does with them at the next marker.
     /// </summary>
-    private void CaptureMSSPFieldByte(OneOf<byte, Trigger> b)
+    private void CaptureMSSPFieldByte(ByteOrTrigger b)
     {
-        _msspBytes.Add(b.AsT0);
+        if (b is byte value) _msspBytes.Add(value);
     }
 
     private async ValueTask ReadMSSPValues(IProtocolContext context)

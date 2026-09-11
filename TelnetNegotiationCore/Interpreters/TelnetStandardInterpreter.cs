@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using Stateless;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Generated;
-using OneOf;
 using Microsoft.Extensions.Logging;
 using LocalMoreLinq;
 
@@ -269,7 +268,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// </summary>
     /// <param name="t">The Trigger</param>
     /// <returns>A Parameterized trigger</returns>
-    internal StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParameterizedTrigger(Trigger t)
+    internal StateMachine<State, Trigger>.TriggerWithParameters<ByteOrTrigger> ParameterizedTrigger(Trigger t)
         => _parameterizedTriggers.ParameterizedTrigger(TelnetStateMachine, t);
 
     /// <summary>
@@ -408,7 +407,10 @@ public partial class TelnetInterpreter : IAsyncDisposable
         // Configure OnEntryFrom for all triggers to write bytes to buffer
         // EXCEPT IAC which has special handling below
         TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.ReadingCharacters)
-            .OnEntryFromAsync(ParameterizedTrigger(t), async x => await WriteToBufferAndAdvanceAsync(x)));
+            .OnEntryFromAsync(ParameterizedTrigger(t), async x =>
+            {
+                if (x is byte b) await WriteToBufferAndAdvanceAsync(b);
+            }));
 
         // Allow re-entry for continued character reading (critical fix for multi-byte data)
         // Exclude NEWLINE since it transitions to Act
@@ -495,7 +497,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
             {
                 _logger.LogDebug("Connection: {ConnectionState}", "Escaped IAC - writing byte 255 to buffer");
                 // Escaped IAC (255,255) - write the actual IAC byte to buffer
-                await WriteToBufferAndAdvanceAsync(OneOf<byte, Trigger>.FromT0((byte)255));
+                await WriteToBufferAndAdvanceAsync((byte)Trigger.IAC);
             });
 
         tsm.Configure(State.SubNegotiation)
@@ -542,13 +544,13 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// Write the character into a buffer.
     /// </summary>
     /// <param name="b">A useful byte for the Client/Server</param>
-    private async ValueTask WriteToBufferAndAdvanceAsync(OneOf<byte, Trigger> b)
+    private async ValueTask WriteToBufferAndAdvanceAsync(byte b)
     {
-        if (b.AsT0 == (byte)Trigger.CARRIAGERETURN) return;
+        if (b == (byte)Trigger.CARRIAGERETURN) return;
 
         if (_logger.IsEnabled(LogLevel.Trace))
         {
-            _logger.LogTrace("Debug: Writing into buffer: {Byte}", b.AsT0);
+            _logger.LogTrace("Debug: Writing into buffer: {Byte}", b);
         }
 
         // The first byte of a line pins the encoding the whole line is delivered with. See _lineEncoding.
@@ -572,11 +574,11 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 GrowLineBuffer();
             }
 
-            _buffer![_bufferPosition] = b.AsT0;
+            _buffer![_bufferPosition] = b;
             _bufferPosition++;
         }
 
-        await (CallbackOnByteAsync?.Invoke(b.AsT0, CurrentEncoding) ?? default(ValueTask));
+        await (CallbackOnByteAsync?.Invoke(b, CurrentEncoding) ?? default(ValueTask));
     }
 
     /// <summary>

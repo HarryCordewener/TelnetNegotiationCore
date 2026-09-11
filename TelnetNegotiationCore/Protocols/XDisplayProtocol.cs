@@ -4,7 +4,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -249,10 +248,10 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
         _isCapturingDisplay = true;
     }
 
-    private void CaptureDisplayByte(OneOf<byte, Trigger> b)
+    private void CaptureDisplayByte(ByteOrTrigger b)
     {
-        if (!_isCapturingDisplay) return;
-        _displayBuffer.Add(b.AsT0);
+        if (!_isCapturingDisplay || b is not byte value) return;
+        _displayBuffer.Add(value);
     }
 
     private async ValueTask CompleteXDisplayLocationAsServerAsync(IProtocolContext context)

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
@@ -311,14 +310,14 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         _nawsIndex = 0;
     }
 
-    private void CaptureNAWS(OneOf.OneOf<byte, Trigger> b)
+    private void CaptureNAWS(ByteOrTrigger b)
     {
         // ">" let _nawsIndex == _nawsByteState.Length through and indexed one past the end. A peer
         // sending a five-byte NAWS payload therefore threw IndexOutOfRangeException out of the
         // state machine. RFC 1073 defines exactly four payload bytes; anything beyond them is
         // surplus and is dropped.
-        if (_nawsIndex >= _nawsByteState.Length) return;
-        _nawsByteState[_nawsIndex] = b.AsT0;
+        if (_nawsIndex >= _nawsByteState.Length || b is not byte value) return;
+        _nawsByteState[_nawsIndex] = value;
         _nawsIndex++;
     }
 

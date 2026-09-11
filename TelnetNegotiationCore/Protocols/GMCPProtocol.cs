@@ -6,7 +6,6 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Helpers;
@@ -250,7 +249,10 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
-    private void RegisterGMCPValue(OneOf<byte, Trigger> b) => _gmcpBytes.Add(b.AsT0);
+    private void RegisterGMCPValue(ByteOrTrigger b)
+    {
+        if (b is byte value) _gmcpBytes.Add(value);
+    }
 
     private async ValueTask CompleteGMCPNegotiation(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
@@ -742,12 +744,12 @@ public class MSDPProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
-    private void CaptureMSDPByte(OneOf<byte, Trigger> b)
+    private void CaptureMSDPByte(ByteOrTrigger b)
     {
-        if (!IsEnabled)
+        if (!IsEnabled || b is not byte value)
             return;
 
-        _msdpBytes.Add(b.AsT0);
+        _msdpBytes.Add(value);
     }
 
     private async ValueTask CompleteMSDPNegotiation(StateMachine<State, Trigger>.Transition _, IProtocolContext context)

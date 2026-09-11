@@ -3,6 +3,8 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFrameworks>net8.0;net10.0;net11.0</TargetFrameworks>
+    <!-- C# 15 on every target, so the tests can use union syntax on ByteOrTrigger below net11.0 too. -->
+    <LangVersion>latest</LangVersion>
     <IsPackable>false</IsPackable>
     <PlatformTarget>AnyCPU</PlatformTarget>
     <NoWarn>TUnit0046;TUnit0018;TUnitAssertions0003;CS8892</NoWarn>

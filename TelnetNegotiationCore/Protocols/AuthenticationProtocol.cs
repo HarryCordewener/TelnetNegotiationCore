@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
@@ -426,7 +425,7 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
         // Capture all other triggers as authentication data
         TriggerHelper.ForAllTriggersButIAC(t => 
             stateMachine.Configure(State.NegotiatingAuthenticationSend)
-                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (OneOf<byte, Trigger> b) => _authRequestData.Add(b.AsT0))
+                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (ByteOrTrigger b) => { if (b is byte value) _authRequestData.Add(value); })
                 .PermitReentry(t));
 
         stateMachine.Configure(State.CompletingAuthenticationNegotiation)
@@ -481,7 +480,7 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
         // Capture all other triggers as auth type/modifier pairs
         TriggerHelper.ForAllTriggersButIAC(t => 
             stateMachine.Configure(State.NegotiatingAuthenticationSend)
-                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (OneOf<byte, Trigger> b) => _authRequestData.Add(b.AsT0))
+                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (ByteOrTrigger b) => { if (b is byte value) _authRequestData.Add(value); })
                 .PermitReentry(t));
 
         stateMachine.Configure(State.CompletingAuthenticationNegotiation)
