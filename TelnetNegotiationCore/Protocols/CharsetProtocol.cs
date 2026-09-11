@@ -4,7 +4,6 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Helpers;
 using TelnetNegotiationCore.Models;
@@ -348,17 +347,17 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         _acceptedCharsetByteIndex = 0;
     }
 
-    private void CaptureCharset(OneOf<byte, Trigger> b)
+    private void CaptureCharset(ByteOrTrigger b)
     {
-        if (_charsetByteIndex >= _charsetByteState.Length) return;
-        _charsetByteState[_charsetByteIndex] = b.AsT0;
+        if (_charsetByteIndex >= _charsetByteState.Length || b is not byte value) return;
+        _charsetByteState[_charsetByteIndex] = value;
         _charsetByteIndex++;
     }
 
-    private void CaptureAcceptedCharset(OneOf<byte, Trigger> b)
+    private void CaptureAcceptedCharset(ByteOrTrigger b)
     {
-        if (_acceptedCharsetByteIndex >= _acceptedCharsetByteState.Length) return;
-        _acceptedCharsetByteState![_acceptedCharsetByteIndex] = b.AsT0;
+        if (_acceptedCharsetByteIndex >= _acceptedCharsetByteState.Length || b is not byte value) return;
+        _acceptedCharsetByteState![_acceptedCharsetByteIndex] = value;
         _acceptedCharsetByteIndex++;
     }
 
@@ -513,7 +512,10 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     // TTABLE state machine handlers
     private void GetTTable(StateMachine<State, Trigger>.Transition _) => _ttableBytes.Reset();
 
-    private void CaptureTTable(OneOf<byte, Trigger> b) => _ttableBytes.Add(b.AsT0);
+    private void CaptureTTable(ByteOrTrigger b)
+    {
+        if (b is byte value) _ttableBytes.Add(value);
+    }
 
     private async ValueTask CompleteTTableAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {

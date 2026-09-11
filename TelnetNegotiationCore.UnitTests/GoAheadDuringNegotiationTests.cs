@@ -171,38 +171,4 @@ public class GoAheadDuringNegotiationTests : BaseTest
 
 		await client.DisposeAsync();
 	}
-
-	/// <summary>Captures formatted log output so a test can assert nothing was logged Critical.</summary>
-	private sealed class CapturingLogger(Microsoft.Extensions.Logging.ILogger inner) : Microsoft.Extensions.Logging.ILogger
-	{
-		private readonly List<(Microsoft.Extensions.Logging.LogLevel Level, string Message)> _entries = [];
-
-		public IDisposable BeginScope<TState>(TState state) where TState : notnull => null!;
-
-		public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
-
-		public void Log<TState>(
-			Microsoft.Extensions.Logging.LogLevel logLevel,
-			Microsoft.Extensions.Logging.EventId eventId,
-			TState state,
-			Exception exception,
-			Func<TState, Exception, string> formatter)
-		{
-			var message = formatter(state, exception);
-			lock (_entries)
-			{
-				_entries.Add((logLevel, message));
-			}
-
-			inner.Log(logLevel, eventId, state, exception, formatter);
-		}
-
-		public List<string> Entries(Microsoft.Extensions.Logging.LogLevel level)
-		{
-			lock (_entries)
-			{
-				return _entries.Where(x => x.Level == level).Select(x => x.Message).ToList();
-			}
-		}
-	}
 }

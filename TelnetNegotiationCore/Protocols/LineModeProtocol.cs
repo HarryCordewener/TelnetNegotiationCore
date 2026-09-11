@@ -263,11 +263,11 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         _buffer.Clear();
     }
 
-    private ValueTask CaptureLineModeDataAsync(OneOf.OneOf<byte, Trigger> data)
+    private ValueTask CaptureLineModeDataAsync(ByteOrTrigger data)
     {
-        if (data.IsT0)
+        if (data is byte value)
         {
-            _buffer.Add(data.AsT0);
+            _buffer.Add(value);
         }
         return default(ValueTask);
     }

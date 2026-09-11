@@ -3,7 +3,6 @@ using System;
 using System.Linq;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using OneOf;
 using TelnetNegotiationCore.Generated;
 
 namespace TelnetNegotiationCore.Models;
@@ -11,25 +10,24 @@ namespace TelnetNegotiationCore.Models;
 /// <summary>
 /// Helper class to create TriggerWithParameter objects.
 /// </summary>
-public class ParameterizedTriggers
+internal class ParameterizedTriggers
 {
-	private readonly Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>>> _cache = [];
+	private readonly Dictionary<Trigger, StateMachine<State, Trigger>.TriggerWithParameters<ByteOrTrigger>> _cache = [];
 
 	/// <summary>
 	/// Returns a (cached) Parameterized Trigger. 
 	/// </summary>
 	/// <param name="stm">State Machine</param>
 	/// <param name="t">The Trigger</param>
-	/// <returns>One of Byte or Trigger, allowing both the 255 byte range excluding standard triggers, and Triggers above the number</returns>
-	public StateMachine<State, Trigger>.TriggerWithParameters<OneOf<byte, Trigger>> ParameterizedTrigger(StateMachine<State, Trigger> stm, Trigger t)
+	/// <returns><paramref name="t"/>, carrying a <see cref="ByteOrTrigger"/> when fired</returns>
+	public StateMachine<State, Trigger>.TriggerWithParameters<ByteOrTrigger> ParameterizedTrigger(StateMachine<State, Trigger> stm, Trigger t)
 	{
-
-		if (_cache.TryGetValue(t, out var value))
+		if (!_cache.TryGetValue(t, out var value))
 		{
-			return value;
+			value = stm.SetTriggerParameters<ByteOrTrigger>(t);
+			_cache.Add(t, value);
 		}
-		_cache.Add(t, stm.SetTriggerParameters<OneOf<byte, Trigger>>(t));
-		return _cache[t];
+		return value;
 	}
 }
 

@@ -6,7 +6,6 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -363,10 +362,10 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
         _ttypeIndex = 0;
     }
 
-    private void CaptureTerminalType(OneOf<byte, Trigger> b)
+    private void CaptureTerminalType(ByteOrTrigger b)
     {
-        if (_ttypeIndex >= _ttypeByteState.Length) return;
-        _ttypeByteState[_ttypeIndex] = b.AsT0;
+        if (_ttypeIndex >= _ttypeByteState.Length || b is not byte value) return;
+        _ttypeByteState[_ttypeIndex] = value;
         _ttypeIndex++;
     }
 

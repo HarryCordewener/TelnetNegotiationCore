@@ -5,7 +5,6 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
 
@@ -100,18 +99,18 @@ public partial class TelnetInterpreter
 	 * 
 	 * TODO: Support -1 on reporting.
 	 */
-	private void CaptureMSSPVariable(OneOf<byte, Trigger> b)
+	private void CaptureMSSPVariable(ByteOrTrigger b)
 	{
 		// We could increment here based on having switched... Somehow?
 		// We need a better state tracking for this, to indicate the transition.
-		_currentMSSPVariable.Add(b.AsT0);
+		if (b is byte value) _currentMSSPVariable.Add(value);
 	}
 
-	private void CaptureMSSPValue(OneOf<byte, Trigger> b)
+	private void CaptureMSSPValue(ByteOrTrigger b)
 	{
 		// We could increment here based on having switched... Somehow?
 		// We need a better state tracking for this, to indicate the transition.
-		_currentMSSPValue.Add(b.AsT0);
+		if (b is byte value) _currentMSSPValue.Add(value);
 	}
 
 	private async ValueTask ReadMSSPValues()

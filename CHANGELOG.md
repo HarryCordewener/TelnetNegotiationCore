@@ -1,6 +1,37 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [3.0.0]
+
+### Breaking
+- **OneOf is no longer a dependency, and `ParameterizedTriggers` is internal.** `OneOf<byte, Trigger>`
+  was the parameter the interpreter's state machine passes with a trigger; nothing else in the library
+  used OneOf. `ParameterizedTriggers` was the one public type that exposed it, and it only ever served
+  the interpreter, whose own `ParameterizedTrigger` was already internal.
+  - Code that used OneOf through this package, without referencing it, needs its own
+    `PackageReference` to `OneOf` now: no dependency group lists it.
+  - Code that used `ParameterizedTriggers` has nothing public to move to. Compiled against 2.x, it
+    fails to load the type.
+
+### Changed
+- **The trigger parameter is a C# 15 union, `ByteOrTrigger`, on every target.** It holds the byte a
+  data trigger was read from, or, for the safe interpreter's recovery fire, `Trigger.Error`. Handlers
+  take the byte with `is byte`.
+  - It is a hand-written `[Union]` struct with the non-boxing `HasValue`/`TryGetValue` members, so
+    constructing and matching one allocates nothing. The `union ByteOrTrigger(byte, Trigger);`
+    shorthand stores its value as an `object?`, which boxes every byte read: 24 bytes each on x64.
+  - .NET 11 supplies `UnionAttribute` and `IUnion`. On `netstandard2.0`, `net8.0` and `net10.0` the
+    library defines internal copies, which the language allows. Every target is compiled with the
+    .NET 11 SDK, so each one uses the same union.
+  - Plain text skips the parameter entirely. The shortcut that bypasses the state machine now hands the
+    line buffer the byte it read, where before it wrapped it in a `OneOf` first.
+  - The transition trace log prints the parameter as its value: `--[Error(Error)]-->` where it used to
+    print `--[Error(Trigger: Error)]-->`, and `65` where it used to print `System.Byte: 65`.
+- **`global.json` rolls forward only within .NET 11** (`latestFeature`, was `latestMajor`). A machine
+  with a later major SDK installed builds with the newest 11.0 SDK instead of that later SDK. CI always
+  uses the pinned 11.0 SDK, and a later major's new analyzer warnings, which this build treats as
+  errors, could otherwise fail local builds that pass in CI.
+
 ## [2.18.0]
 
 ### Added

@@ -699,7 +699,7 @@ public class GMCPTests : BaseTest
 	{
 		// Arrange
 		var received = new List<(string Package, string Info)>();
-		var capturedLogs = new CapturingLogger();
+		var capturedLogs = new CapturingLogger(logger);
 		var client_ti = await BuildNegotiatedGMCPClientAsync(received, capturedLogs);
 
 		// Act
@@ -732,7 +732,7 @@ public class GMCPTests : BaseTest
 	{
 		// Arrange
 		var received = new List<(string Package, string Info)>();
-		var capturedLogs = new CapturingLogger();
+		var capturedLogs = new CapturingLogger(logger);
 		var client_ti = await BuildNegotiatedGMCPClientAsync(received, capturedLogs);
 
 		// Act
@@ -924,42 +924,5 @@ public class GMCPTests : BaseTest
 		await Assert.That(gmcp.MaxMessageSize).IsEqualTo(1024 * 1024);
 		await Assert.That(() => gmcp.WithMaxMessageSize(0)).Throws<ArgumentOutOfRangeException>();
 		await Assert.That(() => gmcp.WithMaxMessageSize(-1)).Throws<ArgumentOutOfRangeException>();
-	}
-
-	/// <summary>
-	/// Captures formatted log output so a test can assert that a discarded or repaired message was
-	/// reported rather than handled in silence.
-	/// </summary>
-	private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger
-	{
-		private readonly List<(Microsoft.Extensions.Logging.LogLevel Level, string Message)> _entries = [];
-
-		public IDisposable BeginScope<TState>(TState state) where TState : notnull => null;
-
-		public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
-
-		public void Log<TState>(
-			Microsoft.Extensions.Logging.LogLevel logLevel,
-			Microsoft.Extensions.Logging.EventId eventId,
-			TState state,
-			Exception exception,
-			Func<TState, Exception, string> formatter)
-		{
-			var message = formatter(state, exception);
-			lock (_entries)
-			{
-				_entries.Add((logLevel, message));
-			}
-
-			logger.Log(logLevel, exception, "{Message}", message);
-		}
-
-		public List<string> Entries(Microsoft.Extensions.Logging.LogLevel level)
-		{
-			lock (_entries)
-			{
-				return _entries.Where(x => x.Level == level).Select(x => x.Message).ToList();
-			}
-		}
 	}
 }

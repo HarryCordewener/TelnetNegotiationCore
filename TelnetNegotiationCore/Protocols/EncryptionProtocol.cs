@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
@@ -507,7 +506,7 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         // Capture all other triggers as encryption data
         TriggerHelper.ForAllTriggersButIAC(t => 
             stateMachine.Configure(State.NegotiatingEncryptionIs)
-                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (OneOf<byte, Trigger> b) => _encryptionData.Add(b.AsT0))
+                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (ByteOrTrigger b) => { if (b is byte value) _encryptionData.Add(value); })
                 .PermitReentry(t));
 
         stateMachine.Configure(State.CompletingEncryptionNegotiation)
@@ -562,7 +561,7 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         // Capture all other triggers as encryption types
         TriggerHelper.ForAllTriggersButIAC(t => 
             stateMachine.Configure(State.NegotiatingEncryptionSupport)
-                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (OneOf<byte, Trigger> b) => _encryptionData.Add(b.AsT0))
+                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (ByteOrTrigger b) => { if (b is byte value) _encryptionData.Add(value); })
                 .PermitReentry(t));
 
         stateMachine.Configure(State.CompletingEncryptionNegotiation)

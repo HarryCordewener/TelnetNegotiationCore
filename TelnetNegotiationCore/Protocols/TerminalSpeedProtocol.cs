@@ -4,7 +4,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using OneOf;
 using Stateless;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -229,10 +228,10 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
         _isCapturingSpeed = true;
     }
 
-    private void CaptureSpeedByte(OneOf<byte, Trigger> b)
+    private void CaptureSpeedByte(ByteOrTrigger b)
     {
-        if (!_isCapturingSpeed) return;
-        _speedBuffer.Add(b.AsT0);
+        if (!_isCapturingSpeed || b is not byte value) return;
+        _speedBuffer.Add(value);
     }
 
     private async ValueTask CompleteTerminalSpeedAsServerAsync(IProtocolContext context)
