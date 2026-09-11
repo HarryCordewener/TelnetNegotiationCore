@@ -148,8 +148,6 @@ public enum State : short
 	CompletingENVIRON,
 	#endregion ENVIRON Negotiation
 	#region MCCP Negotiation
-	NegotiatingMCCP1,
-	CompletingMCCP1,
 	DoMCCP2,
 	DontMCCP2,
 	WillMCCP2,
@@ -243,6 +241,12 @@ public enum State : short
 	/// <summary>MXP: reading <c>IAC SB MXP</c>, the start marker's option byte. See <c>MXPProtocol</c>.</summary>
 	NegotiatingMXP,
 	/// <summary>MXP: the start marker's second <c>IAC</c>; its <c>SE</c> has not been read yet.</summary>
-	CompletingMXP
+	CompletingMXP,
 	#endregion Appended after 2.15.0
+	#region Appended after 2.16.0
+	/// <summary>MCCP v1: reading <c>IAC SB COMPRESS</c>, the start marker's option byte. See <c>MCCPProtocol</c>.</summary>
+	NegotiatingMCCP1,
+	/// <summary>MCCP v1: the start marker's <c>WILL</c>; its <c>SE</c>, which has no <c>IAC</c> before it, has not been read yet.</summary>
+	CompletingMCCP1
+	#endregion Appended after 2.16.0
 }
