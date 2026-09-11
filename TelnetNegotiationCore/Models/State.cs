@@ -148,6 +148,8 @@ public enum State : short
 	CompletingENVIRON,
 	#endregion ENVIRON Negotiation
 	#region MCCP Negotiation
+	NegotiatingMCCP1,
+	CompletingMCCP1,
 	DoMCCP2,
 	DontMCCP2,
 	WillMCCP2,

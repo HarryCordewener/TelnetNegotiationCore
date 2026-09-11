@@ -455,6 +455,149 @@ public class MCCPCompressedStreamTests : BaseTest
 
 	#endregion
 
+	#region MCCP v1's marker: the same stream, announced the old way
+
+	/// <summary>
+	/// MCCP v1 is option 85, COMPRESS, and its start marker is <c>IAC SB COMPRESS WILL SE</c> -- a
+	/// subnegotiation with no <c>IAC</c> before its <c>SE</c>. What follows it is one zlib stream,
+	/// exactly as after MCCP2's marker.
+	/// </summary>
+	private static readonly byte[] s_startMccp1 = [(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP1, (byte)Trigger.WILL, (byte)Trigger.SE];
+
+	[Test]
+	public async Task ClientDeliversInflatedTextAfterTheMCCP1Marker()
+	{
+		var submitted = new List<string>();
+		var compressionEvents = new List<(int Version, bool Enabled)>();
+		var client = await BuildClientAsync(submitted, _ => ValueTask.CompletedTask, compressionEvents: compressionEvents);
+
+		await InterpretAndWaitAsync(client, s_willMccp2);
+
+		using var server = new MccpStreamWriter();
+		await InterpretAndWaitAsync(client, Concat(s_startMccp1, server.Send("By what name do you wish to be known?\n")));
+		await PollUntilAsync(() => submitted.Count > 0);
+
+		await Assert.That(submitted).IsEquivalentTo(new[] { "By what name do you wish to be known?" });
+
+		// Reported as what the wire said. The direction is MCCP2's, so that is the flag that is set.
+		await Assert.That(compressionEvents).IsEquivalentTo(new[] { (1, true) });
+		await Assert.That(client.PluginManager!.GetPlugin<MCCPProtocol>()!.IsMCCP2Enabled).IsTrue();
+
+		await client.DisposeAsync();
+	}
+
+	/// <summary>
+	/// Children of the Night (176.9.151.147:7702, a GodWars derivative) offers both versions, is told
+	/// <c>DONT COMPRESS</c> and <c>DO COMPRESS2</c>, and starts compressing behind the v1 marker
+	/// anyway. The bytes after it are zlib whatever was agreed: before this, the marker fell to the
+	/// unsupported-subnegotiation skipper, which swallowed compressed bytes until one happened to
+	/// spell <c>IAC SE</c> and then handed the rest of the connection to the screen as text.
+	/// </summary>
+	[Test]
+	public async Task AServerThatAnswersDoMCCP2WithTheV1MarkerIsStillRead()
+	{
+		var submitted = new List<string>();
+		var sent = new List<byte>();
+		var compressionEvents = new List<(int Version, bool Enabled)>();
+		var client = await BuildClientAsync(submitted, data =>
+		{
+			lock (sent) sent.AddRange(data.ToArray());
+			return ValueTask.CompletedTask;
+		}, compressionEvents: compressionEvents);
+
+		// The order it arrives in off the real server.
+		await InterpretAndWaitAsync(client, [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MCCP1]);
+		await InterpretAndWaitAsync(client, s_willMccp2);
+		await PollUntilAsync(() => sent.Count >= 6);
+
+		// v1 refused by name, v2 accepted.
+		byte[] answered;
+		lock (sent) answered = [.. sent];
+		await AssertByteArraysEqual(answered, [
+			(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MCCP1,
+			(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MCCP2]);
+
+		using var server = new MccpStreamWriter();
+		await InterpretAndWaitAsync(client, Concat(s_startMccp1, server.Send(
+			"What name shall we carve into your forehead? \n"u8.ToArray(),
+			"Unknown player, Very Well.\n"u8.ToArray())));
+		await PollUntilAsync(() => submitted.Count > 1);
+
+		await Assert.That(submitted).IsEquivalentTo(new[]
+		{
+			"What name shall we carve into your forehead? ",
+			"Unknown player, Very Well.",
+		});
+		await Assert.That(compressionEvents).IsEquivalentTo(new[] { (1, true) });
+
+		await client.DisposeAsync();
+	}
+
+	/// <summary>
+	/// Both markers start the one inbound stream, so either arriving while it runs is a repeat --
+	/// and a repeat must not replace the inflater the rest of the stream is encoded against.
+	/// </summary>
+	[Test]
+	public async Task AV1MarkerInsideAnMCCP2StreamDoesNotResetTheInflater()
+	{
+		var submitted = new List<string>();
+		var compressionEvents = new List<(int Version, bool Enabled)>();
+		var client = await BuildClientAsync(submitted, _ => ValueTask.CompletedTask, compressionEvents: compressionEvents);
+
+		await InterpretAndWaitAsync(client, s_willMccp2);
+
+		using var server = new MccpStreamWriter();
+		await InterpretAndWaitAsync(client, Concat(s_startMccp2, server.Send("before the repeat\n")));
+		await PollUntilAsync(() => submitted.Count > 0);
+
+		await InterpretAndWaitAsync(client, server.Send(s_startMccp1));
+		await InterpretAndWaitAsync(client, server.Send("after the repeat\n"));
+		await PollUntilAsync(() => submitted.Count > 1);
+
+		await Assert.That(submitted).IsEquivalentTo(new[] { "before the repeat", "after the repeat" });
+		await Assert.That(compressionEvents).IsEquivalentTo(new[] { (2, true) });
+
+		await client.DisposeAsync();
+	}
+
+	/// <summary>
+	/// Only a server compresses with v1, so a server does not listen for the marker: from a client it
+	/// is skipped as the unsupported subnegotiation it is, and plain text carries on being read.
+	/// </summary>
+	[Test]
+	public async Task AServerSkipsACompressSubnegotiationAndKeepsReadingPlainText()
+	{
+		var submitted = new List<string>();
+		var compressionEvents = new List<(int Version, bool Enabled)>();
+		var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit((data, encoding, _) =>
+			{
+				submitted.Add(encoding.GetString(data));
+				return ValueTask.CompletedTask;
+			})
+			.OnNegotiation(_ => ValueTask.CompletedTask)
+			.AddPlugin<MCCPProtocol>()
+				.OnCompressionEnabled((version, enabled) =>
+				{
+					compressionEvents.Add((version, enabled));
+					return ValueTask.CompletedTask;
+				}));
+
+		await InterpretAndWaitAsync(server, Concat(
+			[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MCCP1, (byte)Trigger.WILL, (byte)Trigger.IAC, (byte)Trigger.SE],
+			"look\n"u8.ToArray()));
+		await PollUntilAsync(() => submitted.Count > 0);
+
+		await Assert.That(submitted).IsEquivalentTo(new[] { "look" });
+		await Assert.That(compressionEvents).IsEmpty();
+
+		await server.DisposeAsync();
+	}
+
+	#endregion
+
 	#region MCCP2: the server deflates what it sends
 
 	[Test]
@@ -562,7 +705,8 @@ public class MCCPCompressedStreamTests : BaseTest
 	private static async Task<TelnetInterpreter> BuildClientAsync(
 		List<string> submitted,
 		Func<ReadOnlyMemory<byte>, ValueTask> onNegotiation,
-		bool withCharset = false)
+		bool withCharset = false,
+		List<(int Version, bool Enabled)> compressionEvents = null)
 	{
 		var builder = new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
@@ -574,15 +718,22 @@ public class MCCPCompressedStreamTests : BaseTest
 			})
 			.OnNegotiation(onNegotiation);
 
+		ValueTask Record(int version, bool enabled)
+		{
+			compressionEvents?.Add((version, enabled));
+			return ValueTask.CompletedTask;
+		}
+
 		if (withCharset)
 		{
 			return await BuildAndWaitAsync(builder
 				.AddPlugin<CharsetProtocol>()
 					.WithCharsetOrder(Encoding.UTF8, Encoding.GetEncoding("iso-8859-1"))
-				.AddPlugin<MCCPProtocol>());
+				.AddPlugin<MCCPProtocol>()
+					.OnCompressionEnabled(Record));
 		}
 
-		return await BuildAndWaitAsync(builder.AddPlugin<MCCPProtocol>());
+		return await BuildAndWaitAsync(builder.AddPlugin<MCCPProtocol>().OnCompressionEnabled(Record));
 	}
 
 	/// <summary>
