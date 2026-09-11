@@ -81,6 +81,65 @@ public class OrdinaryTextAllocationTests : BaseTest
 	}
 
 	/// <summary>
+	/// Text made of bytes that happen to be option numbers is still ordinary text.
+	/// </summary>
+	/// <remarks>
+	/// Space is TSPEED (32), <c>[</c> is MXP (91), <c>U</c> is COMPRESS (85), and <c>E F V W</c> and
+	/// <c>! " # $ % &amp; ' *</c> are options too. Each of them used to miss the shortcut because it
+	/// has a trigger of its own, although in <see cref="Models.State.ReadingCharacters"/> it means
+	/// exactly what an unnamed byte means -- so every space of prose and every colour escape paid for a
+	/// full transition.
+	/// </remarks>
+	[Test]
+	[NotInParallel]
+	public async Task ATextByteThatIsAlsoAnOptionNumberDoesNotCostATransitionEither()
+	{
+		var submitted = new List<string>();
+
+		var interpreter = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit((data, encoding, _) =>
+			{
+				lock (submitted) submitted.Add(encoding.GetString(data));
+				return ValueTask.CompletedTask;
+			})
+			.OnNegotiation(_ => ValueTask.CompletedTask)
+			.BuildAsync();
+
+		// Every byte a named trigger, bar the line terminator's neighbours: the worst case the shortcut
+		// now has to cover, and the one that shows it if any of these still fires the machine.
+		var line = Encoding.ASCII.GetBytes("\x1b[1;33m UUU [[[ EEE FFF VVV WWW !\"#$%&'* \x1b[0m\r\n");
+
+		for (var i = 0; i < 4000; i++)
+		{
+			await interpreter.InterpretAsync(line[i % line.Length]);
+		}
+
+		await interpreter.WaitForProcessingAsync(maxWaitMs: 5000, additionalDelayMs: 50);
+
+		var before = GC.GetTotalAllocatedBytes(precise: true);
+
+		for (var i = 0; i < Bytes; i++)
+		{
+			await interpreter.InterpretAsync(line[i % line.Length]);
+		}
+
+		await interpreter.WaitForProcessingAsync(maxWaitMs: 30_000, additionalDelayMs: 100);
+
+		var perByte = (GC.GetTotalAllocatedBytes(precise: true) - before) / (double)Bytes;
+
+		await Assert.That(perByte).IsLessThan(CeilingBytesPerByte);
+
+		// And the bytes are all still there.
+		string first;
+		lock (submitted) first = submitted[1];
+		await Assert.That(first).IsEqualTo("\x1b[1;33m UUU [[[ EEE FFF VVV WWW !\"#$%&'* \x1b[0m");
+
+		await interpreter.DisposeAsync();
+	}
+
+	/// <summary>
 	/// The bytes the shortcut does not take still go through the machine.
 	/// </summary>
 	/// <remarks>

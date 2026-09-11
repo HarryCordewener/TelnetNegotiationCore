@@ -1071,15 +1071,17 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
         try
         {
-            // ReadingCharacters permits ReadNextCharacter as a re-entry whose only effect is
-            // WriteToBufferAndAdvanceAsync, so firing the machine for it bought nothing and cost
-            // ~3.3 KB a byte -- 92% of the cost of reading one.
+            // ReadingCharacters permits every trigger but IAC and NEWLINE as a re-entry whose only
+            // effect is WriteToBufferAndAdvanceAsync (SetupStandardProtocol), so firing the machine
+            // for one bought nothing and cost ~3.3 KB a byte -- 92% of the cost of reading one.
+            // That covers the named triggers too: in text, a space is only nominally TSPEED and a
+            // '[' only nominally MXP, and both are far too common to pay for the name.
             //
             // Held back while our own transition logger is subscribed, so trace output is unchanged.
             // That is not the same as "nothing is watching": a caller can subscribe to the public
             // TelnetStateMachine and would not see these re-entries. Documented there.
             if (!_tracingTransitions
-                && triggerOrByte == Trigger.ReadNextCharacter
+                && triggerOrByte is not (Trigger.IAC or Trigger.NEWLINE)
                 && TelnetStateMachine.State == State.ReadingCharacters)
             {
                 await WriteToBufferAndAdvanceAsync(bt);

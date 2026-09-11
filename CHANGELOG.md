@@ -1,6 +1,45 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [2.17.0]
+
+### Fixed
+- **A server that starts MCCP with v1's marker was read as garbage.** MCCP v1 (option 85, COMPRESS)
+  announces its stream with `IAC SB COMPRESS WILL SE` -- a subnegotiation with no `IAC` before its
+  `SE`. Option 85 had no trigger, so the marker fell to the unsupported-subnegotiation skipper, which
+  reads on for an `IAC SE`: through the zlib stream behind the marker until the compressed bytes
+  happened to spell one, after which the rest of the connection reached the host as text. Found on
+  Children of the Night (a GodWars derivative), which offers both versions, is told `DONT COMPRESS`
+  and `DO COMPRESS2`, and starts compressing behind the **v1** marker anyway; every line after its
+  connect screen arrived as binary noise, telnet negotiation inside the stream included.
+  - A client now honours the v1 marker as the start of the server-to-client stream. What follows it is
+    zlib whatever was agreed, so declining to inflate it could never make it plain text. v1 is still
+    never *negotiated* -- an offer is refused, and MCCP2 is what gets accepted.
+  - `OnCompressionEnabled` reports such a stream as version **1**, which is what the wire said.
+    `IsMCCP2Enabled` is true for it: v1 and v2 are the same server-to-client stream announced two ways,
+    and share one flag, so either marker arriving while that stream runs is a repeat and is ignored
+    rather than allowed to replace the inflater.
+  - A server consumes the marker without inflating anything: v1 only ever compressed server output.
+    It is not left to the unsupported-subnegotiation skipper, whose exit is `IAC SE`, because the
+    marker's bare `SE` would not end the skip and the client's plain text would be read as payload.
+  - `Trigger.MCCP1 = 85` is new. `State.NegotiatingMCCP1` and `State.CompletingMCCP1` are appended
+    to the end of the `State` enum, like 2.16.0's MXP states, so no released member is renumbered. A
+    new test pins the last member of each release, so a future insertion fails the build.
+- **An offer of an option with no trigger was refused as option 0.** Such a byte reaches the state
+  machine as `Trigger.ReadNextCharacter`, whose value is 256, and the safety net wrote the *trigger*
+  back as the option byte -- `(byte)256`, so `IAC WILL 200` was answered `IAC DONT 0`. The peer was
+  refused BINARY, which it never offered, and never heard an answer about the option it did. The
+  refusal now names the byte that arrived.
+
+### Changed
+- **Ordinary text that happens to be an option number no longer fires the state machine.** The 2.14
+  shortcut wrote only *unnamed* bytes straight to the line buffer; but a space is TSPEED (32), `[` is
+  MXP (91), and `E F V W ! " # $ % & ' *` and CR are all named too, so every space of prose and every
+  colour escape still paid for a full transition (~3.3 KB). In `ReadingCharacters` every trigger but
+  `IAC` and `NEWLINE` is the same plain re-entry, so the shortcut now takes them all. A line made only
+  of such bytes went from ~2,900 bytes allocated per byte read to under the 700 ceiling the existing
+  allocation test holds ordinary text to. Adding `MCCP1` would otherwise have added `U` to that list.
+
 ## [2.16.0]
 
 ### Fixed

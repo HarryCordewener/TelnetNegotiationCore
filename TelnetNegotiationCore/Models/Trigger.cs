@@ -308,7 +308,7 @@ public enum Trigger : short
 	/// </remarks>
 	CHARSET = 42,
 	/// <summary>
-	/// Mud Server Data Protocol (Unsupported) (Support Planned)
+	/// Mud Server Data Protocol
 	/// </summary>
 	/// <remarks>
 	/// MSDP: https://tintin.mudhalla.net/protocols/msdp/
@@ -322,13 +322,26 @@ public enum Trigger : short
 	/// </remarks>
 	MSSP = 70,
 	/// <summary>
-	/// Mud Client Compression Protocol	(Unsupported)
+	/// Mud Client Compression Protocol, version 1: COMPRESS.
+	/// </summary>
+	/// <remarks>
+	/// Never negotiated here -- an offer is refused in favour of <see cref="MCCP2"/> -- but its start
+	/// marker, <c>IAC SB COMPRESS WILL SE</c>, is honoured by a client, because some servers send it to
+	/// start the stream a <c>DO COMPRESS2</c> asked for, and what follows it is zlib either way.
+	/// MCCP: https://tintin.mudhalla.net/protocols/mccp
+	/// </remarks>
+	MCCP1 = 85,
+	/// <summary>
+	/// Mud Client Compression Protocol, version 2: server-to-client compression.
 	/// </summary>
 	/// <remarks>
 	/// MCCP: https://tintin.mudhalla.net/protocols/mccp
 	/// RFC 1950: https://tintin.mudhalla.net/rfc/rfc1950/
 	/// </remarks>
 	MCCP2 = 86,
+	/// <summary>
+	/// Mud Client Compression Protocol, version 3: client-to-server compression.
+	/// </summary>
 	MCCP3 = 87,
 	/// <summary>
 	/// MUD eXtension Protocol
@@ -337,7 +350,9 @@ public enum Trigger : short
 	/// MXP: https://www.zuggsoft.com/zmud/mxp.htm
 	/// </remarks>
 	MXP = 91,
-	/// Generic Mud Communication Protocol	
+	/// <summary>
+	/// Generic Mud Communication Protocol
+
 	/// </summary>
 	/// <remarks>
 	/// GMCP: https://tintin.mudhalla.net/protocols/gmcp/

@@ -10,7 +10,7 @@ using TelnetNegotiationCore.Plugins;
 namespace TelnetNegotiationCore.Protocols;
 
 /// <summary>
-/// MCCP (Mud Client Compression Protocol) protocol plugin - MCCP2 and MCCP3
+/// MCCP (Mud Client Compression Protocol) protocol plugin - MCCP2 and MCCP3, and MCCP v1's start marker
 /// Implements https://tintin.mudhalla.net/protocols/mccp
 /// Uses zlib compression (RFC 1950) via System.IO.Compression.ZLibStream
 /// </summary>
@@ -24,6 +24,12 @@ namespace TelnetNegotiationCore.Protocols;
 /// So both directions are handled with a stream transform installed on the interpreter rather than
 /// with per-message calls: <see cref="MCCPInflateTransform"/> on the way in, ahead of the telnet
 /// state machine, and <see cref="MCCPDeflateTransform"/> on the way out, behind everything else.
+///
+/// MCCP v1 (option 85, COMPRESS) is never negotiated: an offer is refused and MCCP2 is what gets
+/// accepted. A client still honours v1's start marker, <c>IAC SB COMPRESS WILL SE</c>, as the start
+/// of the server-to-client stream, because a server can send it after <c>DO COMPRESS2</c> -- GodWars
+/// derivatives do -- and the zlib that follows it is there whatever was agreed. Refusing to inflate it
+/// cannot make it plain text; it only turns the rest of the connection into garbage.
 ///
 /// RFC 1950 Compliance:
 /// - Uses DEFLATE compression algorithm (compression method 8)
@@ -60,7 +66,11 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     /// <summary>
     /// Sets the callback that is invoked when compression state changes.
     /// </summary>
-    /// <param name="callback">The callback to handle compression changes (version: 2 or 3, enabled: true/false)</param>
+    /// <param name="callback">
+    /// The callback to handle compression changes (version: 1, 2 or 3; enabled: true/false). Version 1
+    /// is reported only to a client, for a server-to-client stream the server started with MCCP v1's
+    /// marker; it is the same stream as version 2's, announced differently.
+    /// </param>
     /// <returns>This instance for fluent chaining</returns>
     public MCCPProtocol OnCompressionEnabled(Func<int, bool, ValueTask>? callback)
     {
@@ -69,8 +79,9 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// Indicates whether MCCP2 (server-to-client) compression is running: this side is deflating
-    /// its output (server) or inflating its input (client).
+    /// Indicates whether server-to-client compression is running: this side is deflating its output
+    /// (server) or inflating its input (client). On a client that includes a stream the server
+    /// started with MCCP v1's marker rather than MCCP2's.
     /// </summary>
     public bool IsMCCP2Enabled => _mccp2Enabled;
 
@@ -134,7 +145,14 @@ public class MCCPProtocol : TelnetProtocolPluginBase
 
             // Only the client sends IAC SB MCCP3 IAC SE, so only the server listens for it.
             ConfigureCompressionMarker(stateMachine, context, version: 3,
-                Trigger.MCCP3, State.NegotiatingMCCP3, State.CompletingMCCP3);
+                Trigger.MCCP3, Trigger.IAC, State.NegotiatingMCCP3, State.CompletingMCCP3);
+
+            // v1 only ever compressed server output, so a client sending its marker is starting
+            // nothing a server could inflate. It is still consumed here rather than left to the
+            // unsupported-subnegotiation skipper: its SE has no IAC before it, and the skipper ends
+            // only on IAC SE, so it would read on past the marker and swallow the client's plain text.
+            ConfigureCompressionMarker(stateMachine, context, version: 1,
+                Trigger.MCCP1, Trigger.WILL, State.NegotiatingMCCP1, State.CompletingMCCP1, inflates: false);
 
             // Server initiates MCCP on connection
             context.RegisterInitialNegotiation(async () => await InitiateMCCPServerAsync(context));
@@ -173,7 +191,14 @@ public class MCCPProtocol : TelnetProtocolPluginBase
 
             // Only the server sends IAC SB MCCP2 IAC SE, so only the client listens for it.
             ConfigureCompressionMarker(stateMachine, context, version: 2,
-                Trigger.MCCP2, State.NegotiatingMCCP2, State.CompletingMCCP2);
+                Trigger.MCCP2, Trigger.IAC, State.NegotiatingMCCP2, State.CompletingMCCP2);
+
+            // MCCP v1's IAC SB COMPRESS WILL SE starts the same server-to-client stream. Its SE has no
+            // IAC before it, so without this it fell to the unsupported-subnegotiation skipper, which
+            // reads on for an IAC SE -- through the zlib behind the marker, until the compressed bytes
+            // happened to spell one, and then handed the rest of them to the host as text.
+            ConfigureCompressionMarker(stateMachine, context, version: 1,
+                Trigger.MCCP1, Trigger.WILL, State.NegotiatingMCCP1, State.CompletingMCCP1);
         }
     }
 
@@ -182,24 +207,27 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     /// compressed.
     /// </summary>
     /// <remarks>
-    /// The completing state is entered on the marker's <b>second IAC</b> — the <c>SE</c> has not
-    /// been read yet — so the inflater goes in on the way <i>out</i> of that state, which is the
-    /// moment the <c>SE</c> is consumed and the compressed stream begins. Installing it on entry
-    /// instead would feed the <c>SE</c> itself to zlib.
+    /// The completing state is entered on the byte before the <c>SE</c> — the marker's second
+    /// <c>IAC</c>, or v1's <c>WILL</c> — so the inflater goes in on the way <i>out</i> of that state,
+    /// which is the moment the <c>SE</c> is consumed and the compressed stream begins. Installing it
+    /// on entry instead would feed the <c>SE</c> itself to zlib. With <paramref name="inflates"/>
+    /// false the marker is only consumed, for a side that recognises it but has nothing to inflate.
     /// </remarks>
     private void ConfigureCompressionMarker(
         StateMachine<State, Trigger> stateMachine,
         IProtocolContext context,
         int version,
         Trigger option,
+        Trigger beforeSe,
         State negotiating,
-        State completing)
+        State completing,
+        bool inflates = true)
     {
         stateMachine.Configure(State.SubNegotiation)
             .Permit(option, negotiating);
 
         stateMachine.Configure(negotiating)
-            .Permit(Trigger.IAC, completing);
+            .Permit(beforeSe, completing);
 
         stateMachine.Configure(completing)
             .SubstateOf(State.EndSubNegotiation)
@@ -207,9 +235,19 @@ public class MCCPProtocol : TelnetProtocolPluginBase
             {
                 // Any other trigger out of here is the safety net recovering from a malformed
                 // marker, not the peer starting to compress.
-                if (transition.Trigger == Trigger.SE)
+                if (transition.Trigger != Trigger.SE)
+                {
+                    return;
+                }
+
+                if (inflates)
                 {
                     await StartInflatingAsync(context, version);
+                }
+                else
+                {
+                    context.Logger.LogDebug(
+                        "MCCP{Version}: ignoring a start marker from a peer that cannot compress with it", version);
                 }
             });
     }
@@ -370,14 +408,16 @@ public class MCCPProtocol : TelnetProtocolPluginBase
             await _onCompressionEnabled(version, false);
     }
 
-    private bool IsCompressionRunning(int version) => version == 2 ? _mccp2Enabled : _mccp3Enabled;
+    // Versions 1 and 2 are the one server-to-client stream, announced two ways, so they share a flag:
+    // either marker arriving while that stream runs is a repeat, and must not replace its inflater.
+    private bool IsCompressionRunning(int version) => version == 3 ? _mccp3Enabled : _mccp2Enabled;
 
     private void SetEnabled(int version, bool enabled)
     {
-        if (version == 2)
-            _mccp2Enabled = enabled;
-        else
+        if (version == 3)
             _mccp3Enabled = enabled;
+        else
+            _mccp2Enabled = enabled;
     }
 
     private async ValueTask DisableCompressionAsync()
