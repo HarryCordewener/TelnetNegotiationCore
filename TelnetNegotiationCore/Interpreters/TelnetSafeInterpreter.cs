@@ -161,22 +161,19 @@ public partial class TelnetInterpreter
 				tsm.Configure(badState)
 					.SubstateOf(State.Accepting);
 
-				if (state is State.Do)
+				// The refusal names the option byte that arrived, taken from the trigger's parameter rather
+				// than from the trigger. An option with no name of its own arrives as ReadNextCharacter,
+				// which is 256: cast to a byte that is 0, and every such offer was answered with a refusal
+				// of BINARY instead of a refusal of the option the peer asked about.
+				if (state is State.Do or State.Willing)
 				{
+					var refusal = state is State.Do ? Trigger.WONT : Trigger.DONT;
 					tsm.Configure(badState)
-						.OnEntryFromAsync(trigger, async () =>
+						.OnEntryFromAsync(ParameterizedTrigger(trigger), async b =>
 						{
-							_logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Won't respond to the trigger: {trigger}.");
-							await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)trigger]);
-						});
-				}
-				else if (state is State.Willing)
-				{
-					tsm.Configure(badState)
-						.OnEntryFromAsync(trigger, async () =>
-						{
-							_logger.LogDebug("Connection: {ConnectionState}", $"Telling the Client, Don't send {trigger}.");
-							await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)trigger]);
+							var option = b.IsT0 ? b.AsT0 : (byte)b.AsT1;
+							_logger.LogDebug("Connection: refusing option {Option} with {Refusal}.", option, refusal);
+							await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)refusal, option]);
 						});
 				}
 			}
