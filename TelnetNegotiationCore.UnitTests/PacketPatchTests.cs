@@ -229,54 +229,112 @@ public class PacketPatchTests : BaseTest
 		await Assert.That(new PacketPatchProtocol().HoldTime).IsEqualTo(TimeSpan.FromMilliseconds(500));
 	}
 
+	/// <summary>
+	/// An arm placed before a burst does not survive into it: a deadline reached while burst bytes
+	/// are still queued reports nothing, rather than a sentinel that lands mid-line.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// The deadline is reached by calling <see cref="PacketPatchProtocol.OnTimerElapsed"/> directly, at
+	/// a zero hold time so it is never early. That models the pre-fix code, whose arm survived the
+	/// burst: its callback passed the staleness guard and enqueued a sentinel behind whatever was
+	/// queued, and the loop took the line it was halfway through as a prompt.
+	/// </para>
+	/// <para>
+	/// <b>A zero hold time makes any empty channel mid-line a real prompt</b>, so the channel must never
+	/// empty mid-line. The first version fed the burst in two slices and called the deadline between
+	/// them, trusting the loop not to have drained the first slice by then. On a two-core runner it
+	/// often had: the loop idled at byte 10,001, which is "…description of the roo", the real timer
+	/// fired as designed, and "m." arrived as a line of its own. It failed the v3.0.0 release. Four of
+	/// six full-suite runs failed pinned to two cores; zero of forty failed in isolation.
+	/// </para>
+	/// <para>
+	/// So the byte loop is parked instead, inside a callback it awaits, while the test queues. The loop
+	/// can only reach a gate at a point with no partial line pending, and everything after it is queued
+	/// before it resumes, so the channel is empty only after the final line terminator.
+	/// </para>
+	/// </remarks>
 	[Test]
 	public async Task ABurstSpanningTheHoldDeadlineNeverMangleAnOrdinaryLine()
 	{
-		// Holds "Prompt> " and lets it arm at the idle byte that follows. The first slice of the
-		// burst is sized to just clear the byte channel's 10,000 bound, so InterpretByteArrayAsync's
-		// own backpressure forces a real write/consume handoff: the write cannot return until the
-		// loop has consumed at least one burst byte, which is what disarms the fix's byte-driven
-		// arm, and the loop has not had the chance to drain the rest, so the channel is still
-		// non-empty. OnTimerElapsed(null) is invoked right there, at a zero hold time so the deadline
-		// is never early -- modelling the pre-fix code reaching its deadline mid-burst, with no sleep
-		// and no margin to flake under load. The rest of the burst follows once that has resolved.
 		const string roomSuffix = "The Great Hall of Dwarves, a long description of the room.";
+		const int burstLines = 100;
 		var lines = new List<string>();
 		var prompts = 0;
+
+		// One gate per point the loop is parked at: the blank line that opens the session, the prompt
+		// the fragment becomes, and the first burst line. The loop awaits each callback, so while one
+		// is parked no byte is read and everything queued meanwhile is waiting in the channel.
+		var parked = new[] { new TaskCompletionSource(), new TaskCompletionSource(), new TaskCompletionSource() };
+		var release = new[] { new TaskCompletionSource(), new TaskCompletionSource(), new TaskCompletionSource() };
+		async ValueTask Park(int gate)
+		{
+			parked[gate].SetResult();
+			await release[gate].Task;
+		}
+
 		var client = await BuildAndWaitAsync(
 			new TelnetInterpreterBuilder()
 				.UseMode(TelnetInterpreter.TelnetMode.Client)
 				.UseLogger(logger)
-				.OnSubmit((data, _, _) => { lines.Add(Encoding.ASCII.GetString(data)); return ValueTask.CompletedTask; })
+				.OnSubmit((data, _, _) =>
+				{
+					var line = Encoding.ASCII.GetString(data);
+					lines.Add(line);
+					return lines.Count switch
+					{
+						1 => Park(0),
+						2 => Park(2),
+						_ => ValueTask.CompletedTask,
+					};
+				})
 				.OnNegotiation(_ => ValueTask.CompletedTask)
 				.AddPlugin<PacketPatchProtocol>()
 				.WithHoldTime(TimeSpan.Zero)
-				.OnPrompt(() => { prompts++; return ValueTask.CompletedTask; }));
+				.OnPrompt(() =>
+				{
+					prompts++;
+					return prompts == 1 ? Park(1) : ValueTask.CompletedTask;
+				}));
 		var plugin = client.PluginManager!.GetPlugin<PacketPatchProtocol>()!;
+		var gateTimeout = TimeSpan.FromSeconds(10);
 
-		await InterpretAndWaitAsync(client, Encoding.ASCII.GetBytes("Prompt> "));
+		string Room(int i) => $"ROOM{i:0000} {roomSuffix}\r\n";
 
-		var burst = new StringBuilder();
-		for (var i = 0; i < 400; i++)
-		{
-			burst.Append($"ROOM{i:0000} {roomSuffix}\r\n");
-		}
+		// A lone newline cannot be split, so the loop reaches the first gate with nothing held.
+		await client.InterpretByteArrayAsync("\n"u8.ToArray());
+		await parked[0].Task.WaitAsync(gateTimeout);
 
-		var burstBytes = Encoding.ASCII.GetBytes(burst.ToString());
-		const int channelBound = 10000;
-		await client.InterpretByteArrayAsync(burstBytes.AsMemory(0, channelBound + 1));
+		// "Prompt> " is wholly queued before the loop resumes, so the channel first empties after its
+		// last byte: that idle byte arms, the zero hold fires, and the fragment becomes the prompt.
+		await client.InterpretByteArrayAsync(Encoding.ASCII.GetBytes("Prompt> "));
+		release[0].SetResult();
+		await parked[1].Task.WaitAsync(gateTimeout);
+
+		// The first burst line, whole. The loop processes it with its bytes already queued -- each one
+		// a non-idle byte, which is what disarms the fix's arm -- and parks in its own submission.
+		await client.InterpretByteArrayAsync(Encoding.ASCII.GetBytes(Room(0)));
+		release[1].SetResult();
+		await parked[2].Task.WaitAsync(gateTimeout);
+
+		// The rest of the burst, well inside the channel's 10,000-byte bound so no write waits on the
+		// parked loop. The deadline is reached with a line half-queued: a sentinel from a surviving
+		// arm would land exactly there, between "…the roo" and "m.".
+		var rest = Encoding.ASCII.GetBytes(string.Concat(Enumerable.Range(1, burstLines - 1).Select(Room)));
+		var cut = 50 * Room(0).Length - "m.\r\n".Length;
+		await client.InterpretByteArrayAsync(rest.AsMemory(0, cut));
 		plugin.OnTimerElapsed(null);
-		await client.InterpretByteArrayAsync(burstBytes.AsMemory(channelBound + 1));
-		await client.WaitForProcessingAsync(maxWaitMs: 10000, additionalDelayMs: 500);
+		await client.InterpretByteArrayAsync(rest.AsMemory(cut));
+		release[2].SetResult();
+		await client.WaitForProcessingAsync(maxWaitMs: 10000, additionalDelayMs: 100);
 
 		bool IsWholeLine(string l) =>
-			l.EndsWith(roomSuffix, StringComparison.Ordinal)
-			&& (l.StartsWith("ROOM", StringComparison.Ordinal) || l.StartsWith("Prompt> ROOM", StringComparison.Ordinal));
+			l.StartsWith("ROOM", StringComparison.Ordinal) && l.EndsWith(roomSuffix, StringComparison.Ordinal);
 
-		var badLines = lines.Where(l => !IsWholeLine(l)).ToList();
-		await Assert.That(badLines).IsEmpty();
-		await Assert.That(lines.Count).IsEqualTo(400);
-		await Assert.That(prompts <= 1).IsTrue();
+		await Assert.That(lines[0]).IsEqualTo("");
+		await Assert.That(lines.Skip(1).Where(l => !IsWholeLine(l)).ToList()).IsEmpty();
+		await Assert.That(lines.Count).IsEqualTo(1 + burstLines);
+		await Assert.That(prompts).IsEqualTo(1);
 
 		await client.DisposeAsync();
 	}
