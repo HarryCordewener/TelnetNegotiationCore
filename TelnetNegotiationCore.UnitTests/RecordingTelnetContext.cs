@@ -43,6 +43,24 @@ public class RecordingTelnetContext : TelnetCoreContext
 
     public List<string> MsspEvents { get; } = [];
 
+    public int TerminalTypeRequests { get; private set; }
+
+    public List<byte[]> TerminalTypeReports { get; } = [];
+
+    public List<byte[]> CharsetRequests { get; } = [];
+
+    public List<byte[]> CharsetAccepted { get; } = [];
+
+    public int CharsetRejections { get; private set; }
+
+    public List<byte[]> CharsetTTables { get; } = [];
+
+    public int CharsetTTableRejections { get; private set; }
+
+    public int CharsetTTableAcks { get; private set; }
+
+    public int CharsetTTableNaks { get; private set; }
+
     public override void Write(ReadOnlySpan<byte> text)
     {
         foreach (var b in text)
@@ -168,6 +186,60 @@ public class RecordingTelnetContext : TelnetCoreContext
     public override ValueTask MsspEndedAsync()
     {
         MsspEvents.Add("ended");
+        return default;
+    }
+
+    public override ValueTask TerminalTypeRequestedAsync()
+    {
+        TerminalTypeRequests++;
+        return default;
+    }
+
+    public override ValueTask TerminalTypeAsync(byte[] text)
+    {
+        TerminalTypeReports.Add(text);
+        return default;
+    }
+
+    public override ValueTask CharsetRequestAsync(byte[] text)
+    {
+        CharsetRequests.Add(text);
+        return default;
+    }
+
+    public override ValueTask CharsetAcceptedAsync(byte[] text)
+    {
+        CharsetAccepted.Add(text);
+        return default;
+    }
+
+    public override ValueTask CharsetRejectedAsync()
+    {
+        CharsetRejections++;
+        return default;
+    }
+
+    public override ValueTask CharsetTTableAsync(byte[] text)
+    {
+        CharsetTTables.Add(text);
+        return default;
+    }
+
+    public override ValueTask CharsetTTableRejectedAsync()
+    {
+        CharsetTTableRejections++;
+        return default;
+    }
+
+    public override ValueTask CharsetTTableAckAsync()
+    {
+        CharsetTTableAcks++;
+        return default;
+    }
+
+    public override ValueTask CharsetTTableNakAsync()
+    {
+        CharsetTTableNaks++;
         return default;
     }
 }
