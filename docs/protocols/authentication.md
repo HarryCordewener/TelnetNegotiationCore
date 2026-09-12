@@ -158,10 +158,18 @@ consumer can make the offer itself instead of configuring a provider; either way
 becomes the one the peer is held to, and a later call replaces an earlier one. An offer that was not
 written — the plugin is not enabled — arms nothing.
 
-Configure no provider and make no call, and there is nothing to enforce: the plugin advertises an
-empty list and already answers `IS NULL`, and the callback keeps seeing whatever arrives. A provider
-that *returns* an empty list is a different thing — that is an advertisement saying you accept
-nothing, so nothing is what reaches the callback.
+Three cases, and they are not the same:
+
+| | What goes out | What reaches `OnAuthenticationResponse` |
+|---|---|---|
+| A provider, or a direct `SendAuthenticationRequestAsync` | that list | only a pair from it |
+| A provider returning an **empty list** | an empty `SEND` | nothing — you advertised that you accept nothing |
+| **No provider and no call** | an empty `SEND` | whatever arrives, as before |
+
+The last row is the one that is not enforcement: with nothing configured there is no advertisement to
+hold the peer to, so the check stays out of the way of a consumer who never asked for it. (`IS NULL`
+is the *client* side's refusal, in `OnAuthenticationRequest`; a server that offers nothing simply
+sends an empty `SEND`.)
 
 ## What the callbacks are handed
 

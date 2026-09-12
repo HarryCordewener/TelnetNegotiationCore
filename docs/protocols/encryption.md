@@ -164,9 +164,11 @@ what this prevents. [Authentication](authentication.md#only-what-you-offered) do
 **Every offer counts, and the latest one wins** — including one made by calling the public
 `SendEncryptionSupportAsync` rather than configuring a provider.
 
-Configure no provider and make no call, and there is nothing to enforce: the plugin advertises an
-empty list and already rejects with NULL. A provider that *returns* an empty list is an
-advertisement saying you accept nothing, and is enforced as such.
+The same three cases as [authentication](authentication.md#only-what-you-offered): a provider or a
+direct `SendEncryptionSupportAsync` arms the check; a provider returning an **empty list** is an
+advertisement saying you accept nothing, so nothing reaches `OnEncryptionRequest`; **no provider and
+no call** leaves the check inactive and the callback sees whatever arrives. Rejecting with `IS NULL`
+is the *client* side's behaviour — a server that offers nothing just sends an empty `SUPPORT`.
 
 ## What the callbacks are handed
 

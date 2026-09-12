@@ -17,9 +17,11 @@ All notable changes to this project will be documented in this file.
     `SendAuthenticationRequestAsync` / `SendEncryptionSupportAsync` arms the check just as a provider
     does, and a later offer replaces an earlier one rather than being measured against it.
   - Configure no provider and make no such call, and nothing changes: with no advertisement to
-    honour there is nothing to enforce, and both plugins already refuse with NULL. A provider that
-    *returns* an empty list is a different thing — an advertisement saying you accept nothing — and
-    is enforced as one.
+    honour there is nothing to enforce, and the callback keeps receiving whatever arrives. A
+    provider that *returns* an empty list is a different thing — an advertisement saying you accept
+    nothing — and is enforced as one.
+  - An offer whose write threw is not recorded, and does not displace the one that did reach the
+    peer.
 
 ### Added
 - **Fluent builder configuration for ENCRYPT and CHARSET's encoding callback.**

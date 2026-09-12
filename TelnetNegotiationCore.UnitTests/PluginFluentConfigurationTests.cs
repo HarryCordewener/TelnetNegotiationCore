@@ -66,7 +66,7 @@ public class PluginFluentConfigurationTests : BaseTest
         // types. Documented as-is on docs/protocols/encryption.md rather than trimmed here, because
         // trimming it would change what every existing consumer's callback is handed.
         await Assert.That(offeredTypes).IsNotNull();
-        await Assert.That(offeredTypes!).IsEquivalentTo(new byte[] { 1, 1, 3 });
+        await AssertByteArraysEqual(offeredTypes!, new byte[] { 1, 1, 3 });
 
         await client.DisposeAsync();
     }
@@ -108,7 +108,7 @@ public class PluginFluentConfigurationTests : BaseTest
         await client.WaitForProcessingAsync();
 
         await Assert.That(offered).IsNotNull();
-        await Assert.That(offered!).IsEquivalentTo(new byte[] { 1, 5, 0, 6, 2 });
+        await AssertByteArraysEqual(offered!, new byte[] { 1, 5, 0, 6, 2 });
 
         await client.DisposeAsync();
     }

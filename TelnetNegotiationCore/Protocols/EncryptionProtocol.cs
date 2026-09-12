@@ -278,7 +278,7 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         => SendEncryptionSupportAsync(encryptionTypes, recordAsOffer: true);
 
     /// <param name="recordAsOffer">
-    /// Whether this list becomes the advertisement the peer's <c>IS</c> is held to. True for every
+    /// Whether this list becomes the advertisement the peer's <c>IS</c> is held to, once it is sent. True for every
     /// deliberate offer; false only for the empty <c>SUPPORT</c> the plugin emits when nothing is
     /// configured, which is a refusal rather than an advertisement.
     /// </param>
@@ -287,12 +287,6 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     {
         if (!IsEnabled)
             return;
-
-        // After the guard: an offer that was never written is not one the peer can answer.
-        if (recordAsOffer)
-        {
-            _offeredEncryptionTypes = [.. encryptionTypes];
-        }
 
         var bytes = new List<byte>
         {
@@ -307,6 +301,12 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         bytes.Add((byte)Trigger.SE);
 
         await Context.SendNegotiationAsync(bytes.ToArray());
+
+        // Only once it is on the wire — see the note on the authentication side.
+        if (recordAsOffer)
+        {
+            _offeredEncryptionTypes = [.. encryptionTypes];
+        }
     }
 
     /// <summary>

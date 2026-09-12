@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -101,7 +102,7 @@ public class OfferedParameterEnforcementTests : BaseTest
         ]);
 
         await Assert.That(received).IsNotNull();
-        await Assert.That(received!).IsEquivalentTo(new byte[] { 0, 5, 0, 0x01, 0x02, 0x03 });
+        await AssertByteArraysEqual(received!, new byte[] { 0, 5, 0, 0x01, 0x02, 0x03 });
 
         await server.DisposeAsync();
     }
@@ -311,7 +312,7 @@ public class OfferedParameterEnforcementTests : BaseTest
         ]);
 
         await Assert.That(received).IsNotNull();
-        await Assert.That(received!).IsEquivalentTo(new byte[] { 0, 3, 0x0A, 0x0B });
+        await AssertByteArraysEqual(received!, new byte[] { 0, 3, 0x0A, 0x0B });
 
         await server.DisposeAsync();
     }
@@ -444,6 +445,58 @@ public class OfferedParameterEnforcementTests : BaseTest
         ]);
 
         await Assert.That(received).IsNull();
+
+        await server.DisposeAsync();
+    }
+    /// <summary>
+    /// An offer whose write threw never reached the peer, so it must not become the list the peer
+    /// is held to. The offer before it did reach the peer, and stays in force: forgetting it would
+    /// refuse the mechanism the peer was legitimately asked for.
+    /// </summary>
+    [Test]
+    public async Task AFailedOfferDoesNotReplaceTheOneThatWasSent()
+    {
+        byte[]? received = null;
+        var failWrites = false;
+
+        var server = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoSubmit)
+            .OnNegotiation(_ => failWrites
+                ? throw new IOException("connection went away mid-write")
+                : ValueTask.CompletedTask)
+            .AddPlugin<AuthenticationProtocol>()
+                .WithAuthenticationTypes(() => new ValueTask<List<(byte AuthType, byte Modifiers)>>(
+                    [((byte)5, (byte)0)]))                                 // SRP, and it goes out
+                .OnAuthenticationResponse(data => { received = data; return ValueTask.CompletedTask; })
+            .BuildAsync();
+
+        await InterpretAndWaitAsync(server,
+            [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.AUTHENTICATION]);
+
+        // A second offer that never makes it onto the wire.
+        failWrites = true;
+        var auth = server.PluginManager!.GetPlugin<AuthenticationProtocol>()!;
+        try
+        {
+            await auth.SendAuthenticationRequestAsync([((byte)2, (byte)0)]);
+        }
+        catch (IOException)
+        {
+            // The caller's problem, and the point of the test: what the plugin remembers afterwards.
+        }
+        failWrites = false;
+
+        // The peer answers the offer it actually received.
+        await InterpretAndWaitAsync(server,
+        [
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.AUTHENTICATION,
+            0, 5, 0, 0x01,
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        ]);
+
+        await Assert.That(received).IsNotNull();
 
         await server.DisposeAsync();
     }

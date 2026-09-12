@@ -258,7 +258,7 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
         => SendAuthenticationRequestAsync(authenticationTypes, recordAsOffer: true);
 
     /// <param name="recordAsOffer">
-    /// Whether this list becomes the advertisement the peer's answer is held to. True for every
+    /// Whether this list becomes the advertisement the peer's answer is held to, once it is sent. True for every
     /// deliberate offer — a caller's own, or one built from a configured provider. False only for
     /// the empty <c>SEND</c> the plugin emits when nothing is configured, which is a refusal rather
     /// than an advertisement and must not arm the check.
@@ -269,12 +269,6 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     {
         if (!IsEnabled)
             return;
-
-        // After the guard: an offer that was never written is not one the peer can answer.
-        if (recordAsOffer)
-        {
-            _offeredAuthenticationTypes = [.. authenticationTypes];
-        }
 
         var bytes = new List<byte>
         {
@@ -294,6 +288,15 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
         bytes.Add((byte)Trigger.SE);
 
         await Context.SendNegotiationAsync(bytes.ToArray());
+
+        // Only once it is on the wire: an offer whose write threw never reached the peer, so it is
+        // not the advertisement the peer's answer is held to. The previous one is left standing
+        // rather than cleared — the peer did receive that, and forgetting it would refuse the
+        // mechanism it was legitimately asked for.
+        if (recordAsOffer)
+        {
+            _offeredAuthenticationTypes = [.. authenticationTypes];
+        }
     }
 
     /// <summary>
