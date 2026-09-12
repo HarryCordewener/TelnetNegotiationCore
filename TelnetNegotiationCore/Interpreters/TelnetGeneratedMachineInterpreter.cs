@@ -44,6 +44,7 @@ public partial class TelnetInterpreter
         [201] = typeof(Protocols.GMCPProtocol),
         [69] = typeof(Protocols.MSDPProtocol),
         [70] = typeof(Protocols.MSSPProtocol),
+        [24] = typeof(Protocols.TerminalTypeProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -125,6 +126,9 @@ public partial class TelnetInterpreter
                         return;
                     case Protocols.MSSPProtocol mssp:
                         await mssp.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.TerminalTypeProtocol ttype:
+                        await ttype.OnPeerNegotiatedAsync(verb, Context());
                         return;
                 }
             }
@@ -272,8 +276,25 @@ public partial class TelnetInterpreter
 
             return default;
         }
-        public override ValueTask TerminalTypeRequestedAsync() => default;
-        public override ValueTask TerminalTypeAsync(byte[] text) => default;
+        public override ValueTask TerminalTypeRequestedAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.TerminalTypeProtocol)) is Protocols.TerminalTypeProtocol ttype)
+            {
+                return ttype.OnRequestedAsync(Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask TerminalTypeAsync(byte[] text)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.TerminalTypeProtocol)) is Protocols.TerminalTypeProtocol ttype)
+            {
+                return ttype.CompleteTerminalTypeFromBytesAsync(text, Context());
+            }
+
+            return default;
+        }
         public override ValueTask NewEnvironStartedAsync(byte command) => default;
         public override ValueTask NewEnvironVarAsync() => default;
         public override ValueTask NewEnvironUserVarAsync() => default;

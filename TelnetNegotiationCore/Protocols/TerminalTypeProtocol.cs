@@ -168,11 +168,7 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontTType)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to Terminal Type");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnDontTerminalTypeAsClientAsync(context));
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.TTYPE, State.AlmostNegotiatingTerminalType);
@@ -251,11 +247,7 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontDoTType)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Terminal Type");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnWontTerminalTypeAsServerAsync(context));
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.TTYPE, State.AlmostNegotiatingTerminalType);
@@ -369,9 +361,16 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
         _ttypeIndex++;
     }
 
-    private async ValueTask CompleteTerminalTypeAsServerAsync(IProtocolContext context)
+    private ValueTask CompleteTerminalTypeAsServerAsync(IProtocolContext context)
     {
-        var TType = Encoding.ASCII.GetString(_ttypeByteState, 0, _ttypeIndex);
+        var bytes = new byte[_ttypeIndex];
+        Array.Copy(_ttypeByteState, bytes, _ttypeIndex);
+        return CompleteTerminalTypeFromBytesAsync(bytes, context);
+    }
+
+    internal async ValueTask CompleteTerminalTypeFromBytesAsync(byte[] bytes, IProtocolContext context)
+    {
+        var TType = Encoding.ASCII.GetString(bytes);
         if (_terminalTypes.Contains(TType))
         {
             _currentTerminalType = (_currentTerminalType + 1) % _terminalTypes.Count;
@@ -415,6 +414,41 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
         context.Logger.LogDebug("Connection: {ConnectionState}", "Telling the other party, to do Terminal Type.");
         await context.SendNegotiationAsync(s_doTtype);
     }
+
+    private ValueTask OnDontTerminalTypeAsClientAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to Terminal Type");
+        return OnNegotiatedAsync(false);
+    }
+
+    private ValueTask OnWontTerminalTypeAsServerAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Terminal Type");
+        return OnNegotiatedAsync(false);
+    }
+
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        var client = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client;
+        switch (verb)
+        {
+            case (byte)Trigger.DO when client:
+                await WillDoTerminalTypeAsync(context);
+                break;
+            case (byte)Trigger.DONT when client:
+                await OnDontTerminalTypeAsClientAsync(context);
+                break;
+            case (byte)Trigger.WILL when !client:
+                await RequestTerminalTypeAsync(context);
+                break;
+            case (byte)Trigger.WONT when !client:
+                await OnWontTerminalTypeAsServerAsync(context);
+                break;
+        }
+    }
+
+    /// <summary>The peer asked for the next terminal type in our list (RFC 1091's SEND).</summary>
+    internal ValueTask OnRequestedAsync(IProtocolContext context) => ReportNextAvailableTerminalTypeAsync(context);
 
     private async ValueTask ReportNextAvailableTerminalTypeAsync(IProtocolContext context)
     {
