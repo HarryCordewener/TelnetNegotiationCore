@@ -49,6 +49,8 @@ public partial class TelnetInterpreter
         [39] = typeof(Protocols.NewEnvironProtocol),
         [36] = typeof(Protocols.EnvironProtocol),
         [91] = typeof(Protocols.MXPProtocol),
+        [86] = typeof(Protocols.MCCPProtocol),
+        [87] = typeof(Protocols.MCCPProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -145,6 +147,9 @@ public partial class TelnetInterpreter
                         return;
                     case Protocols.MXPProtocol mxp:
                         await mxp.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.MCCPProtocol mccp:
+                        await mccp.OnPeerNegotiatedAsync(verb, option, Context());
                         return;
                 }
             }
@@ -428,9 +433,35 @@ public partial class TelnetInterpreter
 
             return default;
         }
-        public override ValueTask Mccp2MarkerAsync() => default;
-        public override ValueTask Mccp3MarkerAsync() => default;
-        public override ValueTask Mccp1MarkerAsync() => default;
+        public override ValueTask Mccp2MarkerAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.MCCPProtocol)) is Protocols.MCCPProtocol mccp)
+            {
+                return mccp.OnMccp2MarkerAsync(Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask Mccp3MarkerAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.MCCPProtocol)) is Protocols.MCCPProtocol mccp)
+            {
+                return mccp.OnMccp3MarkerAsync(Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask Mccp1MarkerAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.MCCPProtocol)) is Protocols.MCCPProtocol mccp)
+            {
+                return mccp.OnMccp1MarkerAsync(Context());
+            }
+
+            return default;
+        }
         public override ValueTask EnvironStartedAsync(byte command)
         {
             if (owner.PluginManager?.GetPlugin(typeof(Protocols.EnvironProtocol)) is Protocols.EnvironProtocol environ)

@@ -131,13 +131,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.DoMCCP3)
                 .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    context.Logger.LogDebug(
-                        "Client will use MCCP3 - awaiting IAC SB MCCP3 IAC SE before inflating");
-                    _mccp3Negotiated = true;
-                    await ReportAggregateNegotiationAsync();
-                });
+                .OnEntryAsync(async () => await OnDoMCCP3Async(context));
 
             stateMachine.Configure(State.DontMCCP3)
                 .SubstateOf(State.Accepting)
@@ -451,6 +445,88 @@ public class MCCPProtocol : TelnetProtocolPluginBase
         _mccp2Negotiated = false;
         await ReportAggregateNegotiationAsync();
         await StopCompressionAsync(context, version: 2, inbound: false);
+    }
+
+    private async ValueTask OnDoMCCP3Async(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Client will use MCCP3 - awaiting IAC SB MCCP3 IAC SE before inflating");
+        _mccp3Negotiated = true;
+        await ReportAggregateNegotiationAsync();
+    }
+
+    /// <summary>
+    /// MCCP2 and MCCP3 are two option numbers on one protocol class, each mode-gated the opposite way
+    /// -- a server only ever configured DO/DONT for either, a client only ever configured WILL/WONT --
+    /// so both the option and the verb decide which of the eight original handlers this is.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, byte option, IProtocolContext context)
+    {
+        var server = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+
+        if (option == (byte)Trigger.MCCP2)
+        {
+            if (server)
+            {
+                switch (verb)
+                {
+                    case (byte)Trigger.DO: await OnDoMCCP2Async(context); break;
+                    case (byte)Trigger.DONT: await OnDontMCCP2Async(context); break;
+                }
+            }
+            else
+            {
+                switch (verb)
+                {
+                    case (byte)Trigger.WILL: await OnWillMCCP2Async(context); break;
+                    case (byte)Trigger.WONT: await OnWontMCCP2Async(context); break;
+                }
+            }
+        }
+        else if (option == (byte)Trigger.MCCP3)
+        {
+            if (server)
+            {
+                switch (verb)
+                {
+                    case (byte)Trigger.DO: await OnDoMCCP3Async(context); break;
+                    case (byte)Trigger.DONT: await OnDontMCCP3Async(context); break;
+                }
+            }
+            else
+            {
+                switch (verb)
+                {
+                    case (byte)Trigger.WILL: await OnWillMCCP3Async(context); break;
+                    case (byte)Trigger.WONT: await OnWontMCCP3Async(context); break;
+                }
+            }
+        }
+    }
+
+    /// <summary>MCCP2's marker only ever started an inflater on a client -- a server never configured
+    /// a route to it at all, so it is a no-op there rather than an assumption about what it means.</summary>
+    internal ValueTask OnMccp2MarkerAsync(IProtocolContext context) =>
+        context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+            ? default
+            : StartInflatingAsync(context, version: 2);
+
+    /// <summary>MCCP3's marker only ever started an inflater on a server -- the mirror of MCCP2's.</summary>
+    internal ValueTask OnMccp3MarkerAsync(IProtocolContext context) =>
+        context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+            ? StartInflatingAsync(context, version: 3)
+            : default;
+
+    /// <summary>MCCP1's marker starts the same server-to-client stream MCCP2's does, but only a
+    /// client ever inflates it; a server only ever configured itself to consume and ignore it.</summary>
+    internal ValueTask OnMccp1MarkerAsync(IProtocolContext context)
+    {
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            context.Logger.LogDebug("MCCP1: ignoring a start marker from a peer that cannot compress with it");
+            return default;
+        }
+
+        return StartInflatingAsync(context, version: 1);
     }
 
     private async ValueTask OnDontMCCP3Async(IProtocolContext context)
