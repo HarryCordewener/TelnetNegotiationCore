@@ -47,6 +47,7 @@ public partial class TelnetInterpreter
         [24] = typeof(Protocols.TerminalTypeProtocol),
         [42] = typeof(Protocols.CharsetProtocol),
         [39] = typeof(Protocols.NewEnvironProtocol),
+        [36] = typeof(Protocols.EnvironProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -137,6 +138,9 @@ public partial class TelnetInterpreter
                         return;
                     case Protocols.NewEnvironProtocol newEnviron:
                         await newEnviron.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.EnvironProtocol environ:
+                        await environ.OnPeerNegotiatedAsync(verb, Context());
                         return;
                 }
             }
@@ -415,11 +419,55 @@ public partial class TelnetInterpreter
         public override ValueTask Mccp2MarkerAsync() => default;
         public override ValueTask Mccp3MarkerAsync() => default;
         public override ValueTask Mccp1MarkerAsync() => default;
-        public override ValueTask EnvironStartedAsync(byte command) => default;
-        public override ValueTask EnvironVarAsync() => default;
-        public override ValueTask EnvironValueAsync() => default;
-        public override ValueTask EnvironDataAsync(ReadOnlyMemory<byte> data) => default;
-        public override ValueTask EnvironEndedAsync() => default;
+        public override ValueTask EnvironStartedAsync(byte command)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EnvironProtocol)) is Protocols.EnvironProtocol environ)
+            {
+                return environ.OnEnvironStartedAsync(command, Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask EnvironVarAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EnvironProtocol)) is Protocols.EnvironProtocol environ)
+            {
+                return environ.OnEnvironVarMarkerAsync(Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask EnvironValueAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EnvironProtocol)) is Protocols.EnvironProtocol environ)
+            {
+                return environ.OnEnvironValueMarkerAsync(Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask EnvironDataAsync(ReadOnlyMemory<byte> data)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EnvironProtocol)) is Protocols.EnvironProtocol environ)
+            {
+                return environ.OnEnvironDataAsync(data, Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask EnvironEndedAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EnvironProtocol)) is Protocols.EnvironProtocol environ)
+            {
+                return environ.OnEnvironEndedAsync(Context());
+            }
+
+            return default;
+        }
         public override ValueTask TerminalSpeedRequestedAsync()
         {
             if (owner.PluginManager?.GetPlugin(typeof(Protocols.TerminalSpeedProtocol)) is Protocols.TerminalSpeedProtocol tspeed)
