@@ -61,6 +61,10 @@ public class RecordingTelnetContext : TelnetCoreContext
 
     public int CharsetTTableNaks { get; private set; }
 
+    public List<string> NewEnvironEvents { get; } = [];
+
+    public List<string> EnvironEvents { get; } = [];
+
     public override void Write(ReadOnlySpan<byte> text)
     {
         foreach (var b in text)
@@ -240,6 +244,72 @@ public class RecordingTelnetContext : TelnetCoreContext
     public override ValueTask CharsetTTableNakAsync()
     {
         CharsetTTableNaks++;
+        return default;
+    }
+
+    public override ValueTask NewEnvironStartedAsync(byte command)
+    {
+        NewEnvironEvents.Add($"started {command}");
+        return default;
+    }
+
+    public override ValueTask NewEnvironVarAsync()
+    {
+        NewEnvironEvents.Add("VAR");
+        return default;
+    }
+
+    public override ValueTask NewEnvironUserVarAsync()
+    {
+        NewEnvironEvents.Add("USERVAR");
+        return default;
+    }
+
+    public override ValueTask NewEnvironValueAsync()
+    {
+        NewEnvironEvents.Add("VALUE");
+        return default;
+    }
+
+    public override ValueTask NewEnvironDataAsync(ReadOnlyMemory<byte> data)
+    {
+        NewEnvironEvents.Add(Encoding.ASCII.GetString(data.Span));
+        return default;
+    }
+
+    public override ValueTask NewEnvironEndedAsync()
+    {
+        NewEnvironEvents.Add("ended");
+        return default;
+    }
+
+    public override ValueTask EnvironStartedAsync(byte command)
+    {
+        EnvironEvents.Add($"started {command}");
+        return default;
+    }
+
+    public override ValueTask EnvironVarAsync()
+    {
+        EnvironEvents.Add("VAR");
+        return default;
+    }
+
+    public override ValueTask EnvironValueAsync()
+    {
+        EnvironEvents.Add("VALUE");
+        return default;
+    }
+
+    public override ValueTask EnvironDataAsync(ReadOnlyMemory<byte> data)
+    {
+        EnvironEvents.Add(Encoding.ASCII.GetString(data.Span));
+        return default;
+    }
+
+    public override ValueTask EnvironEndedAsync()
+    {
+        EnvironEvents.Add("ended");
         return default;
     }
 }
