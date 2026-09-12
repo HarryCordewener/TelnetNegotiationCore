@@ -23,6 +23,14 @@ public struct LineModeValue : IState<SubNegotiation>
 
     /// <summary>An IAC has been read; the next byte says whether this ends the subnegotiation.</summary>
     public bool Escaping;
+
+    /// <summary>
+    /// True once the peer has sent more than <see cref="LineModeModule.MaxDataBytes"/> bytes. A MODE
+    /// byte, a forward mask or an SLC triple set is at most a few dozen bytes even for an elaborate
+    /// configuration, so this is far above any legitimate value and exists only to bound a peer that
+    /// never sends IAC SE.
+    /// </summary>
+    public bool Overflowed;
 }
 
 public abstract partial class TelnetCoreContext
@@ -41,11 +49,19 @@ public static class LineModeModule
     private const byte Slc = 3;
     private const byte Option = 34;
 
+    /// <summary>See <see cref="LineModeValue.Overflowed"/>.</summary>
+    public const int MaxDataBytes = 8192;
+
     [Transition(From = typeof(ReadingOption), To = typeof(LineMode)), On(Option)]
     public static void Begin(ref SubNegotiation parent) => parent.Option = Option;
 
-    /// <summary>Anything but MODE, FORWARDMASK or SLC here is malformed; ignored rather than left unhandled.</summary>
-    [Transition(From = typeof(LineMode)), OnAny]
+    /// <summary>
+    /// Anything but MODE, FORWARDMASK or SLC here is malformed. Discarded through the core's own IAC-SE
+    /// skipper rather than left as a self-loop with no way out: a self-loop from this state has no
+    /// reachable IAC/SE transition of its own, so a bad sub-command byte would otherwise wedge the
+    /// connection for its entire remaining lifetime, not just this subnegotiation.
+    /// </summary>
+    [Transition(From = typeof(LineMode), To = typeof(SubNegotiating)), OnAny]
     public static void IgnoreMalformed()
     {
     }
@@ -63,7 +79,18 @@ public static class LineModeModule
     public static void Capture(ref LineModeValue self, System.ReadOnlySpan<byte> run)
     {
         self.Escaping = false;
+        if (self.Overflowed)
+        {
+            return;
+        }
+
         self.Data ??= [];
+        if (self.Data.Count + run.Length > MaxDataBytes)
+        {
+            self.Overflowed = true;
+            return;
+        }
+
         self.Data.AddRange(run.ToArray());
     }
 
@@ -73,7 +100,18 @@ public static class LineModeModule
         if (self.Escaping)
         {
             self.Escaping = false;
+            if (self.Overflowed)
+            {
+                return;
+            }
+
             self.Data ??= [];
+            if (self.Data.Count + 1 > MaxDataBytes)
+            {
+                self.Overflowed = true;
+                return;
+            }
+
             self.Data.Add(IAC);
             return;
         }
@@ -91,6 +129,6 @@ public static class LineModeModule
         }
 
         public static ValueTask CompletedAsync(TelnetCoreContext context, in LineModeValue from) =>
-            context.LineModeAsync(from.Kind, from.Data?.ToArray() ?? []);
+            from.Overflowed ? default : context.LineModeAsync(from.Kind, from.Data?.ToArray() ?? []);
     }
 }

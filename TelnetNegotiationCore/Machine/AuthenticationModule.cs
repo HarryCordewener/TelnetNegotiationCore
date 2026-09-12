@@ -20,6 +20,13 @@ public struct AuthenticationValue : IState<SubNegotiation>
     public bool IsReport;
 
     public List<byte>? Data;
+
+    /// <summary>
+    /// True once the peer has sent more than <see cref="AuthenticationModule.MaxDataBytes"/> bytes. An
+    /// auth type list or a credential is at most a few hundred bytes even for exotic mechanisms, so this
+    /// is far above any legitimate value and exists only to bound a peer that never sends IAC SE.
+    /// </summary>
+    public bool Overflowed;
 }
 
 /// <summary>
@@ -31,6 +38,8 @@ public struct AuthenticationEnding : IState<SubNegotiation>
     public bool IsReport;
 
     public List<byte>? Data;
+
+    public bool Overflowed;
 }
 
 public abstract partial class TelnetCoreContext
@@ -51,11 +60,19 @@ public static class AuthenticationModule
     private const byte Send = 1;
     private const byte Option = 37;
 
+    /// <summary>See <see cref="AuthenticationValue.Overflowed"/>.</summary>
+    public const int MaxDataBytes = 8192;
+
     [Transition(From = typeof(ReadingOption), To = typeof(Authentication)), On(Option)]
     public static void Begin(ref SubNegotiation parent) => parent.Option = Option;
 
-    /// <summary>Anything but SEND or IS here is malformed; ignored rather than left unhandled.</summary>
-    [Transition(From = typeof(Authentication)), OnAny]
+    /// <summary>
+    /// Anything but SEND or IS here is malformed. Discarded through the core's own IAC-SE skipper rather
+    /// than left as a self-loop with no way out: a self-loop from this state has no reachable IAC/SE
+    /// transition of its own, so a genuinely malformed command byte would otherwise wedge the connection
+    /// for its entire remaining lifetime, not just this subnegotiation.
+    /// </summary>
+    [Transition(From = typeof(Authentication), To = typeof(SubNegotiating)), OnAny]
     public static void IgnoreMalformed()
     {
     }
@@ -69,7 +86,18 @@ public static class AuthenticationModule
     [Transition(From = typeof(AuthenticationValue)), OnAny, Run]
     public static void Capture(ref AuthenticationValue self, System.ReadOnlySpan<byte> run)
     {
+        if (self.Overflowed)
+        {
+            return;
+        }
+
         self.Data ??= [];
+        if (self.Data.Count + run.Length > MaxDataBytes)
+        {
+            self.Overflowed = true;
+            return;
+        }
+
         self.Data.AddRange(run.ToArray());
     }
 
@@ -78,6 +106,7 @@ public static class AuthenticationModule
     {
         to.IsReport = from.IsReport;
         to.Data = from.Data;
+        to.Overflowed = from.Overflowed;
     }
 
     /// <summary>Anything but SE here is malformed; ignored rather than left unhandled.</summary>
@@ -95,6 +124,11 @@ public static class AuthenticationModule
 
         public static ValueTask CompletedAsync(TelnetCoreContext context, in AuthenticationEnding from)
         {
+            if (from.Overflowed)
+            {
+                return default;
+            }
+
             var data = from.Data?.ToArray() ?? [];
             return from.IsReport ? context.AuthenticationIsAsync(data) : context.AuthenticationSendAsync(data);
         }

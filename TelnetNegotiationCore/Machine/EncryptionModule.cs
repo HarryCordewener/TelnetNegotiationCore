@@ -23,6 +23,14 @@ public struct EncryptionValue : IState<SubNegotiation>
     public bool IsReport;
 
     public List<byte>? Data;
+
+    /// <summary>
+    /// True once the peer has sent more than <see cref="EncryptionModule.MaxDataBytes"/> bytes. An
+    /// encryption type list or its initialization data is at most a few hundred bytes even for exotic
+    /// mechanisms, so this is far above any legitimate value and exists only to bound a peer that never
+    /// sends IAC SE.
+    /// </summary>
+    public bool Overflowed;
 }
 
 /// <summary>
@@ -34,12 +42,17 @@ public struct EncryptionEnding : IState<SubNegotiation>
     public bool IsReport;
 
     public List<byte>? Data;
+
+    public bool Overflowed;
 }
 
 /// <summary>Reading the keyid bytes that follow START.</summary>
 public struct EncryptionStart : IState<SubNegotiation>
 {
     public List<byte>? Data;
+
+    /// <summary>See <see cref="EncryptionValue.Overflowed"/>; the keyid is bounded the same way.</summary>
+    public bool Overflowed;
 }
 
 /// <summary>
@@ -50,6 +63,8 @@ public struct EncryptionStart : IState<SubNegotiation>
 public struct EncryptionStartEnding : IState<SubNegotiation>
 {
     public List<byte>? Data;
+
+    public bool Overflowed;
 }
 
 /// <summary>
@@ -88,11 +103,19 @@ public static class EncryptionModule
     private const byte End = 4;
     private const byte Option = 38;
 
+    /// <summary>See <see cref="EncryptionValue.Overflowed"/>.</summary>
+    public const int MaxDataBytes = 8192;
+
     [Transition(From = typeof(ReadingOption), To = typeof(Encryption)), On(Option)]
     public static void Begin(ref SubNegotiation parent) => parent.Option = Option;
 
-    /// <summary>Anything but SEND, IS, START or END here is malformed; ignored rather than left unhandled.</summary>
-    [Transition(From = typeof(Encryption)), OnAny]
+    /// <summary>
+    /// Anything but SEND, IS, START or END here is malformed. Discarded through the core's own IAC-SE
+    /// skipper rather than left as a self-loop with no way out: a self-loop from this state has no
+    /// reachable IAC/SE transition of its own, so a bad command byte would otherwise wedge the connection
+    /// for its entire remaining lifetime, not just this subnegotiation.
+    /// </summary>
+    [Transition(From = typeof(Encryption), To = typeof(SubNegotiating)), OnAny]
     public static void IgnoreMalformed()
     {
     }
@@ -106,7 +129,18 @@ public static class EncryptionModule
     [Transition(From = typeof(EncryptionValue)), OnAny, Run]
     public static void Capture(ref EncryptionValue self, System.ReadOnlySpan<byte> run)
     {
+        if (self.Overflowed)
+        {
+            return;
+        }
+
         self.Data ??= [];
+        if (self.Data.Count + run.Length > MaxDataBytes)
+        {
+            self.Overflowed = true;
+            return;
+        }
+
         self.Data.AddRange(run.ToArray());
     }
 
@@ -115,6 +149,7 @@ public static class EncryptionModule
     {
         to.IsReport = from.IsReport;
         to.Data = from.Data;
+        to.Overflowed = from.Overflowed;
     }
 
     /// <summary>Anything but SE here is malformed; ignored rather than left unhandled.</summary>
@@ -132,6 +167,11 @@ public static class EncryptionModule
 
         public static ValueTask CompletedAsync(TelnetCoreContext context, in EncryptionEnding from)
         {
+            if (from.Overflowed)
+            {
+                return default;
+            }
+
             var data = from.Data?.ToArray() ?? [];
             return from.IsReport ? context.EncryptionIsAsync(data) : context.EncryptionSendAsync(data);
         }
@@ -145,12 +185,27 @@ public static class EncryptionModule
     [Transition(From = typeof(EncryptionStart)), OnAny, Run]
     public static void CaptureStart(ref EncryptionStart self, System.ReadOnlySpan<byte> run)
     {
+        if (self.Overflowed)
+        {
+            return;
+        }
+
         self.Data ??= [];
+        if (self.Data.Count + run.Length > MaxDataBytes)
+        {
+            self.Overflowed = true;
+            return;
+        }
+
         self.Data.AddRange(run.ToArray());
     }
 
     [Transition(From = typeof(EncryptionStart), To = typeof(EncryptionStartEnding)), On(IAC)]
-    public static void MarkStart(in EncryptionStart from, ref EncryptionStartEnding to) => to.Data = from.Data;
+    public static void MarkStart(in EncryptionStart from, ref EncryptionStartEnding to)
+    {
+        to.Data = from.Data;
+        to.Overflowed = from.Overflowed;
+    }
 
     /// <summary>Anything but SE here is malformed; ignored rather than left unhandled.</summary>
     [Transition(From = typeof(EncryptionStartEnding)), OnAny]
@@ -166,7 +221,7 @@ public static class EncryptionModule
         }
 
         public static ValueTask CompletedAsync(TelnetCoreContext context, in EncryptionStartEnding from) =>
-            context.EncryptionStartAsync(from.Data?.ToArray() ?? []);
+            from.Overflowed ? default : context.EncryptionStartAsync(from.Data?.ToArray() ?? []);
     }
 
     [Transition(From = typeof(Encryption), To = typeof(EncryptionEnd)), On(End)]

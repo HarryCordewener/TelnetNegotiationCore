@@ -33,11 +33,13 @@ public static class MxpModule
     [Transition(From = typeof(Mxp)), On(IAC)]
     public static void Mark(ref Mxp self) => self.Escaping = true;
 
-    /// <summary>Nothing else belongs in this marker; ignored rather than left unhandled.</summary>
+    /// <summary>
+    /// Nothing else belongs in this marker. Must clear <see cref="Mxp.Escaping"/>, not just self-loop:
+    /// otherwise a stray byte between a genuine IAC and an unrelated later SE would still satisfy
+    /// <see cref="Ended"/>'s guard and start MXP mode without an adjacent IAC SE.
+    /// </summary>
     [Transition(From = typeof(Mxp)), OnAny]
-    public static void IgnoreMalformed()
-    {
-    }
+    public static void IgnoreMalformed(ref Mxp self) => self.Escaping = false;
 
     [Transition(From = typeof(Mxp), To = typeof(Idle)), On(SE)]
     public static class Ended

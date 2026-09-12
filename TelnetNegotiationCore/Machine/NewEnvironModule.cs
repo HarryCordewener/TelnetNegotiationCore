@@ -92,8 +92,13 @@ public static class NewEnvironModule
         public static ValueTask CompletedAsync(TelnetCoreContext context) => context.NewEnvironStartedAsync(Info);
     }
 
-    /// <summary>Anything but IS, SEND or INFO here is malformed; ignored rather than left unhandled.</summary>
-    [Transition(From = typeof(NewEnviron)), OnAny]
+    /// <summary>
+    /// Anything but IS, SEND or INFO here is malformed. Discarded through the core's own IAC-SE skipper
+    /// rather than left as a self-loop with no way out: a self-loop from this state has no reachable
+    /// IAC/SE transition of its own, so a bad command byte would otherwise wedge the connection for its
+    /// entire remaining lifetime, not just this subnegotiation.
+    /// </summary>
+    [Transition(From = typeof(NewEnviron), To = typeof(SubNegotiating)), OnAny]
     public static void IgnoreMalformed()
     {
     }

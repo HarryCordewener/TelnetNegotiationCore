@@ -53,8 +53,13 @@ public static class TerminalSpeedModule
     {
     }
 
-    /// <summary>Anything but SEND or IS here is malformed; ignored rather than left unhandled.</summary>
-    [Transition(From = typeof(Tspeed)), OnAny]
+    /// <summary>
+    /// Anything but SEND or IS here is malformed. Discarded through the core's own IAC-SE skipper rather
+    /// than left as a self-loop with no way out: a self-loop from this state has no reachable IAC/SE
+    /// transition of its own, so a bad command byte would otherwise wedge the connection for its entire
+    /// remaining lifetime, not just this subnegotiation.
+    /// </summary>
+    [Transition(From = typeof(Tspeed), To = typeof(SubNegotiating)), OnAny]
     public static void IgnoreMalformed()
     {
     }

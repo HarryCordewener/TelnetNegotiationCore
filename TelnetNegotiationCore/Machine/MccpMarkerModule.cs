@@ -58,10 +58,13 @@ public static class MccpMarkerModule
     [Transition(From = typeof(Mccp2)), On(IAC)]
     public static void MarkMccp2(ref Mccp2 self) => self.Escaping = true;
 
+    /// <summary>
+    /// Anything but SE here is malformed. Must clear <see cref="Mccp2.Escaping"/>, not just self-loop:
+    /// otherwise a stray byte between a genuine IAC and an unrelated later SE would still satisfy
+    /// <see cref="Mccp2Ended"/>'s guard and start inflation at the wrong stream position.
+    /// </summary>
     [Transition(From = typeof(Mccp2)), OnAny]
-    public static void IgnoreMalformedMccp2()
-    {
-    }
+    public static void IgnoreMalformedMccp2(ref Mccp2 self) => self.Escaping = false;
 
     [Transition(From = typeof(Mccp2), To = typeof(Idle)), On(SE)]
     public static class Mccp2Ended
@@ -81,10 +84,13 @@ public static class MccpMarkerModule
     [Transition(From = typeof(Mccp3)), On(IAC)]
     public static void MarkMccp3(ref Mccp3 self) => self.Escaping = true;
 
+    /// <summary>
+    /// Anything but SE here is malformed. Must clear <see cref="Mccp3.Escaping"/>, not just self-loop:
+    /// otherwise a stray byte between a genuine IAC and an unrelated later SE would still satisfy
+    /// <see cref="Mccp3Ended"/>'s guard and start inflation at the wrong stream position.
+    /// </summary>
     [Transition(From = typeof(Mccp3)), OnAny]
-    public static void IgnoreMalformedMccp3()
-    {
-    }
+    public static void IgnoreMalformedMccp3(ref Mccp3 self) => self.Escaping = false;
 
     [Transition(From = typeof(Mccp3), To = typeof(Idle)), On(SE)]
     public static class Mccp3Ended
@@ -106,7 +112,13 @@ public static class MccpMarkerModule
     {
     }
 
-    [Transition(From = typeof(Mccp1)), OnAny]
+    /// <summary>
+    /// Anything but WILL here is malformed. Discarded through the core's own IAC-SE skipper rather than
+    /// left as a self-loop with no way out: <see cref="Mccp1"/> has no reachable IAC/SE transition of its
+    /// own, so a stray byte here would otherwise wedge the connection for its entire remaining lifetime,
+    /// not just this subnegotiation.
+    /// </summary>
+    [Transition(From = typeof(Mccp1), To = typeof(SubNegotiating)), OnAny]
     public static void IgnoreMalformedMccp1()
     {
     }
@@ -121,8 +133,13 @@ public static class MccpMarkerModule
         public static ValueTask CompletedAsync(TelnetCoreContext context) => context.Mccp1MarkerAsync();
     }
 
-    /// <summary>Anything but SE here means this was not the marker after all; ignored rather than left unhandled.</summary>
-    [Transition(From = typeof(Mccp1AfterWill)), OnAny]
+    /// <summary>
+    /// Anything but SE here means this was not the marker after all. Re-arms back to <see cref="Mccp1"/>
+    /// rather than self-looping in <see cref="Mccp1AfterWill"/>: a self-loop would let a later, unrelated
+    /// SE still complete the marker even though a stray byte came between it and the WILL that preceded
+    /// it, the same class of bug as MCCP2/MCCP3's guard.
+    /// </summary>
+    [Transition(From = typeof(Mccp1AfterWill), To = typeof(Mccp1)), OnAny]
     public static void IgnoreMalformedMccp1AfterWill()
     {
     }

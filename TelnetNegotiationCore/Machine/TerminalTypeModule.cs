@@ -24,6 +24,13 @@ public struct TerminalTypeValue : IState<SubNegotiation>
     public List<byte>? Text;
 
     public bool Escaping;
+
+    /// <summary>
+    /// True once the peer has sent more than <see cref="TerminalTypeModule.MaxTextBytes"/> bytes. A
+    /// terminal type name is a handful of ASCII characters at most (RFC 1091's own examples, and MTTS's),
+    /// so this is far above any legitimate value and exists only to bound a peer that never sends IAC SE.
+    /// </summary>
+    public bool Overflowed;
 }
 
 public abstract partial class TelnetCoreContext
@@ -44,6 +51,9 @@ public static class TerminalTypeModule
     private const byte SendCommand = 1;
     private const byte Option = 24;
 
+    /// <summary>See <see cref="TerminalTypeValue.Overflowed"/>.</summary>
+    public const int MaxTextBytes = 8192;
+
     [Transition(From = typeof(ReadingOption), To = typeof(TerminalType)), On(Option)]
     public static void Begin(ref SubNegotiation parent) => parent.Option = Option;
 
@@ -52,8 +62,13 @@ public static class TerminalTypeModule
     {
     }
 
-    /// <summary>Anything but SEND or IS here is malformed; ignored rather than left unhandled.</summary>
-    [Transition(From = typeof(TerminalType)), OnAny]
+    /// <summary>
+    /// Anything but SEND or IS here is malformed. Discarded through the core's own IAC-SE skipper rather
+    /// than left as a self-loop with no way out: a self-loop from this state has no reachable IAC/SE
+    /// transition of its own, so a bad command byte would otherwise wedge the connection for its entire
+    /// remaining lifetime, not just this subnegotiation.
+    /// </summary>
+    [Transition(From = typeof(TerminalType), To = typeof(SubNegotiating)), OnAny]
     public static void IgnoreMalformed()
     {
     }
@@ -61,11 +76,13 @@ public static class TerminalTypeModule
     [Transition(From = typeof(TerminalTypeSend)), On(IAC)]
     public static void MarkSend(ref TerminalTypeSend self) => self.Escaping = true;
 
-    /// <summary>Anything but IAC here is malformed; ignored rather than left unhandled.</summary>
+    /// <summary>
+    /// Anything but IAC here is malformed. Must clear <see cref="TerminalTypeSend.Escaping"/>, not just
+    /// self-loop: otherwise a stray byte between a genuine IAC and an unrelated later SE would still
+    /// satisfy <see cref="RequestedEnded"/>'s guard and report a request without an adjacent IAC SE.
+    /// </summary>
     [Transition(From = typeof(TerminalTypeSend)), OnAny]
-    public static void IgnoreMalformedSend()
-    {
-    }
+    public static void IgnoreMalformedSend(ref TerminalTypeSend self) => self.Escaping = false;
 
     [Transition(From = typeof(TerminalTypeSend), To = typeof(Idle)), On(SE)]
     public static class RequestedEnded
@@ -88,7 +105,18 @@ public static class TerminalTypeModule
     public static void Capture(ref TerminalTypeValue self, System.ReadOnlySpan<byte> run)
     {
         self.Escaping = false;
+        if (self.Overflowed)
+        {
+            return;
+        }
+
         self.Text ??= [];
+        if (self.Text.Count + run.Length > MaxTextBytes)
+        {
+            self.Overflowed = true;
+            return;
+        }
+
         self.Text.AddRange(run.ToArray());
     }
 
@@ -98,7 +126,18 @@ public static class TerminalTypeModule
         if (self.Escaping)
         {
             self.Escaping = false;
+            if (self.Overflowed)
+            {
+                return;
+            }
+
             self.Text ??= [];
+            if (self.Text.Count + 1 > MaxTextBytes)
+            {
+                self.Overflowed = true;
+                return;
+            }
+
             self.Text.Add(IAC);
             return;
         }
@@ -116,6 +155,6 @@ public static class TerminalTypeModule
         }
 
         public static ValueTask CompletedAsync(TelnetCoreContext context, in TerminalTypeValue from) =>
-            context.TerminalTypeAsync(from.Text?.ToArray() ?? []);
+            from.Overflowed ? default : context.TerminalTypeAsync(from.Text?.ToArray() ?? []);
     }
 }

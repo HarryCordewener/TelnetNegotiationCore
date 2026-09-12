@@ -92,8 +92,13 @@ public static class CharsetModule
     [Transition(From = typeof(ReadingOption), To = typeof(Charset)), On(Option)]
     public static void Begin(ref SubNegotiation parent) => parent.Option = Option;
 
-    /// <summary>Anything but one of the seven sub-commands is malformed; ignored rather than left unhandled.</summary>
-    [Transition(From = typeof(Charset)), OnAny]
+    /// <summary>
+    /// Anything but one of the seven sub-commands is malformed. Discarded through the core's own IAC-SE
+    /// skipper rather than left as a self-loop with no way out: a self-loop from this state has no
+    /// reachable IAC/SE transition of its own, so a bad sub-command byte would otherwise wedge the
+    /// connection for its entire remaining lifetime, not just this subnegotiation.
+    /// </summary>
+    [Transition(From = typeof(Charset), To = typeof(SubNegotiating)), OnAny]
     public static void IgnoreMalformed()
     {
     }
@@ -198,11 +203,14 @@ public static class CharsetModule
     [Transition(From = typeof(CharsetEnding)), On(IAC)]
     public static void MarkEnding(ref CharsetEnding self) => self.Escaping = true;
 
-    /// <summary>Anything but IAC here is malformed; ignored rather than left unhandled.</summary>
+    /// <summary>
+    /// Anything but IAC here is malformed. Must clear <see cref="CharsetEnding.Escaping"/>, not just
+    /// self-loop: otherwise a stray byte between a genuine IAC and an unrelated later SE would still
+    /// satisfy <see cref="Ended"/>'s guard and complete with the wrong <see cref="CharsetEnding.Kind"/>
+    /// pairing -- the same class of bug MCCP2/MCCP3's guard has.
+    /// </summary>
     [Transition(From = typeof(CharsetEnding)), OnAny]
-    public static void IgnoreMalformedEnding()
-    {
-    }
+    public static void IgnoreMalformedEnding(ref CharsetEnding self) => self.Escaping = false;
 
     [Transition(From = typeof(CharsetEnding), To = typeof(Idle)), On(SE)]
     public static class Ended
