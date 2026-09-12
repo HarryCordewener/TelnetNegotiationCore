@@ -434,9 +434,9 @@ public class TelnetInterpreterBuilder
             context.SetSharedState(Models.ClientIdentity.SharedStateKey, _clientIdentity);
         }
 
-        // Configure state machines for all plugins BEFORE initialization
-        // This matches the existing pattern where Setup* methods configure the state machine
-        _pluginManager.ConfigureStateMachines(interpreter.TelnetStateMachine, context);
+        // Run each plugin's ConfigureStateMachine hook BEFORE initialization, so any cross-cutting
+        // setup it registers (e.g. a server's initial negotiation offer) is in place first.
+        _pluginManager.ConfigureStateMachines(context);
 
         // Apply safety configuration AFTER protocol configuration
         // This ensures safety catches only apply to truly unhandled triggers

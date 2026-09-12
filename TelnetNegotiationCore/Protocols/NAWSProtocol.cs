@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -137,7 +136,7 @@ public class NAWSProtocol : TelnetProtocolPluginBase
     /// only to register the initial negotiation, a cross-cutting mechanism independent of which
     /// machine drives byte processing.
     /// </remarks>
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
         // RFC 1073: NAWS describes the CLIENT's window. The client offers it with WILL NAWS and
         // the server enables it with DO NAWS. Only then may the client send SB NAWS. Previously

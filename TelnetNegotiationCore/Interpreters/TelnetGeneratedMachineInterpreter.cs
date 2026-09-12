@@ -8,25 +8,21 @@ using TelnetNegotiationCore.Plugins;
 namespace TelnetNegotiationCore.Interpreters;
 
 /// <summary>
-/// The seam the migration design calls for: the generated machine, switched on behind a flag, running
-/// alongside the Stateless one rather than instead of it. <see cref="UseGeneratedMachine"/> defaults to
-/// false, so nothing here changes any existing behaviour unless a caller opts in.
+/// The StateAlchemist-generated machine that now drives every protocol's negotiation and subnegotiation.
+/// <see cref="UseGeneratedMachine"/> defaults to true; the Stateless machine and the flag itself are a
+/// migration-era seam kept only until the last of it is deleted.
 /// </summary>
 /// <remarks>
-/// <c>ConfigureStateMachine</c> still runs for every plugin either way — it is also where a plugin registers
-/// its initial negotiation and its shared state, which have nothing to do with which machine reads bytes off
-/// the wire. Only <see cref="FireByteAsync"/> decides that, and only for the connections this is turned on for.
-/// <para>
-/// This is a first slice, proven end to end against the interpreter's own tests rather than the sample
-/// harness: the core framing and NAWS. Every other option this library structurally parses is still routed
-/// through <see cref="GeneratedContext"/>'s parser, correctly, but negotiation <em>acceptance</em> for those
-/// is not yet wired to their real logic, so <see cref="GeneratedContext.NegotiateAsync"/> refuses them by
-/// number rather than silently doing nothing — the same answer an unregistered plugin gets today.
-/// </para>
+/// <c>ConfigureStateMachine</c> still runs for every plugin either way -- it is also where a plugin
+/// registers its initial negotiation offer, which has nothing to do with which machine reads bytes off
+/// the wire. Only <see cref="FireByteAsync"/> decides that.
 /// </remarks>
 public partial class TelnetInterpreter
 {
-    /// <summary>Drive the generated machine instead of <see cref="TelnetStateMachine"/>. Off by default.</summary>
+    /// <summary>
+    /// Drive the generated machine instead of <see cref="TelnetStateMachine"/>. Defaults to false on
+    /// this property, but <see cref="Builders.TelnetInterpreterBuilder"/> always sets it true.
+    /// </summary>
     internal bool UseGeneratedMachine { get; init; }
 
     private TelnetCoreMachine? _generatedMachine;

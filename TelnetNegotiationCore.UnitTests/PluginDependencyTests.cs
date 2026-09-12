@@ -7,7 +7,6 @@ using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Plugins;
 using System.Text;
 using System.Collections.Generic;
-using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.UnitTests;
 
@@ -26,11 +25,6 @@ public class PluginDependencyTests : BaseTest
         public override string ProtocolName => "Test Plugin With Dependency";
         public override IReadOnlyCollection<Type> Dependencies => new[] { typeof(Protocols.GMCPProtocol) };
 
-        public override void ConfigureStateMachine(Stateless.StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-        {
-            // No-op for test
-        }
-
         protected override ValueTask OnInitializeAsync() => ValueTask.CompletedTask;
         protected override ValueTask OnProtocolEnabledAsync() => ValueTask.CompletedTask;
         protected override ValueTask OnProtocolDisabledAsync() => ValueTask.CompletedTask;
@@ -46,11 +40,6 @@ public class PluginDependencyTests : BaseTest
         public override string ProtocolName => "Test Plugin Circular A";
         public override IReadOnlyCollection<Type> Dependencies => new[] { typeof(TestPluginCircularB) };
 
-        public override void ConfigureStateMachine(Stateless.StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-        {
-            // No-op for test
-        }
-
         protected override ValueTask OnInitializeAsync() => ValueTask.CompletedTask;
         protected override ValueTask OnProtocolEnabledAsync() => ValueTask.CompletedTask;
         protected override ValueTask OnProtocolDisabledAsync() => ValueTask.CompletedTask;
@@ -62,11 +51,6 @@ public class PluginDependencyTests : BaseTest
         public override Type ProtocolType => typeof(TestPluginCircularB);
         public override string ProtocolName => "Test Plugin Circular B";
         public override IReadOnlyCollection<Type> Dependencies => new[] { typeof(TestPluginCircularA) };
-
-        public override void ConfigureStateMachine(Stateless.StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-        {
-            // No-op for test
-        }
 
         protected override ValueTask OnInitializeAsync() => ValueTask.CompletedTask;
         protected override ValueTask OnProtocolEnabledAsync() => ValueTask.CompletedTask;

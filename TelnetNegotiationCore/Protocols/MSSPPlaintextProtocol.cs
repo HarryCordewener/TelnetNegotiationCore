@@ -6,7 +6,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -159,7 +158,7 @@ public class MSSPPlaintextProtocol : TelnetProtocolPluginBase
 	/// assembled-line path instead, which is what lets it consume its own lines rather than handing
 	/// them to the host application as if a user had typed them.
 	/// </remarks>
-	public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+	public override void ConfigureStateMachine(IProtocolContext context)
 	{
 		context.Logger.LogInformation("Configuring plaintext MSSP");
 		context.Interpreter.RegisterInputLineObserver(async (line, encoding) =>

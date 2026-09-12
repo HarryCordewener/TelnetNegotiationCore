@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
-using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
 namespace TelnetNegotiationCore.UnitTests;
@@ -29,10 +28,6 @@ public class ByteStreamTransformTests : BaseTest
 		public override string ProtocolName => "Seam Probe";
 
 		public IProtocolContext ProbeContext => Context;
-
-		public override void ConfigureStateMachine(Stateless.StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-		{
-		}
 	}
 
 	/// <summary>

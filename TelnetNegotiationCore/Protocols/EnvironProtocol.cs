@@ -5,7 +5,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -90,7 +89,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     /// survives only to register the server's initial offer, a cross-cutting mechanism independent
     /// of which machine drives byte processing.
     /// </remarks>
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {

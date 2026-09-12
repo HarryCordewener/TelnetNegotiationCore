@@ -126,11 +126,11 @@ public class ProtocolPluginManager
     }
 
     /// <summary>
-    /// Configures all plugin state machines in dependency order.
+    /// Runs each plugin's <see cref="TelnetProtocolPluginBase.ConfigureStateMachine"/> hook, in
+    /// dependency order, before any plugin is initialized.
     /// </summary>
-    /// <param name="stateMachine">The state machine to configure</param>
     /// <param name="context">The protocol context</param>
-    public void ConfigureStateMachines(Stateless.StateMachine<Models.State, Models.Trigger> stateMachine, IProtocolContext context)
+    public void ConfigureStateMachines(IProtocolContext context)
     {
         _logger.LogInformation("Configuring state machines for {PluginCount} plugins", _plugins.Count);
 
@@ -144,10 +144,8 @@ public class ProtocolPluginManager
         {
             _logger.LogDebug("Configuring state machine for: {PluginName}", plugin.ProtocolName);
 
-            // ConfigureStateMachine is a migration-era hook on the base class, not the interface: a
-            // plugin still on the Stateless path overrides it, one wired to the generated machine
-            // does not, and every real plugin extends TelnetProtocolPluginBase.
-            (plugin as TelnetProtocolPluginBase)?.ConfigureStateMachine(stateMachine, context);
+            // Every real plugin extends TelnetProtocolPluginBase, which is where this hook lives.
+            (plugin as TelnetProtocolPluginBase)?.ConfigureStateMachine(context);
         }
     }
 

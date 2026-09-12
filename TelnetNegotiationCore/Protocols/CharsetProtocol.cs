@@ -4,7 +4,6 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Helpers;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -163,7 +162,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     /// supported-character-set list <see cref="OnDoCharsetAsync"/> sends, resolved once regardless of
     /// which machine drives byte processing, and the server's initial offer.
     /// </remarks>
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
         _supportedCharacterSets = new Lazy<byte[]>(CharacterSets);
 

@@ -42,12 +42,13 @@ public abstract class TelnetProtocolPluginBase : ITelnetProtocolPlugin, IAsyncDi
     }
 
     /// <summary>
-    /// Configures the Stateless state machine for this protocol. A migration-era hook, not part of
-    /// <see cref="ITelnetProtocolPlugin"/> any more: overridden only by a plugin still on the
-    /// Stateless path, empty (and never called) for one wired to the generated machine. Deleted
-    /// along with the last override once every protocol has moved off Stateless.
+    /// Runs once per plugin, before any plugin is initialized, to register cross-cutting setup that
+    /// does not depend on which machine drives byte processing -- most commonly a server's initial
+    /// negotiation offer via <see cref="IProtocolContext.RegisterInitialNegotiation"/>. No longer
+    /// part of <see cref="ITelnetProtocolPlugin"/>: a leftover from when this method also wired a
+    /// protocol's Stateless state machine, empty by default for a plugin with nothing to register here.
     /// </summary>
-    public virtual void ConfigureStateMachine(Stateless.StateMachine<Models.State, Models.Trigger> stateMachine, IProtocolContext context)
+    public virtual void ConfigureStateMachine(IProtocolContext context)
     {
     }
 

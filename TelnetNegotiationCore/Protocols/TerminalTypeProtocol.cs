@@ -6,7 +6,6 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -133,7 +132,7 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     /// independent of which machine drives byte processing), and resolving the client's own terminal
     /// type list once, before any negotiation happens at all.
     /// </remarks>
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
