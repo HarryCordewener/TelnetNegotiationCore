@@ -86,13 +86,9 @@ public class MyProtocol : TelnetProtocolPluginBase
 }
 ```
 
-### TNCP004: ConfigureStateMachine should configure state transitions
+### TNCP004: Removed
 
-**Severity:** Info
-
-**Description:** Detects `ConfigureStateMachine` methods that are empty or only contain logging statements, suggesting incomplete plugin integration.
-
-**Current Detections:** Identifies 8 protocols with incomplete implementations (CharsetProtocol, EORProtocol, GMCPProtocol, MSDPProtocol, MSSPProtocol, NAWSProtocol, SuppressGoAheadProtocol, TerminalTypeProtocol)
+Detected `ConfigureStateMachine` methods that were empty or only contained logging statements, back when that method wired a protocol's Stateless state machine and an empty-or-logging-only body meant an incomplete migration. Every protocol has since moved off Stateless, so the method no longer configures a state machine at all -- an empty or logging-only body is now the normal case, not a signal of anything incomplete. Removed rather than repurposed.
 
 ### TNCP005: Plugin must have parameterless constructor (NEW)
 
@@ -184,7 +180,7 @@ public class MyProtocol : TelnetProtocolPluginBase
 | TNCP001 | Error | ProtocolType must return declaring type |
 | TNCP002 | Error | No circular dependencies |
 | TNCP003 | Error | Dependencies must implement ITelnetProtocolPlugin |
-| TNCP004 | Info | ConfigureStateMachine should not be empty |
+| TNCP004 | -- | Removed (was: ConfigureStateMachine should not be empty) |
 | TNCP005 | Warning | Plugin must have parameterless constructor |
 | TNCP006 | Info | Documents required method calls |
 

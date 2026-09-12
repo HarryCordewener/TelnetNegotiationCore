@@ -13,3 +13,11 @@ TNCP003 | TelnetPlugin | Error | PluginDependencyValidationAnalyzer
 TNCP004 | TelnetPlugin | Info | ConfigureStateMachineAnalyzer
 TNCP005 | TelnetPlugin | Warning | PluginConstructorAnalyzer
 TNCP006 | TelnetNegotiationCore.PluginArchitecture | Info | PluginRequiredMethodAnalyzer
+
+## Release 1.1
+
+### Removed Rules
+
+Rule ID | Category | Severity | Notes
+--------|----------|----------|-------
+TNCP004 | TelnetPlugin | Info | ConfigureStateMachineAnalyzer -- every protocol has moved off Stateless, so ConfigureStateMachine is no longer a state machine wiring point and an empty-or-logging-only body no longer signals an incomplete migration.
