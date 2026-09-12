@@ -84,165 +84,18 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     public override IReadOnlyCollection<Type> Dependencies => Array.Empty<Type>();
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Negotiation acceptance and the subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and the <c>OnEnviron*</c> event methods); this hook
+    /// survives only to register the server's initial offer, a cross-cutting mechanism independent
+    /// of which machine drives byte processing.
+    /// </remarks>
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring ENVIRON state machine");
-        
-        // Register ENVIRON protocol handlers with the context
-        context.SetSharedState("Environ_Protocol", this);
-
-        // Configure state machine transitions for ENVIRON protocol
-        stateMachine.Configure(State.Willing)
-            .Permit(Trigger.ENVIRON, State.WillENVIRON);
-
-        stateMachine.Configure(State.Refusing)
-            .Permit(Trigger.ENVIRON, State.WontENVIRON);
-
-        stateMachine.Configure(State.Do)
-            .Permit(Trigger.ENVIRON, State.DoENVIRON);
-
-        stateMachine.Configure(State.Dont)
-            .Permit(Trigger.ENVIRON, State.DontENVIRON);
-
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            ConfigureAsServer(stateMachine, context);
+            context.RegisterInitialNegotiation(async () => await WillingEnvironAsync(context));
         }
-        else
-        {
-            ConfigureAsClient(stateMachine, context);
-        }
-    }
-
-    private void ConfigureAsServer(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Server handles DO/DONT from client (client asking server to do ENVIRON)
-        stateMachine.Configure(State.DoENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await OnDoEnvironAsync(x, context));
-
-        stateMachine.Configure(State.DontENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnDontEnvironAsync(context));
-
-        // Server also handles WILL/WONT from client (client announcing ability to do ENVIRON)
-        stateMachine.Configure(State.WillENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await OnWillEnvironAsync(x, context));
-
-        stateMachine.Configure(State.WontENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnWontEnvironAsync(context));
-
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.ENVIRON, State.AlmostNegotiatingENVIRON);
-
-        stateMachine.Configure(State.AlmostNegotiatingENVIRON)
-            .Permit(Trigger.IS, State.NegotiatingENVIRON)
-            .OnEntry(() =>
-            {
-                _currentVar.Clear();
-                _currentValue.Clear();
-                _collectingVar = false;
-                _collectingValue = false;
-            });
-
-        stateMachine.Configure(State.NegotiatingENVIRON)
-            .Permit(Trigger.NEWENVIRON_VAR, State.EvaluatingENVIRONVar)
-            .Permit(Trigger.IAC, State.CompletingENVIRON)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.IS), CaptureCommandType);
-
-        stateMachine.Configure(State.EvaluatingENVIRONVar)
-            .PermitReentry(Trigger.NEWENVIRON_VAR)
-            .Permit(Trigger.NEWENVIRON_VALUE, State.EvaluatingENVIRONValue)
-            .Permit(Trigger.IAC, State.EscapingENVIRONVar)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_VAR), StartNewVar);
-
-        stateMachine.Configure(State.EscapingENVIRONVar)
-            .Permit(Trigger.IAC, State.EvaluatingENVIRONVar)
-            .Permit(Trigger.SE, State.CompletingENVIRON);
-
-        stateMachine.Configure(State.EvaluatingENVIRONValue)
-            .Permit(Trigger.NEWENVIRON_VAR, State.EvaluatingENVIRONVar)
-            .Permit(Trigger.IAC, State.EscapingENVIRONValue)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_VALUE), StartNewValue);
-
-        stateMachine.Configure(State.EscapingENVIRONValue)
-            .Permit(Trigger.IAC, State.EvaluatingENVIRONValue)
-            .Permit(Trigger.SE, State.CompletingENVIRON);
-
-        TriggerHelper.ForAllTriggersExcept([Trigger.NEWENVIRON_VAR, Trigger.NEWENVIRON_VALUE, Trigger.IAC],
-            t => stateMachine.Configure(State.EvaluatingENVIRONVar).OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), CaptureVarByte));
-
-        TriggerHelper.ForAllTriggersExcept([Trigger.NEWENVIRON_VAR, Trigger.NEWENVIRON_VALUE, Trigger.IAC],
-            t => stateMachine.Configure(State.EvaluatingENVIRONValue).OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), CaptureValueByte));
-
-        TriggerHelper.ForAllTriggersExcept([Trigger.NEWENVIRON_VAR, Trigger.NEWENVIRON_VALUE, Trigger.IAC],
-            t => stateMachine.Configure(State.EvaluatingENVIRONVar).PermitReentry(t));
-
-        TriggerHelper.ForAllTriggersExcept([Trigger.NEWENVIRON_VAR, Trigger.NEWENVIRON_VALUE, Trigger.IAC],
-            t => stateMachine.Configure(State.EvaluatingENVIRONValue).PermitReentry(t));
-
-        stateMachine.Configure(State.CompletingENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await CompleteEnvironAsync(x, context));
-
-        context.RegisterInitialNegotiation(async () => await WillingEnvironAsync(context));
-    }
-
-    private void ConfigureAsClient(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Client handles WILL/WONT from server (server announcing ability to do ENVIRON)
-        stateMachine.Configure(State.WillENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await OnWillEnvironAsync(x, context));
-
-        stateMachine.Configure(State.WontENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnWontEnvironAsync(context));
-
-        // Client also handles DO/DONT from server (server asking client to do ENVIRON)
-        stateMachine.Configure(State.DoENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await OnDoEnvironAsync(x, context));
-
-        stateMachine.Configure(State.DontENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnDontEnvironAsync(context));
-
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.ENVIRON, State.AlmostNegotiatingENVIRON);
-
-        stateMachine.Configure(State.AlmostNegotiatingENVIRON)
-            .Permit(Trigger.SEND, State.NegotiatingENVIRON)
-            .OnEntry(() =>
-            {
-                _currentVar.Clear();
-                _currentValue.Clear();
-                _requestedVariables.Clear();
-                _collectingVar = false;
-                _collectingValue = false;
-            });
-
-        stateMachine.Configure(State.NegotiatingENVIRON)
-            .Permit(Trigger.NEWENVIRON_VAR, State.EvaluatingENVIRONVar)
-            .Permit(Trigger.IAC, State.CompletingENVIRON)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.SEND), CaptureCommandType);
-
-        stateMachine.Configure(State.EvaluatingENVIRONVar)
-            .PermitReentry(Trigger.NEWENVIRON_VAR)
-            .Permit(Trigger.IAC, State.CompletingENVIRON)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_VAR), StartRequestedVar);
-
-        TriggerHelper.ForAllTriggersExcept([Trigger.NEWENVIRON_VAR, Trigger.IAC],
-            t => stateMachine.Configure(State.EvaluatingENVIRONVar).OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), CaptureVarByte));
-
-        TriggerHelper.ForAllTriggersExcept([Trigger.NEWENVIRON_VAR, Trigger.IAC],
-            t => stateMachine.Configure(State.EvaluatingENVIRONVar).PermitReentry(t));
-
-        stateMachine.Configure(State.CompletingENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await SendEnvironmentVariablesAsync(x, context));
     }
 
     /// <inheritdoc />
@@ -287,12 +140,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
-    private void CaptureCommandType(ByteOrTrigger b)
-    {
-        if (b is byte value) _commandType = value;
-    }
-
-    private void StartNewVar(ByteOrTrigger _)
+    private void StartNewVar()
     {
         SaveCurrentVariable();
         _collectingVar = true;
@@ -300,14 +148,14 @@ public class EnvironProtocol : TelnetProtocolPluginBase
         _currentVar.Clear();
     }
 
-    private void StartNewValue(ByteOrTrigger _)
+    private void StartNewValue()
     {
         _collectingVar = false;
         _collectingValue = true;
         _currentValue.Clear();
     }
 
-    private void StartRequestedVar(ByteOrTrigger _)
+    private void StartRequestedVar()
     {
         FlushRequestedVariable();
         _collectingVar = true;
@@ -329,22 +177,6 @@ public class EnvironProtocol : TelnetProtocolPluginBase
         _requestedVariables.Add(_currentVar.Count > 0 ? Encoding.ASCII.GetString(_currentVar.ToArray()) : null);
         _currentVar.Clear();
         _collectingVar = false;
-    }
-
-    private void CaptureVarByte(ByteOrTrigger b)
-    {
-        if (_collectingVar && b is byte value)
-        {
-            _currentVar.Add(value);
-        }
-    }
-
-    private void CaptureValueByte(ByteOrTrigger b)
-    {
-        if (_collectingValue && b is byte value)
-        {
-            _currentValue.Add(value);
-        }
     }
 
     private void SaveCurrentVariable()
@@ -387,20 +219,20 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>WILL and DO are each answered the same way regardless of which side receives them --
-    /// unlike NEW-ENVIRON's WILL, ENVIRON's config wires both ConfigureAsServer and ConfigureAsClient
-    /// to the exact same handler for each.</summary>
+    /// unlike NEW-ENVIRON's WILL, ENVIRON's original Stateless configuration wired both server and
+    /// client modes to the exact same handler for each.</summary>
     internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
     {
         switch (verb)
         {
             case (byte)Trigger.WILL:
-                await OnWillEnvironAsync(null!, context);
+                await OnWillEnvironAsync(context);
                 break;
             case (byte)Trigger.WONT:
                 await OnWontEnvironAsync(context);
                 break;
             case (byte)Trigger.DO:
-                await OnDoEnvironAsync(null!, context);
+                await OnDoEnvironAsync(context);
                 break;
             case (byte)Trigger.DONT:
                 await OnDontEnvironAsync(context);
@@ -431,11 +263,11 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     {
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            StartNewVar(default);
+            StartNewVar();
         }
         else
         {
-            StartRequestedVar(default);
+            StartRequestedVar();
         }
 
         return default;
@@ -447,7 +279,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
     {
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            StartNewValue(default);
+            StartNewValue();
         }
 
         return default;
@@ -478,7 +310,7 @@ public class EnvironProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_willEnviron);
     }
 
-    private async ValueTask OnDoEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask OnDoEnvironAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client will do ENVIRON. Requesting environment variables...");
         await OnNegotiatedAsync(true);
@@ -495,15 +327,12 @@ public class EnvironProtocol : TelnetProtocolPluginBase
         });
     }
 
-    private async ValueTask OnWillEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask OnWillEnvironAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server will do ENVIRON");
         await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doEnviron);
     }
-
-    private ValueTask CompleteEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context) =>
-        CompleteEnvironFromServerAsync(context);
 
     internal async ValueTask CompleteEnvironFromServerAsync(IProtocolContext context)
     {
@@ -517,9 +346,6 @@ public class EnvironProtocol : TelnetProtocolPluginBase
             await _onEnvironmentVariables(_environmentVariables);
         }
     }
-
-    private ValueTask SendEnvironmentVariablesAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context) =>
-        SendEnvironmentVariablesFromClientAsync(context);
 
     internal async ValueTask SendEnvironmentVariablesFromClientAsync(IProtocolContext context)
     {
