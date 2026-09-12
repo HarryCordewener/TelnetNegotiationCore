@@ -52,6 +52,7 @@ public partial class TelnetInterpreter
         [86] = typeof(Protocols.MCCPProtocol),
         [87] = typeof(Protocols.MCCPProtocol),
         [34] = typeof(Protocols.LineModeProtocol),
+        [37] = typeof(Protocols.AuthenticationProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -154,6 +155,9 @@ public partial class TelnetInterpreter
                         return;
                     case Protocols.LineModeProtocol lineMode:
                         await lineMode.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.AuthenticationProtocol authentication:
+                        await authentication.OnPeerNegotiatedAsync(verb, Context());
                         return;
                 }
             }
@@ -317,8 +321,39 @@ public partial class TelnetInterpreter
         public override ValueTask CharsetTTableRejectedAsync() => default;
         public override ValueTask CharsetTTableAckAsync() => default;
         public override ValueTask CharsetTTableNakAsync() => default;
-        public override ValueTask AuthenticationSendAsync(byte[] data) => default;
-        public override ValueTask AuthenticationIsAsync(byte[] data) => default;
+        // The module hands over the bytes after the IS/SEND discriminator; the plugin's own
+        // Stateless-era capture included that discriminator as the callback data's first byte (the
+        // byte value doubling as both the Stateless trigger that entered the capturing state and the
+        // first trigger OnEntryFrom captured into it) -- AuthenticationTests.cs locks that shape in
+        // (e.g. ServerCanReceiveAndProcessAuthenticationResponse expects data[0] to be the IS command),
+        // so it is restored here rather than changed out from under existing consumers.
+        public override ValueTask AuthenticationSendAsync(byte[] data)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.AuthenticationProtocol)) is Protocols.AuthenticationProtocol authentication)
+            {
+                return authentication.RespondToAuthenticationSendFromBytesAsync(PrependAuthCommand(1, data), Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask AuthenticationIsAsync(byte[] data)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.AuthenticationProtocol)) is Protocols.AuthenticationProtocol authentication)
+            {
+                return authentication.ProcessAuthenticationResponseFromBytesAsync(PrependAuthCommand(0, data), Context());
+            }
+
+            return default;
+        }
+
+        private static byte[] PrependAuthCommand(byte command, byte[] data)
+        {
+            var withCommand = new byte[data.Length + 1];
+            withCommand[0] = command;
+            Array.Copy(data, 0, withCommand, 1, data.Length);
+            return withCommand;
+        }
         public override ValueTask MxpStartedAsync()
         {
             if (owner.PluginManager?.GetPlugin(typeof(Protocols.MXPProtocol)) is Protocols.MXPProtocol mxp)

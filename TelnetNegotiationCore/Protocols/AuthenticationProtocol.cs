@@ -400,11 +400,7 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontAuthentication)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Client won't authenticate");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnWontAuthenticateAsync(context));
 
         // Server handles IS subnegotiation (authentication response from client)
         stateMachine.Configure(State.SubNegotiation)
@@ -455,11 +451,7 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontAuthentication)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Server doesn't want authentication");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnDontAuthenticateAsync(context));
 
         // Client handles SEND subnegotiation
         stateMachine.Configure(State.SubNegotiation)
@@ -560,40 +552,80 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
         });
     }
 
-    private async ValueTask SendAuthenticationNullResponseAsync(IProtocolContext context)
+    private ValueTask SendAuthenticationNullResponseAsync(IProtocolContext context) =>
+        RespondToAuthenticationSendFromBytesAsync(_authRequestData.ToArray(), context);
+
+    internal async ValueTask RespondToAuthenticationSendFromBytesAsync(byte[] data, IProtocolContext context)
     {
         context.Logger.LogDebug("Processing authentication request");
-        
+
         byte[]? responseData = null;
-        
+
         // If callback is provided, let it handle the authentication
         if (_onAuthenticationRequest != null)
         {
-            responseData = await _onAuthenticationRequest(_authRequestData.ToArray());
+            responseData = await _onAuthenticationRequest(data);
         }
-        
+
         // If no response data or callback not set, send NULL rejection
         if (responseData == null)
         {
             context.Logger.LogDebug("Sending IS NULL response - rejecting all authentication types");
             responseData = new byte[] { AUTH_NULL, AUTH_NO_MODIFIERS };
         }
-        
+
         await SendAuthenticationResponseAsync(responseData);
     }
 
-    private async ValueTask ProcessAuthenticationResponseAsync(IProtocolContext context)
+    private ValueTask ProcessAuthenticationResponseAsync(IProtocolContext context) =>
+        ProcessAuthenticationResponseFromBytesAsync(_authRequestData.ToArray(), context);
+
+    internal async ValueTask ProcessAuthenticationResponseFromBytesAsync(byte[] data, IProtocolContext context)
     {
         context.Logger.LogDebug("Processing authentication response from client");
-        
+
         // Invoke callback if provided
         if (_onAuthenticationResponse != null)
         {
-            await _onAuthenticationResponse(_authRequestData.ToArray());
+            await _onAuthenticationResponse(data);
         }
         else
         {
             context.Logger.LogDebug("No authentication response handler configured - authentication data ignored");
+        }
+    }
+
+    private ValueTask OnWontAuthenticateAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Client won't authenticate");
+        return OnNegotiatedAsync(false);
+    }
+
+    private ValueTask OnDontAuthenticateAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Server doesn't want authentication");
+        return OnNegotiatedAsync(false);
+    }
+
+    /// <summary>A server only ever configured WILL/WONT for this option, a client only ever
+    /// configured DO/DONT -- the verb the other role never wired is a no-op here too.</summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        var server = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+        switch (verb)
+        {
+            case (byte)Trigger.WILL when server:
+                await OnClientWillAuthenticateAsync(context);
+                break;
+            case (byte)Trigger.WONT when server:
+                await OnWontAuthenticateAsync(context);
+                break;
+            case (byte)Trigger.DO when !server:
+                await OnServerRequestsAuthenticationAsync(context);
+                break;
+            case (byte)Trigger.DONT when !server:
+                await OnDontAuthenticateAsync(context);
+                break;
         }
     }
 
