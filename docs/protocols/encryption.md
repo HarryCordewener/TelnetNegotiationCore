@@ -22,7 +22,8 @@ var telnet = await new TelnetInterpreterBuilder()
 Servers can provide custom encryption by specifying supported encryption types and handling client initialization:
 
 ```csharp
-// One list, offered to the peer and then used to check what it picked.
+// What this side will accept. The plugin sends it as the SUPPORT and then holds the peer to it, so
+// the callback below is only ever reached for one of these types.
 var offered = new List<byte>
 {
     1,  // DES_CFB64
@@ -40,17 +41,14 @@ var telnet = await new TelnetInterpreterBuilder()
         // Handle client encryption initialization
         .OnEncryptionRequest(async (encData) =>
         {
-            // The subnegotiation body exactly as it arrived, command byte first — and from an
-            // untrusted peer, so check the length before indexing it.
+            // The subnegotiation body exactly as it arrived, command byte first. The type is
+            // already known to be one of the two above — see "Only what you offered" below —
+            // but the body still comes from a peer, so do not index it unchecked.
             if (encData.Length < 2) return;
 
             var command = encData[0];                 // 0 = IS
             var encType = encData[1];
             var initData = encData.Skip(2).ToArray();
-
-            // The peer names the algorithm; check it against the list you offered before you
-            // initialise anything with it. The library carries the message and nothing more.
-            if (!offered.Contains(encType)) return;
             
             logger.LogInformation("Received encryption type {Type} with {Bytes} bytes of init data", 
                 encType, initData.Length);
@@ -155,6 +153,16 @@ await encPlugin!.SendEncryptionRequestStartAsync(new byte[] { 0 }); // Optional 
 // Either side (DO side): Request encryption end
 await encPlugin!.SendEncryptionRequestEndAsync();
 ```
+
+## Only what you offered
+
+**When `WithEncryptionTypes` is configured, an `IS` naming a type you did not offer never reaches
+`OnEncryptionRequest`** — it is logged at `Warning` and dropped. That callback is where a consumer
+initialises decryption, and initialising it for an algorithm this side never advertised is exactly
+what this prevents. [Authentication](authentication.md#only-what-you-offered) does the same.
+
+Configure no types and there is nothing to enforce: the plugin advertises an empty list and already
+rejects with NULL.
 
 ## What the callbacks are handed
 
