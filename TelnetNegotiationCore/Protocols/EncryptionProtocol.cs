@@ -124,9 +124,6 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     private Func<ValueTask<List<byte>>>? _encryptionTypesProvider;
     private Func<byte[], ValueTask>? _onEncryptionStart;
     private Func<ValueTask>? _onEncryptionEnd;
-    
-    // State for capturing encryption data during subnegotiation
-    private List<byte> _encryptionData = new();
     private bool _isEncrypting = false;
 
     /// <inheritdoc />
@@ -448,121 +445,19 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Negotiation acceptance and the subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and <see cref="ProcessEncryptionSupportFromBytesAsync"/>/
+    /// <see cref="ProcessEncryptionIsFromBytesAsync"/>); this hook survives only to register the
+    /// server's initial offer, a cross-cutting mechanism independent of which machine drives byte
+    /// processing.
+    /// </remarks>
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring Encryption state machine");
-        
-        // Register Encryption protocol handlers with the context
-        context.SetSharedState("Encryption_Protocol", this);
-        
-        // Configure state machine transitions for Encryption protocol
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            ConfigureAsServer(stateMachine, context);
+            context.RegisterInitialNegotiation(async () => await SendDoEncryptAsync(context));
         }
-        else
-        {
-            ConfigureAsClient(stateMachine, context);
-        }
-    }
-
-    private void ConfigureAsServer(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Server side: Receives WILL ENCRYPT from client
-        stateMachine.Configure(State.Willing)
-            .Permit(Trigger.ENCRYPT, State.WillEncryption);
-
-        stateMachine.Configure(State.Refusing)
-            .Permit(Trigger.ENCRYPT, State.WontEncryption);
-
-        stateMachine.Configure(State.WillEncryption)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnClientWillEncryptAsync(context));
-
-        stateMachine.Configure(State.WontEncryption)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnWontEncryptAsync(context));
-
-        // Server handles IS subnegotiation (encryption initialization from client)
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.ENCRYPT, State.AlmostNegotiatingEncryption);
-
-        stateMachine.Configure(State.AlmostNegotiatingEncryption)
-            .Permit(Trigger.IS, State.NegotiatingEncryptionIs)
-            .OnEntry(() =>
-            {
-                context.Logger.LogDebug("Receiving encryption IS from client");
-                _encryptionData = new List<byte>();
-            });
-
-        // Handle the IS command - capture all encryption data until IAC
-        stateMachine.Configure(State.NegotiatingEncryptionIs)
-            .Permit(Trigger.IAC, State.CompletingEncryptionNegotiation);
-        
-        // Capture all other triggers as encryption data
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.NegotiatingEncryptionIs)
-                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (ByteOrTrigger b) => { if (b is byte value) _encryptionData.Add(value); })
-                .PermitReentry(t));
-
-        stateMachine.Configure(State.CompletingEncryptionNegotiation)
-            .Permit(Trigger.SE, State.ProcessingEncryptionIs)
-            .OnEntry(() => context.Logger.LogDebug("Received end of IS subnegotiation"));
-
-        stateMachine.Configure(State.ProcessingEncryptionIs)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await ProcessEncryptionIsAsync(context));
-
-        // Server initiates encryption negotiation
-        context.RegisterInitialNegotiation(async () => await SendDoEncryptAsync(context));
-    }
-
-    private void ConfigureAsClient(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Client side: Receives DO ENCRYPT from server
-        stateMachine.Configure(State.Do)
-            .Permit(Trigger.ENCRYPT, State.DoEncryption);
-
-        stateMachine.Configure(State.Dont)
-            .Permit(Trigger.ENCRYPT, State.DontEncryption);
-
-        stateMachine.Configure(State.DoEncryption)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnServerRequestsEncryptionAsync(context));
-
-        stateMachine.Configure(State.DontEncryption)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnDontEncryptAsync(context));
-
-        // Client handles SUPPORT subnegotiation
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.ENCRYPT, State.AlmostNegotiatingEncryption);
-
-        stateMachine.Configure(State.AlmostNegotiatingEncryption)
-            .Permit(Trigger.SEND, State.NegotiatingEncryptionSupport)
-            .OnEntry(() =>
-            {
-                context.Logger.LogDebug("Starting encryption subnegotiation");
-                _encryptionData = new List<byte>();
-            });
-
-        // Handle the SUPPORT command - capture all encryption types until IAC
-        stateMachine.Configure(State.NegotiatingEncryptionSupport)
-            .Permit(Trigger.IAC, State.CompletingEncryptionNegotiation);
-        
-        // Capture all other triggers as encryption types
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.NegotiatingEncryptionSupport)
-                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (ByteOrTrigger b) => { if (b is byte value) _encryptionData.Add(value); })
-                .PermitReentry(t));
-
-        stateMachine.Configure(State.CompletingEncryptionNegotiation)
-            .Permit(Trigger.SE, State.ProcessingEncryptionSupport)
-            .OnEntry(() => context.Logger.LogDebug("Received end of SUPPORT subnegotiation"));
-
-        stateMachine.Configure(State.ProcessingEncryptionSupport)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await ProcessEncryptionSupportAsync(context));
     }
 
     /// <inheritdoc />
@@ -635,9 +530,6 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         });
     }
 
-    private ValueTask ProcessEncryptionSupportAsync(IProtocolContext context) =>
-        ProcessEncryptionSupportFromBytesAsync(_encryptionData.ToArray(), context);
-
     internal async ValueTask ProcessEncryptionSupportFromBytesAsync(byte[] data, IProtocolContext context)
     {
         context.Logger.LogDebug("Processing encryption SUPPORT");
@@ -659,9 +551,6 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
 
         await SendEncryptionIsAsync(responseData);
     }
-
-    private ValueTask ProcessEncryptionIsAsync(IProtocolContext context) =>
-        ProcessEncryptionIsFromBytesAsync(_encryptionData.ToArray(), context);
 
     internal async ValueTask ProcessEncryptionIsFromBytesAsync(byte[] data, IProtocolContext context)
     {
