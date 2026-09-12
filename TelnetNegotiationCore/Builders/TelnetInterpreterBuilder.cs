@@ -18,6 +18,7 @@ namespace TelnetNegotiationCore.Builders;
 public class TelnetInterpreterBuilder
 {
     private TelnetInterpreter.TelnetMode _mode = TelnetInterpreter.TelnetMode.Error;
+    private bool _useGeneratedMachine;
     private ILogger? _logger;
     private Func<byte[], System.Text.Encoding, TelnetInterpreter, ValueTask>? _onSubmit;
     private Func<ReadOnlyMemory<byte>, ValueTask>? _onNegotiation;
@@ -37,6 +38,18 @@ public class TelnetInterpreterBuilder
     /// </summary>
     /// <param name="mode">The telnet mode</param>
     /// <returns>This builder for chaining</returns>
+    /// <summary>
+    /// Drives the connection with the generated machine instead of Stateless. A migration seam, not a
+    /// public feature yet: only the core framing and NAWS have their negotiation wired to real behaviour
+    /// so far, everything else this library structurally parses is refused the way an unregistered
+    /// plugin's option is refused today. Internal until the rest of the protocols catch up.
+    /// </summary>
+    internal TelnetInterpreterBuilder UseGeneratedMachine()
+    {
+        _useGeneratedMachine = true;
+        return this;
+    }
+
     public TelnetInterpreterBuilder UseMode(TelnetInterpreter.TelnetMode mode)
     {
         _mode = mode;
@@ -402,7 +415,8 @@ public class TelnetInterpreterBuilder
             PluginManager = _pluginManager,
             KeepAliveInterval = _keepAliveInterval,
             KeepAliveAsync = _keepAliveAsync,
-            MaxBufferSize = _maxBufferSize ?? TelnetInterpreter.DefaultMaxBufferSize
+            MaxBufferSize = _maxBufferSize ?? TelnetInterpreter.DefaultMaxBufferSize,
+            UseGeneratedMachine = _useGeneratedMachine
         };
 
         // Create protocol context
@@ -425,6 +439,11 @@ public class TelnetInterpreterBuilder
 
         // Initialize plugins in dependency order
         await _pluginManager.InitializePluginsAsync(context);
+
+        if (_useGeneratedMachine)
+        {
+            await interpreter.StartGeneratedMachineAsync();
+        }
 
         // Build the interpreter (call existing BuildAsync if needed)
         await interpreter.BuildAsync();

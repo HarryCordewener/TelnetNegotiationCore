@@ -321,14 +321,65 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         _nawsIndex++;
     }
 
-    private async ValueTask CompleteNAWSAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    /// <summary>
+    /// What arriving at each of Willing/Refusing/Do/Dont for NAWS does, independent of which machine got
+    /// there — the four branches <see cref="ConfigureStateMachine"/> wires as WillDoNAWS/WontDoNAWS/DoNAWS/DontNAWS.
+    /// </summary>
+    /// <param name="verb">The verb byte: WILL, WONT, DO or DONT.</param>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.WILL:
+                // The peer just offered WILL NAWS. Whether we already sent DO (server mode asks eagerly at
+                // connection start) or are about to (RequestNAWSAsync itself), both halves of the exchange
+                // are on the wire the moment this fires -- so this is the genuine completion point.
+                await RequestNAWSAsync(null, context);
+                await OnNegotiatedAsync(true);
+                break;
+            case (byte)Trigger.WONT:
+                _willingToDoNAWS = false;
+                await OnNegotiatedAsync(false);
+                break;
+            case (byte)Trigger.DO when context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server:
+                // A client asking the server to report a window size the server does not have.
+                await ServerWontNAWSAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                _willingToDoNAWS = true;
+                await OnNegotiatedAsync(true);
+                break;
+            case (byte)Trigger.DONT when context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server:
+                context.Logger.LogDebug("Client won't do NAWS - do nothing");
+                break;
+            case (byte)Trigger.DONT:
+                // Server refused NAWS -- must not report window size.
+                _willingToDoNAWS = false;
+                context.Logger.LogDebug("Server won't do NAWS - do nothing");
+                await OnNegotiatedAsync(false);
+                break;
+        }
+    }
+
+    private ValueTask CompleteNAWSAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         // RFC 1073 sends WIDTH[1] WIDTH[0] HEIGHT[1] HEIGHT[0], high byte first, and gives the option
         // "a limit of 65535 characters". Reading the pair with BitConverter.ToInt16 made every value
         // above 32767 arrive negative (0xFFFF came back as -1). Assembling the bytes directly is both
         // unsigned and endian-independent.
-        ClientWidth = (_nawsByteState[0] << 8) | _nawsByteState[1];
-        ClientHeight = (_nawsByteState[2] << 8) | _nawsByteState[3];
+        var width = (_nawsByteState[0] << 8) | _nawsByteState[1];
+        var height = (_nawsByteState[2] << 8) | _nawsByteState[3];
+        return OnWindowSizeAsync(width, height, context);
+    }
+
+    /// <summary>
+    /// What a window size report does, once its two numbers are known — independent of how they were
+    /// read, so the same call serves the Stateless configuration above and the generated machine.
+    /// </summary>
+    internal async ValueTask OnWindowSizeAsync(int width, int height, IProtocolContext context)
+    {
+        ClientWidth = width;
+        ClientHeight = height;
 
         context.Logger.LogDebug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
 

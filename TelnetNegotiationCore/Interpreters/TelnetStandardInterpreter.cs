@@ -546,7 +546,23 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// <param name="b">A useful byte for the Client/Server</param>
     private async ValueTask WriteToBufferAndAdvanceAsync(byte b)
     {
-        if (b == (byte)Trigger.CARRIAGERETURN) return;
+        if (!WriteToBufferAndAdvance(b))
+        {
+            return;
+        }
+
+        await (CallbackOnByteAsync?.Invoke(b, CurrentEncoding) ?? default(ValueTask));
+    }
+
+    /// <summary>
+    /// The synchronous heart of <see cref="WriteToBufferAndAdvanceAsync"/>: everything except the optional
+    /// per-byte callback, which is the only reason that method is async. Split out for the generated
+    /// machine's <c>Write</c>, which is itself synchronous — text is the hot path, and stays allocation-free.
+    /// </summary>
+    /// <returns>False for a carriage return, which is not part of the line and has nothing left to do.</returns>
+    private bool WriteToBufferAndAdvance(byte b)
+    {
+        if (b == (byte)Trigger.CARRIAGERETURN) return false;
 
         if (_logger.IsEnabled(LogLevel.Trace))
         {
@@ -578,7 +594,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
             _bufferPosition++;
         }
 
-        await (CallbackOnByteAsync?.Invoke(b, CurrentEncoding) ?? default(ValueTask));
+        return true;
     }
 
     /// <summary>
@@ -1055,6 +1071,12 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// <param name="byteCount">Its position in the decoded stream, for tracing.</param>
     private async ValueTask FireByteAsync(byte bt, int byteCount)
     {
+        if (UseGeneratedMachine)
+        {
+            await FireGeneratedByteAsync(bt);
+            return;
+        }
+
         if (!_isDefinedDictionary.TryGetValue(bt, out var triggerOrByte))
         {
             // Use generated IsDefined method instead of reflection
