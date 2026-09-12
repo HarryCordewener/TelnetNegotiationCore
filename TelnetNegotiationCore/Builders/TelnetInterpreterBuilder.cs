@@ -419,8 +419,12 @@ public class TelnetInterpreterBuilder
             UseGeneratedMachine = _useGeneratedMachine
         };
 
-        // Create protocol context
+        // Create protocol context. The generated machine reuses this exact instance (see
+        // TelnetInterpreter.SharedProtocolContext) rather than creating its own -- ProtocolContext's
+        // shared state is per instance, and this is the one WithClientIdentity below, and every
+        // plugin's ConfigureStateMachine, populate.
         var context = new ProtocolContext(interpreter, _pluginManager, _logger);
+        interpreter.SharedProtocolContext = context;
 
         // Publish the client identity before any plugin configures itself, so that the protocols
         // that report it — TTYPE and NEW-ENVIRON — read the same one.

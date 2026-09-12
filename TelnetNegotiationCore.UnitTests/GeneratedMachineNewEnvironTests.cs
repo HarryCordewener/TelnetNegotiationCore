@@ -115,6 +115,46 @@ public class GeneratedMachineNewEnvironTests : BaseTest
         await client.DisposeAsync();
     }
 
+    /// <summary>
+    /// Regression test: the generated machine's plugin-facing context used to be a second,
+    /// freshly-constructed ProtocolContext rather than the one TelnetInterpreterBuilder.BuildAsync
+    /// populates via WithClientIdentity before any plugin configures itself -- ProtocolContext's
+    /// shared state lives per instance, so a second instance saw an identity-shaped hole where
+    /// CLIENT_NAME should have been. See TelnetInterpreter.SharedProtocolContext.
+    /// </summary>
+    [Test]
+    public async Task ClientIdentityReachesTheGeneratedMachine()
+    {
+        byte[] negotiationOutput = null;
+
+        var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseGeneratedMachine()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(data => { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; })
+            .WithClientIdentity(new ClientIdentity("MUINDEX-CRAWLER"))
+            .AddPlugin<NewEnvironProtocol>());
+
+        negotiationOutput = null;
+        var request = new List<byte> { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NEWENVIRON, (byte)Trigger.SEND };
+        request.Add((byte)Trigger.NEWENVIRON_VAR);
+        request.AddRange(Encoding.ASCII.GetBytes("CLIENT_NAME"));
+        request.Add((byte)Trigger.IAC);
+        request.Add((byte)Trigger.SE);
+        await InterpretAndWaitAsync(client, request.ToArray());
+
+        var expected = new List<byte> { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NEWENVIRON, (byte)Trigger.IS };
+        ClientIdentityTests.AppendVariable(expected, "CLIENT_NAME", "MUINDEX-CRAWLER");
+        expected.Add((byte)Trigger.IAC);
+        expected.Add((byte)Trigger.SE);
+
+        await Assert.That(negotiationOutput).IsNotNull();
+        await AssertByteArraysEqual(negotiationOutput, expected.ToArray());
+
+        await client.DisposeAsync();
+    }
+
     /// <summary>Mirrors NewEnvironTests.ServerReceivesEnvironmentVariables.</summary>
     [Test]
     public async Task ServerReceivesEnvironmentAndUserVariables()

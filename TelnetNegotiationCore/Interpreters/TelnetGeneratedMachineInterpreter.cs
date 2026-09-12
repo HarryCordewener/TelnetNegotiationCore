@@ -611,9 +611,21 @@ public partial class TelnetInterpreter
             return default;
         }
 
-        /// <summary>A protocol's own methods take <see cref="IProtocolContext"/>; this is the one this interpreter already owns.</summary>
-        private IProtocolContext Context() => owner._generatedProtocolContext ??= new ProtocolContext(owner, owner.PluginManager!, owner._logger);
+        /// <summary>
+        /// A protocol's own methods take <see cref="IProtocolContext"/>; this is the one this
+        /// interpreter already owns -- the same instance <see cref="Builders.TelnetInterpreterBuilder.BuildAsync"/>
+        /// created and populated (<c>WithClientIdentity</c>'s shared state included) before any plugin
+        /// configured itself, not a fresh one. A second instance would carry an empty shared-state
+        /// dictionary of its own -- <see cref="Plugins.ProtocolContext"/> keeps it per instance -- so a
+        /// protocol reading, say, the client identity through this seam would silently see none.
+        /// </summary>
+        private IProtocolContext Context() => owner.SharedProtocolContext!;
     }
 
-    private IProtocolContext? _generatedProtocolContext;
+    /// <summary>
+    /// Set once by <see cref="Builders.TelnetInterpreterBuilder.BuildAsync"/>, before
+    /// <see cref="StartGeneratedMachineAsync"/> runs, to the same <see cref="Plugins.ProtocolContext"/>
+    /// every plugin was configured and initialized against.
+    /// </summary>
+    internal IProtocolContext? SharedProtocolContext { get; set; }
 }
