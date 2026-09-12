@@ -36,6 +36,8 @@ public class TelnetCoreMachineTests
 
         public List<byte> SubNegotiations { get; } = [];
 
+        public List<(int Width, int Height)> Windows { get; } = [];
+
         public override void Write(ReadOnlySpan<byte> text)
         {
             foreach (var b in text)
@@ -61,6 +63,12 @@ public class TelnetCoreMachineTests
         public override ValueTask SubNegotiatedAsync(byte option, ReadOnlyMemory<byte> payload)
         {
             SubNegotiations.Add(option);
+            return default;
+        }
+
+        public override ValueTask WindowSizeAsync(int width, int height)
+        {
+            Windows.Add((width, height));
             return default;
         }
 
@@ -126,12 +134,13 @@ public class TelnetCoreMachineTests
         await Assert.That(recorder.Lines).IsEquivalentTo(new[] { "aÿb" });
     }
 
+    /// <summary>Option 24 is terminal type, which no module here claims, so the core frames it generically.</summary>
     [Test]
     public async Task ASubnegotiationEndsAtIacSe()
     {
-        var recorder = await Run([IAC, SB, 31, 0, 80, 0, 24, IAC, SE, .. Wire("after\n")]);
+        var recorder = await Run([IAC, SB, 24, 0, 80, 0, 24, IAC, SE, .. Wire("after\n")]);
 
-        await Assert.That(recorder.SubNegotiations).IsEquivalentTo(new byte[] { 31 });
+        await Assert.That(recorder.SubNegotiations).IsEquivalentTo(new byte[] { 24 });
         await Assert.That(recorder.Lines).IsEquivalentTo(new[] { "after" });
     }
 
@@ -163,6 +172,45 @@ public class TelnetCoreMachineTests
         var recorder = await Run([.. Wire("a\n"), IAC, NOP, IAC, GA, .. Wire("b\n")]);
 
         await Assert.That(recorder.Lines).IsEquivalentTo(new[] { "a", "b" });
+    }
+
+    /// <summary>RFC 1073: IAC SB NAWS, width high, width low, height high, height low, IAC SE.</summary>
+    [Test]
+    public async Task AWindowSizeIsReadFromItsSubnegotiation()
+    {
+        var recorder = await Run([IAC, SB, 31, 0, 80, 0, 24, IAC, SE, .. Wire("after\n")]);
+
+        await Assert.That(recorder.Windows).IsEquivalentTo(new[] { (80, 24) });
+        await Assert.That(recorder.Lines).IsEquivalentTo(new[] { "after" });
+    }
+
+    /// <summary>A 255-column window: the 255 arrives escaped, and must not end the subnegotiation.</summary>
+    [Test]
+    public async Task AnEscapedByteInAWindowSizeIsAValueNotAnEnding()
+    {
+        var recorder = await Run([IAC, SB, 31, 0, IAC, IAC, 1, 44, IAC, SE]);
+
+        await Assert.That(recorder.Windows).IsEquivalentTo(new[] { (255, 300) });
+    }
+
+    /// <summary>A bare 240 is a legal width. Only one that follows an IAC ends the subnegotiation.</summary>
+    [Test]
+    public async Task AnSeThatNoIacPrecededIsPartOfTheWindowSize()
+    {
+        var recorder = await Run([IAC, SB, 31, 0, SE, 0, 24, IAC, SE]);
+
+        await Assert.That(recorder.Windows).IsEquivalentTo(new[] { (240, 24) });
+    }
+
+    /// <summary>A subnegotiation for an option nothing claims still ends, and the text after it survives.</summary>
+    [Test]
+    public async Task AnUnclaimedOptionStillFramesCorrectly()
+    {
+        var recorder = await Run([IAC, SB, 70, 1, 2, 3, IAC, SE, .. Wire("x\n")]);
+
+        await Assert.That(recorder.Windows).IsEmpty();
+        await Assert.That(recorder.SubNegotiations).IsEquivalentTo(new byte[] { 70 });
+        await Assert.That(recorder.Lines).IsEquivalentTo(new[] { "x" });
     }
 
     /// <summary>Every byte of a line after the first is taken as a run, so the machine is not fired per byte.</summary>

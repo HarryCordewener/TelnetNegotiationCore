@@ -21,6 +21,9 @@ public abstract class TelnetCoreContext
 
     /// <summary>A subnegotiation ended: its option, and everything between the option byte and IAC SE.</summary>
     public abstract ValueTask SubNegotiatedAsync(byte option, ReadOnlyMemory<byte> payload);
+
+    /// <summary>The client reported its window size. In TNC this context is the interpreter itself.</summary>
+    public abstract ValueTask WindowSizeAsync(int width, int height);
 }
 
 /// <summary>
@@ -278,5 +281,5 @@ public static class TelnetCoreModule
 
 /// <summary>The core machine, with no protocols in it: what TNC's own interpreter drives.</summary>
 [Machine(Root = typeof(Connected), Value = typeof(byte), Context = typeof(TelnetCoreContext))]
-[Include(typeof(TelnetCoreModule))]
+[Include(typeof(TelnetCoreModule)), Include(typeof(NawsModule))]
 public sealed partial class TelnetCoreMachine;

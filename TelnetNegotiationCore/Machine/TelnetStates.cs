@@ -12,9 +12,14 @@ namespace TelnetNegotiationCore.Machine;
 // ├── Willing, Refusing, Do, Dont
 // └── SubNegotiation ── ReadingOption [initial], EndSubNegotiation
 
-/// <summary>The connection. Lives as long as the machine does.</summary>
+/// <summary>The connection. Lives as long as the machine does, which is what the window size wants.</summary>
 public struct Connected : IRootState
 {
+    /// <summary>The client's last reported window width. RFC 1073's default until it reports one.</summary>
+    public int Width;
+
+    /// <summary>The client's last reported window height.</summary>
+    public int Height;
 }
 
 /// <summary>
