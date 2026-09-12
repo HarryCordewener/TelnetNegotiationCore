@@ -1,6 +1,35 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Fluent builder configuration for ENCRYPT and CHARSET's encoding callback.**
+  `WithEncryptionTypes`, `OnEncryptionSupport`, `OnEncryptionRequest`, `OnEncryptionStart` and
+  `OnEncryptionEnd` had no `PluginConfigurationContext<EncryptionProtocol>` extension, and neither
+  did `CharsetProtocol.OnCharsetChange`, so the chain the documentation showed did not compile —
+  those settings could only be applied through `GetPlugin<T>()` after `BuildAsync()`, by which point
+  the plugin's initial negotiation has already gone out. Every other plugin's settings were
+  reachable from the chain; these now are too.
+
+### Documentation
+- **The README is a README again**, and the reference lives in [`docs/`](docs/index.md): a page per
+  protocol, guides for the builder, dependency injection, prompts, keep-alive and the read loop, and
+  an index for each. `AUTHENTICATION.md` moved to
+  [`docs/guides/authentication-mechanisms.md`](docs/guides/authentication-mechanisms.md).
+- **ECHO, MXP, EOR/SUPPRESS-GO-AHEAD and TTYPE/MTTS now have pages.** All four were implemented and
+  undocumented beyond a row in the support table.
+- **The authentication and encryption callback payloads are documented as they actually are.** Both
+  are handed the subnegotiation body with the command byte still on the front — `[IS, authType,
+  modifiers, …]`, `[SUPPORT, type, …]` — which the examples had been indexing past. The behaviour is
+  unchanged and now pinned by tests; the indices in the examples were wrong.
+
+### Security
+- **OpenSSF Scorecard, CodeQL, a security policy and SHA-pinned actions.** Every action is pinned to
+  a commit digest with Dependabot keeping the digests current, every workflow declares least-
+  privilege token permissions, and the release workflow's dispatch input reaches the shell as an
+  environment variable rather than as interpolated text.
+
 ## [3.0.0]
 
 ### Breaking

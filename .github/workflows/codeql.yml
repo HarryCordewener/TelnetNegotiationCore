@@ -1,0 +1,50 @@
+name: CodeQL
+
+# The same analysis GitHub's default setup runs, as a workflow. It is a workflow because that is the
+# only form anything outside the repository can see: Scorecard's SAST check looks for
+# github/codeql-action in a workflow, or for the CodeQL app on merged pull requests, and default
+# setup is neither.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Weekly, so a newly published query finds old code without waiting for a commit.
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The library, and the workflows themselves.
+        language: [ csharp, actions ]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No build: C# is analysed from source, so this needs no SDK and cannot be broken by one. The
+      # compiled output is checked by the Main workflow, which is a different job with a different
+      # purpose.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        with:
+          category: /language:${{ matrix.language }}

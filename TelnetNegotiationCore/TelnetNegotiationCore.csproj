@@ -9,12 +9,12 @@
 		<PackageId>$(AssemblyName)</PackageId>
 		<Authors>harrycordewener</Authors>
 		<Description>A Client and Server compatible library to create telnet applications, with a mind to MUDs.</Description>
-		<PackageProjectUrl>https://github.com/HarryCordewener/TelnetNegotiationCore/wiki</PackageProjectUrl>
+		<PackageProjectUrl>https://github.com/HarryCordewener/TelnetNegotiationCore</PackageProjectUrl>
 		<PackageIcon>Telnet.png</PackageIcon>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<RepositoryUrl>https://github.com/HarryCordewener/TelnetNegotiationCore</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
-		<PackageTags>telnet</PackageTags>
+		<PackageTags>telnet;mud;gmcp;mssp;msdp;naws;mccp;mxp;mcp;rfc854;protocol;negotiation</PackageTags>
 		<PackageLicenseFile>LICENSE</PackageLicenseFile>
 		<PackageReleaseNotes>https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/CHANGELOG.md</PackageReleaseNotes>
 		<Copyright>Copyright © TelnetNegotiationCore Contributors 2024-$([System.DateTime]::Now.ToString(yyyy))</Copyright>

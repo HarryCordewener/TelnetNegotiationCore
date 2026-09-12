@@ -10,6 +10,11 @@ on:
   push:
     tags:
     - "v[0-9]+.[0-9]+.[0-9]+"
+
+# The default for every job. `build` and `release` widen it themselves, to exactly what each needs.
+permissions:
+  contents: read
+
 jobs:    
   test:
     runs-on: ubuntu-latest
@@ -19,10 +24,10 @@ jobs:
         framework: ['net8.0', 'net10.0', 'net11.0']
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
   
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         # global.json pins the SDK that builds every target; 8.0.x and 10.0.x bring the runtimes
         # the net8.0 and net10.0 tests run on.
@@ -49,10 +54,10 @@ jobs:
       attestations: write
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
  
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         global-json-file: global.json
     
@@ -72,10 +77,16 @@ jobs:
         fi
         git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
    
+    # The dispatch input reaches the shell as an environment variable, never as text pasted into
+    # the script: `${{ }}` is substituted before bash parses the line, so a tag containing shell
+    # metacharacters would otherwise run as part of the command.
     - name: Set VERSION variable
+      env:
+        INPUT_TAG: ${{ inputs.tags }}
+        EVENT_NAME: ${{ github.event_name }}
       run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          TAG="${{ inputs.tags }}"
+        if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          TAG="$INPUT_TAG"
         else
           TAG="${GITHUB_REF#refs/tags/}"
         fi
@@ -85,12 +96,12 @@ jobs:
       run: dotnet build --configuration Release /p:Version=${VERSION} --no-restore
 
     - name: Attest build provenance
-      uses: actions/attest-build-provenance@v4
+      uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
       with:
         subject-path: "**/*.nupkg"
 
     - name: Upload NuGet packages
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: nuget-packages
         path: "**/*.nupkg"
@@ -104,13 +115,13 @@ jobs:
     needs: build
     steps:
     - name: Download NuGet packages
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: nuget-packages
         path: packages
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         dotnet-version: 8.0.x
 
@@ -120,7 +131,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         
     - name: NuGet Login
-      uses: NuGet/login@v1
+      uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
       id: login
       with:
         user: harrycordewener
