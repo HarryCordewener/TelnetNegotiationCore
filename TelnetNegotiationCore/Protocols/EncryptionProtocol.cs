@@ -156,8 +156,9 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     /// <code>
     /// .OnEncryptionSupport(async (supportedTypes) =>
     /// {
-    ///     // supportedTypes format: [type1, type2, ...]
-    ///     if (supportedTypes.Contains(1)) // DES_CFB64
+    ///     // supportedTypes[0] is the SUPPORT command byte (1); the offered types start at index 1.
+    ///     // format: [1, type1, type2, ...]
+    ///     if (supportedTypes.Skip(1).Contains((byte)1)) // DES_CFB64
     ///     {
     ///         var initData = await GetEncryptionInitData(1);
     ///         return new byte[] { 1 }.Concat(initData).ToArray();
@@ -188,8 +189,9 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     /// <code>
     /// .OnEncryptionRequest(async (encData) =>
     /// {
-    ///     var encType = encData[0];
-    ///     var initData = encData.Skip(1).ToArray();
+    ///     // encData[0] is the IS command byte (0); the type and init data start at index 1.
+    ///     var encType = encData[1];
+    ///     var initData = encData.Skip(2).ToArray();
     ///     await InitializeDecryption(encType, initData);
     /// })
     /// </code>

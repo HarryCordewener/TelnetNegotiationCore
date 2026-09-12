@@ -164,7 +164,6 @@ public class MyProtocol : TelnetProtocolPluginBase
 **Compile-Time Safety:**
 - ✅ Catches ProtocolType mismatches, circular dependencies, invalid dependencies
 - ✅ Warns about missing parameterless constructors
-- ✅ Highlights incomplete plugin migrations
 - ✅ Documents required method calls
 
 **Developer Experience:**

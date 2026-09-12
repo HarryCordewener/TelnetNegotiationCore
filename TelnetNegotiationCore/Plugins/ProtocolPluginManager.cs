@@ -103,15 +103,7 @@ public class ProtocolPluginManager
 
         _logger.LogInformation("Initializing {PluginCount} plugins with dependency resolution", _plugins.Count);
 
-        // Perform topological sort to resolve dependencies
-        _initializationOrder.Clear();
-        var resolved = new HashSet<Type>();
-        var visiting = new HashSet<Type>();
-
-        foreach (var pluginType in _plugins.Keys)
-        {
-            ResolveDependencies(pluginType, resolved, visiting);
-        }
+        EnsureInitializationOrder();
 
         // Initialize plugins in dependency order
         foreach (var pluginType in _initializationOrder)
@@ -134,18 +126,41 @@ public class ProtocolPluginManager
     {
         _logger.LogInformation("Configuring state machines for {PluginCount} plugins", _plugins.Count);
 
-        // If initialization order is already determined, use it for consistency
-        // Otherwise, configure plugins in registration order
-        var pluginsToConfig = _initializationOrder.Count > 0
-            ? _initializationOrder.Select(t => _plugins[t])
-            : _plugins.Values;
+        // Computed here rather than left to whichever of this method or InitializePluginsAsync runs
+        // first: both need the same dependency order, and the builder calls this one first, so relying
+        // on InitializePluginsAsync to have computed it already would silently fall back to
+        // registration order every time, contradicting this method's own contract.
+        EnsureInitializationOrder();
 
-        foreach (var plugin in pluginsToConfig)
+        foreach (var pluginType in _initializationOrder)
         {
+            var plugin = _plugins[pluginType];
             _logger.LogDebug("Configuring state machine for: {PluginName}", plugin.ProtocolName);
 
             // Every real plugin extends TelnetProtocolPluginBase, which is where this hook lives.
             (plugin as TelnetProtocolPluginBase)?.ConfigureStateMachine(context);
+        }
+    }
+
+    /// <summary>
+    /// Topologically sorts the registered plugins by <see cref="ITelnetProtocolPlugin.Dependencies"/>,
+    /// populating <see cref="_initializationOrder"/>. Idempotent: a second call is a no-op, so either
+    /// <see cref="ConfigureStateMachines"/> or <see cref="InitializePluginsAsync"/> can run first and
+    /// the other reuses the same order rather than recomputing it.
+    /// </summary>
+    private void EnsureInitializationOrder()
+    {
+        if (_initializationOrder.Count > 0)
+        {
+            return;
+        }
+
+        var resolved = new HashSet<Type>();
+        var visiting = new HashSet<Type>();
+
+        foreach (var pluginType in _plugins.Keys)
+        {
+            ResolveDependencies(pluginType, resolved, visiting);
         }
     }
 

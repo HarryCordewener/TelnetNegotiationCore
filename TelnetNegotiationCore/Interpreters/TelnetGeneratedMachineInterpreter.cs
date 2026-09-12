@@ -9,8 +9,10 @@ namespace TelnetNegotiationCore.Interpreters;
 
 /// <summary>
 /// The StateAlchemist-generated machine that now drives every protocol's negotiation and subnegotiation.
-/// <see cref="UseGeneratedMachine"/> defaults to true; the Stateless machine and the flag itself are a
-/// migration-era seam kept only until the last of it is deleted.
+/// Every interpreter built through <see cref="Builders.TelnetInterpreterBuilder"/> uses it, because that
+/// builder always sets <see cref="UseGeneratedMachine"/> true regardless of the bare property's own
+/// <see langword="false"/> default; the Stateless machine and the flag itself are a migration-era seam
+/// kept only until the last of it is deleted.
 /// </summary>
 /// <remarks>
 /// <c>ConfigureStateMachine</c> still runs for every plugin either way -- it is also where a plugin
@@ -20,8 +22,10 @@ namespace TelnetNegotiationCore.Interpreters;
 public partial class TelnetInterpreter
 {
     /// <summary>
-    /// Drive the generated machine. Defaults to false on this property, but
-    /// <see cref="Builders.TelnetInterpreterBuilder"/> always sets it true.
+    /// Drive the generated machine instead of leaving it unused. Defaults to <see langword="false"/> on
+    /// this bare property; <see cref="Builders.TelnetInterpreterBuilder"/> always sets it
+    /// <see langword="true"/>, which is why every interpreter built the normal way uses the generated
+    /// machine regardless of this default.
     /// </summary>
     internal bool UseGeneratedMachine { get; init; }
 
@@ -180,14 +184,13 @@ public partial class TelnetInterpreter
             await owner.WriteToNetworkAsync((byte[])[255, refusal, option]);
         }
 
+        // The catch-all for a subnegotiation this class has no dedicated handler for: an option the
+        // library structurally parses but does not otherwise act on, or one of the "malformed command
+        // byte" recoveries (see the various IgnoreMalformed transitions across Machine/*.cs) that route
+        // into the shared SubNegotiating/EndSubNegotiation discard states rather than wedging the
+        // connection. Nothing to do in either case.
         public override ValueTask SubNegotiatedAsync(byte option, ReadOnlyMemory<byte> payload) => default;
 
-        // Structural parsing for these is in place and tested against the sample harness; negotiation
-        // acceptance for them is not wired to real protocol logic yet, so NegotiateAsync refuses their
-        // option before any of these are ever reached from a real peer -- matching an unregistered
-        // plugin's answer today. Kept as explicit no-ops rather than left unimplemented so the class
-        // compiles as what it honestly is: a context that speaks for every option this library parses,
-        // with only NAWS's answer live so far.
         // Same discriminator-byte restoration AuthenticationSendAsync/AuthenticationIsAsync need --
         // ENCRYPT shares AUTHENTICATION's exact Stateless capture shape (RFC 2946 mirrors RFC 2941's).
         public override ValueTask EncryptionSendAsync(byte[] data)

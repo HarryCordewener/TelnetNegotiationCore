@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Machine;
 using TUnit.Assertions;
+using TUnit.Assertions.Enums;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
@@ -31,7 +32,7 @@ public class EnvironMachineTests
         await Assert.That(recorder.NewEnvironEvents).IsEquivalentTo(new[]
         {
             "started 0", "VAR", "USER", "VALUE", "grave", "ended",
-        });
+        }, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -43,7 +44,7 @@ public class EnvironMachineTests
         await Assert.That(recorder.NewEnvironEvents).IsEquivalentTo(new[]
         {
             "started 2", "USERVAR", "MYVAR", "VALUE", "yes", "ended",
-        });
+        }, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -55,7 +56,7 @@ public class EnvironMachineTests
         await Assert.That(recorder.NewEnvironEvents).IsEquivalentTo(new[]
         {
             "started 1", "VAR", "USER", "VAR", "TERM", "ended",
-        });
+        }, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -67,6 +68,6 @@ public class EnvironMachineTests
         await Assert.That(recorder.EnvironEvents).IsEquivalentTo(new[]
         {
             "started 0", "VAR", "USER", "VALUE", "grave", "ended",
-        });
+        }, CollectionOrdering.Matching);
     }
 }

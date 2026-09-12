@@ -121,9 +121,10 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     /// <code>
     /// .OnAuthenticationRequest(async (authTypePairs) =>
     /// {
-    ///     // authTypePairs format: [type1, mod1, type2, mod2, ...]
-    ///     var authType = authTypePairs[0];
-    ///     var modifiers = authTypePairs[1];
+    ///     // authTypePairs[0] is the SEND command byte (1); the type/modifier pairs start at index 1.
+    ///     // format: [1, type1, mod1, type2, mod2, ...]
+    ///     var authType = authTypePairs[1];
+    ///     var modifiers = authTypePairs[2];
     ///     var credentials = await GetCredentials(authType);
     ///     return new byte[] { authType, modifiers }.Concat(credentials).ToArray();
     /// })
@@ -152,10 +153,11 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     /// <code>
     /// .OnAuthenticationResponse(async (authData) =>
     /// {
-    ///     var authType = authData[0];
-    ///     var modifiers = authData[1];
-    ///     var credentials = authData.Skip(2).ToArray();
-    ///     
+    ///     // authData[0] is the IS command byte (0); the type, modifiers and credentials start at index 1.
+    ///     var authType = authData[1];
+    ///     var modifiers = authData[2];
+    ///     var credentials = authData.Skip(3).ToArray();
+    ///
     ///     var isValid = await ValidateCredentials(authType, credentials);
     ///     if (!isValid)
     ///     {

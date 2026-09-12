@@ -58,6 +58,36 @@ public class PluginDependencyTests : BaseTest
         protected override ValueTask OnDisposeAsync() => ValueTask.CompletedTask;
     }
 
+    /// <summary>Records "dependency" into the shared list from ConfigureStateMachine, so a test can
+    /// check the order plugins were configured in rather than just that they ended up enabled.</summary>
+    private class OrderTrackingDependency(List<string> order) : TelnetProtocolPluginBase
+    {
+        public override Type ProtocolType => typeof(OrderTrackingDependency);
+        public override string ProtocolName => "Order Tracking Dependency";
+
+        public override void ConfigureStateMachine(IProtocolContext context) => order.Add("dependency");
+
+        protected override ValueTask OnInitializeAsync() => ValueTask.CompletedTask;
+        protected override ValueTask OnProtocolEnabledAsync() => ValueTask.CompletedTask;
+        protected override ValueTask OnProtocolDisabledAsync() => ValueTask.CompletedTask;
+        protected override ValueTask OnDisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    /// <summary>Depends on <see cref="OrderTrackingDependency"/> and records "dependent".</summary>
+    private class OrderTrackingDependent(List<string> order) : TelnetProtocolPluginBase
+    {
+        public override Type ProtocolType => typeof(OrderTrackingDependent);
+        public override string ProtocolName => "Order Tracking Dependent";
+        public override IReadOnlyCollection<Type> Dependencies => new[] { typeof(OrderTrackingDependency) };
+
+        public override void ConfigureStateMachine(IProtocolContext context) => order.Add("dependent");
+
+        protected override ValueTask OnInitializeAsync() => ValueTask.CompletedTask;
+        protected override ValueTask OnProtocolEnabledAsync() => ValueTask.CompletedTask;
+        protected override ValueTask OnProtocolDisabledAsync() => ValueTask.CompletedTask;
+        protected override ValueTask OnDisposeAsync() => ValueTask.CompletedTask;
+    }
+
     [Test]
     public async Task ThrowsExceptionWhenDependencyIsMissing()
     {
@@ -146,6 +176,34 @@ public class PluginDependencyTests : BaseTest
         await Assert.That(test).IsNotNull();
         await Assert.That(gmcp.IsEnabled).IsTrue();
         await Assert.That(test.IsEnabled).IsTrue();
+
+        await interpreter.DisposeAsync();
+    }
+
+    /// <summary>
+    /// ConfigureStateMachine runs before InitializePluginsAsync in TelnetInterpreterBuilder.BuildAsync,
+    /// so it used to always fall back to registration order: _initializationOrder was still empty (only
+    /// InitializePluginsAsync computed it) at the point ConfigureStateMachines read it. Registering the
+    /// dependent before its dependency, as this test deliberately does, is exactly the case that
+    /// distinguishes "used registration order" from "used dependency order".
+    /// </summary>
+    [Test]
+    public async Task ConfigureStateMachineRunsInDependencyOrder()
+    {
+        var order = new List<string>();
+        var dependent = new OrderTrackingDependent(order);
+        var dependency = new OrderTrackingDependency(order);
+
+        var interpreter = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(WriteBackToOutput)
+            .OnNegotiation(WriteBackToNegotiate)
+            .AddPlugin(dependent)   // registered first, but depends on the plugin below
+            .AddPlugin(dependency)  // registered second
+            .BuildAsync();
+
+        await Assert.That(order).IsEquivalentTo(new[] { "dependency", "dependent" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
 
         await interpreter.DisposeAsync();
     }

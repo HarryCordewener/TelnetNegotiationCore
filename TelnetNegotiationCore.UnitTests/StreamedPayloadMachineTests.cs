@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Machine;
 using TUnit.Assertions;
+using TUnit.Assertions.Enums;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
@@ -28,7 +29,7 @@ public class StreamedPayloadMachineTests
         var recorder = await Run([IAC, SB, 201, .. "Core.Ping \"1\""u8.ToArray(), IAC, SE]);
 
         await Assert.That(recorder.GmcpMessages).HasSingleItem();
-        await Assert.That(recorder.GmcpMessages[0]).IsEquivalentTo("Core.Ping \"1\""u8.ToArray());
+        await Assert.That(recorder.GmcpMessages[0]).IsEquivalentTo("Core.Ping \"1\""u8.ToArray(), CollectionOrdering.Matching);
     }
 
     /// <summary>A literal 255 inside the JSON, doubled on the wire per RFC 854.</summary>
@@ -38,7 +39,7 @@ public class StreamedPayloadMachineTests
         var recorder = await Run([IAC, SB, 201, 0x41, IAC, IAC, 0x42, IAC, SE]);
 
         await Assert.That(recorder.GmcpMessages).HasSingleItem();
-        await Assert.That(recorder.GmcpMessages[0]).IsEquivalentTo(new byte[] { 0x41, IAC, 0x42 });
+        await Assert.That(recorder.GmcpMessages[0]).IsEquivalentTo(new byte[] { 0x41, IAC, 0x42 }, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -48,7 +49,7 @@ public class StreamedPayloadMachineTests
         var recorder = await Run([IAC, SB, 69, .. expected, IAC, SE]);
 
         await Assert.That(recorder.MsdpMessages).HasSingleItem();
-        await Assert.That(recorder.MsdpMessages[0]).IsEquivalentTo(expected);
+        await Assert.That(recorder.MsdpMessages[0]).IsEquivalentTo(expected, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -64,6 +65,6 @@ public class StreamedPayloadMachineTests
         await Assert.That(recorder.MsspEvents).IsEquivalentTo(new[]
         {
             "started", "VAR", "NAME", "VAL", "Server", "VAR", "PLAYERS", "VAL", "3", "ended",
-        });
+        }, CollectionOrdering.Matching);
     }
 }

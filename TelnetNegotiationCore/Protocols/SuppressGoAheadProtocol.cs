@@ -158,33 +158,6 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     #region State Machine Handlers
 
     /// <summary>
-    /// A bare <c>IAC GA</c> arrived from the server: the RFC 854 Go-Ahead signal, which is a prompt
-    /// boundary unless RFC 858 suppression is in effect, in which case it is a NOP.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// RFC 854 gives GA one meaning in this direction and it is exactly the prompt case: a process
-    /// that "cannot proceed without input from the other end" must send GA. So the default NVT — no
-    /// options negotiated, which is most MU* servers — ends its prompts with <c>IAC GA</c> and
-    /// nothing else, and this is the only signal a client will get for them.
-    /// </para>
-    /// <para>
-    /// The one thing that takes that meaning away is RFC 858, whose rule is quoted rather than
-    /// paraphrased because it is the whole condition: once suppression is in effect "the IAC GA
-    /// command should be treated as a NOP if received, although IAC GA should not normally be sent in
-    /// this mode". <see cref="IsGoAheadSuppressed"/> is that state, and nothing else is consulted —
-    /// notably not EOR, which is RFC 885 and says nothing about GA. A server that negotiated EOR and
-    /// sends GA anyway is still saying it cannot proceed, and a client with nothing buffered loses
-    /// nothing by being told twice.
-    /// </para>
-    /// <para>
-    /// Reports directly through <see cref="_onPromptReceived"/> rather than through a shared
-    /// intermediary gated on <see cref="TelnetProtocolPluginBase.IsEnabled"/> — that flag is about
-    /// plugin lifetime, true from initialisation onwards for every registered plugin, and is not the
-    /// negotiated state this handler actually needs to answer to.
-    /// </para>
-    /// </remarks>
-    /// <summary>
     /// What arriving at each of WILL/WONT/DO/DONT for SUPPRESS-GO-AHEAD does. Both directions are
     /// negotiated independently (RFC 858 §5): a server answers DO/DONT for its own outbound GA and
     /// WILL/WONT for the peer's, a client answers the mirror image of that.
@@ -231,6 +204,33 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     internal ValueTask OnBareGoAheadAsync(IProtocolContext context) =>
         context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client ? OnGoAheadAsync(context) : default;
 
+    /// <summary>
+    /// A bare <c>IAC GA</c> arrived from the server: the RFC 854 Go-Ahead signal, which is a prompt
+    /// boundary unless RFC 858 suppression is in effect, in which case it is a NOP.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// RFC 854 gives GA one meaning in this direction and it is exactly the prompt case: a process
+    /// that "cannot proceed without input from the other end" must send GA. So the default NVT — no
+    /// options negotiated, which is most MU* servers — ends its prompts with <c>IAC GA</c> and
+    /// nothing else, and this is the only signal a client will get for them.
+    /// </para>
+    /// <para>
+    /// The one thing that takes that meaning away is RFC 858, whose rule is quoted rather than
+    /// paraphrased because it is the whole condition: once suppression is in effect "the IAC GA
+    /// command should be treated as a NOP if received, although IAC GA should not normally be sent in
+    /// this mode". <see cref="IsGoAheadSuppressed"/> is that state, and nothing else is consulted —
+    /// notably not EOR, which is RFC 885 and says nothing about GA. A server that negotiated EOR and
+    /// sends GA anyway is still saying it cannot proceed, and a client with nothing buffered loses
+    /// nothing by being told twice.
+    /// </para>
+    /// <para>
+    /// Reports directly through <see cref="_onPromptReceived"/> rather than through a shared
+    /// intermediary gated on <see cref="TelnetProtocolPluginBase.IsEnabled"/> — that flag is about
+    /// plugin lifetime, true from initialisation onwards for every registered plugin, and is not the
+    /// negotiated state this handler actually needs to answer to.
+    /// </para>
+    /// </remarks>
     private async ValueTask OnGoAheadAsync(IProtocolContext context)
     {
         if (IsGoAheadSuppressed)
