@@ -188,11 +188,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontDoCharset)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Won't do Character Set - do nothing");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnWontCharsetAsync(context));
 
         stateMachine.Configure(State.DoCharset)
             .SubstateOf(State.Accepting)
@@ -200,11 +196,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontCharset)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Character Set - do nothing");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnDontCharsetAsync(context));
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.CHARSET, State.AlmostNegotiatingCharset);
@@ -366,18 +358,25 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         return _charsetOrder(encodings);
     }
 
-    private async ValueTask CompleteCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private ValueTask CompleteCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    {
+        var bytes = new byte[_charsetByteIndex];
+        Array.Copy(_charsetByteState, bytes, _charsetByteIndex);
+        return CompleteCharsetRequestFromBytesAsync(bytes, context);
+    }
+
+    internal async ValueTask CompleteCharsetRequestFromBytesAsync(byte[] bytes, IProtocolContext context)
     {
         var ascii = Encoding.ASCII;
-        
+
         if (_charsetOffered && context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
             await context.SendNegotiationAsync(s_charsetRejected);
             return;
         }
 
-        var sep = ascii.GetString(_charsetByteState, 0, 1)?[0];
-        var charsetsOffered = ascii.GetString(_charsetByteState, 1, _charsetByteIndex - 1).Split(sep ?? ' ');
+        var sep = ascii.GetString(bytes, 0, 1)?[0];
+        var charsetsOffered = ascii.GetString(bytes, 1, bytes.Length - 1).Split(sep ?? ' ');
 
         context.Logger.LogDebug("Charsets offered to us: {@charsetResultDebug}", [..charsetsOffered]);
 
@@ -414,9 +413,16 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         await NotifyCharsetChangeAsync(context);
     }
 
-    private async ValueTask CompleteAcceptedCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private ValueTask CompleteAcceptedCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
-        var acceptedCharset = Encoding.ASCII.GetString(_acceptedCharsetByteState!, 0, _acceptedCharsetByteIndex).Trim();
+        var bytes = new byte[_acceptedCharsetByteIndex];
+        Array.Copy(_acceptedCharsetByteState!, bytes, _acceptedCharsetByteIndex);
+        return CompleteAcceptedCharsetFromBytesAsync(bytes, context);
+    }
+
+    internal async ValueTask CompleteAcceptedCharsetFromBytesAsync(byte[] bytes, IProtocolContext context)
+    {
+        var acceptedCharset = Encoding.ASCII.GetString(bytes, 0, bytes.Length).Trim();
 
         Encoding negotiated;
         try
@@ -487,6 +493,43 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_willCharset);
     }
 
+    private ValueTask OnWontCharsetAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Won't do Character Set - do nothing");
+        return OnNegotiatedAsync(false);
+    }
+
+    private ValueTask OnDontCharsetAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Character Set - do nothing");
+        return OnNegotiatedAsync(false);
+    }
+
+    /// <summary>
+    /// RFC 2066's WILL/WONT/DO/DONT acceptance is symmetric: whichever side receives WILL answers
+    /// DO, and whichever side receives DO answers with the charset list, regardless of which of them
+    /// is the server. Only the initial offer (<see cref="ConfigureStateMachine"/>'s server-only
+    /// <c>RegisterInitialNegotiation</c>) is mode-specific.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.WILL:
+                await OnWillingCharsetAsync(null!, context);
+                break;
+            case (byte)Trigger.WONT:
+                await OnWontCharsetAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                await OnDoCharsetAsync(null!, context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontCharsetAsync(context);
+                break;
+        }
+    }
+
     private async ValueTask OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
     {
         context.Logger.LogDebug("Charsets String: {CharsetList}", ";" + string.Join(";", GetCharsetOrder(AllowedEncodings()).Select(x => x.WebName)));
@@ -517,19 +560,25 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         if (b is byte value) _ttableBytes.Add(value);
     }
 
-    private async ValueTask CompleteTTableAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private ValueTask CompleteTTableAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context) =>
+        CompleteTTableFromBytesAsync(_ttableBytes.Bytes.ToArray(), context, _ttableBytes.Overflowed);
+
+    internal ValueTask CompleteTTableFromBytesAsync(byte[] ttableData, IProtocolContext context) =>
+        CompleteTTableFromBytesAsync(ttableData, context, ttableData.Length > MaxTTableSize);
+
+    private async ValueTask CompleteTTableFromBytesAsync(byte[] ttableData, IProtocolContext context, bool overflowed)
     {
-        context.Logger.LogDebug("Processing TTABLE-IS message with {Bytes} bytes", _ttableBytes.Count);
+        context.Logger.LogDebug("Processing TTABLE-IS message with {Bytes} bytes", ttableData.Length);
 
         try
         {
-            if (_ttableBytes.Overflowed)
+            if (overflowed)
             {
                 // A truncated translation table is a wrong translation table. RFC 2066 gives us a
                 // way to say so, so say it instead of parsing the fragment.
                 context.Logger.LogError(
-                    "TTABLE-IS exceeded the maximum size of {MaxSize} bytes ({ReceivedBytes} bytes received) and was rejected. Raise CharsetProtocol.MaxTTableSize if this is legitimate traffic.",
-                    _ttableBytes.MaxMessageSize, _ttableBytes.ReceivedBytes);
+                    "TTABLE-IS exceeded the maximum size of {MaxSize} bytes and was rejected. Raise CharsetProtocol.MaxTTableSize if this is legitimate traffic.",
+                    MaxTTableSize);
                 await context.SendNegotiationAsync(s_ttableRejected);
                 return;
             }
@@ -537,14 +586,14 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             // Parse TTABLE-IS message according to RFC 2066
             // Format: <version> <sep> <charset1> <sep> <size1> <count1> <charset2> <sep> <size2> <count2> <map1> <map2>
 
-            if (_ttableBytes.Count < TTABLE_MIN_LENGTH)
+            if (ttableData.Length < TTABLE_MIN_LENGTH)
             {
                 context.Logger.LogWarning("TTABLE-IS message too short");
                 await context.SendNegotiationAsync(s_ttableRejected);
                 return;
             }
 
-            var version = _ttableBytes.Bytes[0];
+            var version = ttableData[0];
             if (version != TTABLE_VERSION_1)
             {
                 context.Logger.LogWarning("Unsupported TTABLE version: {Version}", version);
@@ -555,8 +604,6 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             // Invoke callback if registered
             if (_onTTableReceived != null)
             {
-                var ttableData = _ttableBytes.Bytes.ToArray();
-
                 var shouldAccept = await _onTTableReceived.Invoke(ttableData);
                 
                 if (shouldAccept)

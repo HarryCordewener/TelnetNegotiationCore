@@ -45,6 +45,7 @@ public partial class TelnetInterpreter
         [69] = typeof(Protocols.MSDPProtocol),
         [70] = typeof(Protocols.MSSPProtocol),
         [24] = typeof(Protocols.TerminalTypeProtocol),
+        [42] = typeof(Protocols.CharsetProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -129,6 +130,9 @@ public partial class TelnetInterpreter
                         return;
                     case Protocols.TerminalTypeProtocol ttype:
                         await ttype.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.CharsetProtocol charset:
+                        await charset.OnPeerNegotiatedAsync(verb, Context());
                         return;
                 }
             }
@@ -246,10 +250,41 @@ public partial class TelnetInterpreter
 
             return default;
         }
-        public override ValueTask CharsetRequestAsync(byte[] text) => default;
-        public override ValueTask CharsetAcceptedAsync(byte[] text) => default;
+        public override ValueTask CharsetRequestAsync(byte[] text)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.CharsetProtocol)) is Protocols.CharsetProtocol charset)
+            {
+                return charset.CompleteCharsetRequestFromBytesAsync(text, Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask CharsetAcceptedAsync(byte[] text)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.CharsetProtocol)) is Protocols.CharsetProtocol charset)
+            {
+                return charset.CompleteAcceptedCharsetFromBytesAsync(text, Context());
+            }
+
+            return default;
+        }
+
+        // RFC 2066's own REJECTED/TTABLE_REJECTED/TTABLE_ACK/TTABLE_NAK carry no payload of their own to
+        // process on the receiving end -- the original Stateless configuration has no handler for any of
+        // them either, only the state transition that consumes their bytes.
         public override ValueTask CharsetRejectedAsync() => default;
-        public override ValueTask CharsetTTableAsync(byte[] text) => default;
+
+        public override ValueTask CharsetTTableAsync(byte[] text)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.CharsetProtocol)) is Protocols.CharsetProtocol charset)
+            {
+                return charset.CompleteTTableFromBytesAsync(text, Context());
+            }
+
+            return default;
+        }
+
         public override ValueTask CharsetTTableRejectedAsync() => default;
         public override ValueTask CharsetTTableAckAsync() => default;
         public override ValueTask CharsetTTableNakAsync() => default;
