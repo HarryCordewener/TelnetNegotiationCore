@@ -228,6 +228,29 @@ public class EchoProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
+    /// <summary>
+    /// What arriving at Do/Dont (server) or Willing/Refusing (client) for ECHO does, independent of which
+    /// machine got there -- each mode only ever sees one direction, per <see cref="ConfigureStateMachine"/>.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.DO:
+                await OnDoEchoAsync(null!, context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontEchoAsync(context);
+                break;
+            case (byte)Trigger.WILL:
+                await OnWillEchoAsync(null!, context);
+                break;
+            case (byte)Trigger.WONT:
+                await WontEchoAsync(context);
+                break;
+        }
+    }
+
     private async ValueTask OnDontEchoAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client doesn't want server to echo - disabling echo");

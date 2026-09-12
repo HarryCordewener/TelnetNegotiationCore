@@ -37,6 +37,7 @@ public partial class TelnetInterpreter
         [31] = typeof(Protocols.NAWSProtocol),
         [3] = typeof(Protocols.SuppressGoAheadProtocol),
         [25] = typeof(Protocols.EORProtocol),
+        [1] = typeof(Protocols.EchoProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -97,6 +98,9 @@ public partial class TelnetInterpreter
                         return;
                     case Protocols.EORProtocol eor:
                         await eor.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.EchoProtocol echo:
+                        await echo.OnPeerNegotiatedAsync(verb, Context());
                         return;
                 }
             }
