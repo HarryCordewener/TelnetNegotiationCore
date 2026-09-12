@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using StateAlchemist;
@@ -13,14 +14,26 @@ public struct Charset : IState<SubNegotiation>
 {
 }
 
-/// <summary>REQUEST's separator-delimited charset list, or ACCEPTED's or TTABLE_IS's text.</summary>
+/// <summary>REQUEST's separator-delimited charset list, or ACCEPTED's text.</summary>
 public struct CharsetValue : IState<SubNegotiation>
 {
-    /// <summary>Which of REQUEST, ACCEPTED or TTABLE_IS this text is for.</summary>
+    /// <summary>Which of REQUEST or ACCEPTED this text is for.</summary>
     public byte Kind;
 
     public List<byte>? Text;
 
+    public bool Escaping;
+}
+
+/// <summary>
+/// Reading TTABLE_IS's bytes, streamed to the context rather than buffered here -- the same shape
+/// GMCP/MSDP/MSSP use, so the application's maximum-message-size policy (see
+/// <see cref="Protocols.CharsetProtocol.MaxTTableSize"/>) still lives in one place and can reject
+/// mid-stream instead of after an unbounded table has already been read into memory.
+/// </summary>
+public struct CharsetTTable : IState<SubNegotiation>
+{
+    /// <summary>An IAC has been read; the next byte says whether this ends the subnegotiation.</summary>
     public bool Escaping;
 }
 
@@ -43,8 +56,14 @@ public abstract partial class TelnetCoreContext
     /// <summary>REJECTED: the peer accepted none of what was offered.</summary>
     public abstract ValueTask CharsetRejectedAsync();
 
-    /// <summary>TTABLE_IS: a translation table, as it arrived.</summary>
-    public abstract ValueTask CharsetTTableAsync(byte[] text);
+    /// <summary>TTABLE_IS began; anything buffered from a previous, incomplete one should be dropped.</summary>
+    public abstract ValueTask CharsetTTableStartedAsync();
+
+    /// <summary>A stretch of TTABLE_IS's bytes arrived. Called as many times as it takes.</summary>
+    public abstract ValueTask CharsetTTableDataAsync(ReadOnlyMemory<byte> data);
+
+    /// <summary>TTABLE_IS is complete.</summary>
+    public abstract ValueTask CharsetTTableEndedAsync();
 
     /// <summary>TTABLE_REJECTED.</summary>
     public abstract ValueTask CharsetTTableRejectedAsync();
@@ -85,9 +104,6 @@ public static class CharsetModule
     [Transition(From = typeof(Charset), To = typeof(CharsetValue)), On(Accepted)]
     public static void Accepting(ref CharsetValue to) => to.Kind = Accepted;
 
-    [Transition(From = typeof(Charset), To = typeof(CharsetValue)), On(TTableIs)]
-    public static void ReadingTTable(ref CharsetValue to) => to.Kind = TTableIs;
-
     [Transition(From = typeof(CharsetValue)), OnAny, Run]
     public static void Capture(ref CharsetValue self, System.ReadOnlySpan<byte> run)
     {
@@ -122,13 +138,49 @@ public static class CharsetModule
         public static ValueTask CompletedAsync(TelnetCoreContext context, in CharsetValue from)
         {
             var text = from.Text?.ToArray() ?? [];
-            return from.Kind switch
-            {
-                Request => context.CharsetRequestAsync(text),
-                Accepted => context.CharsetAcceptedAsync(text),
-                _ => context.CharsetTTableAsync(text),
-            };
+            return from.Kind == Request ? context.CharsetRequestAsync(text) : context.CharsetAcceptedAsync(text);
         }
+    }
+
+    [Transition(From = typeof(Charset), To = typeof(CharsetTTable)), On(TTableIs)]
+    public static class ReadingTTable
+    {
+        public static void Transform()
+        {
+        }
+
+        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.CharsetTTableStartedAsync();
+    }
+
+    [Transition(From = typeof(CharsetTTable)), OnAny, Run]
+    public static class CaptureTTable
+    {
+        public static void Transform(ref CharsetTTable self, System.ReadOnlySpan<byte> run) => self.Escaping = false;
+
+        public static ValueTask CompletedAsync(TelnetCoreContext context, ReadOnlyMemory<byte> run) =>
+            context.CharsetTTableDataAsync(run);
+    }
+
+    /// <summary>The first IAC of a pair waits to see whether it doubles into data or is followed by SE.</summary>
+    [Transition(From = typeof(CharsetTTable)), On(IAC)]
+    public static class MarkTTable
+    {
+        public static void Transform(ref CharsetTTable self) => self.Escaping = !self.Escaping;
+
+        public static ValueTask CompletedAsync(TelnetCoreContext context, in CharsetTTable self) =>
+            self.Escaping ? default : context.CharsetTTableDataAsync(new byte[] { IAC });
+    }
+
+    [Transition(From = typeof(CharsetTTable), To = typeof(Idle)), On(SE)]
+    public static class TTableEnded
+    {
+        public static bool Guard(in CharsetTTable self) => self.Escaping;
+
+        public static void Transform()
+        {
+        }
+
+        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.CharsetTTableEndedAsync();
     }
 
     [Transition(From = typeof(Charset), To = typeof(CharsetEnding)), On(Rejected)]

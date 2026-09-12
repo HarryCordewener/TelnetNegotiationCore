@@ -331,11 +331,23 @@ public partial class TelnetInterpreter
         // them either, only the state transition that consumes their bytes.
         public override ValueTask CharsetRejectedAsync() => default;
 
-        public override ValueTask CharsetTTableAsync(byte[] text)
+        public override ValueTask CharsetTTableStartedAsync()
+        {
+            (owner.PluginManager?.GetPlugin(typeof(Protocols.CharsetProtocol)) as Protocols.CharsetProtocol)?.StartTTableMessage();
+            return default;
+        }
+
+        public override ValueTask CharsetTTableDataAsync(ReadOnlyMemory<byte> data)
+        {
+            (owner.PluginManager?.GetPlugin(typeof(Protocols.CharsetProtocol)) as Protocols.CharsetProtocol)?.AppendTTableBytes(data);
+            return default;
+        }
+
+        public override ValueTask CharsetTTableEndedAsync()
         {
             if (owner.PluginManager?.GetPlugin(typeof(Protocols.CharsetProtocol)) is Protocols.CharsetProtocol charset)
             {
-                return charset.CompleteTTableFromBytesAsync(text, Context());
+                return charset.CompleteTTableFromBufferAsync(Context());
             }
 
             return default;

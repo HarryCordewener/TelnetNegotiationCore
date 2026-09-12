@@ -253,9 +253,24 @@ public class RecordingTelnetContext : TelnetCoreContext
         return default;
     }
 
-    public override ValueTask CharsetTTableAsync(byte[] text)
+    private readonly List<byte> _charsetTTable = [];
+
+    public override ValueTask CharsetTTableStartedAsync()
     {
-        CharsetTTables.Add(text);
+        _charsetTTable.Clear();
+        return default;
+    }
+
+    public override ValueTask CharsetTTableDataAsync(ReadOnlyMemory<byte> data)
+    {
+        _charsetTTable.AddRange(data.ToArray());
+        return default;
+    }
+
+    public override ValueTask CharsetTTableEndedAsync()
+    {
+        CharsetTTables.Add([.. _charsetTTable]);
+        _charsetTTable.Clear();
         return default;
     }
 

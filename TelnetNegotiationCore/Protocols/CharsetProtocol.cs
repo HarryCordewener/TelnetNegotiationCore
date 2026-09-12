@@ -561,10 +561,21 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     }
 
     private ValueTask CompleteTTableAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context) =>
-        CompleteTTableFromBytesAsync(_ttableBytes.Bytes.ToArray(), context, _ttableBytes.Overflowed);
+        CompleteTTableFromBufferAsync(context);
 
-    internal ValueTask CompleteTTableFromBytesAsync(byte[] ttableData, IProtocolContext context) =>
-        CompleteTTableFromBytesAsync(ttableData, context, ttableData.Length > MaxTTableSize);
+    /// <summary>Resets the same buffer <see cref="GetTTable"/> does, for the generated machine's
+    /// TTABLE_IS start event -- streaming into it rather than an unbounded per-message list is what
+    /// lets <see cref="MaxTTableSize"/> reject an oversized table mid-stream instead of after it has
+    /// already been read into memory.</summary>
+    internal void StartTTableMessage() => _ttableBytes.Reset();
+
+    internal void AppendTTableBytes(ReadOnlyMemory<byte> data)
+    {
+        foreach (var b in data.Span) _ttableBytes.Add(b);
+    }
+
+    internal ValueTask CompleteTTableFromBufferAsync(IProtocolContext context) =>
+        CompleteTTableFromBytesAsync(_ttableBytes.Bytes.ToArray(), context, _ttableBytes.Overflowed);
 
     private async ValueTask CompleteTTableFromBytesAsync(byte[] ttableData, IProtocolContext context, bool overflowed)
     {
