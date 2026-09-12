@@ -78,22 +78,22 @@ public class TelnetCoreMachineTests
         await Assert.That(recorder.Lines).IsEquivalentTo(new[] { "aÿb" });
     }
 
-    /// <summary>Option 24 is terminal type, which no module here claims, so the core frames it generically.</summary>
+    /// <summary>Option 198 claims nothing here, so the core frames it generically.</summary>
     [Test]
     public async Task ASubnegotiationEndsAtIacSe()
     {
-        var recorder = await Run([IAC, SB, 24, 0, 80, 0, 24, IAC, SE, .. Wire("after\n")]);
+        var recorder = await Run([IAC, SB, 198, 0, 80, 0, 24, IAC, SE, .. Wire("after\n")]);
 
-        await Assert.That(recorder.SubNegotiations).IsEquivalentTo(new byte[] { 24 });
+        await Assert.That(recorder.SubNegotiations).IsEquivalentTo(new byte[] { 198 });
         await Assert.That(recorder.Lines).IsEquivalentTo(new[] { "after" });
     }
 
     [Test]
     public async Task AnEscapedIacInsideASubnegotiationDoesNotEndIt()
     {
-        var recorder = await Run([IAC, SB, 70, 1, IAC, IAC, 2, IAC, SE, .. Wire("x\n")]);
+        var recorder = await Run([IAC, SB, 199, 1, IAC, IAC, 2, IAC, SE, .. Wire("x\n")]);
 
-        await Assert.That(recorder.SubNegotiations).IsEquivalentTo(new byte[] { 70 });
+        await Assert.That(recorder.SubNegotiations).IsEquivalentTo(new byte[] { 199 });
         await Assert.That(recorder.Lines).IsEquivalentTo(new[] { "x" });
     }
 
@@ -150,10 +150,10 @@ public class TelnetCoreMachineTests
     [Test]
     public async Task AnUnclaimedOptionStillFramesCorrectly()
     {
-        var recorder = await Run([IAC, SB, 70, 1, 2, 3, IAC, SE, .. Wire("x\n")]);
+        var recorder = await Run([IAC, SB, 199, 1, 2, 3, IAC, SE, .. Wire("x\n")]);
 
         await Assert.That(recorder.Windows).IsEmpty();
-        await Assert.That(recorder.SubNegotiations).IsEquivalentTo(new byte[] { 70 });
+        await Assert.That(recorder.SubNegotiations).IsEquivalentTo(new byte[] { 199 });
         await Assert.That(recorder.Lines).IsEquivalentTo(new[] { "x" });
     }
 

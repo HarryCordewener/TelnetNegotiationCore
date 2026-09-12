@@ -41,6 +41,8 @@ public class RecordingTelnetContext : TelnetCoreContext
 
     public List<byte[]> MsdpMessages { get; } = [];
 
+    public List<string> MsspEvents { get; } = [];
+
     public override void Write(ReadOnlySpan<byte> text)
     {
         foreach (var b in text)
@@ -136,6 +138,36 @@ public class RecordingTelnetContext : TelnetCoreContext
     {
         MsdpMessages.Add([.. _msdp]);
         _msdp.Clear();
+        return default;
+    }
+
+    public override ValueTask MsspStartedAsync()
+    {
+        MsspEvents.Add("started");
+        return default;
+    }
+
+    public override ValueTask MsspVariableMarkerAsync()
+    {
+        MsspEvents.Add("VAR");
+        return default;
+    }
+
+    public override ValueTask MsspValueMarkerAsync()
+    {
+        MsspEvents.Add("VAL");
+        return default;
+    }
+
+    public override ValueTask MsspDataAsync(ReadOnlyMemory<byte> data)
+    {
+        MsspEvents.Add(Encoding.ASCII.GetString(data.Span));
+        return default;
+    }
+
+    public override ValueTask MsspEndedAsync()
+    {
+        MsspEvents.Add("ended");
         return default;
     }
 }

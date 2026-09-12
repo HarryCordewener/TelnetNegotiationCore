@@ -50,4 +50,20 @@ public class StreamedPayloadMachineTests
         await Assert.That(recorder.MsdpMessages).HasSingleItem();
         await Assert.That(recorder.MsdpMessages[0]).IsEquivalentTo(expected);
     }
+
+    [Test]
+    public async Task MsspReadsRepeatingVarValPairs()
+    {
+        byte[] payload =
+        [
+            1, .. "NAME"u8.ToArray(), 2, .. "Server"u8.ToArray(),
+            1, .. "PLAYERS"u8.ToArray(), 2, .. "3"u8.ToArray(),
+        ];
+        var recorder = await Run([IAC, SB, 70, .. payload, IAC, SE]);
+
+        await Assert.That(recorder.MsspEvents).IsEquivalentTo(new[]
+        {
+            "started", "VAR", "NAME", "VAL", "Server", "VAR", "PLAYERS", "VAL", "3", "ended",
+        });
+    }
 }
