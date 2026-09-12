@@ -14,11 +14,13 @@ default is **1 MiB per message**, configurable per protocol:
 ```
 
 None of the GMCP, MSDP or MSSP specifications defines a maximum message size, so the limit is a
-library policy, not a protocol constant. Messages that exceed it are **dropped, never truncated** —
+library policy, not a protocol constant. The limit is **inclusive**: a message of exactly
+`MaxMessageSize` bytes is delivered normally, and it is the byte after that which marks the message
+as overflowed. Messages that exceed it are **dropped, never truncated** —
 half a JSON document is invalid JSON, and a consumer cannot tell it apart from a malformed server.
-Reaching the limit is never silent, but what is reported differs per protocol:
+Exceeding the limit is never silent, but what is reported differs per protocol:
 
-| Protocol | At the ceiling |
+| Protocol | Once it is exceeded |
 | --- | --- |
 | GMCP | `Error` log naming the package, the bytes received and the limit; `OnGMCPMessageTooLarge((Package, ReceivedBytes, MaxMessageSize))` |
 | MSDP | `Error` log with the bytes received and the limit; `OnMSDPMessageTooLarge((ReceivedBytes, MaxMessageSize))` — MSDP messages have no package name |

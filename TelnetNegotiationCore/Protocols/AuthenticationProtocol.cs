@@ -156,15 +156,19 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     /// <code>
     /// .OnAuthenticationResponse(async (authData) =>
     /// {
-    ///     var authType = authData[0];
-    ///     var modifiers = authData[1];
-    ///     var credentials = authData.Skip(2).ToArray();
+    ///     // The subnegotiation body as it arrived, command byte first, from an untrusted peer.
+    ///     if (authData.Length &lt; 3) return;
+    ///
+    ///     var command = authData[0];                    // 0 = IS
+    ///     var authType = authData[1];
+    ///     var modifiers = authData[2];
+    ///     var credentials = authData.Skip(3).ToArray();
     ///     
     ///     var isValid = await ValidateCredentials(authType, credentials);
     ///     if (!isValid)
     ///     {
     ///         var authPlugin = telnet.PluginManager.GetPlugin&lt;AuthenticationProtocol&gt;();
-    ///         await authPlugin.SendAuthenticationReplyAsync(new byte[] { authType, modifiers, 0xFF });
+    ///         await authPlugin.SendAuthenticationReplyAsync(RejectionFor(authType, modifiers));
     ///     }
     /// })
     /// </code>
@@ -323,19 +327,17 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     /// <remarks>
     /// <para><strong>Server-side.</strong> Used to send authentication status, acceptance, rejection, or challenges.</para>
     /// <para>This sends an IAC SB AUTHENTICATION REPLY [reply data] IAC SE message.</para>
-    /// <para>Common status values:</para>
-    /// <list type="bullet">
-    /// <item><description>0x00 - Success/Accept</description></item>
-    /// <item><description>0xFF - Reject/Failure</description></item>
-    /// <item><description>Other values are mechanism-specific (e.g., challenge data)</description></item>
-    /// </list>
+    /// <para>
+    /// Everything after the (authType, modifiers) pair is <strong>mechanism-specific and not
+    /// interpreted here</strong>: RFC 2941 defines the framing and leaves the body to the mechanism,
+    /// so RFC 2942's Kerberos ACCEPT/REJECT, SRP's and RSA's are each their own. The bytes are
+    /// written as given. A 0x00 / 0xFF accept-or-reject convention exists only where both ends have
+    /// agreed one; nothing in this library imposes or reads it.
+    /// </para>
     /// <example>
     /// <code>
-    /// // Accept authentication
+    /// // Whatever the mechanism defines as success, for a mechanism that uses a status byte.
     /// await authPlugin.SendAuthenticationReplyAsync(new byte[] { 5, 0, 0x00 });
-    /// 
-    /// // Reject authentication
-    /// await authPlugin.SendAuthenticationReplyAsync(new byte[] { 5, 0, 0xFF });
     /// 
     /// // Send challenge for multi-round auth
     /// await authPlugin.SendAuthenticationReplyAsync(new byte[]

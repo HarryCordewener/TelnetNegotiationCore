@@ -14,11 +14,10 @@ var telnet = await new TelnetInterpreterBuilder()
         {
             // envVars contains standard environment variables (USER, LANG, etc.)
             // userVars contains user-defined variables
-            logger.LogInformation("Received {EnvCount} environment variables", envVars.Count);
-            foreach (var (key, value) in envVars)
-            {
-                logger.LogInformation("  {Key} = {Value}", key, value);
-            }
+            // The values come from the peer. Log the names, not the contents — MNES carries
+            // CLIENT_NAME and IPADDRESS, and RFC 1572's USER is whatever the peer decided to send.
+            logger.LogInformation("Received {EnvCount} environment variables: {Names}",
+                envVars.Count, string.Join(", ", envVars.Keys));
             return ValueTask.CompletedTask;
         })
     .BuildAsync();

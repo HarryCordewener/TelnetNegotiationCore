@@ -1,6 +1,12 @@
 # ENVIRON — environment variables (RFC 1408)
 
-The ENVIRON protocol (RFC 1408) is the original environment variable negotiation protocol. It's simpler than NEW-ENVIRON and supports only basic environment variables (no user variables). This protocol can be activated in isolation.
+RFC 1408 is the original environment-variable option, and `EnvironProtocol` speaks it. It can be
+activated on its own, and it coexists with `NewEnvironProtocol` (RFC 1572) on the same connection.
+
+**RFC 1408 defines `USERVAR` as well as `VAR`; this plugin implements `VAR` only.** That is a
+limitation of the implementation, not of the RFC — a `USERVAR` in an incoming `IS` is not surfaced,
+and there is no way to send one. If you need user-defined variables, use
+[`NewEnvironProtocol`](new-environ.md), where they are supported.
 
 ## Server side
 ```csharp
@@ -13,11 +19,10 @@ var telnet = await new TelnetInterpreterBuilder()
         .OnEnvironmentVariables((envVars) => 
         {
             // envVars contains standard environment variables (USER, LANG, etc.)
-            logger.LogInformation("Received {EnvCount} environment variables", envVars.Count);
-            foreach (var (key, value) in envVars)
-            {
-                logger.LogInformation("  {Key} = {Value}", key, value);
-            }
+            // The values come from the peer. Log the names, not the contents: RFC 1408's own
+            // vocabulary includes USER, and a peer is free to put anything in any of them.
+            logger.LogInformation("Received {EnvCount} environment variables: {Names}",
+                envVars.Count, string.Join(", ", envVars.Keys));
             return ValueTask.CompletedTask;
         })
     .BuildAsync();
@@ -54,5 +59,6 @@ var telnet = await new TelnetInterpreterBuilder()
     .BuildAsync();
 ```
 
-**Note:** If you need user-defined variables or more advanced features, use `NewEnvironProtocol` (RFC 1572) instead. Both protocols can coexist if needed.
+**Note:** `NewEnvironProtocol` (RFC 1572) is the option to use for user-defined variables and for
+MNES. Both can be registered on one connection.
 

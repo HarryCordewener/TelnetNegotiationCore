@@ -1,6 +1,6 @@
 # X-Display Location (RFC 1096)
 
-The X-Display Location protocol (RFC 1096) allows clients and servers to exchange X Window System display location information. This is useful for X11 applications that need to know where to display their GUI.
+RFC 1096 carries one string: the X display location a client would like a remote application to draw on — the value you would otherwise put in `DISPLAY`. That is the entire option. It does not set up an X connection, forward X traffic, or authenticate anything; an application that acts on the string brings all of that itself.
 
 ## Server side
 ```csharp
@@ -53,9 +53,11 @@ Examples:
 - `myhost.example.com:10.0` - Remote X server via hostname
 
 ## Use cases
-- **X11 Forwarding**: Enable X Window System applications to display on client's screen
-- **Remote Desktop**: Support applications that need to know the display location
-- **Legacy Unix Systems**: Compatibility with older Unix/Linux systems using X11
+- **Telling an X11 application where to draw**: the remote application already has its own X
+  connection, authentication (`XAUTHORITY`, magic cookies) and transport. RFC 1096's whole job is
+  making the display *name* available to it. This option opens no connection, forwards no X traffic
+  and authenticates nothing
+- **Legacy Unix systems**: compatibility with hosts that expect `DISPLAY` to arrive this way
 
 **Note:** This protocol is primarily useful for X Window System applications. Modern applications often use different display protocols (like VNC, RDP, or web-based interfaces).
 

@@ -23,6 +23,10 @@ public class PluginFluentConfigurationTests : BaseTest
 {
     private static ValueTask NoSubmit(byte[] data, Encoding encoding, TelnetInterpreter t) => ValueTask.CompletedTask;
 
+    /// <summary>
+    /// ENCRYPT's five settings, written on the builder chain rather than fetched from the built
+    /// interpreter, and a SUPPORT subnegotiation driven through to the callback they configure.
+    /// </summary>
     [Test]
     public async Task EncryptionCallbacksConfiguredOnTheChainAreWired()
     {
@@ -109,6 +113,10 @@ public class PluginFluentConfigurationTests : BaseTest
         await client.DisposeAsync();
     }
 
+    /// <summary>
+    /// The same for CHARSET's encoding callback, which had no chain extension either: negotiating
+    /// down to iso-8859-1 must reach an <c>OnCharsetChange</c> set before the connection was built.
+    /// </summary>
     [Test]
     public async Task CharsetChangeCallbackConfiguredOnTheChainIsWired()
     {

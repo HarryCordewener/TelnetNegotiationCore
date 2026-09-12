@@ -48,7 +48,7 @@ var telnet = await new TelnetInterpreterBuilder()
 
 ## What it buys
 - **MCCP2**: Reduces server-to-client bandwidth by 75-90%
-- **MCCP3**: Reduces client-to-server bandwidth and provides security through obscurity
+- **MCCP3**: Reduces client-to-server bandwidth. It is compression and nothing more — zlib gives no confidentiality and no integrity, and a stream that looks unreadable to a person is not encrypted. Use [ENCRYPT](encryption.md), or TLS underneath, for anything that needs protecting
 - **Automatic**: Compression/decompression is transparent once negotiated, including for telnet negotiation that arrives inside the compressed stream
 - **Standards-compliant**: Uses zlib (RFC 1950) compression via `System.IO.Compression.ZLibStream` (SharpZipLib on `netstandard2.0`), as one stream per connection per direction
 

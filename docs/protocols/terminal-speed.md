@@ -1,6 +1,6 @@
 # Terminal speed (RFC 1079)
 
-The Terminal Speed protocol (RFC 1079) allows clients and servers to exchange terminal speed information (transmit and receive speeds in bits per second).
+RFC 1079 exchanges the terminal's transmit and receive speeds in bits per second — a **declared** pair of numbers from the era of serial lines, not a measurement. The client states what it wants to claim and the server is told exactly that.
 
 ## Server side
 ```csharp
@@ -47,7 +47,7 @@ var telnet = await new TelnetInterpreterBuilder()
 
 ## Use cases
 - **Server optimization**: Adjust output based on connection speed
-- **Client diagnostics**: Report actual connection speed to server
+- **Client diagnostics**: Report the speed the client is *configured* to claim. Nothing here measures the network — `WithClientTerminalSpeed(115200, 115200)` sends 115200 whatever the link is actually doing, and a server must not read it as bandwidth
 - **Compatibility**: Support legacy systems that rely on terminal speed information
 
 **Note:** Most modern applications don't need terminal speed information as network speeds far exceed terminal speeds. This protocol is primarily useful for compatibility with legacy systems or specialized use cases.

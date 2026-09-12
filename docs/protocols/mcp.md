@@ -44,10 +44,14 @@ S: #$#mcp-negotiate-end a3f1c0d29b4e7182
 The key is chosen by the **client** and adopted by the server, and from then on both sides *carry* it
 as the first, unnamed argument of every **ordinary** message they send, rejecting any that arrives
 without it. The two multiline frames are the exception and carry the data tag in that position
-instead — `#$#* <tag> …` and `#$#: <tag>` — which is what authenticates them, since a tag is only ever
-known to a peer this side already opened a message with. It
+instead — `#$#* <tag> …` and `#$#: <tag>` — which is what ties a continuation line to the message it
+belongs to, since a tag is only ever known to a peer this side already opened a message with. That is
+association, not cryptography: a peer able to inject lines into the stream can read a tag and then
+add lines to the message it names, the same way it could with the key. It
 exists because anyone on a MUD can type `#$#` at the start of a line: without it, those keystrokes
-would reach the other player's client as protocol. (This is a different mechanism from the `#$"`
+would reach the other player's client as protocol. It stops that, and nothing stronger — the key
+travels in cleartext on a cleartext protocol, so it is unguessable to a player typing into a room,
+not to anything on the path. (This is a different mechanism from the `#$"`
 quoting below, which is about ordinary output that happens to look like protocol — the key
 authenticates messages, the prefix hides non-messages.) A key that is not a single unquoted token is
 refused, because it is written back unquoted and could not survive the trip.

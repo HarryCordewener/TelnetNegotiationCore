@@ -20,13 +20,18 @@ it by hand for a server that wants to turn the marker on or off mid-session.
 
 ## `SuppressGoAheadProtocol` (RFC 858)
 
-The default NVT — no options negotiated — ends every prompt with a bare `IAC GA`, RFC 854's own
-Go-Ahead, and this plugin is what notices one.
+In the default NVT, RFC 854's `IAC GA` is how a half-duplex peer says the line is now yours, and
+this plugin is what notices one and reports it through `OnPrompt`. **It is not a guarantee.** RFC 854
+requires no `GA` after any particular line, and plenty of servers never send one; what this plugin
+gives you is a callback for the peers that do. Output that carries no marker does not reach
+`OnPrompt` from here at all — [`PacketPatchProtocol`](../guides/prompts.md) is the separate fallback
+for that.
 
 ```csharp
 .AddPlugin<SuppressGoAheadProtocol>()
     .OnPrompt(HandlePromptAsync)
 ```
 
-A client always accepts a peer's `SUPPRESS-GO-AHEAD` offer, as RFC 1123 §3.2.2 requires, which stops
-the marker arriving at all; `PacketPatchProtocol` is the fallback for exactly that case.
+A client always accepts a peer's `SUPPRESS-GO-AHEAD` offer, as RFC 1123 §3.2.2 requires. Once that
+is agreed the peer stops sending `GA`, so there is nothing left for this plugin to report — which is
+the other reason `PacketPatchProtocol` exists.

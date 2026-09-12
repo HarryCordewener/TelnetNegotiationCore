@@ -37,12 +37,23 @@ var telnet = await new TelnetInterpreterBuilder()
         // Handle client authentication responses
         .OnAuthenticationResponse(async (authData) =>
         {
-            // The subnegotiation body exactly as it arrived, command byte first.
+            // The subnegotiation body exactly as it arrived, command byte first — and from an
+            // untrusted peer, so check the length before indexing it.
+            if (authData.Length < 3) return;
+
             var command = authData[0];                    // 0 = IS
             var authType = authData[1];
             var modifiers = authData[2];
             var credentials = authData.Skip(3).ToArray();
-            
+
+            // The peer names the mechanism, so check it against the list you offered. The library
+            // does not: it carries the message and leaves the policy to you.
+            if (!offered.Contains((authType, modifiers)))
+            {
+                await RejectAsync(authType, modifiers);
+                return;
+            }
+
             logger.LogInformation("Received authentication type {Type} with {Bytes} bytes of credentials", 
                 authType, credentials.Length);
             
@@ -50,11 +61,7 @@ var telnet = await new TelnetInterpreterBuilder()
             var isValid = await ValidateCredentials(authType, credentials);
             
             if (!isValid)
-            {
-                // Get the plugin to send rejection or challenge
-                var authPlugin = telnet.PluginManager!.GetPlugin<AuthenticationProtocol>();
-                await authPlugin!.SendAuthenticationReplyAsync(new byte[] { authType, modifiers, 0xFF }); // Reject
-            }
+                await RejectAsync(authType, modifiers);
         })
     .BuildAsync();
 ```
@@ -75,7 +82,8 @@ var telnet = await new TelnetInterpreterBuilder()
             // The subnegotiation body: the SEND command byte, then (authType, modifiers) pairs.
             logger.LogInformation("Server offers {Count} authentication types", (authTypePairs.Length - 1) / 2);
             
-            // Choose first supported type and provide credentials
+            // Choose the first type you support and provide credentials. Never index without this:
+            // the body comes from the peer, and a SEND with no pairs is three bytes shorter.
             if (authTypePairs.Length >= 3)
             {
                 var authType = authTypePairs[1];
@@ -121,6 +129,19 @@ await authPlugin!.SendAuthenticationReplyAsync(new byte[]
     5, 0,           // SRP, no modifiers  
     0x00            // Accept status
 });
+```
+
+**What a rejection looks like is the mechanism's business.** RFC 2941 defines the framing —
+`IAC SB AUTHENTICATION REPLY <authType> <modifiers> <data> IAC SE` — and leaves `<data>` to the
+mechanism: RFC 2942's Kerberos has its own `ACCEPT` and `REJECT` subcommands, and SRP and RSA have
+theirs. This library writes whatever bytes you pass and interprets none of them, so a `0x00` / `0xFF`
+accept-or-reject convention only exists if both ends agree it does:
+
+```csharp
+// Whatever the mechanism you are implementing defines as a rejection.
+ValueTask RejectAsync(byte authType, byte modifiers) =>
+    telnet.PluginManager!.GetPlugin<AuthenticationProtocol>()!
+        .SendAuthenticationReplyAsync([authType, modifiers, .. RejectionFor(authType)]);
 ```
 
 ## What the callbacks are handed

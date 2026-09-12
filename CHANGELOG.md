@@ -22,7 +22,13 @@ All notable changes to this project will be documented in this file.
 - **The authentication and encryption callback payloads are documented as they actually are.** Both
   are handed the subnegotiation body with the command byte still on the front — `[IS, authType,
   modifiers, …]`, `[SUPPORT, type, …]` — which the examples had been indexing past. The behaviour is
-  unchanged and now pinned by tests; the indices in the examples were wrong.
+  unchanged and now pinned by tests; the indices in the examples were wrong. `AuthenticationProtocol`'s
+  own XML documentation carried the same off-by-one, so IntelliSense was wrong too; corrected.
+- **`SendAuthenticationReplyAsync` no longer documents `0x00` / `0xFF` as accept and reject.** RFC 2941
+  leaves everything after the (authType, modifiers) pair to the mechanism, and this library interprets
+  none of it; the convention only exists where both ends have agreed one.
+- **`EnvironProtocol` implements RFC 1408's `VAR` but not `USERVAR`**, which the page now states as a
+  limitation of the implementation. It had said the RFC has no user variables, which is not true.
 
 ### Security
 - **OpenSSF Scorecard, CodeQL, a security policy and SHA-pinned actions.** Every action is pinned to

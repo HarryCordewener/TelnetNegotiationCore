@@ -37,10 +37,17 @@ var telnet = await new TelnetInterpreterBuilder()
         // Handle client encryption initialization
         .OnEncryptionRequest(async (encData) =>
         {
-            // The subnegotiation body exactly as it arrived, command byte first.
+            // The subnegotiation body exactly as it arrived, command byte first — and from an
+            // untrusted peer, so check the length before indexing it.
+            if (encData.Length < 2) return;
+
             var command = encData[0];                 // 0 = IS
             var encType = encData[1];
             var initData = encData.Skip(2).ToArray();
+
+            // The peer names the algorithm; check it against the list you offered before you
+            // initialise anything with it. The library carries the message and nothing more.
+            if (!offered.Contains(encType)) return;
             
             logger.LogInformation("Received encryption type {Type} with {Bytes} bytes of init data", 
                 encType, initData.Length);
@@ -153,7 +160,14 @@ the wire, command byte included** — `[SUPPORT, type, type, …]` and `[IS, typ
 respectively. What you return is the same shape without the command byte; the plugin writes that.
 
 ## Encryption types
-Common encryption types defined in RFC 2946:
+
+> **Every algorithm RFC 2946 names is legacy.** DES and CAST5-40 are broken outright, 3DES is
+> withdrawn ([NIST SP 800-131A Rev. 2](https://csrc.nist.gov/pubs/sp/800/131/a/r2/final)), and all of
+> them are unauthenticated CFB/OFB modes with no integrity check at all. Implement one only to talk
+> to something that already speaks it. For anything new, run telnet over TLS, where the transport
+> gives you an authenticated cipher suite and a key exchange rather than leaving both to you.
+
+The types defined in RFC 2946, for interoperability:
 - **0**: NULL (no encryption)
 - **1**: DES_CFB64
 - **2**: DES_OFB64
@@ -176,8 +190,8 @@ Common encryption types defined in RFC 2946:
 - **DEC_KEYID (8)**: Verify decryption key identifier
 
 ## Use cases
-- **Data confidentiality**: Protect telnet data stream from eavesdropping
-- **Custom encryption**: Implement DES, 3DES, CAST, or any RFC 2946-compliant algorithm
+- **Data confidentiality against a passive observer**, and only that: RFC 2946's modes are unauthenticated, so they do not detect a stream that has been altered
+- **Interoperability**: Speak DES, 3DES or CAST to something that already does — see the warning above before choosing one for anything new
 - **Key management**: Support multiple encryption keys via key identifiers
 - **Dynamic control**: Start/stop encryption on demand during session
 - **Backward compatibility**: Defaults to NULL rejection when callbacks not configured
@@ -185,5 +199,5 @@ Common encryption types defined in RFC 2946:
 ## Security considerations
 Per RFC 2946, the ENCRYPT option used in isolation provides protection against passive attacks but not against active attacks. It should be used alongside the Authentication option (with ENCRYPT_USING_TELOPT modifier) to provide protection against active attacks that attempt to prevent encryption negotiation.
 
-**Note:** This protocol provides the negotiation framework. Actual cryptographic encryption algorithms must be implemented in the callbacks using appropriate security libraries. Consider using modern alternatives like TLS for new implementations.
+**Note:** This protocol provides the negotiation framework. The cryptography is yours to implement in the callbacks, and none of the algorithms this option was designed around is fit for a new deployment — see the warning above. TLS underneath telnet is the shorter and safer answer.
 

@@ -104,9 +104,14 @@ prompt — by which time an interactive client may already have sent a character
 exact policy on top of the explicit call is three lines, and all of it stays yours:
 
 ```csharp
-// The telnet option may already have answered through OnMSSP by now.
+// The telnet option may already have answered by the time the delay is up, so let OnMSSP fill
+// this in — otherwise the check below has nothing to find and always asks.
 MSSPConfig? report = null;
 
+.AddPlugin<MSSPProtocol>()
+    .OnMSSP(config => { report ??= config; return ValueTask.CompletedTask; })
+
+// …later, on the connection:
 await Task.Delay(TimeSpan.FromSeconds(10), token);
 if (report is null)
     report = await plaintext.RequestReportAsync(token);   // ReplyTimeout bounds the wait

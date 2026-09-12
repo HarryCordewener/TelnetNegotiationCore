@@ -38,8 +38,11 @@ while (true)
     var result = await connection.Transport.Input.ReadAsync();
     foreach (var segment in result.Buffer)
         await telnet.InterpretByteArrayAsync(segment);
-    if (result.IsCompleted) break;
+
+    // Advance before the completion check: the final read owns pipe memory too, and a loop that
+    // breaks first never hands it back.
     connection.Transport.Input.AdvanceTo(result.Buffer.End);
+    if (result.IsCompleted) break;
 }
 ```
 
