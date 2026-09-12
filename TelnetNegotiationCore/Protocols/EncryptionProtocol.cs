@@ -481,11 +481,7 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontEncryption)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Client won't encrypt");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnWontEncryptAsync(context));
 
         // Server handles IS subnegotiation (encryption initialization from client)
         stateMachine.Configure(State.SubNegotiation)
@@ -536,11 +532,7 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontEncryption)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Server doesn't want encryption");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnDontEncryptAsync(context));
 
         // Client handles SUPPORT subnegotiation
         stateMachine.Configure(State.SubNegotiation)
@@ -643,40 +635,80 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         });
     }
 
-    private async ValueTask ProcessEncryptionSupportAsync(IProtocolContext context)
+    private ValueTask ProcessEncryptionSupportAsync(IProtocolContext context) =>
+        ProcessEncryptionSupportFromBytesAsync(_encryptionData.ToArray(), context);
+
+    internal async ValueTask ProcessEncryptionSupportFromBytesAsync(byte[] data, IProtocolContext context)
     {
         context.Logger.LogDebug("Processing encryption SUPPORT");
-        
+
         byte[]? responseData = null;
-        
+
         // If callback is provided, let it handle the encryption type selection
         if (_onEncryptionSupport != null)
         {
-            responseData = await _onEncryptionSupport(_encryptionData.ToArray());
+            responseData = await _onEncryptionSupport(data);
         }
-        
+
         // If no response data or callback not set, send NULL rejection
         if (responseData == null)
         {
             context.Logger.LogDebug("Sending IS NULL response - rejecting all encryption types");
             responseData = new byte[] { ENC_NULL };
         }
-        
+
         await SendEncryptionIsAsync(responseData);
     }
 
-    private async ValueTask ProcessEncryptionIsAsync(IProtocolContext context)
+    private ValueTask ProcessEncryptionIsAsync(IProtocolContext context) =>
+        ProcessEncryptionIsFromBytesAsync(_encryptionData.ToArray(), context);
+
+    internal async ValueTask ProcessEncryptionIsFromBytesAsync(byte[] data, IProtocolContext context)
     {
         context.Logger.LogDebug("Processing encryption IS from client");
-        
+
         // Invoke callback if provided
         if (_onEncryptionRequest != null)
         {
-            await _onEncryptionRequest(_encryptionData.ToArray());
+            await _onEncryptionRequest(data);
         }
         else
         {
             context.Logger.LogDebug("No encryption request handler configured - encryption data ignored");
+        }
+    }
+
+    private ValueTask OnWontEncryptAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Client won't encrypt");
+        return OnNegotiatedAsync(false);
+    }
+
+    private ValueTask OnDontEncryptAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Server doesn't want encryption");
+        return OnNegotiatedAsync(false);
+    }
+
+    /// <summary>A server only ever configured WILL/WONT for this option, a client only ever
+    /// configured DO/DONT -- the same split AuthenticationProtocol needed.</summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        var server = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+        switch (verb)
+        {
+            case (byte)Trigger.WILL when server:
+                await OnClientWillEncryptAsync(context);
+                break;
+            case (byte)Trigger.WONT when server:
+                await OnWontEncryptAsync(context);
+                break;
+            case (byte)Trigger.DO when !server:
+                await OnServerRequestsEncryptionAsync(context);
+                break;
+            case (byte)Trigger.DONT when !server:
+                await OnDontEncryptAsync(context);
+                break;
         }
     }
 

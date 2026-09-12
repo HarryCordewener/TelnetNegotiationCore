@@ -596,6 +596,79 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets the encryption support callback in a fluent manner (RFC 2946).
+    /// This callback is invoked when a client receives the server's supported encryption types.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle encryption support. Receives the supported encryption types,
+    /// should return the initialization data for the selected type (type byte + init data), or null to reject with NULL.</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EncryptionProtocol> OnEncryptionSupport(
+        this PluginConfigurationContext<EncryptionProtocol> context,
+        Func<byte[], ValueTask<byte[]?>>? callback)
+    {
+        context.Plugin.OnEncryptionSupport(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the encryption request callback in a fluent manner (RFC 2946).
+    /// This callback is invoked when a server receives encryption initialization data from the client.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle encryption initialization data from clients</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EncryptionProtocol> OnEncryptionRequest(
+        this PluginConfigurationContext<EncryptionProtocol> context,
+        Func<byte[], ValueTask>? callback)
+    {
+        context.Plugin.OnEncryptionRequest(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the supported encryption types for the server in a fluent manner (RFC 2946).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="provider">Function that provides the list of supported encryption types</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EncryptionProtocol> WithEncryptionTypes(
+        this PluginConfigurationContext<EncryptionProtocol> context,
+        Func<ValueTask<List<byte>>>? provider)
+    {
+        context.Plugin.WithEncryptionTypes(provider);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the encryption start callback in a fluent manner (RFC 2946).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle encryption start, receiving keyid data</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EncryptionProtocol> OnEncryptionStart(
+        this PluginConfigurationContext<EncryptionProtocol> context,
+        Func<byte[], ValueTask>? callback)
+    {
+        context.Plugin.OnEncryptionStart(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the encryption end callback in a fluent manner (RFC 2946).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle encryption ending</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EncryptionProtocol> OnEncryptionEnd(
+        this PluginConfigurationContext<EncryptionProtocol> context,
+        Func<ValueTask>? callback)
+    {
+        context.Plugin.OnEncryptionEnd(callback);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the X Display Location callback in a fluent manner (RFC 1096).
     /// </summary>
     /// <param name="context">The plugin configuration context</param>

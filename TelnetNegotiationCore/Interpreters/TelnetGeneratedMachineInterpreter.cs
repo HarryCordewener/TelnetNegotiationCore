@@ -53,6 +53,7 @@ public partial class TelnetInterpreter
         [87] = typeof(Protocols.MCCPProtocol),
         [34] = typeof(Protocols.LineModeProtocol),
         [37] = typeof(Protocols.AuthenticationProtocol),
+        [38] = typeof(Protocols.EncryptionProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -159,6 +160,9 @@ public partial class TelnetInterpreter
                     case Protocols.AuthenticationProtocol authentication:
                         await authentication.OnPeerNegotiatedAsync(verb, Context());
                         return;
+                    case Protocols.EncryptionProtocol encryption:
+                        await encryption.OnPeerNegotiatedAsync(verb, Context());
+                        return;
                 }
             }
 
@@ -188,8 +192,27 @@ public partial class TelnetInterpreter
         // plugin's answer today. Kept as explicit no-ops rather than left unimplemented so the class
         // compiles as what it honestly is: a context that speaks for every option this library parses,
         // with only NAWS's answer live so far.
-        public override ValueTask EncryptionSendAsync(byte[] data) => default;
-        public override ValueTask EncryptionIsAsync(byte[] data) => default;
+        // Same discriminator-byte restoration AuthenticationSendAsync/AuthenticationIsAsync need --
+        // ENCRYPT shares AUTHENTICATION's exact Stateless capture shape (RFC 2946 mirrors RFC 2941's).
+        public override ValueTask EncryptionSendAsync(byte[] data)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EncryptionProtocol)) is Protocols.EncryptionProtocol encryption)
+            {
+                return encryption.ProcessEncryptionSupportFromBytesAsync(PrependAuthCommand(1, data), Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask EncryptionIsAsync(byte[] data)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EncryptionProtocol)) is Protocols.EncryptionProtocol encryption)
+            {
+                return encryption.ProcessEncryptionIsFromBytesAsync(PrependAuthCommand(0, data), Context());
+            }
+
+            return default;
+        }
         public override ValueTask MsdpStartedAsync()
         {
             (owner.PluginManager?.GetPlugin(typeof(Protocols.MSDPProtocol)) as Protocols.MSDPProtocol)?.StartMsdpMessage();
