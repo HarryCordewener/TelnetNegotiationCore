@@ -65,6 +65,14 @@ public class RecordingTelnetContext : TelnetCoreContext
 
     public List<string> EnvironEvents { get; } = [];
 
+    public int MxpStarts { get; private set; }
+
+    public int Mccp2Markers { get; private set; }
+
+    public int Mccp3Markers { get; private set; }
+
+    public int Mccp1Markers { get; private set; }
+
     public override void Write(ReadOnlySpan<byte> text)
     {
         foreach (var b in text)
@@ -310,6 +318,30 @@ public class RecordingTelnetContext : TelnetCoreContext
     public override ValueTask EnvironEndedAsync()
     {
         EnvironEvents.Add("ended");
+        return default;
+    }
+
+    public override ValueTask MxpStartedAsync()
+    {
+        MxpStarts++;
+        return default;
+    }
+
+    public override ValueTask Mccp2MarkerAsync()
+    {
+        Mccp2Markers++;
+        return default;
+    }
+
+    public override ValueTask Mccp3MarkerAsync()
+    {
+        Mccp3Markers++;
+        return default;
+    }
+
+    public override ValueTask Mccp1MarkerAsync()
+    {
+        Mccp1Markers++;
         return default;
     }
 }

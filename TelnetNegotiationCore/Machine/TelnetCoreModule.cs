@@ -281,5 +281,5 @@ public static class TelnetCoreModule
 
 /// <summary>The core machine, with no protocols in it: what TNC's own interpreter drives.</summary>
 [Machine(Root = typeof(Connected), Value = typeof(byte), Context = typeof(TelnetCoreContext))]
-[Include(typeof(TelnetCoreModule)), Include(typeof(NawsModule)), Include(typeof(FlowControlModule)), Include(typeof(TerminalSpeedModule)), Include(typeof(XDisplayModule)), Include(typeof(GmcpModule)), Include(typeof(MsdpModule)), Include(typeof(MsspModule)), Include(typeof(TerminalTypeModule)), Include(typeof(CharsetModule)), Include(typeof(NewEnvironModule)), Include(typeof(EnvironModule))]
+[Include(typeof(TelnetCoreModule)), Include(typeof(NawsModule)), Include(typeof(FlowControlModule)), Include(typeof(TerminalSpeedModule)), Include(typeof(XDisplayModule)), Include(typeof(GmcpModule)), Include(typeof(MsdpModule)), Include(typeof(MsspModule)), Include(typeof(TerminalTypeModule)), Include(typeof(CharsetModule)), Include(typeof(NewEnvironModule)), Include(typeof(EnvironModule)), Include(typeof(MxpModule)), Include(typeof(MccpMarkerModule))]
 public sealed partial class TelnetCoreMachine;

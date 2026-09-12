@@ -104,10 +104,10 @@ public class TelnetCoreMachineTests
     [Test]
     public async Task AFreshIacWhereAnOptionBelongsStartsTheNewCommand()
     {
-        var recorder = await Run(IAC, WONT, IAC, SB, 86, IAC, SE, IAC, WILL, 86);
+        var recorder = await Run(IAC, WONT, IAC, SB, 197, IAC, SE, IAC, WILL, 197);
 
-        await Assert.That(recorder.SubNegotiations).IsEquivalentTo(new byte[] { 86 });
-        await Assert.That(recorder.Negotiations).IsEquivalentTo(new[] { "WILL 86" });
+        await Assert.That(recorder.SubNegotiations).IsEquivalentTo(new byte[] { 197 });
+        await Assert.That(recorder.Negotiations).IsEquivalentTo(new[] { "WILL 197" });
     }
 
     [Test]
