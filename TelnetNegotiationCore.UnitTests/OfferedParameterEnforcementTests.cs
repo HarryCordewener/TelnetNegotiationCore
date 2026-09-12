@@ -137,6 +137,41 @@ public class OfferedParameterEnforcementTests : BaseTest
         await server.DisposeAsync();
     }
 
+    /// <summary>
+    /// An empty list is an advertisement, not the absence of one: this side told the peer it
+    /// accepts nothing, so nothing is what it accepts. That is the line between a configured
+    /// provider returning no types and no provider at all, and it is deliberate.
+    /// </summary>
+    [Test]
+    public async Task ServerOfferingAnEmptyListAcceptsNothing()
+    {
+        byte[]? received = null;
+
+        var server = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoSubmit)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<AuthenticationProtocol>()
+                .WithAuthenticationTypes(() => new ValueTask<List<(byte AuthType, byte Modifiers)>>([]))
+                .OnAuthenticationResponse(data => { received = data; return ValueTask.CompletedTask; })
+            .BuildAsync();
+
+        await InterpretAndWaitAsync(server,
+            [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.AUTHENTICATION]);
+
+        await InterpretAndWaitAsync(server,
+        [
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.AUTHENTICATION,
+            0, 5, 0, 0x01,
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        ]);
+
+        await Assert.That(received).IsNull();
+
+        await server.DisposeAsync();
+    }
+
     // ---------------------------------------------------------------- ENCRYPT
 
     [Test]

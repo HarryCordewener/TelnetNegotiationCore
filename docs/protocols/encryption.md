@@ -161,8 +161,9 @@ await encPlugin!.SendEncryptionRequestEndAsync();
 initialises decryption, and initialising it for an algorithm this side never advertised is exactly
 what this prevents. [Authentication](authentication.md#only-what-you-offered) does the same.
 
-Configure no types and there is nothing to enforce: the plugin advertises an empty list and already
-rejects with NULL.
+Configure no provider and there is nothing to enforce: the plugin advertises an empty list and
+already rejects with NULL. A provider that *returns* an empty list is an advertisement saying you
+accept nothing, and is enforced as such.
 
 ## What the callbacks are handed
 
