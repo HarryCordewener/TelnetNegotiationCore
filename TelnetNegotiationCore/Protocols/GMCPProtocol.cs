@@ -115,80 +115,18 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     // This can be expressed as: new[] { typeof(MSDPProtocol) }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Negotiation acceptance and the subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and <see cref="CompleteGmcpAsync"/>); this hook survives
+    /// only to register the server's initial offer, a cross-cutting mechanism independent of which
+    /// machine drives byte processing.
+    /// </remarks>
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring GMCP state machine");
-        
-        // Register GMCP protocol handlers with the context
-        context.SetSharedState("GMCP_Protocol", this);
-        
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            stateMachine.Configure(State.Do)
-                .Permit(Trigger.GMCP, State.DoGMCP);
-
-            stateMachine.Configure(State.Dont)
-                .Permit(Trigger.GMCP, State.DontGMCP);
-
-            stateMachine.Configure(State.DoGMCP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDoGmcpAsServerAsync(context));
-
-            stateMachine.Configure(State.DontGMCP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDontGmcpAsServerAsync(context));
-
             context.RegisterInitialNegotiation(async () => await WillGMCPAsync(context));
         }
-        else if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client)
-        {
-            stateMachine.Configure(State.Willing)
-                .Permit(Trigger.GMCP, State.WillGMCP);
-
-            stateMachine.Configure(State.Refusing)
-                .Permit(Trigger.GMCP, State.WontGMCP);
-
-            stateMachine.Configure(State.WillGMCP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async x => await DoGMCPAsync(x, context));
-
-            stateMachine.Configure(State.WontGMCP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnWontGmcpAsClientAsync(context));
-        }
-
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.GMCP, State.AlmostNegotiatingGMCP);
-
-        stateMachine.Configure(State.AlmostNegotiatingGMCP)
-            .Permit(Trigger.IAC, State.EscapingGMCPValue)
-            .OnEntry(() => _gmcpBytes.Reset());
-
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine
-                .Configure(State.EvaluatingGMCPValue)
-                .PermitReentry(t)
-                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), RegisterGMCPValue));
-
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine
-                .Configure(State.AlmostNegotiatingGMCP)
-                .Permit(t, State.EvaluatingGMCPValue));
-
-        stateMachine.Configure(State.EvaluatingGMCPValue)
-            .Permit(Trigger.IAC, State.EscapingGMCPValue);
-
-        stateMachine.Configure(State.EscapingGMCPValue)
-            .Permit(Trigger.IAC, State.EvaluatingGMCPValue)
-            .Permit(Trigger.SE, State.CompletingGMCPValue);
-
-        // As for MSDP below: IAC IAC is one literal 0xFF data byte, and the capture above skips IAC,
-        // so the escaped byte was dropped on the way in while SendGMCPCommand doubles it on the way
-        // out.
-        stateMachine.Configure(State.EvaluatingGMCPValue)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.IAC), RegisterGMCPValue);
-
-        stateMachine.Configure(State.CompletingGMCPValue)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await CompleteGMCPNegotiation(x, context));
     }
 
     /// <inheritdoc />
@@ -237,16 +175,6 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
-    private void RegisterGMCPValue(ByteOrTrigger b)
-    {
-        if (b is byte value) _gmcpBytes.Add(value);
-    }
-
-    private ValueTask CompleteGMCPNegotiation(StateMachine<State, Trigger>.Transition _, IProtocolContext context) =>
-        CompleteGmcpAsync(context);
-
-    /// <summary>Resets the buffer for a fresh subnegotiation -- the generated machine's equivalent of
-    /// AlmostNegotiatingGMCP's OnEntry.</summary>
     internal void StartGmcpMessage() => _gmcpBytes.Reset();
 
     /// <summary>Appends a stretch of raw bytes to the buffer, respecting the same maximum message size.</summary>
@@ -526,8 +454,8 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// What arriving at Do/Dont (server) or Willing/Refusing (client) for GMCP does, independent of which
-    /// machine got there -- each mode only ever sees one direction, per <see cref="ConfigureStateMachine"/>.
+    /// What arriving at DO/DONT (server) or WILL/WONT (client) for GMCP does -- each mode only ever
+    /// sees one direction.
     /// </summary>
     internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
     {
@@ -540,7 +468,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
                 await OnDontGmcpAsServerAsync(context);
                 break;
             case (byte)Trigger.WILL:
-                await DoGMCPAsync(null!, context);
+                await DoGMCPAsync(context);
                 break;
             case (byte)Trigger.WONT:
                 await OnWontGmcpAsClientAsync(context);
@@ -555,7 +483,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_willGmcp);
     }
 
-    private async ValueTask DoGMCPAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask DoGMCPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing the client can do GMCP");
         await OnNegotiatedAsync(true);
@@ -667,8 +595,8 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// What arriving at Do/Dont (server) or Willing/Refusing (client) for MSDP does, independent of which
-    /// machine got there -- each mode only ever sees one direction, per <see cref="ConfigureStateMachine"/>.
+    /// What arriving at DO/DONT (server) or WILL/WONT (client) for MSDP does -- each mode only ever
+    /// sees one direction.
     /// </summary>
     internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
     {
@@ -681,7 +609,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
                 await OnDontMsdpAsServerAsync(context);
                 break;
             case (byte)Trigger.WILL:
-                await DoMSDPAsync(null!, context);
+                await DoMSDPAsync(context);
                 break;
             case (byte)Trigger.WONT:
                 await OnWontMsdpAsClientAsync(context);
@@ -703,87 +631,18 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Negotiation acceptance and the subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and <see cref="CompleteMsdpAsync"/>); this hook survives
+    /// only to register the server's initial offer, a cross-cutting mechanism independent of which
+    /// machine drives byte processing.
+    /// </remarks>
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring MSDP state machine");
-        
-        // Register MSDP protocol handlers with the context
-        context.SetSharedState("MSDP_Protocol", this);
-        
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            // Server-side MSDP negotiation
-            stateMachine.Configure(State.Do)
-                .Permit(Trigger.MSDP, State.DoMSDP);
-
-            stateMachine.Configure(State.Dont)
-                .Permit(Trigger.MSDP, State.DontMSDP);
-
-            stateMachine.Configure(State.DoMSDP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDoMsdpAsServerAsync(context));
-
-            stateMachine.Configure(State.DontMSDP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDontMsdpAsServerAsync(context));
-
             context.RegisterInitialNegotiation(async () => await WillMSDPAsync(context));
         }
-        else if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client)
-        {
-            // Client-side MSDP negotiation
-            stateMachine.Configure(State.Willing)
-                .Permit(Trigger.MSDP, State.WillMSDP);
-
-            stateMachine.Configure(State.Refusing)
-                .Permit(Trigger.MSDP, State.WontMSDP);
-
-            stateMachine.Configure(State.WillMSDP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async x => await DoMSDPAsync(x, context));
-
-            stateMachine.Configure(State.WontMSDP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnWontMsdpAsClientAsync(context));
-        }
-
-        // Sub-negotiation states (common to both server and client)
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.MSDP, State.AlmostNegotiatingMSDP);
-
-        stateMachine.Configure(State.AlmostNegotiatingMSDP)
-            .Permit(Trigger.IAC, State.EscapingMSDP)
-            .OnEntry(() => _msdpBytes.Reset());
-
-        // Configure transitions for all non-IAC triggers to capture MSDP values
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine
-            .Configure(State.EvaluatingMSDP)
-            .PermitReentry(t)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), CaptureMSDPByte));
-
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine
-            .Configure(State.AlmostNegotiatingMSDP)
-            .Permit(t, State.EvaluatingMSDP));
-
-        stateMachine.Configure(State.EvaluatingMSDP)
-            .Permit(Trigger.IAC, State.EscapingMSDP);
-
-        stateMachine.Configure(State.EscapingMSDP)
-            .Permit(Trigger.IAC, State.EvaluatingMSDP)
-            .Permit(Trigger.SE, State.CompletingMSDP);
-
-        // IAC IAC inside the payload is one literal 0xFF data byte (RFC 854, "the IAC need be
-        // doubled to be sent as data"), and the capture above is registered for every trigger
-        // *except* IAC - so without this the escaped byte was dropped and the value arrived a byte
-        // short. The send path doubles such a byte, so not undoing it here made the two directions
-        // disagree. Registering it on this one transition rather than widening the loop keeps the
-        // opening IAC of IAC SE out of the payload.
-        stateMachine.Configure(State.EvaluatingMSDP)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.IAC), CaptureMSDPByte);
-
-        stateMachine.Configure(State.CompletingMSDP)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await CompleteMSDPNegotiation(x, context));
     }
 
     /// <inheritdoc />
@@ -832,18 +691,6 @@ public class MSDPProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
-    private void CaptureMSDPByte(ByteOrTrigger b)
-    {
-        if (!IsEnabled || b is not byte value)
-            return;
-
-        _msdpBytes.Add(value);
-    }
-
-    private ValueTask CompleteMSDPNegotiation(StateMachine<State, Trigger>.Transition _, IProtocolContext context) =>
-        CompleteMsdpAsync(context);
-
-    /// <summary>What the buffered bytes mean, once a message is complete -- independent of how they arrived.</summary>
     internal async ValueTask CompleteMsdpAsync(IProtocolContext context)
     {
         if (_msdpBytes.Overflowed)
@@ -903,7 +750,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_willMsdp);
     }
 
-    private async ValueTask DoMSDPAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask DoMSDPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing the client can do MSDP");
         await OnNegotiatedAsync(true);
