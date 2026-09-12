@@ -3,9 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Interpreters;
-using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.Plugins;
 
@@ -45,9 +43,6 @@ internal class ProtocolContext : IProtocolContext
 
     /// <inheritdoc />
     public TelnetInterpreter.TelnetMode Mode => _interpreter.Mode;
-
-    /// <inheritdoc />
-    public StateMachine<State, Trigger> StateMachine => _interpreter.TelnetStateMachine;
 
     /// <inheritdoc />
     public async ValueTask SendNegotiationAsync(ReadOnlyMemory<byte> bytes)

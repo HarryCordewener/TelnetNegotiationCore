@@ -438,10 +438,6 @@ public class TelnetInterpreterBuilder
         // setup it registers (e.g. a server's initial negotiation offer) is in place first.
         _pluginManager.ConfigureStateMachines(context);
 
-        // Apply safety configuration AFTER protocol configuration
-        // This ensures safety catches only apply to truly unhandled triggers
-        interpreter.ApplySafetyConfiguration();
-
         // Initialize plugins in dependency order
         await _pluginManager.InitializePluginsAsync(context);
 
