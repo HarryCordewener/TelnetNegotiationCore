@@ -85,9 +85,8 @@ public class OrdinaryTextAllocationTests : BaseTest
 	/// <remarks>
 	/// Space is TSPEED (32), <c>[</c> is MXP (91), <c>U</c> is COMPRESS (85), and <c>E F V W</c> and
 	/// <c>! " # $ % &amp; ' *</c> are options too. Each of them used to miss the shortcut because it
-	/// has a trigger of its own, although in <see cref="Models.State.ReadingCharacters"/> it means
-	/// exactly what an unnamed byte means -- so every space of prose and every colour escape paid for a
-	/// full transition.
+	/// has a trigger of its own, although reading ordinary characters it means exactly what an unnamed
+	/// byte means -- so every space of prose and every colour escape paid for a full transition.
 	/// </remarks>
 	[Test]
 	[NotInParallel]

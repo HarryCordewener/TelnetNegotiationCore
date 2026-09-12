@@ -15,13 +15,13 @@ namespace TelnetNegotiationCore.Interpreters;
 /// <remarks>
 /// <c>ConfigureStateMachine</c> still runs for every plugin either way -- it is also where a plugin
 /// registers its initial negotiation offer, which has nothing to do with which machine reads bytes off
-/// the wire. Only <see cref="FireByteAsync"/> decides that.
+/// the wire. Only <see cref="FireGeneratedByteAsync"/> decides that.
 /// </remarks>
 public partial class TelnetInterpreter
 {
     /// <summary>
-    /// Drive the generated machine instead of <see cref="TelnetStateMachine"/>. Defaults to false on
-    /// this property, but <see cref="Builders.TelnetInterpreterBuilder"/> always sets it true.
+    /// Drive the generated machine. Defaults to false on this property, but
+    /// <see cref="Builders.TelnetInterpreterBuilder"/> always sets it true.
     /// </summary>
     internal bool UseGeneratedMachine { get; init; }
 
