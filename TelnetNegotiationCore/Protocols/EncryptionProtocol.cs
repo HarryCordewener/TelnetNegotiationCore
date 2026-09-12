@@ -274,10 +274,25 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     /// <para><strong>Server-side.</strong> Used by servers to announce supported encryption types.</para>
     /// <para>This sends an IAC SB ENCRYPT SUPPORT [types] IAC SE message.</para>
     /// </remarks>
-    public async ValueTask SendEncryptionSupportAsync(List<byte> encryptionTypes)
+    public ValueTask SendEncryptionSupportAsync(List<byte> encryptionTypes)
+        => SendEncryptionSupportAsync(encryptionTypes, recordAsOffer: true);
+
+    /// <param name="recordAsOffer">
+    /// Whether this list becomes the advertisement the peer's <c>IS</c> is held to. True for every
+    /// deliberate offer; false only for the empty <c>SUPPORT</c> the plugin emits when nothing is
+    /// configured, which is a refusal rather than an advertisement.
+    /// </param>
+    /// <inheritdoc cref="SendEncryptionSupportAsync(List{byte})"/>
+    private async ValueTask SendEncryptionSupportAsync(List<byte> encryptionTypes, bool recordAsOffer)
     {
         if (!IsEnabled)
             return;
+
+        // After the guard: an offer that was never written is not one the peer can answer.
+        if (recordAsOffer)
+        {
+            _offeredEncryptionTypes = [.. encryptionTypes];
+        }
 
         var bytes = new List<byte>
         {
@@ -644,11 +659,10 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         if (_encryptionTypesProvider != null)
         {
             encTypes = await _encryptionTypesProvider();
-            _offeredEncryptionTypes = [.. encTypes];
         }
 
         // Send SUPPORT subnegotiation with encryption types
-        await SendEncryptionSupportAsync(encTypes);
+        await SendEncryptionSupportAsync(encTypes, recordAsOffer: _encryptionTypesProvider != null);
     }
 
     private async ValueTask OnServerRequestsEncryptionAsync(IProtocolContext context)

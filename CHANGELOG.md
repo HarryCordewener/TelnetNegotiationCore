@@ -13,9 +13,13 @@ All notable changes to this project will be documented in this file.
   type to the mechanism, so there is no rejection this library could write that a peer would read.
   - **This is a behaviour change.** A consumer whose callback deliberately accepted more than it
     advertised now sees less; widen the offered list, which is what the peer is told either way.
-  - Configure no provider and nothing changes: with no advertisement to honour there is nothing to
-    enforce, and both plugins already refuse with NULL. A provider that *returns* an empty list is a
-    different thing — an advertisement saying you accept nothing — and is enforced as one.
+  - The advertisement is whatever this side last actually sent, so calling the public
+    `SendAuthenticationRequestAsync` / `SendEncryptionSupportAsync` arms the check just as a provider
+    does, and a later offer replaces an earlier one rather than being measured against it.
+  - Configure no provider and make no such call, and nothing changes: with no advertisement to
+    honour there is nothing to enforce, and both plugins already refuse with NULL. A provider that
+    *returns* an empty list is a different thing — an advertisement saying you accept nothing — and
+    is enforced as one.
 
 ### Added
 - **Fluent builder configuration for ENCRYPT and CHARSET's encoding callback.**

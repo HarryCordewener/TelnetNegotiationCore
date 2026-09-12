@@ -153,10 +153,15 @@ Nothing is sent back when that happens. RFC 2941 leaves everything after the (ty
 to the mechanism, so there is no rejection this library could write that the peer would understand —
 see below.
 
-Configure no provider and there is nothing to enforce: the plugin advertises an empty list and
-already answers `IS NULL`, and the callback keeps seeing whatever arrives. A provider that *returns*
-an empty list is a different thing — that is an advertisement saying you accept nothing, so nothing
-is what reaches the callback.
+**Every offer counts, and the latest one wins.** `SendAuthenticationRequestAsync` is public, so a
+consumer can make the offer itself instead of configuring a provider; either way the list it carried
+becomes the one the peer is held to, and a later call replaces an earlier one. An offer that was not
+written — the plugin is not enabled — arms nothing.
+
+Configure no provider and make no call, and there is nothing to enforce: the plugin advertises an
+empty list and already answers `IS NULL`, and the callback keeps seeing whatever arrives. A provider
+that *returns* an empty list is a different thing — that is an advertisement saying you accept
+nothing, so nothing is what reaches the callback.
 
 ## What the callbacks are handed
 

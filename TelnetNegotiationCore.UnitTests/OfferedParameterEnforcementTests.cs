@@ -172,6 +172,81 @@ public class OfferedParameterEnforcementTests : BaseTest
         await server.DisposeAsync();
     }
 
+    /// <summary>
+    /// <c>SendAuthenticationRequestAsync</c> is public: a consumer can make the offer itself instead
+    /// of configuring a provider. An offer is an offer however it was sent, so it arms the guard.
+    /// </summary>
+    [Test]
+    public async Task ServerEnforcesAnAuthenticationOfferSentDirectly()
+    {
+        byte[]? received = null;
+
+        var server = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoSubmit)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<AuthenticationProtocol>()
+                .OnAuthenticationResponse(data => { received = data; return ValueTask.CompletedTask; })
+            .BuildAsync();
+
+        await InterpretAndWaitAsync(server,
+            [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.AUTHENTICATION]);
+
+        var auth = server.PluginManager!.GetPlugin<AuthenticationProtocol>()!;
+        await auth.SendAuthenticationRequestAsync([((byte)5, (byte)0)]);   // SRP only
+
+        await InterpretAndWaitAsync(server,
+        [
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.AUTHENTICATION,
+            0, 2, 0, 0x01,                                                 // KERBEROS_V5
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        ]);
+
+        await Assert.That(received).IsNull();
+
+        await server.DisposeAsync();
+    }
+
+    /// <summary>
+    /// A later offer replaces an earlier one. Holding the peer to a list this side has since
+    /// withdrawn would refuse the very mechanism it was just asked for.
+    /// </summary>
+    [Test]
+    public async Task ServerEnforcesTheMostRecentAuthenticationOffer()
+    {
+        byte[]? received = null;
+
+        var server = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoSubmit)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<AuthenticationProtocol>()
+                .WithAuthenticationTypes(() => new ValueTask<List<(byte AuthType, byte Modifiers)>>(
+                    [((byte)5, (byte)0)]))                                 // SRP
+                .OnAuthenticationResponse(data => { received = data; return ValueTask.CompletedTask; })
+            .BuildAsync();
+
+        await InterpretAndWaitAsync(server,
+            [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.AUTHENTICATION]);
+
+        // Changed our mind, out loud.
+        var auth = server.PluginManager!.GetPlugin<AuthenticationProtocol>()!;
+        await auth.SendAuthenticationRequestAsync([((byte)2, (byte)0)]);   // KERBEROS_V5 now
+
+        await InterpretAndWaitAsync(server,
+        [
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.AUTHENTICATION,
+            0, 2, 0, 0x01,
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        ]);
+
+        await Assert.That(received).IsNotNull();
+
+        await server.DisposeAsync();
+    }
+
     // ---------------------------------------------------------------- ENCRYPT
 
     [Test]
@@ -266,6 +341,109 @@ public class OfferedParameterEnforcementTests : BaseTest
         ]);
 
         await Assert.That(received).IsNotNull();
+
+        await server.DisposeAsync();
+    }
+    /// <summary>
+    /// <c>SendEncryptionSupportAsync</c> is public too, and arms the guard the same way.
+    /// </summary>
+    [Test]
+    public async Task ServerEnforcesAnEncryptionOfferSentDirectly()
+    {
+        byte[]? received = null;
+
+        var server = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoSubmit)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<EncryptionProtocol>()
+                .OnEncryptionRequest(data => { received = data; return ValueTask.CompletedTask; })
+            .BuildAsync();
+
+        await InterpretAndWaitAsync(server,
+            [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ENCRYPT]);
+
+        var enc = server.PluginManager!.GetPlugin<EncryptionProtocol>()!;
+        await enc.SendEncryptionSupportAsync([1]);                         // DES_CFB64 only
+
+        await InterpretAndWaitAsync(server,
+        [
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.ENCRYPT,
+            0, 2, 0x01,                                                    // DES_OFB64
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        ]);
+
+        await Assert.That(received).IsNull();
+
+        await server.DisposeAsync();
+    }
+
+    /// <summary>
+    /// And a later SUPPORT replaces an earlier one.
+    /// </summary>
+    [Test]
+    public async Task ServerEnforcesTheMostRecentEncryptionOffer()
+    {
+        byte[]? received = null;
+
+        var server = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoSubmit)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<EncryptionProtocol>()
+                .WithEncryptionTypes(() => new ValueTask<List<byte>>([1]))
+                .OnEncryptionRequest(data => { received = data; return ValueTask.CompletedTask; })
+            .BuildAsync();
+
+        await InterpretAndWaitAsync(server,
+            [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ENCRYPT]);
+
+        var enc = server.PluginManager!.GetPlugin<EncryptionProtocol>()!;
+        await enc.SendEncryptionSupportAsync([3]);                         // DES3_CFB64 now
+
+        await InterpretAndWaitAsync(server,
+        [
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.ENCRYPT,
+            0, 3, 0x01,
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        ]);
+
+        await Assert.That(received).IsNotNull();
+
+        await server.DisposeAsync();
+    }
+
+    /// <summary>
+    /// The encryption half of <see cref="ServerOfferingAnEmptyListAcceptsNothing"/>.
+    /// </summary>
+    [Test]
+    public async Task ServerOfferingAnEmptyEncryptionListAcceptsNothing()
+    {
+        byte[]? received = null;
+
+        var server = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoSubmit)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<EncryptionProtocol>()
+                .WithEncryptionTypes(() => new ValueTask<List<byte>>([]))
+                .OnEncryptionRequest(data => { received = data; return ValueTask.CompletedTask; })
+            .BuildAsync();
+
+        await InterpretAndWaitAsync(server,
+            [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ENCRYPT]);
+
+        await InterpretAndWaitAsync(server,
+        [
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.ENCRYPT,
+            0, 1, 0x01,
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        ]);
+
+        await Assert.That(received).IsNull();
 
         await server.DisposeAsync();
     }

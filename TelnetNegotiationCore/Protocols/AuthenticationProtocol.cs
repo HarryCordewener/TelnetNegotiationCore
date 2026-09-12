@@ -254,10 +254,27 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     /// </code>
     /// </example>
     /// </remarks>
-    public async ValueTask SendAuthenticationRequestAsync(List<(byte AuthType, byte Modifiers)> authenticationTypes)
+    public ValueTask SendAuthenticationRequestAsync(List<(byte AuthType, byte Modifiers)> authenticationTypes)
+        => SendAuthenticationRequestAsync(authenticationTypes, recordAsOffer: true);
+
+    /// <param name="recordAsOffer">
+    /// Whether this list becomes the advertisement the peer's answer is held to. True for every
+    /// deliberate offer — a caller's own, or one built from a configured provider. False only for
+    /// the empty <c>SEND</c> the plugin emits when nothing is configured, which is a refusal rather
+    /// than an advertisement and must not arm the check.
+    /// </param>
+    /// <inheritdoc cref="SendAuthenticationRequestAsync(List{ValueTuple{byte, byte}})"/>
+    private async ValueTask SendAuthenticationRequestAsync(
+        List<(byte AuthType, byte Modifiers)> authenticationTypes, bool recordAsOffer)
     {
         if (!IsEnabled)
             return;
+
+        // After the guard: an offer that was never written is not one the peer can answer.
+        if (recordAsOffer)
+        {
+            _offeredAuthenticationTypes = [.. authenticationTypes];
+        }
 
         var bytes = new List<byte>
         {
@@ -566,11 +583,10 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
         if (_authenticationTypesProvider != null)
         {
             authTypes = await _authenticationTypesProvider();
-            _offeredAuthenticationTypes = [.. authTypes];
         }
 
         // Send SEND subnegotiation with authentication types
-        await SendAuthenticationRequestAsync(authTypes);
+        await SendAuthenticationRequestAsync(authTypes, recordAsOffer: _authenticationTypesProvider != null);
     }
 
     private async ValueTask OnServerRequestsAuthenticationAsync(IProtocolContext context)
