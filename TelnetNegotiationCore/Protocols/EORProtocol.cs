@@ -204,6 +204,33 @@ public class EORProtocol : TelnetProtocolPluginBase
     /// a prompt on every connection that merely had this plugin added.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// What arriving at Do/Dont (server) or Willing/Refusing (client) for TELOPT_EOR does, independent of
+    /// which machine got there -- only one direction is ever configured for a given interpreter, per the
+    /// comments in <see cref="ConfigureStateMachine"/>.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.DO:
+                await OnDoEORAsync(null!, context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontEORAsync(context);
+                break;
+            case (byte)Trigger.WILL:
+                await OnWillEORAsync(null!, context);
+                break;
+            case (byte)Trigger.WONT:
+                await WontEORAsync(context);
+                break;
+        }
+    }
+
+    /// <summary>A bare IAC EOR. Delegates to the same guarded prompt logic <see cref="ConfigureStateMachine"/> wires.</summary>
+    internal ValueTask OnBareEorAsync() => OnEORPromptAsync();
+
     private async ValueTask OnEORPromptAsync()
     {
         if (!IsEOREnabled)

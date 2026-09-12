@@ -35,6 +35,8 @@ public partial class TelnetInterpreter
     private static readonly Dictionary<byte, Type> s_wiredOptions = new()
     {
         [31] = typeof(Protocols.NAWSProtocol),
+        [3] = typeof(Protocols.SuppressGoAheadProtocol),
+        [25] = typeof(Protocols.EORProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -85,11 +87,17 @@ public partial class TelnetInterpreter
         {
             if (s_wiredOptions.TryGetValue(option, out var type) && owner.PluginManager?.IsPluginEnabled(type) == true)
             {
-                var plugin = owner.PluginManager.GetPlugin(type);
-                if (plugin is Protocols.NAWSProtocol naws)
+                switch (owner.PluginManager.GetPlugin(type))
                 {
-                    await naws.OnPeerNegotiatedAsync(verb, Context());
-                    return;
+                    case Protocols.NAWSProtocol naws:
+                        await naws.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.SuppressGoAheadProtocol sga:
+                        await sga.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.EORProtocol eor:
+                        await eor.OnPeerNegotiatedAsync(verb, Context());
+                        return;
                 }
             }
 
@@ -142,6 +150,26 @@ public partial class TelnetInterpreter
         public override ValueTask AuthenticationSendAsync(byte[] data) => default;
         public override ValueTask AuthenticationIsAsync(byte[] data) => default;
         public override ValueTask MxpStartedAsync() => default;
+
+        public override ValueTask GoAheadAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.SuppressGoAheadProtocol)) is Protocols.SuppressGoAheadProtocol sga)
+            {
+                return sga.OnBareGoAheadAsync(Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask EorAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EORProtocol)) is Protocols.EORProtocol eor)
+            {
+                return eor.OnBareEorAsync();
+            }
+
+            return default;
+        }
         public override ValueTask TerminalTypeRequestedAsync() => default;
         public override ValueTask TerminalTypeAsync(byte[] text) => default;
         public override ValueTask NewEnvironStartedAsync(byte command) => default;

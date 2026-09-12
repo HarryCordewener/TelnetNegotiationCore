@@ -384,4 +384,20 @@ public class RecordingTelnetContext : TelnetCoreContext
         EncryptionIsMessages.Add(data);
         return default;
     }
+
+    public int GoAheads { get; private set; }
+
+    public int Eors { get; private set; }
+
+    public override ValueTask GoAheadAsync()
+    {
+        GoAheads++;
+        return default;
+    }
+
+    public override ValueTask EorAsync()
+    {
+        Eors++;
+        return default;
+    }
 }

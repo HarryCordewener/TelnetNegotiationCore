@@ -262,6 +262,48 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     /// negotiated state this handler actually needs to answer to.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// What arriving at each of Willing/Refusing/Do/Dont for SUPPRESS-GO-AHEAD does, independent of which
+    /// machine got there. Both directions are negotiated independently (RFC 858 §5), and which method a given
+    /// verb calls depends on mode -- server and client each own one side of the state names, per the comments
+    /// in <see cref="ConfigureStateMachine"/>.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        var server = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+        switch (verb)
+        {
+            case (byte)Trigger.DO when server:
+                await OnDoSuppressGAAsync(null!, context);
+                break;
+            case (byte)Trigger.DONT when server:
+                await OnDontSuppressGAAsync(context);
+                break;
+            case (byte)Trigger.WILL when server:
+                await OnWillPeerSuppressGAAsync(context);
+                break;
+            case (byte)Trigger.WONT when server:
+                await OnWontPeerSuppressGAAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                await OnDoOwnSuppressGAAsync(context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontOwnSuppressGAAsync(context);
+                break;
+            case (byte)Trigger.WONT:
+                await WontSuppressGAAsync(context);
+                break;
+            case (byte)Trigger.WILL:
+                await OnWillSuppressGAAsync(null!, context);
+                break;
+        }
+    }
+
+    /// <summary>A bare IAC GA. Client mode only -- see the comment on <see cref="ConfigureStateMachine"/>'s GoAhead entry.</summary>
+    internal ValueTask OnBareGoAheadAsync(IProtocolContext context) =>
+        context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client ? OnGoAheadAsync(context) : default;
+
     private async ValueTask OnGoAheadAsync(IProtocolContext context)
     {
         if (IsGoAheadSuppressed)

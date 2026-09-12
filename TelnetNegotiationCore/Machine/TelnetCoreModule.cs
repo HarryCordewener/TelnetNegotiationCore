@@ -24,6 +24,12 @@ public abstract partial class TelnetCoreContext
     /// <summary>A subnegotiation ended: its option, and everything between the option byte and IAC SE.</summary>
     public abstract ValueTask SubNegotiatedAsync(byte option, ReadOnlyMemory<byte> payload);
 
+    /// <summary>A bare IAC GA arrived. What it means, if anything, is a protocol's business (RFC 858, RFC 885).</summary>
+    public abstract ValueTask GoAheadAsync();
+
+    /// <summary>A bare IAC EOR arrived. RFC 885: a NOP unless END-OF-RECORD is in effect, which is a protocol's business.</summary>
+    public abstract ValueTask EorAsync();
+
 }
 
 /// <summary>
@@ -143,8 +149,25 @@ public static class TelnetCoreModule
     }
 
     [Transition(From = typeof(StartNegotiation), To = typeof(GoAhead)), On(GA)]
-    public static void GoingAhead()
+    public static class GoingAhead
     {
+        public static void Transform()
+        {
+        }
+
+        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.GoAheadAsync();
+    }
+
+    private const byte Eor = 239;
+
+    [Transition(From = typeof(StartNegotiation), To = typeof(Idle)), On(Eor)]
+    public static class Prompting
+    {
+        public static void Transform()
+        {
+        }
+
+        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.EorAsync();
     }
 
     /// <summary>A command nothing claims. The byte is dropped and parsing carries on from the next one.</summary>
