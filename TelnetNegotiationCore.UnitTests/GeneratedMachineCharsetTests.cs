@@ -219,4 +219,43 @@ public class GeneratedMachineCharsetTests : BaseTest
 
         await server.DisposeAsync();
     }
+
+    /// <summary>
+    /// <c>IAC SB CHARSET REQUEST IAC SE</c> -- a REQUEST with no separator and no charset list at all --
+    /// used to throw <see cref="System.ArgumentOutOfRangeException"/> reading the separator out of an
+    /// empty array. It names nothing to choose from, so it is rejected the same way an offer with no
+    /// charset this side supports is.
+    /// </summary>
+    [Test]
+    public async Task EmptyRequestIsRejectedRatherThanThrowing()
+    {
+        byte[] negotiationOutput = null;
+        ValueTask CaptureNegotiation(System.ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
+
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseGeneratedMachine()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(CaptureNegotiation)
+            .AddPlugin<CharsetProtocol>());
+
+        await InterpretAndWaitAsync(server, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET });
+        negotiationOutput = null;
+
+        await InterpretAndWaitAsync(server, new byte[]
+        {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
+            (byte)Trigger.IAC, (byte)Trigger.SE,
+        });
+
+        await Assert.That(negotiationOutput).IsNotNull();
+        await AssertByteArraysEqual(negotiationOutput, new byte[]
+        {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REJECTED,
+            (byte)Trigger.IAC, (byte)Trigger.SE,
+        });
+
+        await server.DisposeAsync();
+    }
 }

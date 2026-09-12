@@ -96,8 +96,15 @@ public static class NawsModule
             connection.Height = (from.Bytes[2] << 8) | from.Bytes[3];
         }
 
-        public static ValueTask CompletedAsync(TelnetCoreContext context, Connected connection) =>
-            context.WindowSizeAsync(connection.Width, connection.Height);
+        /// <summary>
+        /// Only when <see cref="Transform"/> actually updated the window size: a peer that sends fewer
+        /// than four bytes before IAC SE has reported nothing, not the previous size (or 0x0 the first
+        /// time) all over again.
+        /// </summary>
+        public static ValueTask CompletedAsync(TelnetCoreContext context, in Naws from, Connected connection) =>
+            from.Bytes is not null && from.Index >= 4
+                ? context.WindowSizeAsync(connection.Width, connection.Height)
+                : default;
     }
 
     /// <summary>An SE that no IAC preceded is part of the value.</summary>

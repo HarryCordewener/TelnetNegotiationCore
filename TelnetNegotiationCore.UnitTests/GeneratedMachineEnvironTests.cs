@@ -141,4 +141,43 @@ public class GeneratedMachineEnvironTests : BaseTest
 
         await server.DisposeAsync();
     }
+
+    /// <summary>
+    /// A server expects IS (the client reporting its variables). A client that sends SEND instead --
+    /// its own role's command, not the server's -- used to be processed anyway, since completion routed
+    /// on <see cref="Interpreters.TelnetInterpreter.TelnetMode"/> alone: a request for variable names
+    /// read as if it were a report of their values. It is now rejected instead of misinterpreted.
+    /// </summary>
+    [Test]
+    public async Task ServerIgnoresSendInsteadOfIs()
+    {
+        Dictionary<string, string> receivedEnvVars = null;
+        ValueTask OnEnvironmentVariables(Dictionary<string, string> envVars) { receivedEnvVars = new Dictionary<string, string>(envVars); return ValueTask.CompletedTask; }
+
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseGeneratedMachine()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<EnvironProtocol>()
+                .OnEnvironmentVariables(OnEnvironmentVariables));
+
+        await InterpretAndWaitAsync(server, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ENVIRON });
+
+        var response = new List<byte>
+        {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.ENVIRON, (byte)Trigger.SEND,
+            (byte)Trigger.NEWENVIRON_VAR,
+        };
+        response.AddRange(Encoding.ASCII.GetBytes("USER"));
+        response.Add((byte)Trigger.IAC);
+        response.Add((byte)Trigger.SE);
+
+        await InterpretAndWaitAsync(server, response.ToArray());
+
+        await Assert.That(receivedEnvVars).IsNull();
+
+        await server.DisposeAsync();
+    }
 }

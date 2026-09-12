@@ -332,17 +332,33 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
 
     private async ValueTask ReportNextAvailableTerminalTypeAsync(IProtocolContext context)
     {
-        _currentTerminalType = (_currentTerminalType + 1) % (_terminalTypes.Count + 1);
-        context.Logger.LogDebug("Connection: {ConnectionState}", "Reporting the next Terminal Type to the server.");
+        string reportedType;
+        if (_terminalTypes.Count == 0)
+        {
+            // Nothing configured to report -- a SEND received by a server that never registered any
+            // (RFC 1091 does not expect a server to be asked this at all), or a client whose own
+            // resolution found nothing. _currentTerminalType stays -1, matching what
+            // CurrentTerminalType already reports before any request is ever made, rather than
+            // advancing to 0 and indexing an empty list.
+            context.Logger.LogDebug("Connection: {ConnectionState}", "No terminal types configured; reporting UNKNOWN.");
+            reportedType = UnknownTerminalType;
+        }
+        else
+        {
+            _currentTerminalType = (_currentTerminalType + 1) % (_terminalTypes.Count + 1);
+            context.Logger.LogDebug("Connection: {ConnectionState}", "Reporting the next Terminal Type to the server.");
+            reportedType = CurrentTerminalType;
+        }
+
         byte[] terminalType =
         [
             (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS,
-            .. Encoding.ASCII.GetBytes(CurrentTerminalType),
+            .. Encoding.ASCII.GetBytes(reportedType),
             (byte)Trigger.IAC, (byte)Trigger.SE
         ];
 
         await context.SendNegotiationAsync(terminalType);
-        
+
         UpdateInterpreterProperties(context);
     }
     

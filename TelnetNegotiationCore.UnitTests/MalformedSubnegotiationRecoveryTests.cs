@@ -297,4 +297,41 @@ public class MalformedSubnegotiationRecoveryTests
 
 		await Assert.That(recorder.LineModeMessages).IsEmpty();
 	}
+
+	// ---------------------------------------------------------------------------------------------
+	// NAWS: fewer than four bytes is not a window size, not even a 0x0 one.
+	// ---------------------------------------------------------------------------------------------
+
+	[Test]
+	[Arguments(0)]
+	[Arguments(1)]
+	[Arguments(2)]
+	[Arguments(3)]
+	public async Task NawsWithFewerThanFourBytesDoesNotReportAWindowSize(int byteCount)
+	{
+		var recorder = await Run([IAC, SB, 31, .. Filler(byteCount), IAC, SE]);
+
+		await Assert.That(recorder.Windows).IsEmpty();
+	}
+
+	[Test]
+	public async Task NawsWithFourBytesStillReportsTheWindowSize()
+	{
+		var recorder = await Run([IAC, SB, 31, 0, 80, 0, 24, IAC, SE]);
+
+		await Assert.That(recorder.Windows).IsEquivalentTo(new[] { (80, 24) });
+	}
+
+	[Test]
+	public async Task NawsIncompleteThenCompleteOnlyReportsTheCompleteOne()
+	{
+		// A short report followed by a real one: only the real one should ever reach the callback,
+		// and it must not carry over anything from the short one that preceded it.
+		var recorder = await Run([
+			IAC, SB, 31, 1, 2, IAC, SE,
+			.. new byte[] { IAC, SB, 31, 0, 100, 0, 50, IAC, SE },
+		]);
+
+		await Assert.That(recorder.Windows).IsEquivalentTo(new[] { (100, 50) });
+	}
 }

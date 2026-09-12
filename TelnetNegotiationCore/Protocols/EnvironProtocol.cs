@@ -298,10 +298,31 @@ public class EnvironProtocol : TelnetProtocolPluginBase
         return default;
     }
 
-    internal ValueTask OnEnvironEndedAsync(IProtocolContext context) =>
-        context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+    /// <summary>
+    /// A server expects IS (the client reporting its variables); a client expects SEND (the server
+    /// asking for them). Routing by <see cref="IProtocolContext.Mode"/> alone, ignoring which command
+    /// the peer actually sent, means a peer that sends the other side's command -- a client sending
+    /// SEND to the server, say -- has its data parsed under the wrong rules: a request for variable
+    /// names read as if it were a report of their values, or the reverse. Neither side of this protocol
+    /// is specified to accept the other's command, so a mismatch is rejected rather than guessed at.
+    /// </summary>
+    internal ValueTask OnEnvironEndedAsync(IProtocolContext context)
+    {
+        var server = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+        var expectedCommand = server ? (byte)Trigger.IS : (byte)Trigger.SEND;
+
+        if (_commandType != expectedCommand)
+        {
+            context.Logger.LogWarning(
+                "ENVIRON: {Mode} received command {Command} instead of the expected {Expected}; ignoring",
+                context.Mode, _commandType, expectedCommand);
+            return default;
+        }
+
+        return server
             ? CompleteEnvironFromServerAsync(context)
             : SendEnvironmentVariablesFromClientAsync(context);
+    }
 
     private async ValueTask WillingEnvironAsync(IProtocolContext context)
     {

@@ -226,6 +226,16 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             return;
         }
 
+        // A REQUEST with no bytes at all -- IAC SB CHARSET REQUEST IAC SE -- names no separator and no
+        // charset, so it offers nothing to choose from. Encoding.GetString(bytes, 0, 1) below assumes at
+        // least one byte for the separator; reject rather than let an empty array index out of range.
+        if (bytes.Length == 0)
+        {
+            context.Logger.LogDebug("Empty CHARSET REQUEST - nothing offered, rejecting");
+            await context.SendNegotiationAsync(s_charsetRejected);
+            return;
+        }
+
         var sep = ascii.GetString(bytes, 0, 1)?[0];
         var charsetsOffered = ascii.GetString(bytes, 1, bytes.Length - 1).Split(sep ?? ' ');
 
