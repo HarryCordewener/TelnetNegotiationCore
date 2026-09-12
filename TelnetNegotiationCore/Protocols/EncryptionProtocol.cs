@@ -236,9 +236,11 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// Sets the callback invoked when encryption starts.
+    /// Sets the callback invoked when a genuine START marker arrives from the peer -- it is now
+    /// encrypting what it sends. <see cref="IsEncrypting"/> is already true by the time this runs.
     /// </summary>
-    /// <param name="callback">Callback to handle encryption start event. Receives keyid data.</param>
+    /// <param name="callback">Callback to handle encryption start event. Receives the keyid bytes,
+    /// or an empty array if the peer sent none.</param>
     /// <returns>This instance for fluent chaining</returns>
     public EncryptionProtocol OnEncryptionStart(Func<byte[], ValueTask>? callback)
     {
@@ -247,7 +249,8 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// Sets the callback invoked when encryption ends.
+    /// Sets the callback invoked when a genuine END marker arrives from the peer -- it has stopped
+    /// encrypting what it sends. <see cref="IsEncrypting"/> is already false by the time this runs.
     /// </summary>
     /// <param name="callback">Callback to handle encryption end event</param>
     /// <returns>This instance for fluent chaining</returns>
@@ -446,8 +449,9 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     /// <inheritdoc />
     /// <remarks>
     /// Negotiation acceptance and the subnegotiation are wired to the generated machine (see
-    /// <see cref="OnPeerNegotiatedAsync"/> and <see cref="ProcessEncryptionSupportFromBytesAsync"/>/
-    /// <see cref="ProcessEncryptionIsFromBytesAsync"/>); this hook survives only to register the
+    /// <see cref="OnPeerNegotiatedAsync"/>, <see cref="ProcessEncryptionSupportFromBytesAsync"/>/
+    /// <see cref="ProcessEncryptionIsFromBytesAsync"/>, and <see cref="ProcessEncryptionStartFromBytesAsync"/>/
+    /// <see cref="ProcessEncryptionEndFromBytesAsync"/>); this hook survives only to register the
     /// server's initial offer, a cross-cutting mechanism independent of which machine drives byte
     /// processing.
     /// </remarks>
@@ -563,6 +567,40 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         else
         {
             context.Logger.LogDebug("No encryption request handler configured - encryption data ignored");
+        }
+    }
+
+    /// <summary>
+    /// A genuine START marker arrived: the peer is now encrypting what it sends, using <paramref name="keyId"/>.
+    /// </summary>
+    internal async ValueTask ProcessEncryptionStartFromBytesAsync(byte[] keyId, IProtocolContext context)
+    {
+        context.Logger.LogDebug("Encryption started by peer");
+        _isEncrypting = true;
+
+        if (_onEncryptionStart != null)
+        {
+            await _onEncryptionStart(keyId);
+        }
+        else
+        {
+            context.Logger.LogDebug("No encryption start handler configured - START marker ignored");
+        }
+    }
+
+    /// <summary>A genuine END marker arrived: the peer has stopped encrypting what it sends.</summary>
+    internal async ValueTask ProcessEncryptionEndFromBytesAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Encryption ended by peer");
+        _isEncrypting = false;
+
+        if (_onEncryptionEnd != null)
+        {
+            await _onEncryptionEnd();
+        }
+        else
+        {
+            context.Logger.LogDebug("No encryption end handler configured - END marker ignored");
         }
     }
 

@@ -83,6 +83,10 @@ public class RecordingTelnetContext : TelnetCoreContext
 
     public List<byte[]> EncryptionIsMessages { get; } = [];
 
+    public List<byte[]> EncryptionStarts { get; } = [];
+
+    public int EncryptionEnds { get; private set; }
+
     public override void Write(ReadOnlySpan<byte> text)
     {
         foreach (var b in text)
@@ -409,6 +413,18 @@ public class RecordingTelnetContext : TelnetCoreContext
     public override ValueTask EncryptionIsAsync(byte[] data)
     {
         EncryptionIsMessages.Add(data);
+        return default;
+    }
+
+    public override ValueTask EncryptionStartAsync(byte[] keyId)
+    {
+        EncryptionStarts.Add(keyId);
+        return default;
+    }
+
+    public override ValueTask EncryptionEndAsync()
+    {
+        EncryptionEnds++;
         return default;
     }
 

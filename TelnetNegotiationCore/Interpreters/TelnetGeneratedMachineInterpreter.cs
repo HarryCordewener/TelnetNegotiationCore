@@ -209,6 +209,26 @@ public partial class TelnetInterpreter
 
             return default;
         }
+
+        public override ValueTask EncryptionStartAsync(byte[] keyId)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EncryptionProtocol)) is Protocols.EncryptionProtocol encryption)
+            {
+                return encryption.ProcessEncryptionStartFromBytesAsync(keyId, Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask EncryptionEndAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EncryptionProtocol)) is Protocols.EncryptionProtocol encryption)
+            {
+                return encryption.ProcessEncryptionEndFromBytesAsync(Context());
+            }
+
+            return default;
+        }
         public override ValueTask MsdpStartedAsync()
         {
             (owner.PluginManager?.GetPlugin(typeof(Protocols.MSDPProtocol)) as Protocols.MSDPProtocol)?.StartMsdpMessage();

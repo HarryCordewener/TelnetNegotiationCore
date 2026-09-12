@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Machine;
 using TUnit.Assertions;
@@ -76,5 +77,31 @@ public class LineModeAuthenticationEncryptionMachineTests
 
         await Assert.That(recorder.EncryptionIsMessages).HasSingleItem();
         await Assert.That(recorder.EncryptionIsMessages[0]).IsEquivalentTo(new byte[] { 5, 6 });
+    }
+
+    [Test]
+    public async Task EncryptionStartReadsTheKeyId()
+    {
+        var recorder = await Run([IAC, SB, 38, 3, 9, 8, IAC, SE]);
+
+        await Assert.That(recorder.EncryptionStarts).HasSingleItem();
+        await Assert.That(recorder.EncryptionStarts[0]).IsEquivalentTo(new byte[] { 9, 8 });
+    }
+
+    [Test]
+    public async Task EncryptionStartWithNoKeyIdReadsAnEmptyPayload()
+    {
+        var recorder = await Run([IAC, SB, 38, 3, IAC, SE]);
+
+        await Assert.That(recorder.EncryptionStarts).HasSingleItem();
+        await Assert.That(recorder.EncryptionStarts[0]).IsEquivalentTo(Array.Empty<byte>());
+    }
+
+    [Test]
+    public async Task EncryptionEndFiresWithNoPayload()
+    {
+        var recorder = await Run([IAC, SB, 38, 4, IAC, SE]);
+
+        await Assert.That(recorder.EncryptionEnds).IsEqualTo(1);
     }
 }

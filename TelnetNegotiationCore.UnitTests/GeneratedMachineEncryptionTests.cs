@@ -146,6 +146,76 @@ public class GeneratedMachineEncryptionTests : BaseTest
     }
 
     [Test]
+    public async Task ServerCanReceiveAndProcessEncryptionStart()
+    {
+        byte[] receivedKeyId = null;
+
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseGeneratedMachine()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<EncryptionProtocol>()
+                .OnEncryptionStart(keyId => { receivedKeyId = keyId; return ValueTask.CompletedTask; }));
+
+        var encryption = server.PluginManager!.GetPlugin<EncryptionProtocol>();
+        await Assert.That(encryption.IsEncrypting).IsFalse();
+
+        await InterpretAndWaitAsync(server, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ENCRYPT });
+
+        await InterpretAndWaitAsync(server, new byte[]
+        {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.ENCRYPT, 3 /* START */, 0xAA, 0xBB,
+            (byte)Trigger.IAC, (byte)Trigger.SE,
+        });
+
+        await Assert.That(receivedKeyId).IsNotNull();
+        await AssertByteArraysEqual(receivedKeyId, [0xAA, 0xBB]);
+        await Assert.That(encryption.IsEncrypting).IsTrue();
+
+        await server.DisposeAsync();
+    }
+
+    [Test]
+    public async Task ServerCanReceiveAndProcessEncryptionEnd()
+    {
+        var endedCount = 0;
+
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseGeneratedMachine()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<EncryptionProtocol>()
+                .OnEncryptionEnd(() => { endedCount++; return ValueTask.CompletedTask; }));
+
+        var encryption = server.PluginManager!.GetPlugin<EncryptionProtocol>();
+
+        await InterpretAndWaitAsync(server, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ENCRYPT });
+
+        await InterpretAndWaitAsync(server, new byte[]
+        {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.ENCRYPT, 3 /* START */, 0x01,
+            (byte)Trigger.IAC, (byte)Trigger.SE,
+        });
+
+        await Assert.That(encryption.IsEncrypting).IsTrue();
+
+        await InterpretAndWaitAsync(server, new byte[]
+        {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.ENCRYPT, 4 /* END */,
+            (byte)Trigger.IAC, (byte)Trigger.SE,
+        });
+
+        await Assert.That(endedCount).IsEqualTo(1);
+        await Assert.That(encryption.IsEncrypting).IsFalse();
+
+        await server.DisposeAsync();
+    }
+
+    [Test]
     public async Task ServerAcceptsClientWontEncrypt()
     {
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
