@@ -33,6 +33,14 @@ public class RecordingTelnetContext : TelnetCoreContext
 
     public List<byte[]> XDisplayLocationReports { get; } = [];
 
+    private readonly List<byte> _gmcp = [];
+
+    public List<byte[]> GmcpMessages { get; } = [];
+
+    private readonly List<byte> _msdp = [];
+
+    public List<byte[]> MsdpMessages { get; } = [];
+
     public override void Write(ReadOnlySpan<byte> text)
     {
         foreach (var b in text)
@@ -102,6 +110,32 @@ public class RecordingTelnetContext : TelnetCoreContext
     public override ValueTask XDisplayLocationAsync(byte[] text)
     {
         XDisplayLocationReports.Add(text);
+        return default;
+    }
+
+    public override ValueTask GmcpDataAsync(ReadOnlyMemory<byte> data)
+    {
+        _gmcp.AddRange(data.ToArray());
+        return default;
+    }
+
+    public override ValueTask GmcpEndedAsync()
+    {
+        GmcpMessages.Add([.. _gmcp]);
+        _gmcp.Clear();
+        return default;
+    }
+
+    public override ValueTask MsdpDataAsync(ReadOnlyMemory<byte> data)
+    {
+        _msdp.AddRange(data.ToArray());
+        return default;
+    }
+
+    public override ValueTask MsdpEndedAsync()
+    {
+        MsdpMessages.Add([.. _msdp]);
+        _msdp.Clear();
         return default;
     }
 }
