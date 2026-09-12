@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main ]
 
+# Nothing here writes anything: least privilege for the token every job gets.
+permissions:
+  contents: read
+
 jobs:
   build:
 
@@ -15,9 +19,11 @@ jobs:
         framework: ['net8.0', 'net10.0', 'net11.0']
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         # global.json pins the SDK that builds every target; 8.0.x and 10.0.x bring the runtimes
         # the net8.0 and net10.0 tests run on.

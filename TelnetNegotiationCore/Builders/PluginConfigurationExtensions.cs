@@ -758,4 +758,92 @@ public static class PluginConfigurationExtensions
         context.Plugin.SupportsCordType(type, onOpened);
         return context;
     }
+    /// <summary>
+    /// Sets the callback invoked when a client is told which encryption types a server offers,
+    /// in a fluent manner (RFC 2946). Return the initialisation message to accept one, or
+    /// <see langword="null"/> to reject with the NULL type.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to choose an encryption type</param>
+    /// <returns>The plugin configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EncryptionProtocol> OnEncryptionSupport(
+        this PluginConfigurationContext<EncryptionProtocol> context,
+        Func<byte[], ValueTask<byte[]?>>? callback)
+    {
+        context.Plugin.OnEncryptionSupport(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the encryption initialisation callback in a fluent manner (RFC 2946).
+    /// This callback is invoked when the peer sends its IS message.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle the initialisation data</param>
+    /// <returns>The plugin configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EncryptionProtocol> OnEncryptionRequest(
+        this PluginConfigurationContext<EncryptionProtocol> context,
+        Func<byte[], ValueTask>? callback)
+    {
+        context.Plugin.OnEncryptionRequest(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Declares which encryption types this side offers, in a fluent manner (RFC 2946).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="provider">A provider returning the encryption types to offer</param>
+    /// <returns>The plugin configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EncryptionProtocol> WithEncryptionTypes(
+        this PluginConfigurationContext<EncryptionProtocol> context,
+        Func<ValueTask<List<byte>>>? provider)
+    {
+        context.Plugin.WithEncryptionTypes(provider);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback invoked when the peer's START message arrives, in a fluent manner
+    /// (RFC 2946). The argument is the key identifier.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to activate decryption</param>
+    /// <returns>The plugin configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EncryptionProtocol> OnEncryptionStart(
+        this PluginConfigurationContext<EncryptionProtocol> context,
+        Func<byte[], ValueTask>? callback)
+    {
+        context.Plugin.OnEncryptionStart(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback invoked when the peer's END message arrives, in a fluent manner (RFC 2946).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to deactivate decryption</param>
+    /// <returns>The plugin configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<EncryptionProtocol> OnEncryptionEnd(
+        this PluginConfigurationContext<EncryptionProtocol> context,
+        Func<ValueTask>? callback)
+    {
+        context.Plugin.OnEncryptionEnd(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback invoked when CHARSET negotiation settles on an encoding, in a fluent
+    /// manner (RFC 2066). The argument is the encoding the connection now reads and writes in.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle the new encoding</param>
+    /// <returns>The plugin configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<CharsetProtocol> OnCharsetChange(
+        this PluginConfigurationContext<CharsetProtocol> context,
+        Func<System.Text.Encoding, ValueTask>? callback)
+    {
+        context.Plugin.OnCharsetChange(callback);
+        return context;
+    }
 }

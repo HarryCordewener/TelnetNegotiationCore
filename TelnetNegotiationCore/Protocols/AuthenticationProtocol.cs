@@ -95,6 +95,11 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     private Func<byte[], ValueTask<byte[]?>>? _onAuthenticationRequest;
     private Func<byte[], ValueTask>? _onAuthenticationResponse;
     private Func<ValueTask<List<(byte AuthType, byte Modifiers)>>>? _authenticationTypesProvider;
+
+    // What this side actually put in its SEND, kept so the peer's answer can be held to it. Null
+    // until a SEND built from a configured provider has gone out: with no provider there is no
+    // advertisement to honour, and this side already refuses with NULL anyway.
+    private List<(byte AuthType, byte Modifiers)>? _offeredAuthenticationTypes;
     
     // State for capturing authentication data during subnegotiation
     private List<byte> _authRequestData = new();
@@ -156,15 +161,19 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     /// <code>
     /// .OnAuthenticationResponse(async (authData) =>
     /// {
-    ///     var authType = authData[0];
-    ///     var modifiers = authData[1];
-    ///     var credentials = authData.Skip(2).ToArray();
+    ///     // The subnegotiation body as it arrived, command byte first, from an untrusted peer.
+    ///     if (authData.Length &lt; 3) return;
+    ///
+    ///     var command = authData[0];                    // 0 = IS
+    ///     var authType = authData[1];
+    ///     var modifiers = authData[2];
+    ///     var credentials = authData.Skip(3).ToArray();
     ///     
     ///     var isValid = await ValidateCredentials(authType, credentials);
     ///     if (!isValid)
     ///     {
     ///         var authPlugin = telnet.PluginManager.GetPlugin&lt;AuthenticationProtocol&gt;();
-    ///         await authPlugin.SendAuthenticationReplyAsync(new byte[] { authType, modifiers, 0xFF });
+    ///         await authPlugin.SendAuthenticationReplyAsync(RejectionFor(authType, modifiers));
     ///     }
     /// })
     /// </code>
@@ -245,7 +254,18 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     /// </code>
     /// </example>
     /// </remarks>
-    public async ValueTask SendAuthenticationRequestAsync(List<(byte AuthType, byte Modifiers)> authenticationTypes)
+    public ValueTask SendAuthenticationRequestAsync(List<(byte AuthType, byte Modifiers)> authenticationTypes)
+        => SendAuthenticationRequestAsync(authenticationTypes, recordAsOffer: true);
+
+    /// <param name="recordAsOffer">
+    /// Whether this list becomes the advertisement the peer's answer is held to, once it is sent. True for every
+    /// deliberate offer — a caller's own, or one built from a configured provider. False only for
+    /// the empty <c>SEND</c> the plugin emits when nothing is configured, which is a refusal rather
+    /// than an advertisement and must not arm the check.
+    /// </param>
+    /// <inheritdoc cref="SendAuthenticationRequestAsync(List{ValueTuple{byte, byte}})"/>
+    private async ValueTask SendAuthenticationRequestAsync(
+        List<(byte AuthType, byte Modifiers)> authenticationTypes, bool recordAsOffer)
     {
         if (!IsEnabled)
             return;
@@ -268,6 +288,15 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
         bytes.Add((byte)Trigger.SE);
 
         await Context.SendNegotiationAsync(bytes.ToArray());
+
+        // Only once it is on the wire: an offer whose write threw never reached the peer, so it is
+        // not the advertisement the peer's answer is held to. The previous one is left standing
+        // rather than cleared — the peer did receive that, and forgetting it would refuse the
+        // mechanism it was legitimately asked for.
+        if (recordAsOffer)
+        {
+            _offeredAuthenticationTypes = [.. authenticationTypes];
+        }
     }
 
     /// <summary>
@@ -323,19 +352,17 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     /// <remarks>
     /// <para><strong>Server-side.</strong> Used to send authentication status, acceptance, rejection, or challenges.</para>
     /// <para>This sends an IAC SB AUTHENTICATION REPLY [reply data] IAC SE message.</para>
-    /// <para>Common status values:</para>
-    /// <list type="bullet">
-    /// <item><description>0x00 - Success/Accept</description></item>
-    /// <item><description>0xFF - Reject/Failure</description></item>
-    /// <item><description>Other values are mechanism-specific (e.g., challenge data)</description></item>
-    /// </list>
+    /// <para>
+    /// Everything after the (authType, modifiers) pair is <strong>mechanism-specific and not
+    /// interpreted here</strong>: RFC 2941 defines the framing and leaves the body to the mechanism,
+    /// so RFC 2942's Kerberos ACCEPT/REJECT, SRP's and RSA's are each their own. The bytes are
+    /// written as given. A 0x00 / 0xFF accept-or-reject convention exists only where both ends have
+    /// agreed one; nothing in this library imposes or reads it.
+    /// </para>
     /// <example>
     /// <code>
-    /// // Accept authentication
+    /// // Whatever the mechanism defines as success, for a mechanism that uses a status byte.
     /// await authPlugin.SendAuthenticationReplyAsync(new byte[] { 5, 0, 0x00 });
-    /// 
-    /// // Reject authentication
-    /// await authPlugin.SendAuthenticationReplyAsync(new byte[] { 5, 0, 0xFF });
     /// 
     /// // Send challenge for multi-round auth
     /// await authPlugin.SendAuthenticationReplyAsync(new byte[]
@@ -532,6 +559,23 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
         });
     }
 
+    /// <summary>
+    /// Whether an inbound <c>IS</c> names a (type, modifiers) pair this side put in its <c>SEND</c>.
+    /// Always true when no authentication types were configured: there is no advertisement to hold
+    /// the peer to, and the plugin's existing NULL refusal already covers that case.
+    /// </summary>
+    /// <param name="response">The subnegotiation body, command byte first.</param>
+    private bool IsOfferedAuthenticationType(byte[] response)
+    {
+        if (_offeredAuthenticationTypes is null)
+        {
+            return true;
+        }
+
+        return response.Length >= 3
+            && _offeredAuthenticationTypes.Contains((response[1], response[2]));
+    }
+
     private async ValueTask OnClientWillAuthenticateAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client willing to authenticate - sending authentication types");
@@ -545,7 +589,7 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
         }
 
         // Send SEND subnegotiation with authentication types
-        await SendAuthenticationRequestAsync(authTypes);
+        await SendAuthenticationRequestAsync(authTypes, recordAsOffer: _authenticationTypesProvider != null);
     }
 
     private async ValueTask OnServerRequestsAuthenticationAsync(IProtocolContext context)
@@ -585,7 +629,22 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     private async ValueTask ProcessAuthenticationResponseAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Processing authentication response from client");
-        
+
+        var response = _authRequestData.ToArray();
+
+        if (!IsOfferedAuthenticationType(response))
+        {
+            // Refused here rather than passed on, so no consumer validates credentials for a
+            // mechanism this side never said it would accept. There is no reply to send: RFC 2941
+            // leaves everything after the type pair to the mechanism, so this library has no
+            // rejection it could write that the peer would understand.
+            context.Logger.LogWarning(
+                "Client answered AUTHENTICATION with type {AuthType} modifiers {Modifiers}, which was not offered. Ignoring.",
+                response.Length > 1 ? response[1] : -1,
+                response.Length > 2 ? response[2] : -1);
+            return;
+        }
+
         // Invoke callback if provided
         if (_onAuthenticationResponse != null)
         {
