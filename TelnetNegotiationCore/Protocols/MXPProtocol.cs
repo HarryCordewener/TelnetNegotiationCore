@@ -91,79 +91,18 @@ public class MXPProtocol : TelnetProtocolPluginBase
     public override IReadOnlyCollection<Type> Dependencies => Array.Empty<Type>();
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Negotiation acceptance and the start marker are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and <c>MxpStartedAsync</c> in
+    /// <c>TelnetGeneratedMachineInterpreter</c>); this hook survives only to register the server's
+    /// initial offer, a cross-cutting mechanism independent of which machine drives byte processing.
+    /// </remarks>
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring MXP state machine");
-
-        context.SetSharedState("MXP_Protocol", this);
-
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            stateMachine.Configure(State.Do)
-                .Permit(Trigger.MXP, State.DoMXP);
-
-            stateMachine.Configure(State.Dont)
-                .Permit(Trigger.MXP, State.DontMXP);
-
-            stateMachine.Configure(State.DoMXP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async _ => await OnDoMXPAsync(context));
-
-            stateMachine.Configure(State.DontMXP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDontMXPAsync(context));
-
             context.RegisterInitialNegotiation(async () => await WillingMXPAsync(context));
         }
-        else
-        {
-            stateMachine.Configure(State.Willing)
-                .Permit(Trigger.MXP, State.WillMXP);
-
-            stateMachine.Configure(State.Refusing)
-                .Permit(Trigger.MXP, State.WontMXP);
-
-            stateMachine.Configure(State.WontMXP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await WontMXPAsync(context));
-
-            stateMachine.Configure(State.WillMXP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async _ => await OnWillMXPAsync(context));
-
-            // Only the server sends the start marker, so only the client listens for it. Without
-            // these transitions option 91 has no route out of SubNegotiation and a correct server's
-            // marker is swallowed by the safety net as an unsupported subnegotiation.
-            ConfigureStartMarker(stateMachine, context);
-        }
-    }
-
-    /// <summary>
-    /// Wires up <c>IAC SB MXP IAC SE</c> on the receiving side.
-    /// </summary>
-    /// <remarks>
-    /// <see cref="State.CompletingMXP"/> is entered on the marker's <b>second IAC</b>, with the
-    /// <c>SE</c> not yet read, so the mode starts on the way <i>out</i> of that state — the moment
-    /// the <c>SE</c> is consumed. Any other trigger out of it is the safety net recovering from a
-    /// malformed marker, not a server starting MXP.
-    /// </remarks>
-    private void ConfigureStartMarker(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.MXP, State.NegotiatingMXP);
-
-        stateMachine.Configure(State.NegotiatingMXP)
-            .Permit(Trigger.IAC, State.CompletingMXP);
-
-        stateMachine.Configure(State.CompletingMXP)
-            .SubstateOf(State.EndSubNegotiation)
-            .OnExitAsync(async transition =>
-            {
-                if (transition.Trigger == Trigger.SE)
-                {
-                    await StartMxpModeAsync(context);
-                }
-            });
     }
 
     /// <inheritdoc />
@@ -204,9 +143,9 @@ public class MXPProtocol : TelnetProtocolPluginBase
     #region State Machine Handlers
 
     /// <summary>
-    /// Mirrors the asymmetry in <see cref="ConfigureStateMachine"/>: a server only ever configured
-    /// DO/DONT, a client only ever configured WILL/WONT, so the verb the other role never wired for
-    /// this option is a no-op here too rather than an assumption about what the peer meant.
+    /// A server only ever expects DO/DONT and a client only ever expects WILL/WONT for this option,
+    /// so the verb the other role never wired for is a no-op rather than an assumption about what
+    /// the peer meant.
     /// </summary>
     internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
     {
