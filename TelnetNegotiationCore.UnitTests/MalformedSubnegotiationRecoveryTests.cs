@@ -234,6 +234,42 @@ public class MalformedSubnegotiationRecoveryTests
 		await Assert.That(recorder.CharsetRejections).IsEqualTo(1);
 	}
 
+	[Test]
+	public async Task EncryptionStartEndingGarbageBetweenIacAndSeDoesNotFireStarted()
+	{
+		var recorder = await Run([IAC, SB, 38, 3 /* START */, IAC, 1, SE]);
+
+		await Assert.That(recorder.EncryptionStarts).IsEmpty();
+	}
+
+	[Test]
+	public async Task EncryptionStartStillFiresOnAGenuineMarkerAfterRecovering()
+	{
+		// The garbage after START's IAC routes into the shared discard-until-IAC-SE state (proven
+		// above), so this first attempt must be closed out with a real IAC SE of its own before a
+		// genuinely independent second attempt can be recognised as one.
+		var recorder = await Run([IAC, SB, 38, 3 /* START */, IAC, 1, SE, IAC, SE, .. new byte[] { IAC, SB, 38, 3, IAC, SE }]);
+
+		await Assert.That(recorder.EncryptionStarts).HasSingleItem();
+	}
+
+	[Test]
+	public async Task EncryptionEndGarbageBetweenIacAndSeDoesNotFireEnded()
+	{
+		// Without resetting EncryptionEnd.Escaping, the guard on the SE below would still pass.
+		var recorder = await Run([IAC, SB, 38, 4 /* END */, IAC, 1, SE]);
+
+		await Assert.That(recorder.EncryptionEnds).IsEqualTo(0);
+	}
+
+	[Test]
+	public async Task EncryptionEndStillFiresOnAGenuineMarkerAfterRecovering()
+	{
+		var recorder = await Run([IAC, SB, 38, 4 /* END */, IAC, 1, SE, .. new byte[] { IAC, SB, 38, 4, IAC, SE }]);
+
+		await Assert.That(recorder.EncryptionEnds).IsEqualTo(1);
+	}
+
 	// ---------------------------------------------------------------------------------------------
 	// Overflow: an oversized payload must not be buffered without limit, and must not be delivered
 	// as if it were the whole (truncated) message once the limit is hit.

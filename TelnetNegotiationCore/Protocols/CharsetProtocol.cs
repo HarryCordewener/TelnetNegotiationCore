@@ -460,14 +460,17 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             {
                 var shouldAccept = await _onTTableReceived.Invoke(ttableData);
                 
-                if (shouldAccept)
+                if (shouldAccept && ParseTTableVersion1(ttableData, context))
                 {
-                    // Parse and store the translation table
-                    ParseTTableVersion1(ttableData, context);
-                    
                     // Send TTABLE-ACK
                     context.Logger.LogInformation("TTABLE accepted and acknowledged");
                     await context.SendNegotiationAsync(s_ttableAck);
+                }
+                else if (shouldAccept)
+                {
+                    // Callback accepted, but the payload didn't parse -- do not ACK a table we never stored
+                    context.Logger.LogWarning("TTABLE-IS accepted by callback but failed to parse; rejecting");
+                    await context.SendNegotiationAsync(s_ttableRejected);
                 }
                 else
                 {
@@ -490,18 +493,18 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         }
     }
 
-    private void ParseTTableVersion1(byte[] ttableData, IProtocolContext context)
+    private bool ParseTTableVersion1(byte[] ttableData, IProtocolContext context)
     {
         try
         {
             // Parse TTABLE version 1 data structure
             // Format: <version> <sep> <charset1> <sep> <size1> <count1> <charset2> <sep> <size2> <count2> <map1> <map2>
-            
+
             var version = ttableData[0];
             if (version != TTABLE_VERSION_1 || ttableData.Length < TTABLE_MIN_LENGTH)
             {
                 context.Logger.LogWarning("Invalid TTABLE format");
-                return;
+                return false;
             }
 
             var sep = (char)ttableData[1];
@@ -517,7 +520,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             if (pos + 4 > ttableData.Length)
             {
                 context.Logger.LogWarning("TTABLE too short for size1 and count1");
-                return;
+                return false;
             }
             
             var size1 = ttableData[pos++];
@@ -533,7 +536,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             if (pos + 4 > ttableData.Length)
             {
                 context.Logger.LogWarning("TTABLE too short for size2 and count2");
-                return;
+                return false;
             }
             
             var size2 = ttableData[pos++];
@@ -547,22 +550,24 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             if (pos + count1 + count2 > ttableData.Length)
             {
                 context.Logger.LogWarning("TTABLE data incomplete for specified counts");
-                return;
+                return false;
             }
-            
+
             // Build translation table from map1 (charset1 -> charset2)
             _currentTranslationTable = new Dictionary<int, int>();
             for (int i = 0; i < count1 && pos + i < ttableData.Length; i++)
             {
                 _currentTranslationTable[i] = ttableData[pos + i];
             }
-            
+
             context.Logger.LogInformation("TTABLE parsed successfully: {Charset1} -> {Charset2} with {Entries} mappings",
                 charset1, charset2, _currentTranslationTable.Count);
+            return true;
         }
         catch (Exception ex)
         {
             context.Logger.LogError(ex, "Error parsing TTABLE version 1 data");
+            return false;
         }
     }
 

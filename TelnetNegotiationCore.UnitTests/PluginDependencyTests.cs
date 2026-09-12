@@ -208,6 +208,41 @@ public class PluginDependencyTests : BaseTest
         await interpreter.DisposeAsync();
     }
 
+    /// <summary>
+    /// ConfigureStateMachines and InitializePluginsAsync share one dependency order cached by
+    /// ProtocolPluginManager.EnsureInitializationOrder. Registration is still legal until
+    /// initialization completes, so a plugin registered in between the two calls must not be silently
+    /// dropped from InitializePluginsAsync's pass over that cached order.
+    /// </summary>
+    [Test]
+    public async Task RegisteringAPluginAfterConfigureStateMachinesStillGetsInitialized()
+    {
+        var order = new List<string>();
+        var manager = new ProtocolPluginManager(logger);
+        var dependency = new OrderTrackingDependency(order);
+        manager.RegisterPlugin(dependency);
+
+        var interpreter = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(WriteBackToOutput)
+            .OnNegotiation(WriteBackToNegotiate)
+            .BuildAsync();
+        var context = new ProtocolContext(interpreter, manager, logger);
+
+        manager.ConfigureStateMachines(context);
+
+        var dependent = new OrderTrackingDependent(order);
+        manager.RegisterPlugin(dependent);
+
+        await manager.InitializePluginsAsync(context);
+
+        await Assert.That(dependency.IsEnabled).IsTrue();
+        await Assert.That(dependent.IsEnabled).IsTrue();
+
+        await interpreter.DisposeAsync();
+    }
+
     [Test]
     public async Task CanDisablePluginWhenNoDependents()
     {

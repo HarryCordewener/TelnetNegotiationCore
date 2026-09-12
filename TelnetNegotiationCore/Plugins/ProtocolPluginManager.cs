@@ -42,6 +42,11 @@ public class ProtocolPluginManager
             _plugins[type] = plugin;
             _logger.LogInformation("Registered plugin: {PluginName} ({PluginType})", plugin.ProtocolName, type.Name);
         }
+
+        // Registration is still allowed at this point (only initialization closes it off), so a
+        // dependency order computed by an earlier ConfigureStateMachines/InitializePluginsAsync call
+        // would otherwise go stale and silently omit this plugin from both.
+        _initializationOrder.Clear();
     }
 
     /// <summary>
@@ -144,9 +149,10 @@ public class ProtocolPluginManager
 
     /// <summary>
     /// Topologically sorts the registered plugins by <see cref="ITelnetProtocolPlugin.Dependencies"/>,
-    /// populating <see cref="_initializationOrder"/>. Idempotent: a second call is a no-op, so either
-    /// <see cref="ConfigureStateMachines"/> or <see cref="InitializePluginsAsync"/> can run first and
-    /// the other reuses the same order rather than recomputing it.
+    /// populating <see cref="_initializationOrder"/>. A call while the order is already populated is a
+    /// no-op, so either <see cref="ConfigureStateMachines"/> or <see cref="InitializePluginsAsync"/> can
+    /// run first and the other reuses the same order rather than recomputing it -- unless
+    /// <see cref="RegisterPlugin{T}"/> ran since, which clears the cache so the next call here rebuilds it.
     /// </summary>
     private void EnsureInitializationOrder()
     {

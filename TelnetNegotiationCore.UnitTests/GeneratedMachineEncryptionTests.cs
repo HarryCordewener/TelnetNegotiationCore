@@ -215,6 +215,54 @@ public class GeneratedMachineEncryptionTests : BaseTest
         await server.DisposeAsync();
     }
 
+    /// <summary>
+    /// Disabling a plugin does not tell the peer to stop negotiating (<c>DisablePluginAsync</c> flips
+    /// <c>IsEnabled</c> only), so a peer that already negotiated ENCRYPT can keep sending SUPPORT/IS/
+    /// START/END after it. The dispatch in TelnetGeneratedMachineInterpreter must still refuse to
+    /// deliver that data -- <c>GetPlugin</c> alone would find the (still-registered) plugin regardless.
+    /// </summary>
+    [Test]
+    public async Task DisabledPluginDoesNotProcessStartOrEnd()
+    {
+        byte[] receivedKeyId = null;
+        var endedCount = 0;
+
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseGeneratedMachine()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<EncryptionProtocol>()
+                .OnEncryptionStart(keyId => { receivedKeyId = keyId; return ValueTask.CompletedTask; })
+                .OnEncryptionEnd(() => { endedCount++; return ValueTask.CompletedTask; }));
+
+        var encryption = server.PluginManager!.GetPlugin<EncryptionProtocol>();
+
+        await InterpretAndWaitAsync(server, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ENCRYPT });
+
+        await server.PluginManager!.DisablePluginAsync<EncryptionProtocol>();
+
+        await InterpretAndWaitAsync(server, new byte[]
+        {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.ENCRYPT, 3 /* START */, 0xAA, 0xBB,
+            (byte)Trigger.IAC, (byte)Trigger.SE,
+        });
+
+        await Assert.That(receivedKeyId).IsNull();
+        await Assert.That(encryption.IsEncrypting).IsFalse();
+
+        await InterpretAndWaitAsync(server, new byte[]
+        {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.ENCRYPT, 4 /* END */,
+            (byte)Trigger.IAC, (byte)Trigger.SE,
+        });
+
+        await Assert.That(endedCount).IsEqualTo(0);
+
+        await server.DisposeAsync();
+    }
+
     [Test]
     public async Task ServerAcceptsClientWontEncrypt()
     {

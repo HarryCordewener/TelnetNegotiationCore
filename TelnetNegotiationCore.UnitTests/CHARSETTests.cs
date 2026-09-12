@@ -1059,6 +1059,68 @@ namespace TelnetNegotiationCore.UnitTests
 			await server_ti.DisposeAsync();
 		}
 
+		/// <summary>
+		/// The callback accepting a table is not the same thing as the table actually parsing: TTABLE-ACK
+		/// must not be sent for a payload ParseTTableVersion1 could not store, or a peer is told its table
+		/// took effect when nothing was ever recorded.
+		/// </summary>
+		[Test]
+		public async Task TTableRejected_WhenAcceptedButPayloadFailsToParse()
+		{
+			var wasCallbackInvoked = false;
+			byte[] negotiationOutput = null;
+
+			ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data)
+			{
+				negotiationOutput = data.ToArray();
+				return ValueTask.CompletedTask;
+			}
+
+			var server_ti = await new TelnetInterpreterBuilder()
+				.UseMode(TelnetInterpreter.TelnetMode.Server)
+				.UseLogger(logger)
+				.OnSubmit(WriteBackToOutput)
+				.OnNegotiation(CaptureNegotiation)
+				.AddPlugin<CharsetProtocol>()
+				.BuildAsync();
+
+			var charsetPlugin = server_ti.PluginManager!.GetPlugin<CharsetProtocol>();
+			charsetPlugin!.EnableTTableSupport = true;
+			charsetPlugin.OnTTableReceived((data) =>
+			{
+				wasCallbackInvoked = true;
+				return ValueTask.FromResult(true); // accepts, but the payload below has nothing to parse past the separator
+			});
+
+			await server_ti.InterpretByteArrayAsync(new byte[] {
+				(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.CHARSET
+			});
+			await server_ti.WaitForProcessingAsync();
+
+			// version(1) + separator only: passes the outer version/length gate (length 2), but leaves
+			// ParseTTableVersion1 nothing after the separator to read a charset name, size or count from.
+			var ttableMessage = new byte[] {
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_IS,
+				1, (byte)';',
+				(byte)Trigger.IAC, (byte)Trigger.SE
+			};
+
+			await server_ti.InterpretByteArrayAsync(ttableMessage);
+			await server_ti.WaitForProcessingAsync();
+
+			await Assert.That(wasCallbackInvoked).IsTrue();
+
+			// Must reject, not ACK: the callback accepted the table, but it was never actually stored.
+			await Assert.That(negotiationOutput).IsNotNull();
+			var expected = new byte[] {
+				(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_REJECTED,
+				(byte)Trigger.IAC, (byte)Trigger.SE
+			};
+			await AssertByteArraysEqual(negotiationOutput, expected);
+
+			await server_ti.DisposeAsync();
+		}
+
 		[Test]
 		public async Task TTableRejected_WhenNoCallbackRegistered()
 		{

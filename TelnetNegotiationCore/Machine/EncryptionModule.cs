@@ -207,8 +207,13 @@ public static class EncryptionModule
         to.Overflowed = from.Overflowed;
     }
 
-    /// <summary>Anything but SE here is malformed; ignored rather than left unhandled.</summary>
-    [Transition(From = typeof(EncryptionStartEnding)), OnAny]
+    /// <summary>
+    /// Anything but SE here is malformed. Discarded through the core's own IAC-SE skipper rather than
+    /// left as a self-loop: a self-loop here has no reachable IAC/SE transition of its own (wedging the
+    /// connection), and leaving <see cref="EncryptionStartEnding"/> pending would let a later, unrelated
+    /// bare SE still satisfy <see cref="StartEnded"/> and misfire <c>EncryptionStartAsync</c>.
+    /// </summary>
+    [Transition(From = typeof(EncryptionStartEnding), To = typeof(SubNegotiating)), OnAny]
     public static void IgnoreMalformedStartEnding()
     {
     }
@@ -232,12 +237,13 @@ public static class EncryptionModule
     [Transition(From = typeof(EncryptionEnd)), On(IAC)]
     public static void MarkEnd(ref EncryptionEnd self) => self.Escaping = true;
 
-    /// <summary>Anything but the IAC that precedes SE, or SE once escaping, is malformed; ignored
-    /// rather than left unhandled.</summary>
+    /// <summary>
+    /// Anything but the IAC that precedes SE, or SE once escaping, is malformed. Resets
+    /// <see cref="EncryptionEnd.Escaping"/> so a later, unrelated bare SE cannot still satisfy
+    /// <see cref="EndEnded"/>'s guard and misfire <c>EncryptionEndAsync</c>.
+    /// </summary>
     [Transition(From = typeof(EncryptionEnd)), OnAny]
-    public static void IgnoreMalformedEnd()
-    {
-    }
+    public static void IgnoreMalformedEnd(ref EncryptionEnd self) => self.Escaping = false;
 
     [Transition(From = typeof(EncryptionEnd), To = typeof(Idle)), On(SE)]
     public static class EndEnded

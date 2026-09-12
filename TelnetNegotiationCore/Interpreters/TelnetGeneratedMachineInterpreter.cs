@@ -193,9 +193,13 @@ public partial class TelnetInterpreter
 
         // Same discriminator-byte restoration AuthenticationSendAsync/AuthenticationIsAsync need --
         // ENCRYPT shares AUTHENTICATION's exact Stateless capture shape (RFC 2946 mirrors RFC 2941's).
+        //
+        // All four dispatches below gate on IsPluginEnabled, not just GetPlugin: a disabled plugin is
+        // still registered (GetPlugin would find it), and delivering subnegotiation data to it would
+        // undo what disabling it means -- matching NegotiateAsync's IsPluginEnabled gate above.
         public override ValueTask EncryptionSendAsync(byte[] data)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EncryptionProtocol)) is Protocols.EncryptionProtocol encryption)
+            if (IsEncryptionEnabled(out var encryption))
             {
                 return encryption.ProcessEncryptionSupportFromBytesAsync(PrependAuthCommand(1, data), Context());
             }
@@ -205,7 +209,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask EncryptionIsAsync(byte[] data)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EncryptionProtocol)) is Protocols.EncryptionProtocol encryption)
+            if (IsEncryptionEnabled(out var encryption))
             {
                 return encryption.ProcessEncryptionIsFromBytesAsync(PrependAuthCommand(0, data), Context());
             }
@@ -215,7 +219,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask EncryptionStartAsync(byte[] keyId)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EncryptionProtocol)) is Protocols.EncryptionProtocol encryption)
+            if (IsEncryptionEnabled(out var encryption))
             {
                 return encryption.ProcessEncryptionStartFromBytesAsync(keyId, Context());
             }
@@ -225,12 +229,25 @@ public partial class TelnetInterpreter
 
         public override ValueTask EncryptionEndAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EncryptionProtocol)) is Protocols.EncryptionProtocol encryption)
+            if (IsEncryptionEnabled(out var encryption))
             {
                 return encryption.ProcessEncryptionEndFromBytesAsync(Context());
             }
 
             return default;
+        }
+
+        private bool IsEncryptionEnabled(out Protocols.EncryptionProtocol encryption)
+        {
+            if (owner.PluginManager?.IsPluginEnabled(typeof(Protocols.EncryptionProtocol)) == true &&
+                owner.PluginManager.GetPlugin(typeof(Protocols.EncryptionProtocol)) is Protocols.EncryptionProtocol found)
+            {
+                encryption = found;
+                return true;
+            }
+
+            encryption = null!;
+            return false;
         }
         public override ValueTask MsdpStartedAsync()
         {
