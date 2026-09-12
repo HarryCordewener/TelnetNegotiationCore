@@ -73,6 +73,16 @@ public class RecordingTelnetContext : TelnetCoreContext
 
     public int Mccp1Markers { get; private set; }
 
+    public List<(byte Kind, byte[] Data)> LineModeMessages { get; } = [];
+
+    public List<byte[]> AuthenticationSends { get; } = [];
+
+    public List<byte[]> AuthenticationIsMessages { get; } = [];
+
+    public List<byte[]> EncryptionSends { get; } = [];
+
+    public List<byte[]> EncryptionIsMessages { get; } = [];
+
     public override void Write(ReadOnlySpan<byte> text)
     {
         foreach (var b in text)
@@ -342,6 +352,36 @@ public class RecordingTelnetContext : TelnetCoreContext
     public override ValueTask Mccp1MarkerAsync()
     {
         Mccp1Markers++;
+        return default;
+    }
+
+    public override ValueTask LineModeAsync(byte kind, byte[] data)
+    {
+        LineModeMessages.Add((kind, data));
+        return default;
+    }
+
+    public override ValueTask AuthenticationSendAsync(byte[] data)
+    {
+        AuthenticationSends.Add(data);
+        return default;
+    }
+
+    public override ValueTask AuthenticationIsAsync(byte[] data)
+    {
+        AuthenticationIsMessages.Add(data);
+        return default;
+    }
+
+    public override ValueTask EncryptionSendAsync(byte[] data)
+    {
+        EncryptionSends.Add(data);
+        return default;
+    }
+
+    public override ValueTask EncryptionIsAsync(byte[] data)
+    {
+        EncryptionIsMessages.Add(data);
         return default;
     }
 }
