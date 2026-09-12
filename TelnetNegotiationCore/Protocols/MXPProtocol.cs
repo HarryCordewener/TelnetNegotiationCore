@@ -203,6 +203,39 @@ public class MXPProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
+    /// <summary>
+    /// Mirrors the asymmetry in <see cref="ConfigureStateMachine"/>: a server only ever configured
+    /// DO/DONT, a client only ever configured WILL/WONT, so the verb the other role never wired for
+    /// this option is a no-op here too rather than an assumption about what the peer meant.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            switch (verb)
+            {
+                case (byte)Trigger.DO:
+                    await OnDoMXPAsync(context);
+                    break;
+                case (byte)Trigger.DONT:
+                    await OnDontMXPAsync(context);
+                    break;
+            }
+        }
+        else
+        {
+            switch (verb)
+            {
+                case (byte)Trigger.WILL:
+                    await OnWillMXPAsync(context);
+                    break;
+                case (byte)Trigger.WONT:
+                    await WontMXPAsync(context);
+                    break;
+            }
+        }
+    }
+
     private async ValueTask WillingMXPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Announcing willingness to MXP!");
@@ -268,7 +301,7 @@ public class MXPProtocol : TelnetProtocolPluginBase
     /// <summary>
     /// Marks MXP mode started and tells the host, once.
     /// </summary>
-    private async ValueTask StartMxpModeAsync(IProtocolContext context)
+    internal async ValueTask StartMxpModeAsync(IProtocolContext context)
     {
         // The marker says when a negotiated option begins, and cannot stand in for negotiating it.
         // A peer that sends IAC SB MXP IAC SE without a WILL/DO exchange behind it would otherwise

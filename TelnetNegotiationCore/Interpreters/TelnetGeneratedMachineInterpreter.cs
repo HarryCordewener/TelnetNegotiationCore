@@ -48,6 +48,7 @@ public partial class TelnetInterpreter
         [42] = typeof(Protocols.CharsetProtocol),
         [39] = typeof(Protocols.NewEnvironProtocol),
         [36] = typeof(Protocols.EnvironProtocol),
+        [91] = typeof(Protocols.MXPProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -141,6 +142,9 @@ public partial class TelnetInterpreter
                         return;
                     case Protocols.EnvironProtocol environ:
                         await environ.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.MXPProtocol mxp:
+                        await mxp.OnPeerNegotiatedAsync(verb, Context());
                         return;
                 }
             }
@@ -298,7 +302,15 @@ public partial class TelnetInterpreter
         public override ValueTask CharsetTTableNakAsync() => default;
         public override ValueTask AuthenticationSendAsync(byte[] data) => default;
         public override ValueTask AuthenticationIsAsync(byte[] data) => default;
-        public override ValueTask MxpStartedAsync() => default;
+        public override ValueTask MxpStartedAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.MXPProtocol)) is Protocols.MXPProtocol mxp)
+            {
+                return mxp.StartMxpModeAsync(Context());
+            }
+
+            return default;
+        }
 
         public override ValueTask GoAheadAsync()
         {
