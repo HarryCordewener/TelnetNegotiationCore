@@ -22,6 +22,14 @@ var telnet = await new TelnetInterpreterBuilder()
 Servers can provide custom authentication by specifying supported authentication types and handling client responses:
 
 ```csharp
+// One list, offered to the peer and then used to check what it picked. Declaring it here rather
+// than inline in the provider is the whole reason the check below can exist.
+var offered = new List<(byte AuthType, byte Modifiers)>
+{
+    (5, 0),  // SRP with no modifiers
+    (6, 2)   // RSA with AUTH_HOW_MUTUAL (0x02)
+};
+
 var telnet = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Server)
     .UseLogger(logger)
@@ -29,11 +37,7 @@ var telnet = await new TelnetInterpreterBuilder()
     .OnNegotiation((data) => WriteToNetworkAsync(data))
     .AddPlugin<AuthenticationProtocol>()
         // Declare which authentication types to offer
-        .WithAuthenticationTypes(async () => new List<(byte AuthType, byte Modifiers)>
-        {
-            (5, 0),  // SRP with no modifiers
-            (6, 2)   // RSA with AUTH_HOW_MUTUAL (0x02)
-        })
+        .WithAuthenticationTypes(() => new ValueTask<List<(byte AuthType, byte Modifiers)>>(offered))
         // Handle client authentication responses
         .OnAuthenticationResponse(async (authData) =>
         {

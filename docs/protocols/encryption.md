@@ -22,6 +22,13 @@ var telnet = await new TelnetInterpreterBuilder()
 Servers can provide custom encryption by specifying supported encryption types and handling client initialization:
 
 ```csharp
+// One list, offered to the peer and then used to check what it picked.
+var offered = new List<byte>
+{
+    1,  // DES_CFB64
+    3   // DES3_CFB64
+};
+
 var telnet = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Server)
     .UseLogger(logger)
@@ -29,11 +36,7 @@ var telnet = await new TelnetInterpreterBuilder()
     .OnNegotiation((data) => WriteToNetworkAsync(data))
     .AddPlugin<EncryptionProtocol>()
         // Declare which encryption types to offer
-        .WithEncryptionTypes(async () => new List<byte>
-        {
-            1,  // DES_CFB64
-            3   // DES3_CFB64
-        })
+        .WithEncryptionTypes(() => new ValueTask<List<byte>>(offered))
         // Handle client encryption initialization
         .OnEncryptionRequest(async (encData) =>
         {
