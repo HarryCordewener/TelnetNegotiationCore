@@ -34,10 +34,32 @@ namespace TelnetNegotiationCore.Protocols;
 /// </remarks>
 internal sealed class MCCPInflateTransform : IInboundByteTransform
 {
+	/// <summary>
+	/// The cumulative output-to-input ratio a peer's stream may reach before it is treated as an
+	/// attack rather than a well-compressed MUD.
+	/// </summary>
+	/// <remarks>
+	/// MCCP's own claim is a 75-90% reduction, which is 4:1 to 10:1, and English text through
+	/// deflate lands near that; zlib's window is 32 KiB, so sustained ratios far above it need input
+	/// built to produce them rather than content that happens to repeat. 200:1 leaves an order of
+	/// magnitude of headroom over anything a real server sends and still refuses the shape that
+	/// matters: 4 KiB of deflate holding 4 MiB of zeros, which is ~1,025:1.
+	/// </remarks>
+	internal const int DefaultMaxExpansionRatio = 200;
+
+	/// <summary>
+	/// Output allowed before the ratio is judged at all, so a short stream is never condemned by a
+	/// ratio computed from a handful of bytes — a zlib header alone is 2 bytes in and 0 out.
+	/// </summary>
+	internal const long ExpansionRatioFloorBytes = 1024 * 1024;
+
 	private readonly ILogger _logger;
 	private readonly Func<ValueTask> _onFailureAsync;
 	private readonly Func<ValueTask> _onStreamEndAsync;
+	private readonly int _maxExpansionRatio;
 	private byte[] _output = new byte[1024];
+	private long _compressedIn;
+	private long _inflatedOut;
 	private bool _failed;
 	private bool _ended;
 
@@ -59,11 +81,20 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 	/// again from that point, so the owner is expected to uninstall this transform; until it does,
 	/// bytes pass through untouched.
 	/// </param>
-	public MCCPInflateTransform(ILogger logger, Func<ValueTask> onFailureAsync, Func<ValueTask> onStreamEndAsync)
+	/// <param name="maxExpansionRatio">
+	/// The cumulative expansion a peer may reach past <see cref="ExpansionRatioFloorBytes"/>. See
+	/// <see cref="DefaultMaxExpansionRatio"/>.
+	/// </param>
+	public MCCPInflateTransform(
+		ILogger logger,
+		Func<ValueTask> onFailureAsync,
+		Func<ValueTask> onStreamEndAsync,
+		int maxExpansionRatio = DefaultMaxExpansionRatio)
 	{
 		_logger = logger;
 		_onFailureAsync = onFailureAsync;
 		_onStreamEndAsync = onStreamEndAsync;
+		_maxExpansionRatio = maxExpansionRatio;
 #if !NETSTANDARD2_0
 		_inflater = new ZLibStream(_input, CompressionMode.Decompress);
 #endif
@@ -90,6 +121,7 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 		// most this can produce is DEFLATE's maximum expansion from one input byte: 1032. _output
 		// therefore plateaus at 2 KiB for the life of the connection however hostile the peer is.
 		var written = 0;
+		_compressedIn++;
 		try
 		{
 #if NETSTANDARD2_0
@@ -145,8 +177,34 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 			return EndAsync(written);
 		}
 
+		_inflatedOut += written;
+
+		if (ExpansionIsImplausible())
+		{
+			_failed = true;
+			_logger.LogError(
+				"MCCP: the peer's stream claims to expand {InflatedBytes} bytes out of {CompressedBytes} "
+				+ "({Ratio}:1, ceiling {Ceiling}:1). Decompression stopped",
+				_inflatedOut, _compressedIn, _inflatedOut / Math.Max(_compressedIn, 1), _maxExpansionRatio);
+			return FailAsync();
+		}
+
 		return new ValueTask<ReadOnlyMemory<byte>>(_output.AsMemory(0, written));
 	}
+
+	/// <summary>
+	/// Whether the peer has bought more of this process's work than its own bandwidth can justify.
+	/// </summary>
+	/// <remarks>
+	/// The downstream ceilings — the line buffer, the per-subnegotiation limits — bound how much
+	/// <i>memory</i> a peer can make this side hold. They do not bound the work of getting there: one
+	/// wire byte can become 1,032 through the state machine, so a peer trading its bandwidth for this
+	/// side's CPU is limited by neither. Measured, in Release: 4 KiB of deflate holding 4 MiB of
+	/// zeros costs about 430 ms of a core, against 1 ms for 4 KiB of plain telnet.
+	/// </remarks>
+	private bool ExpansionIsImplausible() =>
+		_inflatedOut > ExpansionRatioFloorBytes
+		&& _inflatedOut > _compressedIn * (long)_maxExpansionRatio;
 
 	private async ValueTask<ReadOnlyMemory<byte>> FailAsync()
 	{

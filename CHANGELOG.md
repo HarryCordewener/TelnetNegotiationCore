@@ -24,6 +24,14 @@ All notable changes to this project will be documented in this file.
     peer.
 
 ### Added
+- **MCCP now bounds how far a peer's stream may expand** — 200:1 cumulatively once it has produced
+  more than a mebibyte, `.WithMaxExpansionRatio(n)` to change it. The existing limits bound the
+  memory a peer can make this side hold, not the work of getting there: one compressed byte can
+  inflate to 1,032, and measured in Release, 4 KiB of deflate holding 4 MiB of zeros costs about
+  430 ms of a core against about 1 ms for 4 KiB of plain telnet. Past the ceiling the stream is
+  treated as a corrupt one — `Error` log, inflater stopped, nothing further delivered — so nothing
+  is thrown onto the read loop. The default is an order of magnitude above anything a real MCCP
+  stream reaches.
 - **Fluent builder configuration for ENCRYPT and CHARSET's encoding callback.**
   `WithEncryptionTypes`, `OnEncryptionSupport`, `OnEncryptionRequest`, `OnEncryptionStart` and
   `OnEncryptionEnd` had no `PluginConfigurationContext<EncryptionProtocol>` extension, and neither

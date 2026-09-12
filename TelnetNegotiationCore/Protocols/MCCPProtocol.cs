@@ -91,6 +91,46 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     public bool IsMCCP3Enabled => _mccp3Enabled;
 
     /// <inheritdoc />
+    private int _maxExpansionRatio = MCCPInflateTransform.DefaultMaxExpansionRatio;
+
+    /// <summary>
+    /// Sets how far a peer's compressed stream may expand before it is refused (default
+    /// <c>200</c>:1).
+    /// </summary>
+    /// <param name="ratio">
+    /// The cumulative output-to-input ratio allowed once the stream has produced more than a
+    /// mebibyte. Below that it is not judged at all, so a short stream cannot be condemned by a
+    /// ratio taken from a handful of bytes.
+    /// </param>
+    /// <returns>This instance for fluent chaining</returns>
+    /// <remarks>
+    /// <para>
+    /// The downstream limits bound how much memory a peer can make this side hold; they do not bound
+    /// the work of getting there. One compressed byte can become 1,032 through the state machine, so
+    /// a peer that compresses absurdly well is buying this side's CPU with its own bandwidth:
+    /// measured in Release, 4 KiB of deflate holding 4 MiB of zeros costs about 430 ms of a core,
+    /// roughly 430 times the same 4 KiB of plain telnet.
+    /// </para>
+    /// <para>
+    /// Exceeding the ratio is treated exactly as a corrupt stream is: an <c>Error</c> log, the
+    /// inflater stopped for good, <c>IsMCCP2Enabled</c> / <c>IsMCCP3Enabled</c> back to
+    /// <see langword="false"/>, and nothing further delivered from that direction. Nothing is thrown
+    /// onto the read loop.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The ratio is less than 1.</exception>
+    public MCCPProtocol WithMaxExpansionRatio(int ratio)
+    {
+        if (ratio < 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(ratio), ratio, "A compressed stream cannot be allowed to expand less than 1:1.");
+        }
+
+        _maxExpansionRatio = ratio;
+        return this;
+    }
+
     public override Type ProtocolType => typeof(MCCPProtocol);
 
     /// <inheritdoc />
@@ -162,7 +202,8 @@ public class MCCPProtocol : TelnetProtocolPluginBase
         context.SetInboundByteTransform(new MCCPInflateTransform(
             context.Logger,
             () => OnInboundStreamFailedAsync(version),
-            () => OnInboundStreamEndedAsync(version)));
+            () => OnInboundStreamEndedAsync(version),
+            _maxExpansionRatio));
         SetEnabled(version, true);
 
         if (_onCompressionEnabled != null)

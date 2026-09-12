@@ -846,4 +846,19 @@ public static class PluginConfigurationExtensions
         context.Plugin.OnCharsetChange(callback);
         return context;
     }
+
+    /// <summary>
+    /// Sets how far a peer's MCCP stream may expand before it is refused, in a fluent manner.
+    /// See <see cref="MCCPProtocol.WithMaxExpansionRatio"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="ratio">The cumulative output-to-input ratio allowed (default 200:1)</param>
+    /// <returns>The plugin configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MCCPProtocol> WithMaxExpansionRatio(
+        this PluginConfigurationContext<MCCPProtocol> context,
+        int ratio)
+    {
+        context.Plugin.WithMaxExpansionRatio(ratio);
+        return context;
+    }
 }
