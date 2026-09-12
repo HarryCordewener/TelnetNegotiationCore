@@ -16,6 +16,9 @@ public struct Msdp : IState<SubNegotiation>
 
 public abstract partial class TelnetCoreContext
 {
+    /// <summary>An MSDP subnegotiation began; anything buffered from a previous, incomplete one should be dropped.</summary>
+    public abstract ValueTask MsdpStartedAsync();
+
     /// <summary>A stretch of the MSDP message's bytes arrived. Called as many times as it takes.</summary>
     public abstract ValueTask MsdpDataAsync(ReadOnlyMemory<byte> data);
 
@@ -31,7 +34,12 @@ public static class MsdpModule
     private const byte Option = 69;
 
     [Transition(From = typeof(ReadingOption), To = typeof(Msdp)), On(Option)]
-    public static void Begin(ref SubNegotiation parent) => parent.Option = Option;
+    public static class Begin
+    {
+        public static void Transform(ref SubNegotiation parent) => parent.Option = Option;
+
+        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.MsdpStartedAsync();
+    }
 
     [Transition(From = typeof(Msdp)), OnAny, Run]
     public static class Capture

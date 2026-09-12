@@ -155,6 +155,12 @@ public class RecordingTelnetContext : TelnetCoreContext
         return default;
     }
 
+    public override ValueTask GmcpStartedAsync()
+    {
+        _gmcp.Clear();
+        return default;
+    }
+
     public override ValueTask GmcpDataAsync(ReadOnlyMemory<byte> data)
     {
         _gmcp.AddRange(data.ToArray());
@@ -165,6 +171,12 @@ public class RecordingTelnetContext : TelnetCoreContext
     {
         GmcpMessages.Add([.. _gmcp]);
         _gmcp.Clear();
+        return default;
+    }
+
+    public override ValueTask MsdpStartedAsync()
+    {
+        _msdp.Clear();
         return default;
     }
 

@@ -18,6 +18,9 @@ public struct Gmcp : IState<SubNegotiation>
 
 public abstract partial class TelnetCoreContext
 {
+    /// <summary>A GMCP subnegotiation began; anything buffered from a previous, incomplete one should be dropped.</summary>
+    public abstract ValueTask GmcpStartedAsync();
+
     /// <summary>A stretch of the GMCP message's bytes arrived. Called as many times as it takes.</summary>
     public abstract ValueTask GmcpDataAsync(ReadOnlyMemory<byte> data);
 
@@ -33,7 +36,12 @@ public static class GmcpModule
     private const byte Option = 201;
 
     [Transition(From = typeof(ReadingOption), To = typeof(Gmcp)), On(Option)]
-    public static void Begin(ref SubNegotiation parent) => parent.Option = Option;
+    public static class Begin
+    {
+        public static void Transform(ref SubNegotiation parent) => parent.Option = Option;
+
+        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.GmcpStartedAsync();
+    }
 
     [Transition(From = typeof(Gmcp)), OnAny, Run]
     public static class Capture

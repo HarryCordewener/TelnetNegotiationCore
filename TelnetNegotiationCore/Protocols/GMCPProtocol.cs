@@ -132,19 +132,11 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.DoGMCP)
                 .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    context.Logger.LogDebug("Connection: {ConnectionState}", "Client will do GMCP");
-                    await OnNegotiatedAsync(true);
-                });
+                .OnEntryAsync(async () => await OnDoGmcpAsServerAsync(context));
 
             stateMachine.Configure(State.DontGMCP)
                 .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    context.Logger.LogDebug("Connection: {ConnectionState}", "Client will not GMCP");
-                    await OnNegotiatedAsync(false);
-                });
+                .OnEntryAsync(async () => await OnDontGmcpAsServerAsync(context));
 
             context.RegisterInitialNegotiation(async () => await WillGMCPAsync(context));
         }
@@ -162,11 +154,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.WontGMCP)
                 .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    context.Logger.LogDebug("Connection: {ConnectionState}", "Client will GMCP");
-                    await OnNegotiatedAsync(false);
-                });
+                .OnEntryAsync(async () => await OnWontGmcpAsClientAsync(context));
         }
 
         stateMachine.Configure(State.SubNegotiation)
@@ -254,7 +242,24 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         if (b is byte value) _gmcpBytes.Add(value);
     }
 
-    private async ValueTask CompleteGMCPNegotiation(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private ValueTask CompleteGMCPNegotiation(StateMachine<State, Trigger>.Transition _, IProtocolContext context) =>
+        CompleteGmcpAsync(context);
+
+    /// <summary>Resets the buffer for a fresh subnegotiation -- the generated machine's equivalent of
+    /// AlmostNegotiatingGMCP's OnEntry.</summary>
+    internal void StartGmcpMessage() => _gmcpBytes.Reset();
+
+    /// <summary>Appends a stretch of raw bytes to the buffer, respecting the same maximum message size.</summary>
+    internal void AppendGmcpBytes(ReadOnlyMemory<byte> data)
+    {
+        foreach (var b in data.Span)
+        {
+            _gmcpBytes.Add(b);
+        }
+    }
+
+    /// <summary>What the buffered bytes mean, once a message is complete -- independent of how they arrived.</summary>
+    internal async ValueTask CompleteGmcpAsync(IProtocolContext context)
     {
         var gmcpBytes = _gmcpBytes.Bytes;
 
@@ -502,6 +507,47 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         return payload.Count > MaxPreviewLength ? text + "..." : text;
     }
 
+    private async ValueTask OnDoGmcpAsServerAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Client will do GMCP");
+        await OnNegotiatedAsync(true);
+    }
+
+    private async ValueTask OnDontGmcpAsServerAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Client will not GMCP");
+        await OnNegotiatedAsync(false);
+    }
+
+    private async ValueTask OnWontGmcpAsClientAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Server won't GMCP");
+        await OnNegotiatedAsync(false);
+    }
+
+    /// <summary>
+    /// What arriving at Do/Dont (server) or Willing/Refusing (client) for GMCP does, independent of which
+    /// machine got there -- each mode only ever sees one direction, per <see cref="ConfigureStateMachine"/>.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.DO:
+                await OnDoGmcpAsServerAsync(context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontGmcpAsServerAsync(context);
+                break;
+            case (byte)Trigger.WILL:
+                await DoGMCPAsync(null!, context);
+                break;
+            case (byte)Trigger.WONT:
+                await OnWontGmcpAsClientAsync(context);
+                break;
+        }
+    }
+
     private async ValueTask WillGMCPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing the server will GMCP");
@@ -602,6 +648,60 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     /// <inheritdoc />
     public override IReadOnlyCollection<Type> Dependencies => Array.Empty<Type>();
 
+    private async ValueTask OnDoMsdpAsServerAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Client will do MSDP");
+        await OnNegotiatedAsync(true);
+    }
+
+    private async ValueTask OnDontMsdpAsServerAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Client will not MSDP");
+        await OnNegotiatedAsync(false);
+    }
+
+    private async ValueTask OnWontMsdpAsClientAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Server will not MSDP");
+        await OnNegotiatedAsync(false);
+    }
+
+    /// <summary>
+    /// What arriving at Do/Dont (server) or Willing/Refusing (client) for MSDP does, independent of which
+    /// machine got there -- each mode only ever sees one direction, per <see cref="ConfigureStateMachine"/>.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.DO:
+                await OnDoMsdpAsServerAsync(context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontMsdpAsServerAsync(context);
+                break;
+            case (byte)Trigger.WILL:
+                await DoMSDPAsync(null!, context);
+                break;
+            case (byte)Trigger.WONT:
+                await OnWontMsdpAsClientAsync(context);
+                break;
+        }
+    }
+
+    /// <summary>Resets the buffer for a fresh subnegotiation -- the generated machine's equivalent of
+    /// AlmostNegotiatingMSDP's OnEntry.</summary>
+    internal void StartMsdpMessage() => _msdpBytes.Reset();
+
+    /// <summary>Appends a stretch of raw bytes to the buffer, respecting the same maximum message size.</summary>
+    internal void AppendMsdpBytes(ReadOnlyMemory<byte> data)
+    {
+        foreach (var b in data.Span)
+        {
+            _msdpBytes.Add(b);
+        }
+    }
+
     /// <inheritdoc />
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
@@ -621,19 +721,11 @@ public class MSDPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.DoMSDP)
                 .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    context.Logger.LogDebug("Connection: {ConnectionState}", "Client will do MSDP");
-                    await OnNegotiatedAsync(true);
-                });
+                .OnEntryAsync(async () => await OnDoMsdpAsServerAsync(context));
 
             stateMachine.Configure(State.DontMSDP)
                 .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    context.Logger.LogDebug("Connection: {ConnectionState}", "Client will not MSDP");
-                    await OnNegotiatedAsync(false);
-                });
+                .OnEntryAsync(async () => await OnDontMsdpAsServerAsync(context));
 
             context.RegisterInitialNegotiation(async () => await WillMSDPAsync(context));
         }
@@ -652,11 +744,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.WontMSDP)
                 .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    context.Logger.LogDebug("Connection: {ConnectionState}", "Server will not MSDP");
-                    await OnNegotiatedAsync(false);
-                });
+                .OnEntryAsync(async () => await OnWontMsdpAsClientAsync(context));
         }
 
         // Sub-negotiation states (common to both server and client)
@@ -752,7 +840,11 @@ public class MSDPProtocol : TelnetProtocolPluginBase
         _msdpBytes.Add(value);
     }
 
-    private async ValueTask CompleteMSDPNegotiation(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private ValueTask CompleteMSDPNegotiation(StateMachine<State, Trigger>.Transition _, IProtocolContext context) =>
+        CompleteMsdpAsync(context);
+
+    /// <summary>What the buffered bytes mean, once a message is complete -- independent of how they arrived.</summary>
+    internal async ValueTask CompleteMsdpAsync(IProtocolContext context)
     {
         if (_msdpBytes.Overflowed)
         {

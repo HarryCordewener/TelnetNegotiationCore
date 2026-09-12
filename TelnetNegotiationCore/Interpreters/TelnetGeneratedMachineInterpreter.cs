@@ -41,6 +41,8 @@ public partial class TelnetInterpreter
         [33] = typeof(Protocols.FlowControlProtocol),
         [32] = typeof(Protocols.TerminalSpeedProtocol),
         [35] = typeof(Protocols.XDisplayProtocol),
+        [201] = typeof(Protocols.GMCPProtocol),
+        [69] = typeof(Protocols.MSDPProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -114,6 +116,12 @@ public partial class TelnetInterpreter
                     case Protocols.XDisplayProtocol xdisploc:
                         await xdisploc.OnPeerNegotiatedAsync(verb, Context());
                         return;
+                    case Protocols.GMCPProtocol gmcp:
+                        await gmcp.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.MSDPProtocol msdp:
+                        await msdp.OnPeerNegotiatedAsync(verb, Context());
+                        return;
                 }
             }
 
@@ -145,8 +153,27 @@ public partial class TelnetInterpreter
         // with only NAWS's answer live so far.
         public override ValueTask EncryptionSendAsync(byte[] data) => default;
         public override ValueTask EncryptionIsAsync(byte[] data) => default;
-        public override ValueTask MsdpDataAsync(ReadOnlyMemory<byte> data) => default;
-        public override ValueTask MsdpEndedAsync() => default;
+        public override ValueTask MsdpStartedAsync()
+        {
+            (owner.PluginManager?.GetPlugin(typeof(Protocols.MSDPProtocol)) as Protocols.MSDPProtocol)?.StartMsdpMessage();
+            return default;
+        }
+
+        public override ValueTask MsdpDataAsync(ReadOnlyMemory<byte> data)
+        {
+            (owner.PluginManager?.GetPlugin(typeof(Protocols.MSDPProtocol)) as Protocols.MSDPProtocol)?.AppendMsdpBytes(data);
+            return default;
+        }
+
+        public override ValueTask MsdpEndedAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.MSDPProtocol)) is Protocols.MSDPProtocol msdp)
+            {
+                return msdp.CompleteMsdpAsync(Context());
+            }
+
+            return default;
+        }
         public override ValueTask MsspStartedAsync() => default;
         public override ValueTask MsspVariableMarkerAsync() => default;
         public override ValueTask MsspValueMarkerAsync() => default;
@@ -162,8 +189,27 @@ public partial class TelnetInterpreter
             return default;
         }
         public override ValueTask LineModeAsync(byte kind, byte[] data) => default;
-        public override ValueTask GmcpDataAsync(ReadOnlyMemory<byte> data) => default;
-        public override ValueTask GmcpEndedAsync() => default;
+        public override ValueTask GmcpStartedAsync()
+        {
+            (owner.PluginManager?.GetPlugin(typeof(Protocols.GMCPProtocol)) as Protocols.GMCPProtocol)?.StartGmcpMessage();
+            return default;
+        }
+
+        public override ValueTask GmcpDataAsync(ReadOnlyMemory<byte> data)
+        {
+            (owner.PluginManager?.GetPlugin(typeof(Protocols.GMCPProtocol)) as Protocols.GMCPProtocol)?.AppendGmcpBytes(data);
+            return default;
+        }
+
+        public override ValueTask GmcpEndedAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.GMCPProtocol)) is Protocols.GMCPProtocol gmcp)
+            {
+                return gmcp.CompleteGmcpAsync(Context());
+            }
+
+            return default;
+        }
         public override ValueTask CharsetRequestAsync(byte[] text) => default;
         public override ValueTask CharsetAcceptedAsync(byte[] text) => default;
         public override ValueTask CharsetRejectedAsync() => default;
