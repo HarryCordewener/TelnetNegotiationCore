@@ -32,8 +32,6 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     private ImmutableList<string> _configuredTerminalTypes = [];
     private MttsCapabilities _clientCapabilities = MttsCapabilities.None;
     private int _currentTerminalType = -1;
-    private byte[] _ttypeByteState = [];
-    private int _ttypeIndex = 0;
 
     /// <summary>
     /// A list of terminal types for this connection
@@ -127,64 +125,27 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     public override IReadOnlyCollection<Type> Dependencies => Array.Empty<Type>();
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Negotiation acceptance and the subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and <see cref="CompleteTerminalTypeFromBytesAsync"/>); this
+    /// hook survives for two things Stateless's configuration also did but that are not Stateless
+    /// configuration themselves: registering the server's initial offer (a cross-cutting mechanism
+    /// independent of which machine drives byte processing), and resolving the client's own terminal
+    /// type list once, before any negotiation happens at all.
+    /// </remarks>
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring Terminal Type state machine");
-        
-        // Register TerminalType protocol handlers with the context
-        context.SetSharedState("TerminalType_Protocol", this);
-        
-        // Common state machine configuration
-        stateMachine.Configure(State.Willing)
-            .Permit(Trigger.TTYPE, State.WillDoTType);
-
-        stateMachine.Configure(State.Refusing)
-            .Permit(Trigger.TTYPE, State.WontDoTType);
-
-        stateMachine.Configure(State.Do)
-            .Permit(Trigger.TTYPE, State.DoTType);
-
-        stateMachine.Configure(State.Dont)
-            .Permit(Trigger.TTYPE, State.DontTType);
-        
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            ConfigureAsServer(stateMachine, context);
+            context.RegisterInitialNegotiation(async () => await SendDoTerminalTypeAsync(context));
         }
         else
         {
-            ConfigureAsClient(stateMachine, context);
+            _currentTerminalType = -1;
+            _terminalTypes = _terminalTypes.AddRange(ResolveClientTerminalTypes(context));
         }
     }
-    
-    private void ConfigureAsClient(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        _currentTerminalType = -1;
-        _terminalTypes = _terminalTypes.AddRange(ResolveClientTerminalTypes(context));
 
-        stateMachine.Configure(State.DoTType)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await WillDoTerminalTypeAsync(context));
-
-        stateMachine.Configure(State.DontTType)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnDontTerminalTypeAsClientAsync(context));
-
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.TTYPE, State.AlmostNegotiatingTerminalType);
-
-        stateMachine.Configure(State.AlmostNegotiatingTerminalType)
-            .Permit(Trigger.SEND, State.NegotiatingTerminalType);
-
-        stateMachine.Configure(State.NegotiatingTerminalType)
-            .Permit(Trigger.IAC, State.CompletingTerminalType)
-            .OnEntry(GetTerminalType);
-
-        stateMachine.Configure(State.CompletingTerminalType)
-            .OnEntryAsync(async () => await ReportNextAvailableTerminalTypeAsync(context))
-            .Permit(Trigger.SE, State.Accepting);
-    }
-    
     /// <summary>
     /// What this client answers TTYPE with, in order: the application's name, its terminal type,
     /// and its MTTS bitvector — none of which the library makes up. An entry is left out rather than
@@ -239,46 +200,6 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
         return (MttsCapabilities)bitvector;
     }
 
-    private void ConfigureAsServer(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        stateMachine.Configure(State.WillDoTType)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await RequestTerminalTypeAsync(context));
-
-        stateMachine.Configure(State.WontDoTType)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnWontTerminalTypeAsServerAsync(context));
-
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.TTYPE, State.AlmostNegotiatingTerminalType);
-
-        stateMachine.Configure(State.AlmostNegotiatingTerminalType)
-            .Permit(Trigger.IS, State.NegotiatingTerminalType);
-
-        stateMachine.Configure(State.NegotiatingTerminalType)
-            .Permit(Trigger.IAC, State.EscapingTerminalTypeValue)
-            .OnEntry(GetTerminalType);
-
-        TriggerHelper.ForAllTriggersButIAC(t =>
-            stateMachine.Configure(State.NegotiatingTerminalType).Permit(t, State.EvaluatingTerminalType));
-        TriggerHelper.ForAllTriggers(t =>
-            stateMachine.Configure(State.EvaluatingTerminalType).OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), CaptureTerminalType));
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.EvaluatingTerminalType).PermitReentry(t));
-
-        stateMachine.Configure(State.EvaluatingTerminalType)
-            .Permit(Trigger.IAC, State.EscapingTerminalTypeValue);
-
-        stateMachine.Configure(State.EscapingTerminalTypeValue)
-            .Permit(Trigger.IAC, State.EvaluatingTerminalType)
-            .Permit(Trigger.SE, State.CompletingTerminalType);
-
-        stateMachine.Configure(State.CompletingTerminalType)
-            .OnEntryAsync(async () => await CompleteTerminalTypeAsServerAsync(context))
-            .SubstateOf(State.Accepting);
-
-        context.RegisterInitialNegotiation(async () => await SendDoTerminalTypeAsync(context));
-    }
-
     /// <inheritdoc />
     protected override ValueTask OnInitializeAsync()
     {
@@ -299,25 +220,7 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
         Context.Logger.LogInformation("Terminal Type Protocol disabled");
         _terminalTypes = [];
         _currentTerminalType = -1;
-        _ttypeByteState = [];
-        _ttypeIndex = 0;
         return default(ValueTask);
-    }
-
-    /// <summary>
-    /// Processes a terminal type byte
-    /// </summary>
-    public void ProcessTerminalTypeByte(byte value)
-    {
-        if (!IsEnabled)
-            return;
-
-        if (_ttypeIndex >= _ttypeByteState.Length)
-        {
-            Array.Resize(ref _ttypeByteState, _ttypeIndex + 1);
-        }
-
-        _ttypeByteState[_ttypeIndex++] = value;
     }
 
     /// <summary>
@@ -341,32 +244,10 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnDisposeAsync()
     {
         _terminalTypes = [];
-        _ttypeByteState = [];
-        _ttypeIndex = 0;
         return default(ValueTask);
     }
-    
+
     #region State Machine Handlers
-
-    private void GetTerminalType(StateMachine<State, Trigger>.Transition _)
-    {
-        _ttypeByteState = new byte[1024];
-        _ttypeIndex = 0;
-    }
-
-    private void CaptureTerminalType(ByteOrTrigger b)
-    {
-        if (_ttypeIndex >= _ttypeByteState.Length || b is not byte value) return;
-        _ttypeByteState[_ttypeIndex] = value;
-        _ttypeIndex++;
-    }
-
-    private ValueTask CompleteTerminalTypeAsServerAsync(IProtocolContext context)
-    {
-        var bytes = new byte[_ttypeIndex];
-        Array.Copy(_ttypeByteState, bytes, _ttypeIndex);
-        return CompleteTerminalTypeFromBytesAsync(bytes, context);
-    }
 
     internal async ValueTask CompleteTerminalTypeFromBytesAsync(byte[] bytes, IProtocolContext context)
     {
