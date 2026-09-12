@@ -51,6 +51,7 @@ public partial class TelnetInterpreter
         [91] = typeof(Protocols.MXPProtocol),
         [86] = typeof(Protocols.MCCPProtocol),
         [87] = typeof(Protocols.MCCPProtocol),
+        [34] = typeof(Protocols.LineModeProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -151,6 +152,9 @@ public partial class TelnetInterpreter
                     case Protocols.MCCPProtocol mccp:
                         await mccp.OnPeerNegotiatedAsync(verb, option, Context());
                         return;
+                    case Protocols.LineModeProtocol lineMode:
+                        await lineMode.OnPeerNegotiatedAsync(verb, Context());
+                        return;
                 }
             }
 
@@ -245,7 +249,15 @@ public partial class TelnetInterpreter
 
             return default;
         }
-        public override ValueTask LineModeAsync(byte kind, byte[] data) => default;
+        public override ValueTask LineModeAsync(byte kind, byte[] data)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.LineModeProtocol)) is Protocols.LineModeProtocol lineMode)
+            {
+                return lineMode.CompleteLineModeFromBytesAsync(kind, data, Context());
+            }
+
+            return default;
+        }
         public override ValueTask GmcpStartedAsync()
         {
             (owner.PluginManager?.GetPlugin(typeof(Protocols.GMCPProtocol)) as Protocols.GMCPProtocol)?.StartGmcpMessage();

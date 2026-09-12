@@ -141,21 +141,11 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         // Client also handles WILL/WONT from server (server announcing ability to use LINEMODE)
         stateMachine.Configure(State.WillLINEMODE)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Server is willing to use line mode");
-                await SetLineModeStateAsync(true);
-                await OnNegotiatedAsync(true);
-            });
+            .OnEntryAsync(async () => await OnWillLineModeAsync(context));
 
         stateMachine.Configure(State.WontLINEMODE)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Server won't use line mode");
-                await SetLineModeStateAsync(false);
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnWontLineModeAsync(context));
 
         // Handle subnegotiations: IAC SB LINEMODE MODE <mode> IAC SE
         stateMachine.Configure(State.SubNegotiation)
@@ -195,21 +185,11 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         // Server handles WILL/WONT from client (client announcing ability to use LINEMODE)
         stateMachine.Configure(State.WillLINEMODE)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client is willing to use line mode");
-                await SetLineModeStateAsync(true);
-                await OnNegotiatedAsync(true);
-            });
+            .OnEntryAsync(async () => await OnWillLineModeAsync(context));
 
         stateMachine.Configure(State.WontLINEMODE)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't use line mode");
-                await SetLineModeStateAsync(false);
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnWontLineModeAsync(context));
 
         // Server also handles DO/DONT from client (client asking server to use LINEMODE)
         stateMachine.Configure(State.DoLINEMODE)
@@ -384,6 +364,58 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         _lineModeEnabled = enabled;
         Context.Logger.LogInformation("Line mode {State}", enabled ? "enabled" : "disabled");
         return default(ValueTask);
+    }
+
+    private async ValueTask OnWillLineModeAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}",
+            context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+                ? "Client is willing to use line mode"
+                : "Server is willing to use line mode");
+        await SetLineModeStateAsync(true);
+        await OnNegotiatedAsync(true);
+    }
+
+    private async ValueTask OnWontLineModeAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}",
+            context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+                ? "Client won't use line mode"
+                : "Server won't use line mode");
+        await SetLineModeStateAsync(false);
+        await OnNegotiatedAsync(false);
+    }
+
+    /// <summary>
+    /// Every verb is answered identically regardless of which side receives it -- WILL and WONT even
+    /// share their handler body between ConfigureAsClient and ConfigureAsServer verbatim but for log
+    /// text, and DO/DONT are wired to the exact same methods in both.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.WILL:
+                await OnWillLineModeAsync(context);
+                break;
+            case (byte)Trigger.WONT:
+                await OnWontLineModeAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                await WillLineModeAsync(context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontLineModeAsync(context);
+                break;
+        }
+    }
+
+    internal ValueTask CompleteLineModeFromBytesAsync(byte kind, byte[] data, IProtocolContext context)
+    {
+        _subnegotiationType = kind;
+        _buffer.Clear();
+        _buffer.AddRange(data);
+        return CompleteLineModeAsync(context);
     }
 
     private async ValueTask WillLineModeAsync(IProtocolContext context)
