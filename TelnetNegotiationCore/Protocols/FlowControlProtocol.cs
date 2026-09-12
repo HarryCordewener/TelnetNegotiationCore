@@ -165,24 +165,53 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
             .OnEntryAsync(async () => await CompleteFlowControlAsync(context));
     }
     
+    private async ValueTask OnWillFlowControlAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Client is willing to toggle flow control");
+        await OnNegotiatedAsync(true);
+    }
+
+    private async ValueTask OnWontFlowControlAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't toggle flow control");
+        await OnNegotiatedAsync(false);
+    }
+
+    /// <summary>
+    /// What arriving at Willing/Refusing/Do/Dont for FLOWCONTROL does, independent of which machine got there.
+    /// Only one direction has a real handler in a given mode -- the other two states exist (so the machine does
+    /// not treat them as unhandled) but do nothing, exactly as <see cref="ConfigureStateMachine"/> leaves them.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        var client = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client;
+        switch (verb)
+        {
+            case (byte)Trigger.WILL when !client:
+                await OnWillFlowControlAsync(context);
+                break;
+            case (byte)Trigger.WONT when !client:
+                await OnWontFlowControlAsync(context);
+                break;
+            case (byte)Trigger.DO when client:
+                await WillFlowControlAsync(context);
+                break;
+            case (byte)Trigger.DONT when client:
+                await OnDontFlowControlAsync(context);
+                break;
+        }
+    }
+
     private void ConfigureAsServer(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
         // Server sends DO FLOWCONTROL to client
         stateMachine.Configure(State.WillFLOWCONTROL)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client is willing to toggle flow control");
-                await OnNegotiatedAsync(true);
-            });
+            .OnEntryAsync(async () => await OnWillFlowControlAsync(context));
 
         stateMachine.Configure(State.WontFLOWCONTROL)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't toggle flow control");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnWontFlowControlAsync(context));
 
         // Server doesn't typically receive subnegotiations for this protocol
         // but we should handle them gracefully if they arrive
@@ -342,18 +371,26 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_doFlowControl);
     }
 
-    private async ValueTask CompleteFlowControlAsync(IProtocolContext context)
+    private ValueTask CompleteFlowControlAsync(IProtocolContext context)
     {
-        if (_lastCommand < CMD_OFF || _lastCommand > CMD_RESTART_XON)
+        var command = _lastCommand;
+        _lastCommand = -1;
+        return OnFlowControlCommandAsync(command, context);
+    }
+
+    /// <summary>What a FLOWCONTROL command byte does, independent of how it was read.</summary>
+    internal async ValueTask OnFlowControlCommandAsync(int command, IProtocolContext context)
+    {
+        if (command < CMD_OFF || command > CMD_RESTART_XON)
         {
-            context.Logger.LogWarning("Invalid flow control command: {Command}", _lastCommand);
+            context.Logger.LogWarning("Invalid flow control command: {Command}", command);
             return;
         }
 
         context.Logger.LogDebug("Connection: {ConnectionState}: Command {Command}",
-            "Received Flow Control subnegotiation", _lastCommand);
+            "Received Flow Control subnegotiation", command);
 
-        switch (_lastCommand)
+        switch (command)
         {
             case CMD_OFF:
                 await SetFlowControlStateAsync(false);
@@ -368,8 +405,6 @@ public class FlowControlProtocol : TelnetProtocolPluginBase
                 await SetRestartModeAsync(FlowControlRestartMode.RestartXON);
                 break;
         }
-
-        _lastCommand = -1;
     }
 
     private async ValueTask SetFlowControlStateAsync(bool enabled)

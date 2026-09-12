@@ -99,6 +99,42 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
         }
     }
     
+    private async ValueTask OnDontXDisplayAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Told not to send X Display Location");
+        await OnNegotiatedAsync(false);
+    }
+
+    private async ValueTask OnWontXDisplayAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Peer won't do X Display Location");
+        await OnNegotiatedAsync(false);
+    }
+
+    /// <summary>
+    /// What arriving at each of Willing/Refusing/Do/Dont for XDISPLOC does. Unlike most of this library's
+    /// options, both directions are configured identically in either mode -- see the near-duplicate
+    /// ConfigureAsClient/ConfigureAsServer bodies -- so this needs no mode branch at all.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.DO:
+                await WillXDisplayAsync(context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontXDisplayAsync(context);
+                break;
+            case (byte)Trigger.WILL:
+                await RequestXDisplayLocationAsync(context);
+                break;
+            case (byte)Trigger.WONT:
+                await OnWontXDisplayAsync(context);
+                break;
+        }
+    }
+
     private void ConfigureAsClient(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
         // Client handles DO/DONT from server (server asking client to send XDISPLOC)
@@ -108,11 +144,7 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontXDISPLOC)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to send X Display Location");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnDontXDisplayAsync(context));
 
         // Client also handles WILL/WONT from server (server announcing ability to request XDISPLOC)
         stateMachine.Configure(State.WillXDISPLOC)
@@ -121,11 +153,7 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontXDISPLOC)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Server won't request X Display Location");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnWontXDisplayAsync(context));
 
         // Handle subnegotiation: IAC SB XDISPLOC SEND IAC SE
         stateMachine.Configure(State.SubNegotiation)
@@ -151,11 +179,7 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontXDISPLOC)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't send X Display Location");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnWontXDisplayAsync(context));
 
         // Server also handles DO/DONT from client (client asking server to send XDISPLOC)
         stateMachine.Configure(State.DoXDISPLOC)
@@ -164,11 +188,7 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontXDISPLOC)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client doesn't want X Display Location");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnDontXDisplayAsync(context));
 
         // Handle subnegotiation: IAC SB XDISPLOC IS <display> IAC SE
         stateMachine.Configure(State.SubNegotiation)
@@ -254,33 +274,37 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
         _displayBuffer.Add(value);
     }
 
-    private async ValueTask CompleteXDisplayLocationAsServerAsync(IProtocolContext context)
+    private ValueTask CompleteXDisplayLocationAsServerAsync(IProtocolContext context)
     {
         _isCapturingDisplay = false;
-        
-        if (_displayBuffer.Count == 0)
+        var bytes = _displayBuffer.ToArray();
+        _displayBuffer.Clear();
+        return CompleteXDisplayLocationFromBytesAsync(bytes, context);
+    }
+
+    /// <summary>What an IS report's raw bytes mean, once read -- independent of how they were captured.</summary>
+    internal async ValueTask CompleteXDisplayLocationFromBytesAsync(byte[] bytes, IProtocolContext context)
+    {
+        if (bytes.Length == 0)
         {
             context.Logger.LogWarning("No X display location data received");
             return;
         }
 
-#if NET5_0_OR_GREATER
-        var displayString = Encoding.ASCII.GetString(CollectionsMarshal.AsSpan(_displayBuffer));
-#else
-        var displayString = Encoding.ASCII.GetString(_displayBuffer.ToArray());
-#endif
+        var displayString = Encoding.ASCII.GetString(bytes);
         context.Logger.LogDebug("Connection: {ConnectionState}: {DisplayLocation}",
             "Received X Display Location", displayString);
 
         _displayLocation = displayString;
-        
+
         context.Logger.LogInformation("X Display Location set to {DisplayLocation}", displayString);
 
         if (_onDisplayLocation != null)
             await _onDisplayLocation(displayString);
-
-        _displayBuffer.Clear();
     }
+
+    /// <summary>What SEND means, from either side -- independent of which machine asked.</summary>
+    internal ValueTask OnRequestedAsync(IProtocolContext context) => SendXDisplayLocationAsync(context);
 
     private async ValueTask WillXDisplayAsync(IProtocolContext context)
     {

@@ -38,6 +38,9 @@ public partial class TelnetInterpreter
         [3] = typeof(Protocols.SuppressGoAheadProtocol),
         [25] = typeof(Protocols.EORProtocol),
         [1] = typeof(Protocols.EchoProtocol),
+        [33] = typeof(Protocols.FlowControlProtocol),
+        [32] = typeof(Protocols.TerminalSpeedProtocol),
+        [35] = typeof(Protocols.XDisplayProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -102,6 +105,15 @@ public partial class TelnetInterpreter
                     case Protocols.EchoProtocol echo:
                         await echo.OnPeerNegotiatedAsync(verb, Context());
                         return;
+                    case Protocols.FlowControlProtocol flowControl:
+                        await flowControl.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.TerminalSpeedProtocol tspeed:
+                        await tspeed.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.XDisplayProtocol xdisploc:
+                        await xdisploc.OnPeerNegotiatedAsync(verb, Context());
+                        return;
                 }
             }
 
@@ -140,7 +152,15 @@ public partial class TelnetInterpreter
         public override ValueTask MsspValueMarkerAsync() => default;
         public override ValueTask MsspDataAsync(ReadOnlyMemory<byte> data) => default;
         public override ValueTask MsspEndedAsync() => default;
-        public override ValueTask FlowControlAsync(byte command) => default;
+        public override ValueTask FlowControlAsync(byte command)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.FlowControlProtocol)) is Protocols.FlowControlProtocol flowControl)
+            {
+                return flowControl.OnFlowControlCommandAsync(command, Context());
+            }
+
+            return default;
+        }
         public override ValueTask LineModeAsync(byte kind, byte[] data) => default;
         public override ValueTask GmcpDataAsync(ReadOnlyMemory<byte> data) => default;
         public override ValueTask GmcpEndedAsync() => default;
@@ -182,8 +202,25 @@ public partial class TelnetInterpreter
         public override ValueTask NewEnvironValueAsync() => default;
         public override ValueTask NewEnvironDataAsync(ReadOnlyMemory<byte> data) => default;
         public override ValueTask NewEnvironEndedAsync() => default;
-        public override ValueTask XDisplayLocationRequestedAsync() => default;
-        public override ValueTask XDisplayLocationAsync(byte[] text) => default;
+        public override ValueTask XDisplayLocationRequestedAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.XDisplayProtocol)) is Protocols.XDisplayProtocol xdisploc)
+            {
+                return xdisploc.OnRequestedAsync(Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask XDisplayLocationAsync(byte[] text)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.XDisplayProtocol)) is Protocols.XDisplayProtocol xdisploc)
+            {
+                return xdisploc.CompleteXDisplayLocationFromBytesAsync(text, Context());
+            }
+
+            return default;
+        }
         public override ValueTask Mccp2MarkerAsync() => default;
         public override ValueTask Mccp3MarkerAsync() => default;
         public override ValueTask Mccp1MarkerAsync() => default;
@@ -192,8 +229,25 @@ public partial class TelnetInterpreter
         public override ValueTask EnvironValueAsync() => default;
         public override ValueTask EnvironDataAsync(ReadOnlyMemory<byte> data) => default;
         public override ValueTask EnvironEndedAsync() => default;
-        public override ValueTask TerminalSpeedRequestedAsync() => default;
-        public override ValueTask TerminalSpeedAsync(byte[] text) => default;
+        public override ValueTask TerminalSpeedRequestedAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.TerminalSpeedProtocol)) is Protocols.TerminalSpeedProtocol tspeed)
+            {
+                return tspeed.OnRequestedAsync(Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask TerminalSpeedAsync(byte[] text)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.TerminalSpeedProtocol)) is Protocols.TerminalSpeedProtocol tspeed)
+            {
+                return tspeed.CompleteTerminalSpeedFromBytesAsync(text, Context());
+            }
+
+            return default;
+        }
 
         public override ValueTask WindowSizeAsync(int width, int height)
         {
