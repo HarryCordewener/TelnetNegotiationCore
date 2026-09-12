@@ -8,7 +8,9 @@ namespace TelnetNegotiationCore.Machine;
 /// What the core machine talks to. The interpreter supplies one of these; a test supplies its own and reads back
 /// what the machine did.
 /// </summary>
-public abstract class TelnetCoreContext
+public abstract partial class TelnetCoreContext
+// Partial so each protocol module's file can add its own callback method here without every module
+// competing to edit one shared file — the same reason each module gets its own states.
 {
     /// <summary>Ordinary input, in whatever chunks it arrived. Carriage returns are already gone.</summary>
     public abstract void Write(ReadOnlySpan<byte> text);
@@ -22,8 +24,6 @@ public abstract class TelnetCoreContext
     /// <summary>A subnegotiation ended: its option, and everything between the option byte and IAC SE.</summary>
     public abstract ValueTask SubNegotiatedAsync(byte option, ReadOnlyMemory<byte> payload);
 
-    /// <summary>The client reported its window size. In TNC this context is the interpreter itself.</summary>
-    public abstract ValueTask WindowSizeAsync(int width, int height);
 }
 
 /// <summary>
@@ -281,5 +281,5 @@ public static class TelnetCoreModule
 
 /// <summary>The core machine, with no protocols in it: what TNC's own interpreter drives.</summary>
 [Machine(Root = typeof(Connected), Value = typeof(byte), Context = typeof(TelnetCoreContext))]
-[Include(typeof(TelnetCoreModule)), Include(typeof(NawsModule))]
+[Include(typeof(TelnetCoreModule)), Include(typeof(NawsModule)), Include(typeof(FlowControlModule)), Include(typeof(TerminalSpeedModule)), Include(typeof(XDisplayModule))]
 public sealed partial class TelnetCoreMachine;

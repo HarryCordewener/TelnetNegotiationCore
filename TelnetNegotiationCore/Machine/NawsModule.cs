@@ -28,6 +28,12 @@ public struct Naws : IState<SubNegotiation>
     public bool Escaping;
 }
 
+public abstract partial class TelnetCoreContext
+{
+    /// <summary>The client reported its window size. In TNC this context is the interpreter itself.</summary>
+    public abstract ValueTask WindowSizeAsync(int width, int height);
+}
+
 [Module]
 public static class NawsModule
 {

@@ -26,65 +26,9 @@ public class TelnetCoreMachineTests
     private const byte DONT = 254;
     private const byte IAC = 255;
 
-    private sealed class Recorder : TelnetCoreContext
+    private static async Task<RecordingTelnetContext> Run(params byte[] bytes)
     {
-        private readonly List<byte> _line = [];
-
-        public List<string> Lines { get; } = [];
-
-        public List<string> Negotiations { get; } = [];
-
-        public List<byte> SubNegotiations { get; } = [];
-
-        public List<(int Width, int Height)> Windows { get; } = [];
-
-        public override void Write(ReadOnlySpan<byte> text)
-        {
-            foreach (var b in text)
-            {
-                _line.Add(b);
-            }
-        }
-
-        public override ValueTask SubmitAsync()
-        {
-            // Latin-1, not ASCII: an escaped IAC is byte 255 in the line, and ASCII would render it as a question mark.
-            Lines.Add(Encoding.Latin1.GetString(_line.ToArray()));
-            _line.Clear();
-            return default;
-        }
-
-        public override ValueTask NegotiateAsync(byte verb, byte option)
-        {
-            Negotiations.Add($"{Verb(verb)} {option}");
-            return default;
-        }
-
-        public override ValueTask SubNegotiatedAsync(byte option, ReadOnlyMemory<byte> payload)
-        {
-            SubNegotiations.Add(option);
-            return default;
-        }
-
-        public override ValueTask WindowSizeAsync(int width, int height)
-        {
-            Windows.Add((width, height));
-            return default;
-        }
-
-        private static string Verb(byte verb) => verb switch
-        {
-            WILL => "WILL",
-            WONT => "WONT",
-            DO => "DO",
-            DONT => "DONT",
-            _ => verb.ToString(),
-        };
-    }
-
-    private static async Task<Recorder> Run(params byte[] bytes)
-    {
-        var recorder = new Recorder();
+        var recorder = new RecordingTelnetContext();
         await using var machine = new TelnetCoreMachine(recorder);
         await machine.StartAsync();
         await machine.FireAsync(bytes);
