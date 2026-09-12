@@ -46,6 +46,7 @@ public partial class TelnetInterpreter
         [70] = typeof(Protocols.MSSPProtocol),
         [24] = typeof(Protocols.TerminalTypeProtocol),
         [42] = typeof(Protocols.CharsetProtocol),
+        [39] = typeof(Protocols.NewEnvironProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -133,6 +134,9 @@ public partial class TelnetInterpreter
                         return;
                     case Protocols.CharsetProtocol charset:
                         await charset.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.NewEnvironProtocol newEnviron:
+                        await newEnviron.OnPeerNegotiatedAsync(verb, Context());
                         return;
                 }
             }
@@ -330,12 +334,65 @@ public partial class TelnetInterpreter
 
             return default;
         }
-        public override ValueTask NewEnvironStartedAsync(byte command) => default;
-        public override ValueTask NewEnvironVarAsync() => default;
-        public override ValueTask NewEnvironUserVarAsync() => default;
-        public override ValueTask NewEnvironValueAsync() => default;
-        public override ValueTask NewEnvironDataAsync(ReadOnlyMemory<byte> data) => default;
-        public override ValueTask NewEnvironEndedAsync() => default;
+        public override ValueTask NewEnvironStartedAsync(byte command)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.NewEnvironProtocol)) is Protocols.NewEnvironProtocol newEnviron)
+            {
+                return newEnviron.OnNewEnvironStartedAsync(command, Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask NewEnvironVarAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.NewEnvironProtocol)) is Protocols.NewEnvironProtocol newEnviron)
+            {
+                return newEnviron.OnNewEnvironVarMarkerAsync(Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask NewEnvironUserVarAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.NewEnvironProtocol)) is Protocols.NewEnvironProtocol newEnviron)
+            {
+                return newEnviron.OnNewEnvironUserVarMarkerAsync(Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask NewEnvironValueAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.NewEnvironProtocol)) is Protocols.NewEnvironProtocol newEnviron)
+            {
+                return newEnviron.OnNewEnvironValueMarkerAsync(Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask NewEnvironDataAsync(ReadOnlyMemory<byte> data)
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.NewEnvironProtocol)) is Protocols.NewEnvironProtocol newEnviron)
+            {
+                return newEnviron.OnNewEnvironDataAsync(data, Context());
+            }
+
+            return default;
+        }
+
+        public override ValueTask NewEnvironEndedAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.NewEnvironProtocol)) is Protocols.NewEnvironProtocol newEnviron)
+            {
+                return newEnviron.OnNewEnvironEndedAsync(Context());
+            }
+
+            return default;
+        }
         public override ValueTask XDisplayLocationRequestedAsync()
         {
             if (owner.PluginManager?.GetPlugin(typeof(Protocols.XDisplayProtocol)) is Protocols.XDisplayProtocol xdisploc)

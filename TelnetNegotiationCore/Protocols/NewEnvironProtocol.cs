@@ -158,11 +158,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontNEWENVIRON)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Client won't do NEW-ENVIRON - do nothing");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnDontNewEnvironAsync(context));
 
         // Server also handles WILL/WONT from client (client announcing ability to do NEW-ENVIRON)
         stateMachine.Configure(State.WillNEWENVIRON)
@@ -171,11 +167,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontNEWENVIRON)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Client won't do NEW-ENVIRON - do nothing");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnWontNewEnvironAsync(context));
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.NEWENVIRON, State.AlmostNegotiatingNEWENVIRON);
@@ -249,11 +241,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.WontNEWENVIRON)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Server won't do NEW-ENVIRON - do nothing");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnWontNewEnvironAsync(context));
 
         // Client also handles DO/DONT from server (server asking client to do NEW-ENVIRON)
         stateMachine.Configure(State.DoNEWENVIRON)
@@ -262,11 +250,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
         stateMachine.Configure(State.DontNEWENVIRON)
             .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Server telling client not to send NEW-ENVIRON");
-                await OnNegotiatedAsync(false);
-            });
+            .OnEntryAsync(async () => await OnDontNewEnvironAsync(context));
 
         stateMachine.Configure(State.SubNegotiation)
             .Permit(Trigger.NEWENVIRON, State.AlmostNegotiatingNEWENVIRON);
@@ -466,6 +450,137 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         }
     }
 
+    private ValueTask OnWontNewEnvironAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug(context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+            ? "Client won't do NEW-ENVIRON - do nothing"
+            : "Server won't do NEW-ENVIRON - do nothing");
+        return OnNegotiatedAsync(false);
+    }
+
+    private ValueTask OnDontNewEnvironAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug(context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+            ? "Client won't do NEW-ENVIRON - do nothing"
+            : "Server telling client not to send NEW-ENVIRON");
+        return OnNegotiatedAsync(false);
+    }
+
+    /// <summary>DO is answered the same way regardless of which side receives it -- by asking for
+    /// variables -- unlike WILL, whose answer differs by mode (see <see cref="ServerOnWillNewEnvironAsync"/>
+    /// and <see cref="ClientOnWillNewEnvironAsync"/>).</summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        var server = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+        switch (verb)
+        {
+            case (byte)Trigger.WILL when server:
+                await ServerOnWillNewEnvironAsync(null!, context);
+                break;
+            case (byte)Trigger.WILL:
+                await ClientOnWillNewEnvironAsync(null!, context);
+                break;
+            case (byte)Trigger.WONT:
+                await OnWontNewEnvironAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                await OnDoNewEnvironAsync(null!, context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontNewEnvironAsync(context);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The subnegotiation began: reset the same fields <c>AlmostNegotiatingNEWENVIRON</c>'s entry
+    /// used to, before the command byte was even known to Stateless -- nothing observable happens
+    /// between "option is NEWENVIRON" and "command byte arrived" other than this reset, so doing it
+    /// here instead is not a behavior change.
+    /// </summary>
+    internal ValueTask OnNewEnvironStartedAsync(byte command, IProtocolContext context)
+    {
+        _currentVar.Clear();
+        _currentValue.Clear();
+        _collectingVar = false;
+        _collectingValue = false;
+        _isUserVar = false;
+        _commandType = command;
+
+        if (context.Mode != Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            _requestedVariables.Clear();
+        }
+
+        return default;
+    }
+
+    internal ValueTask OnNewEnvironVarMarkerAsync(IProtocolContext context)
+    {
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            StartNewVar(default);
+        }
+        else
+        {
+            StartRequestedVar(default);
+        }
+
+        return default;
+    }
+
+    internal ValueTask OnNewEnvironUserVarMarkerAsync(IProtocolContext context)
+    {
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            StartNewUserVar(default);
+        }
+        else
+        {
+            StartRequestedUserVar(default);
+        }
+
+        return default;
+    }
+
+    /// <summary>A VALUE marker only ever arrives server-side in the original configuration -- a
+    /// client's EvaluatingNEWENVIRONVar never permitted it -- so it is a no-op for a client that
+    /// somehow receives one anyway.</summary>
+    internal ValueTask OnNewEnvironValueMarkerAsync(IProtocolContext context)
+    {
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            StartNewValue(default);
+        }
+
+        return default;
+    }
+
+    /// <summary>
+    /// The same distinction <see cref="CaptureVarByte"/>/<see cref="CaptureValueByte"/> made per byte,
+    /// applied to a whole chunk at once: at most one of <see cref="_collectingVar"/>/
+    /// <see cref="_collectingValue"/> is set at a time, so this is not a behavior change, only a
+    /// batching of it.
+    /// </summary>
+    internal ValueTask OnNewEnvironDataAsync(ReadOnlyMemory<byte> data, IProtocolContext context)
+    {
+        if (_collectingVar)
+        {
+            _currentVar.AddRange(data.ToArray());
+        }
+        else if (_collectingValue)
+        {
+            _currentValue.AddRange(data.ToArray());
+        }
+
+        return default;
+    }
+
+    internal ValueTask OnNewEnvironEndedAsync(IProtocolContext context) =>
+        context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+            ? CompleteNewEnvironFromServerAsync(context)
+            : SendEnvironmentVariablesFromClientAsync(context);
+
     private async ValueTask WillingNewEnvironAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Announcing willingness to NEW-ENVIRON!");
@@ -516,11 +631,14 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_doNewEnviron);
     }
 
-    private async ValueTask CompleteNewEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private ValueTask CompleteNewEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context) =>
+        CompleteNewEnvironFromServerAsync(context);
+
+    internal async ValueTask CompleteNewEnvironFromServerAsync(IProtocolContext context)
     {
         SaveCurrentVariable();
 
-        context.Logger.LogInformation("Received NEW-ENVIRON variables: {Count} environment, {UserCount} user", 
+        context.Logger.LogInformation("Received NEW-ENVIRON variables: {Count} environment, {UserCount} user",
             _environmentVariables.Count, _userVariables.Count);
 
         if (_onEnvironmentVariables != null)
@@ -529,7 +647,10 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         }
     }
 
-    private async ValueTask SendEnvironmentVariablesAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private ValueTask SendEnvironmentVariablesAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context) =>
+        SendEnvironmentVariablesFromClientAsync(context);
+
+    internal async ValueTask SendEnvironmentVariablesFromClientAsync(IProtocolContext context)
     {
         // Client received SEND request from server
         context.Logger.LogDebug("Server requested environment variables, sending response...");
