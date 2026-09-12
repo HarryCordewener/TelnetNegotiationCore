@@ -43,6 +43,7 @@ public partial class TelnetInterpreter
         [35] = typeof(Protocols.XDisplayProtocol),
         [201] = typeof(Protocols.GMCPProtocol),
         [69] = typeof(Protocols.MSDPProtocol),
+        [70] = typeof(Protocols.MSSPProtocol),
     };
 
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
@@ -122,6 +123,9 @@ public partial class TelnetInterpreter
                     case Protocols.MSDPProtocol msdp:
                         await msdp.OnPeerNegotiatedAsync(verb, Context());
                         return;
+                    case Protocols.MSSPProtocol mssp:
+                        await mssp.OnPeerNegotiatedAsync(verb, Context());
+                        return;
                 }
             }
 
@@ -174,11 +178,39 @@ public partial class TelnetInterpreter
 
             return default;
         }
-        public override ValueTask MsspStartedAsync() => default;
-        public override ValueTask MsspVariableMarkerAsync() => default;
-        public override ValueTask MsspValueMarkerAsync() => default;
-        public override ValueTask MsspDataAsync(ReadOnlyMemory<byte> data) => default;
-        public override ValueTask MsspEndedAsync() => default;
+        public override ValueTask MsspStartedAsync()
+        {
+            (owner.PluginManager?.GetPlugin(typeof(Protocols.MSSPProtocol)) as Protocols.MSSPProtocol)?.StartMsspMessage();
+            return default;
+        }
+
+        public override ValueTask MsspVariableMarkerAsync()
+        {
+            (owner.PluginManager?.GetPlugin(typeof(Protocols.MSSPProtocol)) as Protocols.MSSPProtocol)?.OnMsspVariableMarker(Context());
+            return default;
+        }
+
+        public override ValueTask MsspValueMarkerAsync()
+        {
+            (owner.PluginManager?.GetPlugin(typeof(Protocols.MSSPProtocol)) as Protocols.MSSPProtocol)?.OnMsspValueMarker(Context());
+            return default;
+        }
+
+        public override ValueTask MsspDataAsync(ReadOnlyMemory<byte> data)
+        {
+            (owner.PluginManager?.GetPlugin(typeof(Protocols.MSSPProtocol)) as Protocols.MSSPProtocol)?.AppendMsspBytes(data);
+            return default;
+        }
+
+        public override ValueTask MsspEndedAsync()
+        {
+            if (owner.PluginManager?.GetPlugin(typeof(Protocols.MSSPProtocol)) is Protocols.MSSPProtocol mssp)
+            {
+                return mssp.CompleteMsspAsync(Context());
+            }
+
+            return default;
+        }
         public override ValueTask FlowControlAsync(byte command)
         {
             if (owner.PluginManager?.GetPlugin(typeof(Protocols.FlowControlProtocol)) is Protocols.FlowControlProtocol flowControl)

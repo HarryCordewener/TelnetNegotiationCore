@@ -152,6 +152,41 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// </summary>
     public MSSPConfig GetMSSPConfig() => _msspConfig();
 
+    private async ValueTask OnDontMsspAsServerAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Client won't do MSSP - do nothing");
+        await OnNegotiatedAsync(false);
+    }
+
+    private async ValueTask OnWontMsspAsClientAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Server won't do MSSP - do nothing");
+        await OnNegotiatedAsync(false);
+    }
+
+    /// <summary>
+    /// What arriving at Do/Dont (server) or Willing/Refusing (client) for MSSP does, independent of which
+    /// machine got there -- each mode only ever sees one direction, per <see cref="ConfigureStateMachine"/>.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.DO:
+                await OnDoMSSPAsync(null!, context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontMsspAsServerAsync(context);
+                break;
+            case (byte)Trigger.WILL:
+                await OnWillMSSPAsync(context);
+                break;
+            case (byte)Trigger.WONT:
+                await OnWontMsspAsClientAsync(context);
+                break;
+        }
+    }
+
     /// <inheritdoc />
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
@@ -175,11 +210,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.DontMSSP)
                 .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    context.Logger.LogDebug("Client won't do MSSP - do nothing");
-                    await OnNegotiatedAsync(false);
-                });
+                .OnEntryAsync(async () => await OnDontMsspAsServerAsync(context));
 
             context.RegisterInitialNegotiation(async () => await WillingMSSPAsync(context));
         }
@@ -197,11 +228,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 
             stateMachine.Configure(State.WontMSSP)
                 .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    context.Logger.LogDebug("Server won't do MSSP - do nothing");
-                    await OnNegotiatedAsync(false);
-                });
+                .OnEntryAsync(async () => await OnWontMsspAsClientAsync(context));
 
             stateMachine.Configure(State.SubNegotiation)
                 .Permit(Trigger.MSSP, State.AlmostNegotiatingMSSP)
@@ -730,6 +757,27 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     {
         if (b is byte value) _msspBytes.Add(value);
     }
+
+    /// <summary>The generated machine's equivalent of <see cref="CaptureMSSPFieldByte"/>, for a whole stretch at once.</summary>
+    internal void AppendMsspBytes(ReadOnlyMemory<byte> data)
+    {
+        foreach (var b in data.Span)
+        {
+            _msspBytes.Add(b);
+        }
+    }
+
+    /// <summary>The generated machine's equivalent of AlmostNegotiatingMSSP's OnEntry.</summary>
+    internal void StartMsspMessage() => ClearMSSPState();
+
+    /// <summary>The generated machine's equivalent of <see cref="OnMSSPVariableMarker"/>.</summary>
+    internal void OnMsspVariableMarker(IProtocolContext context) => OnMSSPVariableMarker(context);
+
+    /// <summary>The generated machine's equivalent of <see cref="OnMSSPValueMarker"/>.</summary>
+    internal void OnMsspValueMarker(IProtocolContext context) => OnMSSPValueMarker(context);
+
+    /// <summary>The generated machine's equivalent of <see cref="ReadMSSPValues"/>.</summary>
+    internal ValueTask CompleteMsspAsync(IProtocolContext context) => ReadMSSPValues(context);
 
     private async ValueTask ReadMSSPValues(IProtocolContext context)
     {
