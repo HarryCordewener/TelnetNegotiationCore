@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Stateless;
-using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.Plugins;
 
@@ -43,8 +41,15 @@ public abstract class TelnetProtocolPluginBase : ITelnetProtocolPlugin, IAsyncDi
         await OnInitializeAsync();
     }
 
-    /// <inheritdoc />
-    public abstract void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context);
+    /// <summary>
+    /// Configures the Stateless state machine for this protocol. A migration-era hook, not part of
+    /// <see cref="ITelnetProtocolPlugin"/> any more: overridden only by a plugin still on the
+    /// Stateless path, empty (and never called) for one wired to the generated machine. Deleted
+    /// along with the last override once every protocol has moved off Stateless.
+    /// </summary>
+    public virtual void ConfigureStateMachine(Stateless.StateMachine<Models.State, Models.Trigger> stateMachine, IProtocolContext context)
+    {
+    }
 
     /// <inheritdoc />
     public virtual async ValueTask OnEnabledAsync()
@@ -70,9 +75,8 @@ public abstract class TelnetProtocolPluginBase : ITelnetProtocolPlugin, IAsyncDi
     /// <inheritdoc />
     /// <remarks>
     /// This is the one place <see cref="IsNegotiated"/> changes. A protocol calls it from its own
-    /// <see cref="ConfigureStateMachine"/> handlers, at the state entered when a WILL/DO exchange for
-    /// its option genuinely resolves -- not at <see cref="InitializeAsync"/>, which runs before any
-    /// negotiation has happened at all.
+    /// negotiation handlers, at the point a WILL/DO exchange for its option genuinely resolves -- not
+    /// at <see cref="InitializeAsync"/>, which runs before any negotiation has happened at all.
     /// <para>
     /// <b>Transition-only, not level-triggered.</b> A protocol's own state machine can re-enter the
     /// same accepted (or refused) state more than once for reasons that are its own business -- a

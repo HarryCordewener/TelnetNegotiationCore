@@ -143,7 +143,11 @@ public class ProtocolPluginManager
         foreach (var plugin in pluginsToConfig)
         {
             _logger.LogDebug("Configuring state machine for: {PluginName}", plugin.ProtocolName);
-            plugin.ConfigureStateMachine(stateMachine, context);
+
+            // ConfigureStateMachine is a migration-era hook on the base class, not the interface: a
+            // plugin still on the Stateless path overrides it, one wired to the generated machine
+            // does not, and every real plugin extends TelnetProtocolPluginBase.
+            (plugin as TelnetProtocolPluginBase)?.ConfigureStateMachine(stateMachine, context);
         }
     }
 
