@@ -22,8 +22,8 @@ var telnet = await new TelnetInterpreterBuilder()
 Servers can provide custom authentication by specifying supported authentication types and handling client responses:
 
 ```csharp
-// One list, offered to the peer and then used to check what it picked. Declaring it here rather
-// than inline in the provider is the whole reason the check below can exist.
+// What this side will accept. The plugin sends it as the SEND and then holds the peer to it, so
+// the callback below is only ever reached for one of these pairs.
 var offered = new List<(byte AuthType, byte Modifiers)>
 {
     (5, 0),  // SRP with no modifiers
@@ -41,22 +41,15 @@ var telnet = await new TelnetInterpreterBuilder()
         // Handle client authentication responses
         .OnAuthenticationResponse(async (authData) =>
         {
-            // The subnegotiation body exactly as it arrived, command byte first — and from an
-            // untrusted peer, so check the length before indexing it.
+            // The subnegotiation body exactly as it arrived, command byte first. The pair is
+            // already known to be one of the two above — see "Only what you offered" below —
+            // but the body still comes from a peer, so do not index it unchecked.
             if (authData.Length < 3) return;
 
             var command = authData[0];                    // 0 = IS
             var authType = authData[1];
             var modifiers = authData[2];
             var credentials = authData.Skip(3).ToArray();
-
-            // The peer names the mechanism, so check it against the list you offered. The library
-            // does not: it carries the message and leaves the policy to you.
-            if (!offered.Contains((authType, modifiers)))
-            {
-                await RejectAsync(authType, modifiers);
-                return;
-            }
 
             logger.LogInformation("Received authentication type {Type} with {Bytes} bytes of credentials", 
                 authType, credentials.Length);
@@ -147,6 +140,21 @@ ValueTask RejectAsync(byte authType, byte modifiers) =>
     telnet.PluginManager!.GetPlugin<AuthenticationProtocol>()!
         .SendAuthenticationReplyAsync([authType, modifiers, .. RejectionFor(authType)]);
 ```
+
+## Only what you offered
+
+A peer answering `SEND` names the mechanism it has chosen, and nothing on the wire obliges it to
+choose one you listed. **When `WithAuthenticationTypes` is configured, a pair you did not offer never
+reaches `OnAuthenticationResponse`**: it is logged at `Warning` and dropped, before any credential
+validation your callback would do. Honouring your own advertisement is this side's job, and doing it
+in the plugin means a consumer cannot forget to.
+
+Nothing is sent back when that happens. RFC 2941 leaves everything after the (type, modifiers) pair
+to the mechanism, so there is no rejection this library could write that the peer would understand —
+see below.
+
+Configure no types and there is nothing to enforce: the plugin advertises an empty list and already
+answers `IS NULL`, and the callback keeps seeing whatever arrives.
 
 ## What the callbacks are handed
 
