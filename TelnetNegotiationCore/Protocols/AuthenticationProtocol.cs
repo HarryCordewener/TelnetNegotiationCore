@@ -95,9 +95,6 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     private Func<byte[], ValueTask<byte[]?>>? _onAuthenticationRequest;
     private Func<byte[], ValueTask>? _onAuthenticationResponse;
     private Func<ValueTask<List<(byte AuthType, byte Modifiers)>>>? _authenticationTypesProvider;
-    
-    // State for capturing authentication data during subnegotiation
-    private List<byte> _authRequestData = new();
 
     /// <inheritdoc />
     public override Type ProtocolType => typeof(AuthenticationProtocol);
@@ -367,121 +364,19 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Negotiation acceptance and the subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and <see cref="RespondToAuthenticationSendFromBytesAsync"/>/
+    /// <see cref="ProcessAuthenticationResponseFromBytesAsync"/>); this hook survives only to register
+    /// the server's initial offer, a cross-cutting mechanism independent of which machine drives byte
+    /// processing.
+    /// </remarks>
     public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring Authentication state machine");
-        
-        // Register Authentication protocol handlers with the context
-        context.SetSharedState("Authentication_Protocol", this);
-        
-        // Configure state machine transitions for Authentication protocol
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            ConfigureAsServer(stateMachine, context);
+            context.RegisterInitialNegotiation(async () => await SendDoAuthenticationAsync(context));
         }
-        else
-        {
-            ConfigureAsClient(stateMachine, context);
-        }
-    }
-
-    private void ConfigureAsServer(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Server side: Receives WILL AUTHENTICATION from client
-        stateMachine.Configure(State.Willing)
-            .Permit(Trigger.AUTHENTICATION, State.WillAuthentication);
-
-        stateMachine.Configure(State.Refusing)
-            .Permit(Trigger.AUTHENTICATION, State.WontAuthentication);
-
-        stateMachine.Configure(State.WillAuthentication)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnClientWillAuthenticateAsync(context));
-
-        stateMachine.Configure(State.WontAuthentication)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnWontAuthenticateAsync(context));
-
-        // Server handles IS subnegotiation (authentication response from client)
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.AUTHENTICATION, State.AlmostNegotiatingAuthentication);
-
-        stateMachine.Configure(State.AlmostNegotiatingAuthentication)
-            .Permit(Trigger.IS, State.NegotiatingAuthenticationSend)
-            .OnEntry(() =>
-            {
-                context.Logger.LogDebug("Receiving authentication response from client");
-                _authRequestData = new List<byte>();
-            });
-
-        // Handle the IS command - capture all auth data until IAC
-        stateMachine.Configure(State.NegotiatingAuthenticationSend)
-            .Permit(Trigger.IAC, State.CompletingAuthenticationNegotiation);
-        
-        // Capture all other triggers as authentication data
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.NegotiatingAuthenticationSend)
-                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (ByteOrTrigger b) => { if (b is byte value) _authRequestData.Add(value); })
-                .PermitReentry(t));
-
-        stateMachine.Configure(State.CompletingAuthenticationNegotiation)
-            .Permit(Trigger.SE, State.SendingAuthenticationResponse)
-            .OnEntry(() => context.Logger.LogDebug("Received end of IS subnegotiation"));
-
-        stateMachine.Configure(State.SendingAuthenticationResponse)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await ProcessAuthenticationResponseAsync(context));
-
-        // Server initiates authentication negotiation
-        context.RegisterInitialNegotiation(async () => await SendDoAuthenticationAsync(context));
-    }
-
-    private void ConfigureAsClient(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Client side: Receives DO AUTHENTICATION from server
-        stateMachine.Configure(State.Do)
-            .Permit(Trigger.AUTHENTICATION, State.DoAuthentication);
-
-        stateMachine.Configure(State.Dont)
-            .Permit(Trigger.AUTHENTICATION, State.DontAuthentication);
-
-        stateMachine.Configure(State.DoAuthentication)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnServerRequestsAuthenticationAsync(context));
-
-        stateMachine.Configure(State.DontAuthentication)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnDontAuthenticateAsync(context));
-
-        // Client handles SEND subnegotiation
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.AUTHENTICATION, State.AlmostNegotiatingAuthentication);
-
-        stateMachine.Configure(State.AlmostNegotiatingAuthentication)
-            .Permit(Trigger.SEND, State.NegotiatingAuthenticationSend)
-            .OnEntry(() =>
-            {
-                context.Logger.LogDebug("Starting authentication subnegotiation");
-                _authRequestData = new List<byte>();
-            });
-
-        // Handle the SEND command - capture all auth type pairs until IAC
-        stateMachine.Configure(State.NegotiatingAuthenticationSend)
-            .Permit(Trigger.IAC, State.CompletingAuthenticationNegotiation);
-        
-        // Capture all other triggers as auth type/modifier pairs
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.NegotiatingAuthenticationSend)
-                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (ByteOrTrigger b) => { if (b is byte value) _authRequestData.Add(value); })
-                .PermitReentry(t));
-
-        stateMachine.Configure(State.CompletingAuthenticationNegotiation)
-            .Permit(Trigger.SE, State.SendingAuthenticationResponse)
-            .OnEntry(() => context.Logger.LogDebug("Received end of SEND subnegotiation"));
-
-        stateMachine.Configure(State.SendingAuthenticationResponse)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await SendAuthenticationNullResponseAsync(context));
     }
 
     /// <inheritdoc />
@@ -552,9 +447,6 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
         });
     }
 
-    private ValueTask SendAuthenticationNullResponseAsync(IProtocolContext context) =>
-        RespondToAuthenticationSendFromBytesAsync(_authRequestData.ToArray(), context);
-
     internal async ValueTask RespondToAuthenticationSendFromBytesAsync(byte[] data, IProtocolContext context)
     {
         context.Logger.LogDebug("Processing authentication request");
@@ -576,9 +468,6 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
 
         await SendAuthenticationResponseAsync(responseData);
     }
-
-    private ValueTask ProcessAuthenticationResponseAsync(IProtocolContext context) =>
-        ProcessAuthenticationResponseFromBytesAsync(_authRequestData.ToArray(), context);
 
     internal async ValueTask ProcessAuthenticationResponseFromBytesAsync(byte[] data, IProtocolContext context)
     {
