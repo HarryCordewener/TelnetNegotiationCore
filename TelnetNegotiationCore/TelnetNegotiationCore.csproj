@@ -55,6 +55,7 @@
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
 		<PackageReference Include="System.IO.Pipelines" Version="10.0.2" />
 		<PackageReference Include="stateless" Version="5.20.0" />
+		<PackageReference Include="StateAlchemist" Version="1.0.0" />
 	</ItemGroup>
 
 	<!-- Packages needed for netstandard2.0 -->
