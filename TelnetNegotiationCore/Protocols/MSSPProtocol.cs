@@ -164,15 +164,49 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// What arriving at DO/DONT (server) or WILL/WONT (client) for MSSP does -- each mode only ever
-    /// sees one direction.
+    /// What arriving at DO/DONT or WILL/WONT for MSSP does, in either role.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A <c>DO</c> means two different things depending on whether this end already offered. A server
+    /// announced <c>WILL MSSP</c> on initialisation (see <see cref="ConfigureStateMachine"/>), so the
+    /// <c>DO</c> that follows is the peer agreeing, and the specification says precisely what to do
+    /// with it: "if the server receives IAC DO MSSP it should respond with: IAC SB MSSP MSSP_VAR
+    /// "variable" MSSP_VAL "value"...IAC SE." The report is the response; no <c>WILL</c> is owed,
+    /// because one was already sent.
+    /// </para>
+    /// <para>
+    /// A client made no such offer, so the same <c>DO</c> is an unsolicited request, and RFC 1143
+    /// requires an answer: "a TELNET implementation MUST refuse (DONT/WONT) a request to enable an
+    /// option for which it does not comply with the appropriate protocol specification". A client
+    /// used to answer it by serving a report, which is wrong twice over -- a subnegotiation is not an
+    /// answer to a <c>DO</c> under RFC 854, and there was no report to serve, so what went out was an
+    /// empty <c>IAC SB MSSP IAC SE</c>.
+    /// </para>
+    /// <para>
+    /// The answer is <c>WONT</c>. MSSP reports a server's own status and the specification provides
+    /// no client-side report at all -- every variable it defines flows server to client -- so a
+    /// client cannot comply with a request to enable it, which is exactly the case RFC 1143 has
+    /// refused rather than left unanswered.
+    /// </para>
+    /// <para>
+    /// The <c>WILL</c> case stays symmetric-looking but is not the mirror of this: a peer offering to
+    /// send a report is offering something this library can <em>receive</em> in either role, since
+    /// the parsing side of MSSP reads a report without reference to the interpreter's mode. Accepting
+    /// it with <c>DO</c> is lenient about an out-of-spec offer, not a claim that clients report.
+    /// </para>
+    /// </remarks>
     internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
     {
+        var weAlreadyOffered = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+
         switch (verb)
         {
-            case (byte)Trigger.DO:
+            case (byte)Trigger.DO when weAlreadyOffered:
                 await OnDoMSSPAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                await OnAskedToReportMSSPAsync(context);
                 break;
             case (byte)Trigger.DONT:
                 await OnDontMsspAsServerAsync(context);
@@ -504,6 +538,19 @@ public class MSSPProtocol : TelnetProtocolPluginBase
 
         var config = _msspConfig();
         await SendMSSPDataAsync(config, context);
+    }
+
+    /// <summary>
+    /// An unsolicited <c>DO MSSP</c>: the peer is asking this end for a status report it has no way
+    /// to produce. See <see cref="OnPeerNegotiatedAsync"/> for why the refusal is owed.
+    /// </summary>
+    private async ValueTask OnAskedToReportMSSPAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug(
+            "Peer asked this end for an MSSP report. Refusing: MSSP reports a server's own status and defines no client-side report.");
+
+        await Helpers.OptionNegotiation.AnswerAsync(
+            honour: false, (byte)Trigger.DO, (byte)Trigger.MSSP, context);
     }
 
     private async ValueTask OnWillMSSPAsync(IProtocolContext context)

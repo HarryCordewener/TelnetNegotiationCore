@@ -151,15 +151,40 @@ public class EORProtocol : TelnetProtocolPluginBase
     #region State Machine Handlers
 
     /// <summary>
-    /// What arriving at DO/DONT (server) or WILL/WONT (client) for TELOPT_EOR does -- only one
-    /// direction is ever meaningful for a given interpreter's mode.
+    /// What arriving at DO/DONT or WILL/WONT for TELOPT_EOR does, in either role.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A <c>DO</c> means two different things depending on whether this end already offered. A server
+    /// announced <c>WILL EOR</c> on initialisation (see <see cref="ConfigureStateMachine"/>), so the
+    /// <c>DO</c> that follows is the peer <em>agreeing</em> to that offer, and RFC 1143 has an
+    /// agreement noted rather than answered -- answering it would invite the loop the RFC warns
+    /// about. A client made no such offer, so the same <c>DO</c> is an unsolicited request, and there
+    /// RFC 1143 is equally clear that an answer is owed: "a TELNET implementation MUST refuse
+    /// (DONT/WONT) a request to enable an option for which it does not comply with the appropriate
+    /// protocol specification". Silence is not one of the choices, and a client used to give it.
+    /// </para>
+    /// <para>
+    /// The answer is <c>WILL</c>, because this end genuinely complies. RFC 885 asks the receiver of a
+    /// <c>DO</c> to emit the marker itself -- "the sender of this command requests that the sender of
+    /// data start transmitting the EOR code when transmitting data" -- and this library does, in
+    /// either role: <c>SendPromptAsync</c> terminates a prompt with <c>IAC EOR</c> whenever the
+    /// option is in effect, with no reference to the interpreter's mode. The option is also
+    /// per-direction rather than symmetric -- "the use of EORs must be negotiated independently for
+    /// each direction" -- so being asked to send EOR carries no claim about what the peer will send.
+    /// </para>
+    /// </remarks>
     internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
     {
+        var weAlreadyOffered = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+
         switch (verb)
         {
-            case (byte)Trigger.DO:
+            case (byte)Trigger.DO when weAlreadyOffered:
                 await OnDoEORAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                await OnAskedToSendEORAsync(context);
                 break;
             case (byte)Trigger.DONT:
                 await OnDontEORAsync(context);
@@ -226,9 +251,23 @@ public class EORProtocol : TelnetProtocolPluginBase
 
     private async ValueTask OnDoEORAsync(IProtocolContext context)
     {
-        context.Logger.LogDebug("Client supports End of Record.");
+        context.Logger.LogDebug("Peer agreed to End of Record.");
         _doEOR = true;
         await OnNegotiatedAsync(true);
+    }
+
+    /// <summary>
+    /// An unsolicited <c>DO EOR</c>: the peer is asking this end to mark its records, and this end
+    /// agrees. See <see cref="OnPeerNegotiatedAsync"/> for why the answer is owed and why it is
+    /// <c>WILL</c>.
+    /// </summary>
+    private async ValueTask OnAskedToSendEORAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Peer asked this end to mark records with End of Record. Agreeing.");
+        _doEOR = true;
+        await OnNegotiatedAsync(true);
+        await Helpers.OptionNegotiation.AnswerAsync(
+            honour: true, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR, context);
     }
 
     private async ValueTask OnWillEORAsync(IProtocolContext context)
