@@ -26,6 +26,18 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **A CHARSET `REQUEST` offering a translation table was rejected outright.** RFC 2066 allows a
+  `REQUEST` to be prefixed `{ "[TTABLE ]" <Version> }` to say the sender will accept a mapping
+  between any charset it listed and any the receiver wants. That prefix sits *before* the separator
+  octet, and it was never taken off — so the `[` was read as the separator, the whole charset list
+  collapsed into one unrecognised name, and a peer was refused even when it offered charsets this
+  library supports. Both spellings of the literal are now accepted, because the RFC's format line
+  writes `"[TTABLE ]"` while its prose writes `[TTABLE]`, and being strict about which would refuse
+  real peers over an ambiguity in the specification. A zero `<Version>`, which RFC 2066 forbids, is
+  logged at `Warning` and the table offer ignored, rather than the charset list being thrown away
+  with it. The irony this fixes is that `TTABLE-IS` was already implemented: the library could parse
+  the table it was refusing to let anyone offer.
+
 - **ENCRYPT and AUTHENTICATION did not escape `IAC` in a subnegotiation payload, in either
   direction.** A credential byte or an encryption key id of 0xFF went out unescaped, where any
   receiver reads it as the `IAC` that ends the subnegotiation and the rest of the stream desyncs; a
