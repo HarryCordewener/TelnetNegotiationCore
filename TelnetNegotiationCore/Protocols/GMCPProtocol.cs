@@ -453,15 +453,44 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// What arriving at DO/DONT (server) or WILL/WONT (client) for GMCP does -- each mode only ever
-    /// sees one direction.
+    /// What arriving at DO/DONT or WILL/WONT for GMCP does, in either role.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A <c>DO</c> means two different things depending on whether this end already offered. A server
+    /// announced <c>WILL GMCP</c> on initialisation (see <see cref="ConfigureStateMachine"/>) --
+    /// which is what the specification asks of it: "when a client connects to a GMCP enabled
+    /// server the server should send IAC WILL GMCP. The client should respond with either IAC DO
+    /// GMCP or IAC DONT GMCP." So the <c>DO</c> that follows is the peer <em>agreeing</em>,
+    /// and RFC 1143 has an agreement noted rather than answered, since answering it would invite the
+    /// loop the RFC warns about.
+    /// </para>
+    /// <para>
+    /// A client made no such offer, so the same <c>DO</c> is an unsolicited request -- unusual, since
+    /// the specification has the client sending <c>DO</c> rather than receiving it, but a request
+    /// nonetheless, and RFC 1143 requires an answer to one: "a TELNET implementation MUST refuse
+    /// (DONT/WONT) a request to enable an option for which it does not comply with the appropriate
+    /// protocol specification". Silence is not one of the choices, and a client used to give it.
+    /// </para>
+    /// <para>
+    /// The answer is <c>WILL</c>, because this end complies. The specification makes the enabled
+    /// option two-way -- "once the server receives IAC DO GMCP both the client and the server can
+    /// send GMCP sub-negotiations" -- and <c>TelnetInterpreter.SendGMCPCommand</c> does not consult the interpreter's
+    /// mode, so a client has the same ability to send as a server. Refusing something this library
+    /// can do would be the wrong reading of RFC 1143's "does not comply".
+    /// </para>
+    /// </remarks>
     internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
     {
+        var weAlreadyOffered = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+
         switch (verb)
         {
-            case (byte)Trigger.DO:
+            case (byte)Trigger.DO when weAlreadyOffered:
                 await OnDoGmcpAsServerAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                await OnAskedToEnableGMCPAsync(context);
                 break;
             case (byte)Trigger.DONT:
                 await OnDontGmcpAsServerAsync(context);
@@ -473,6 +502,19 @@ public class GMCPProtocol : TelnetProtocolPluginBase
                 await OnWontGmcpAsClientAsync(context);
                 break;
         }
+    }
+
+    /// <summary>
+    /// An unsolicited <c>DO GMCP</c>: the peer is asking this end to enable the option, and this
+    /// end agrees. See <see cref="OnPeerNegotiatedAsync"/> for why the answer is owed and why it is
+    /// <c>WILL</c>.
+    /// </summary>
+    private async ValueTask OnAskedToEnableGMCPAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Peer asked this end to enable GMCP. Agreeing.");
+        await OnNegotiatedAsync(true);
+        await Helpers.OptionNegotiation.AnswerAsync(
+            honour: true, (byte)Trigger.DO, (byte)Trigger.GMCP, context);
     }
 
     private async ValueTask WillGMCPAsync(IProtocolContext context)
@@ -594,15 +636,44 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// What arriving at DO/DONT (server) or WILL/WONT (client) for MSDP does -- each mode only ever
-    /// sees one direction.
+    /// What arriving at DO/DONT or WILL/WONT for MSDP does, in either role.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A <c>DO</c> means two different things depending on whether this end already offered. A server
+    /// announced <c>WILL MSDP</c> on initialisation (see <see cref="ConfigureStateMachine"/>) --
+    /// which is what the specification asks of it: "when a client connects to a MSDP enabled
+    /// server the server should send IAC WILL MSDP. The client should respond with either IAC DO
+    /// MSDP or IAC DONT MSDP." So the <c>DO</c> that follows is the peer <em>agreeing</em>,
+    /// and RFC 1143 has an agreement noted rather than answered, since answering it would invite the
+    /// loop the RFC warns about.
+    /// </para>
+    /// <para>
+    /// A client made no such offer, so the same <c>DO</c> is an unsolicited request -- unusual, since
+    /// the specification has the client sending <c>DO</c> rather than receiving it, but a request
+    /// nonetheless, and RFC 1143 requires an answer to one: "a TELNET implementation MUST refuse
+    /// (DONT/WONT) a request to enable an option for which it does not comply with the appropriate
+    /// protocol specification". Silence is not one of the choices, and a client used to give it.
+    /// </para>
+    /// <para>
+    /// The answer is <c>WILL</c>, because this end complies. The specification makes the enabled
+    /// option two-way -- "once the server receives IAC DO MSDP both the client and the server can
+    /// send MSDP sub-negotiations" -- and <c>TelnetInterpreter.SendMSDPCommand</c> does not consult the interpreter's
+    /// mode, so a client has the same ability to send as a server. Refusing something this library
+    /// can do would be the wrong reading of RFC 1143's "does not comply".
+    /// </para>
+    /// </remarks>
     internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
     {
+        var weAlreadyOffered = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+
         switch (verb)
         {
-            case (byte)Trigger.DO:
+            case (byte)Trigger.DO when weAlreadyOffered:
                 await OnDoMsdpAsServerAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                await OnAskedToEnableMSDPAsync(context);
                 break;
             case (byte)Trigger.DONT:
                 await OnDontMsdpAsServerAsync(context);
@@ -614,6 +685,19 @@ public class MSDPProtocol : TelnetProtocolPluginBase
                 await OnWontMsdpAsClientAsync(context);
                 break;
         }
+    }
+
+    /// <summary>
+    /// An unsolicited <c>DO MSDP</c>: the peer is asking this end to enable the option, and this
+    /// end agrees. See <see cref="OnPeerNegotiatedAsync"/> for why the answer is owed and why it is
+    /// <c>WILL</c>.
+    /// </summary>
+    private async ValueTask OnAskedToEnableMSDPAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Peer asked this end to enable MSDP. Agreeing.");
+        await OnNegotiatedAsync(true);
+        await Helpers.OptionNegotiation.AnswerAsync(
+            honour: true, (byte)Trigger.DO, (byte)Trigger.MSDP, context);
     }
 
     /// <summary>Resets the buffer for a fresh subnegotiation -- the generated machine's equivalent of

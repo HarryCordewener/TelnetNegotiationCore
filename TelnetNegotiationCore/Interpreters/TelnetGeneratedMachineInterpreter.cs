@@ -173,18 +173,22 @@ public partial class TelnetInterpreter
         }
 
         /// <summary>Refuses an option by its own number, the same answer an unclaimed one gets today.</summary>
+        /// <remarks>
+        /// Which verb refuses which is RFC 854's asymmetric pairing, and it lives in
+        /// <see cref="Helpers.OptionNegotiation"/> rather than here so that this refusal and each
+        /// protocol's own cannot drift apart. A null answer means none is owed -- a <c>DONT</c> or
+        /// <c>WONT</c> is itself a refusal, and refusing a refusal is not a telnet exchange.
+        /// </remarks>
         private async ValueTask RefuseAsync(byte verb, byte option)
         {
-            const byte will = 251, wont = 252, doVerb = 253;
-            if (verb != will && verb != doVerb)
+            var refusal = Helpers.OptionNegotiation.AnswerFor(honour: false, verb, option);
+            if (refusal is null)
             {
-                // WONT and DONT need no answer; refusing a refusal is not a telnet exchange.
                 return;
             }
 
-            var refusal = verb == doVerb ? wont : (byte)254;
-            owner._logger.LogDebug("Connection: refusing option {Option} with {Refusal}.", option, refusal);
-            await owner.WriteToNetworkAsync((byte[])[255, refusal, option]);
+            owner._logger.LogDebug("Connection: refusing option {Option} with {Refusal}.", option, refusal[1]);
+            await owner.WriteToNetworkAsync(refusal);
         }
 
         // The catch-all for a subnegotiation this class has no dedicated handler for: an option the

@@ -37,6 +37,35 @@ All notable changes to this project will be documented in this file.
   - CHARSET's other payloads could never reach it: `ACCEPTED` and `REQUEST` build their charset lists
     with `Encoding.ASCII`, which maps anything outside 0x00–0x7F to `?`.
 
+- **EOR, GMCP, MSDP and MSSP now answer a wrong-direction negotiation instead of ignoring it.** All
+  four were written on the assumption that each role only ever sees one direction of its option, so
+  a client receiving an unsolicited `DO` fell into a handler meant for a server and answered nothing
+  at all. RFC 1143 does not allow that: "a TELNET implementation MUST refuse (DONT/WONT) a request
+  to enable an option for which it does not comply with the appropriate protocol specification."
+  A peer that asked and got silence waits, and some wait forever.
+  - **EOR, GMCP and MSDP now answer `WILL`**, because this library genuinely complies in either
+    role. RFC 885 negotiates EOR "independently for each direction" and asks the receiver of a `DO`
+    to emit the marker, which `PromptTerminator` does on negotiated state alone; GMCP's and MSDP's
+    specifications both say that once enabled "both the client and the server can send"
+    subnegotiations, and `SendGMCPCommand` / `SendMSDPCommand` contain no mode references at all.
+    Refusing something the library can do would be the wrong reading of "does not comply".
+  - **MSSP now answers `WONT`.** It reports a server's own status, and its specification defines no
+    client-side report — every variable in it flows server to client — so a client has nothing it
+    could comply with. It previously answered a `DO` by serving a report, which is wrong twice over:
+    a subnegotiation is not an answer to a `DO` under RFC 854, and with no report configured what
+    went out was an empty `IAC SB MSSP IAC SE`.
+  - **A server's behaviour is unchanged, deliberately.** All four announce `WILL <option>` on
+    initialisation, as their specifications ask, so the `DO` that follows is the peer *agreeing* —
+    and RFC 1143 has an agreement noted rather than answered, since answering it invites a
+    negotiation loop. A server receiving `DO MSSP` still responds with its report, which is what the
+    MSSP specification asks for by name. Both are now pinned by tests, so a later change to the
+    client side cannot quietly turn a server into a loop.
+  - The RFC 854 pairing that decides *which* verb answers which — `DO` is answered `WILL`/`WONT`,
+    `WILL` is answered `DO`/`DONT`, and a `DONT` or `WONT` is answered not at all — now lives in one
+    internal helper that the interpreter's unclaimed-option refusal and every protocol share, rather
+    than being written out by hand in each. It is asymmetric, and two of the implementation notes
+    found while checking it had it backwards.
+
 - **A client no longer silently accepts `DO ECHO`, and a server no longer accepts `WILL ECHO`.**
   `EchoProtocol.OnPeerNegotiatedAsync` routed every verb to a handler written for one role —
   `OnDoEchoAsync`'s own log line reads "Client requests server to echo", true only when this side is

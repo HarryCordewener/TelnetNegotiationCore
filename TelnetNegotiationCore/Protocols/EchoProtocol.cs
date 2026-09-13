@@ -22,8 +22,6 @@ public class EchoProtocol : TelnetProtocolPluginBase
 {
     private static readonly byte[] s_willEcho = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO };
     private static readonly byte[] s_doEcho = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO };
-    private static readonly byte[] s_wontEcho = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.ECHO };
-    private static readonly byte[] s_dontEcho = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.ECHO };
 
     private bool? _willEcho = null;
 
@@ -247,7 +245,8 @@ public class EchoProtocol : TelnetProtocolPluginBase
             // it will not do would be worse than saying no.
             case (byte)Trigger.DO:
                 context.Logger.LogDebug("A peer asked this client to echo; refusing, this client does not echo");
-                await context.SendNegotiationAsync(s_wontEcho);
+                await Helpers.OptionNegotiation.AnswerAsync(
+                    honour: false, (byte)Trigger.DO, (byte)Trigger.ECHO, context);
                 break;
 
             // A peer offering to echo to this server. RFC 857 permits accepting, but this server
@@ -259,7 +258,8 @@ public class EchoProtocol : TelnetProtocolPluginBase
             // Refusing is that care.
             case (byte)Trigger.WILL:
                 context.Logger.LogDebug("A peer offered to echo to this server, which already echoes; refusing to avoid an echo loop");
-                await context.SendNegotiationAsync(s_dontEcho);
+                await Helpers.OptionNegotiation.AnswerAsync(
+                    honour: false, (byte)Trigger.WILL, (byte)Trigger.ECHO, context);
                 break;
 
             // A refusal in the wrong direction needs no answer: refusing a refusal is not an
