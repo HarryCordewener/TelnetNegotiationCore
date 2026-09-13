@@ -6,7 +6,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -119,192 +118,18 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     public override IReadOnlyCollection<Type> Dependencies => Array.Empty<Type>();
 
     /// <inheritdoc />
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    /// <remarks>
+    /// Negotiation acceptance and the subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and the <c>OnNewEnviron*</c> event methods); this hook
+    /// survives only to register the server's initial offer, a cross-cutting mechanism independent
+    /// of which machine drives byte processing.
+    /// </remarks>
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring NEW-ENVIRON state machine");
-        
-        // Register NEW-ENVIRON protocol handlers with the context
-        context.SetSharedState("NewEnviron_Protocol", this);
-
-        // Configure state machine transitions for NEW-ENVIRON protocol
-        stateMachine.Configure(State.Willing)
-            .Permit(Trigger.NEWENVIRON, State.WillNEWENVIRON);
-
-        stateMachine.Configure(State.Refusing)
-            .Permit(Trigger.NEWENVIRON, State.WontNEWENVIRON);
-
-        stateMachine.Configure(State.Do)
-            .Permit(Trigger.NEWENVIRON, State.DoNEWENVIRON);
-
-        stateMachine.Configure(State.Dont)
-            .Permit(Trigger.NEWENVIRON, State.DontNEWENVIRON);
-
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            ConfigureAsServer(stateMachine, context);
+            context.RegisterInitialNegotiation(async () => await WillingNewEnvironAsync(context));
         }
-        else
-        {
-            ConfigureAsClient(stateMachine, context);
-        }
-    }
-
-    private void ConfigureAsServer(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Server handles DO/DONT from client (client asking server to do NEW-ENVIRON)
-        stateMachine.Configure(State.DoNEWENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await OnDoNewEnvironAsync(x, context));
-
-        stateMachine.Configure(State.DontNEWENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Client won't do NEW-ENVIRON - do nothing");
-                await OnNegotiatedAsync(false);
-            });
-
-        // Server also handles WILL/WONT from client (client announcing ability to do NEW-ENVIRON)
-        stateMachine.Configure(State.WillNEWENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await ServerOnWillNewEnvironAsync(x, context));
-
-        stateMachine.Configure(State.WontNEWENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Client won't do NEW-ENVIRON - do nothing");
-                await OnNegotiatedAsync(false);
-            });
-
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.NEWENVIRON, State.AlmostNegotiatingNEWENVIRON);
-
-        stateMachine.Configure(State.AlmostNegotiatingNEWENVIRON)
-            .Permit(Trigger.IS, State.NegotiatingNEWENVIRON)
-            .Permit(Trigger.NEWENVIRON_INFO, State.NegotiatingNEWENVIRON)
-            .OnEntry(() =>
-            {
-                _currentVar.Clear();
-                _currentValue.Clear();
-                _collectingVar = false;
-                _collectingValue = false;
-                _isUserVar = false;
-            });
-
-        stateMachine.Configure(State.NegotiatingNEWENVIRON)
-            .Permit(Trigger.NEWENVIRON_VAR, State.EvaluatingNEWENVIRONVar)
-            .Permit(Trigger.NEWENVIRON_USERVAR, State.EvaluatingNEWENVIRONVar)
-            .Permit(Trigger.IAC, State.CompletingNEWENVIRON)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.IS), CaptureCommandType)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_INFO), CaptureCommandType);
-
-        stateMachine.Configure(State.EvaluatingNEWENVIRONVar)
-            .PermitReentry(Trigger.NEWENVIRON_VAR)
-            .PermitReentry(Trigger.NEWENVIRON_USERVAR)
-            .Permit(Trigger.NEWENVIRON_VALUE, State.EvaluatingNEWENVIRONValue)
-            .Permit(Trigger.IAC, State.EscapingNEWENVIRONVar)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_VAR), StartNewVar)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_USERVAR), StartNewUserVar);
-
-        stateMachine.Configure(State.EscapingNEWENVIRONVar)
-            .Permit(Trigger.IAC, State.EvaluatingNEWENVIRONVar)
-            .Permit(Trigger.SE, State.CompletingNEWENVIRON);
-
-        stateMachine.Configure(State.EvaluatingNEWENVIRONValue)
-            .Permit(Trigger.NEWENVIRON_VAR, State.EvaluatingNEWENVIRONVar)
-            .Permit(Trigger.NEWENVIRON_USERVAR, State.EvaluatingNEWENVIRONVar)
-            .Permit(Trigger.IAC, State.EscapingNEWENVIRONValue)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_VALUE), StartNewValue);
-
-        stateMachine.Configure(State.EscapingNEWENVIRONValue)
-            .Permit(Trigger.IAC, State.EvaluatingNEWENVIRONValue)
-            .Permit(Trigger.SE, State.CompletingNEWENVIRON);
-
-        TriggerHelper.ForAllTriggersExcept([Trigger.NEWENVIRON_VAR, Trigger.NEWENVIRON_USERVAR, Trigger.NEWENVIRON_VALUE, Trigger.IAC],
-            t => stateMachine.Configure(State.EvaluatingNEWENVIRONVar).OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), CaptureVarByte));
-
-        TriggerHelper.ForAllTriggersExcept([Trigger.NEWENVIRON_VAR, Trigger.NEWENVIRON_USERVAR, Trigger.NEWENVIRON_VALUE, Trigger.IAC],
-            t => stateMachine.Configure(State.EvaluatingNEWENVIRONValue).OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), CaptureValueByte));
-
-        TriggerHelper.ForAllTriggersExcept([Trigger.NEWENVIRON_VAR, Trigger.NEWENVIRON_USERVAR, Trigger.NEWENVIRON_VALUE, Trigger.IAC],
-            t => stateMachine.Configure(State.EvaluatingNEWENVIRONVar).PermitReentry(t));
-
-        TriggerHelper.ForAllTriggersExcept([Trigger.NEWENVIRON_VAR, Trigger.NEWENVIRON_USERVAR, Trigger.NEWENVIRON_VALUE, Trigger.IAC],
-            t => stateMachine.Configure(State.EvaluatingNEWENVIRONValue).PermitReentry(t));
-
-        stateMachine.Configure(State.CompletingNEWENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await CompleteNewEnvironAsync(x, context));
-
-        context.RegisterInitialNegotiation(async () => await WillingNewEnvironAsync(context));
-    }
-
-    private void ConfigureAsClient(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Client handles WILL/WONT from server (server announcing ability to do NEW-ENVIRON)
-        stateMachine.Configure(State.WillNEWENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await ClientOnWillNewEnvironAsync(x, context));
-
-        stateMachine.Configure(State.WontNEWENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Server won't do NEW-ENVIRON - do nothing");
-                await OnNegotiatedAsync(false);
-            });
-
-        // Client also handles DO/DONT from server (server asking client to do NEW-ENVIRON)
-        stateMachine.Configure(State.DoNEWENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await OnDoNewEnvironAsync(x, context));
-
-        stateMachine.Configure(State.DontNEWENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Server telling client not to send NEW-ENVIRON");
-                await OnNegotiatedAsync(false);
-            });
-
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.NEWENVIRON, State.AlmostNegotiatingNEWENVIRON);
-
-        stateMachine.Configure(State.AlmostNegotiatingNEWENVIRON)
-            .Permit(Trigger.SEND, State.NegotiatingNEWENVIRON)
-            .OnEntry(() =>
-            {
-                _currentVar.Clear();
-                _currentValue.Clear();
-                _requestedVariables.Clear();
-                _collectingVar = false;
-                _collectingValue = false;
-                _isUserVar = false;
-            });
-
-        stateMachine.Configure(State.NegotiatingNEWENVIRON)
-            .Permit(Trigger.NEWENVIRON_VAR, State.EvaluatingNEWENVIRONVar)
-            .Permit(Trigger.NEWENVIRON_USERVAR, State.EvaluatingNEWENVIRONVar)
-            .Permit(Trigger.IAC, State.CompletingNEWENVIRON)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.SEND), CaptureCommandType);
-
-        stateMachine.Configure(State.EvaluatingNEWENVIRONVar)
-            .PermitReentry(Trigger.NEWENVIRON_VAR)
-            .PermitReentry(Trigger.NEWENVIRON_USERVAR)
-            .Permit(Trigger.IAC, State.CompletingNEWENVIRON)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_VAR), StartRequestedVar)
-            .OnEntryFrom(context.Interpreter.ParameterizedTrigger(Trigger.NEWENVIRON_USERVAR), StartRequestedUserVar);
-
-        TriggerHelper.ForAllTriggersExcept([Trigger.NEWENVIRON_VAR, Trigger.NEWENVIRON_USERVAR, Trigger.IAC],
-            t => stateMachine.Configure(State.EvaluatingNEWENVIRONVar).OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), CaptureVarByte));
-
-        TriggerHelper.ForAllTriggersExcept([Trigger.NEWENVIRON_VAR, Trigger.NEWENVIRON_USERVAR, Trigger.IAC],
-            t => stateMachine.Configure(State.EvaluatingNEWENVIRONVar).PermitReentry(t));
-
-        stateMachine.Configure(State.CompletingNEWENVIRON)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await SendEnvironmentVariablesAsync(x, context));
     }
 
     /// <inheritdoc />
@@ -351,12 +176,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
-    private void CaptureCommandType(ByteOrTrigger b)
-    {
-        if (b is byte value) _commandType = value;
-    }
-
-    private void StartNewVar(ByteOrTrigger _)
+    private void StartNewVar()
     {
         SaveCurrentVariable();
         _collectingVar = true;
@@ -365,7 +185,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         _currentVar.Clear();
     }
 
-    private void StartNewUserVar(ByteOrTrigger _)
+    private void StartNewUserVar()
     {
         SaveCurrentVariable();
         _collectingVar = true;
@@ -374,14 +194,14 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         _currentVar.Clear();
     }
 
-    private void StartNewValue(ByteOrTrigger _)
+    private void StartNewValue()
     {
         _collectingVar = false;
         _collectingValue = true;
         _currentValue.Clear();
     }
 
-    private void StartRequestedVar(ByteOrTrigger _)
+    private void StartRequestedVar()
     {
         FlushRequestedVariable();
         _collectingVar = true;
@@ -390,7 +210,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         _currentVar.Clear();
     }
 
-    private void StartRequestedUserVar(ByteOrTrigger _)
+    private void StartRequestedUserVar()
     {
         FlushRequestedVariable();
         _collectingVar = true;
@@ -417,22 +237,6 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
         _currentVar.Clear();
         _collectingVar = false;
-    }
-
-    private void CaptureVarByte(ByteOrTrigger b)
-    {
-        if (_collectingVar && b is byte value)
-        {
-            _currentVar.Add(value);
-        }
-    }
-
-    private void CaptureValueByte(ByteOrTrigger b)
-    {
-        if (_collectingValue && b is byte value)
-        {
-            _currentValue.Add(value);
-        }
     }
 
     private void SaveCurrentVariable()
@@ -466,13 +270,143 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         }
     }
 
+    private ValueTask OnWontNewEnvironAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug(context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+            ? "Client won't do NEW-ENVIRON - do nothing"
+            : "Server won't do NEW-ENVIRON - do nothing");
+        return OnNegotiatedAsync(false);
+    }
+
+    private ValueTask OnDontNewEnvironAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug(context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+            ? "Client won't do NEW-ENVIRON - do nothing"
+            : "Server telling client not to send NEW-ENVIRON");
+        return OnNegotiatedAsync(false);
+    }
+
+    /// <summary>DO is answered the same way regardless of which side receives it -- by asking for
+    /// variables -- unlike WILL, whose answer differs by mode (see <see cref="ServerOnWillNewEnvironAsync"/>
+    /// and <see cref="ClientOnWillNewEnvironAsync"/>).</summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        var server = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+        switch (verb)
+        {
+            case (byte)Trigger.WILL when server:
+                await ServerOnWillNewEnvironAsync(context);
+                break;
+            case (byte)Trigger.WILL:
+                await ClientOnWillNewEnvironAsync(context);
+                break;
+            case (byte)Trigger.WONT:
+                await OnWontNewEnvironAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                await OnDoNewEnvironAsync(context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontNewEnvironAsync(context);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The subnegotiation began: reset the same fields <c>AlmostNegotiatingNEWENVIRON</c>'s entry
+    /// used to, before the command byte was even known to Stateless -- nothing observable happens
+    /// between "option is NEWENVIRON" and "command byte arrived" other than this reset, so doing it
+    /// here instead is not a behavior change.
+    /// </summary>
+    internal ValueTask OnNewEnvironStartedAsync(byte command, IProtocolContext context)
+    {
+        _currentVar.Clear();
+        _currentValue.Clear();
+        _collectingVar = false;
+        _collectingValue = false;
+        _isUserVar = false;
+        _commandType = command;
+
+        if (context.Mode != Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            _requestedVariables.Clear();
+        }
+
+        return default;
+    }
+
+    internal ValueTask OnNewEnvironVarMarkerAsync(IProtocolContext context)
+    {
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            StartNewVar();
+        }
+        else
+        {
+            StartRequestedVar();
+        }
+
+        return default;
+    }
+
+    internal ValueTask OnNewEnvironUserVarMarkerAsync(IProtocolContext context)
+    {
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            StartNewUserVar();
+        }
+        else
+        {
+            StartRequestedUserVar();
+        }
+
+        return default;
+    }
+
+    /// <summary>A VALUE marker only ever arrives server-side in the original configuration -- a
+    /// client's EvaluatingNEWENVIRONVar never permitted it -- so it is a no-op for a client that
+    /// somehow receives one anyway.</summary>
+    internal ValueTask OnNewEnvironValueMarkerAsync(IProtocolContext context)
+    {
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            StartNewValue();
+        }
+
+        return default;
+    }
+
+    /// <summary>
+    /// At most one of <see cref="_collectingVar"/>/<see cref="_collectingValue"/> is set at a time,
+    /// so routing a whole chunk by which one is set is the same distinction a per-byte capture would
+    /// have made, just batched.
+    /// </summary>
+    internal ValueTask OnNewEnvironDataAsync(ReadOnlyMemory<byte> data, IProtocolContext context)
+    {
+        if (_collectingVar)
+        {
+            _currentVar.AddRange(data.ToArray());
+        }
+        else if (_collectingValue)
+        {
+            _currentValue.AddRange(data.ToArray());
+        }
+
+        return default;
+    }
+
+    internal ValueTask OnNewEnvironEndedAsync(IProtocolContext context) =>
+        context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+            ? CompleteNewEnvironFromServerAsync(context)
+            : SendEnvironmentVariablesFromClientAsync(context);
+
     private async ValueTask WillingNewEnvironAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Announcing willingness to NEW-ENVIRON!");
         await context.SendNegotiationAsync(s_willNewEnviron);
     }
 
-    private async ValueTask OnDoNewEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask OnDoNewEnvironAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client will do NEW-ENVIRON. Requesting environment variables...");
         await OnNegotiatedAsync(true);
@@ -489,7 +423,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         });
     }
 
-    private async ValueTask ServerOnWillNewEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask ServerOnWillNewEnvironAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client will do NEW-ENVIRON - accepting and requesting variables");
         await OnNegotiatedAsync(true);
@@ -509,18 +443,18 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         });
     }
 
-    private async ValueTask ClientOnWillNewEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask ClientOnWillNewEnvironAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server will do NEW-ENVIRON");
         await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doNewEnviron);
     }
 
-    private async ValueTask CompleteNewEnvironAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    internal async ValueTask CompleteNewEnvironFromServerAsync(IProtocolContext context)
     {
         SaveCurrentVariable();
 
-        context.Logger.LogInformation("Received NEW-ENVIRON variables: {Count} environment, {UserCount} user", 
+        context.Logger.LogInformation("Received NEW-ENVIRON variables: {Count} environment, {UserCount} user",
             _environmentVariables.Count, _userVariables.Count);
 
         if (_onEnvironmentVariables != null)
@@ -529,7 +463,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         }
     }
 
-    private async ValueTask SendEnvironmentVariablesAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    internal async ValueTask SendEnvironmentVariablesFromClientAsync(IProtocolContext context)
     {
         // Client received SEND request from server
         context.Logger.LogDebug("Server requested environment variables, sending response...");

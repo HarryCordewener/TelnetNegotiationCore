@@ -4,7 +4,6 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Helpers;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -29,10 +28,6 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     private static readonly byte[] s_ttableAck = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_ACK, (byte)Trigger.IAC, (byte)Trigger.SE };
     private static readonly byte[] s_ttableNak = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_NAK, (byte)Trigger.IAC, (byte)Trigger.SE };
 
-    private byte[] _charsetByteState = [];
-    private int _charsetByteIndex = 0;
-    private byte[] _acceptedCharsetByteState = [];
-    private int _acceptedCharsetByteIndex = 0;
     private bool _charsetOffered = false;
     private Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetOrder = x 
         => x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
@@ -159,130 +154,17 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     public override IReadOnlyCollection<Type> Dependencies => Array.Empty<Type>();
 
     /// <inheritdoc />
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    /// <remarks>
+    /// Negotiation acceptance and every subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/>, <see cref="CompleteCharsetRequestFromBytesAsync"/>,
+    /// <see cref="CompleteAcceptedCharsetFromBytesAsync"/> and <see cref="CompleteTTableFromBufferAsync"/>);
+    /// this hook survives for two things that are not Stateless configuration themselves: the lazy
+    /// supported-character-set list <see cref="OnDoCharsetAsync"/> sends, resolved once regardless of
+    /// which machine drives byte processing, and the server's initial offer.
+    /// </remarks>
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring Charset state machine");
-        
-        // Register Charset protocol handlers with the context
-        context.SetSharedState("Charset_Protocol", this);
-        
-        // Initialize lazy-loaded supported character sets
         _supportedCharacterSets = new Lazy<byte[]>(CharacterSets);
-        
-        // Configure state machine transitions for Charset protocol
-        stateMachine.Configure(State.Willing)
-            .Permit(Trigger.CHARSET, State.WillDoCharset);
-
-        stateMachine.Configure(State.Refusing)
-            .Permit(Trigger.CHARSET, State.WontDoCharset);
-
-        stateMachine.Configure(State.Do)
-            .Permit(Trigger.CHARSET, State.DoCharset);
-
-        stateMachine.Configure(State.Dont)
-            .Permit(Trigger.CHARSET, State.DontCharset);
-
-        stateMachine.Configure(State.WillDoCharset)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await OnWillingCharsetAsync(x, context));
-
-        stateMachine.Configure(State.WontDoCharset)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Won't do Character Set - do nothing");
-                await OnNegotiatedAsync(false);
-            });
-
-        stateMachine.Configure(State.DoCharset)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x => await OnDoCharsetAsync(x, context));
-
-        stateMachine.Configure(State.DontCharset)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Character Set - do nothing");
-                await OnNegotiatedAsync(false);
-            });
-
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.CHARSET, State.AlmostNegotiatingCharset);
-
-        stateMachine.Configure(State.AlmostNegotiatingCharset)
-            .Permit(Trigger.REQUEST, State.NegotiatingCharset)
-            .Permit(Trigger.REJECTED, State.EndingCharsetSubnegotiation)
-            .Permit(Trigger.ACCEPTED, State.NegotiatingAcceptedCharset)
-            .Permit(Trigger.TTABLE_IS, State.NegotiatingTTABLE)
-            .Permit(Trigger.TTABLE_REJECTED, State.EndingTTABLESubnegotiation)
-            .Permit(Trigger.TTABLE_ACK, State.EndingTTABLESubnegotiation)
-            .Permit(Trigger.TTABLE_NAK, State.EndingTTABLESubnegotiation);
-
-        stateMachine.Configure(State.EndingCharsetSubnegotiation)
-            .Permit(Trigger.IAC, State.EndSubNegotiation);
-
-        stateMachine.Configure(State.EndingTTABLESubnegotiation)
-            .Permit(Trigger.IAC, State.EndSubNegotiation);
-
-        // TTABLE state machine configuration
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.NegotiatingTTABLE).Permit(t, State.EvaluatingTTABLE));
-
-        stateMachine.Configure(State.EscapingTTABLEValue)
-            .Permit(Trigger.IAC, State.EvaluatingTTABLE)
-            .Permit(Trigger.SE, State.CompletingTTABLE);
-
-        stateMachine.Configure(State.NegotiatingTTABLE)
-            .Permit(Trigger.IAC, State.EscapingTTABLEValue)
-            .OnEntry(GetTTable);
-
-        stateMachine.Configure(State.EvaluatingTTABLE)
-            .Permit(Trigger.IAC, State.EscapingTTABLEValue);
-
-        TriggerHelper.ForAllTriggers(t => stateMachine.Configure(State.EvaluatingTTABLE).OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), CaptureTTable));
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.EvaluatingTTABLE).PermitReentry(t));
-
-        stateMachine.Configure(State.CompletingTTABLE)
-            .OnEntryAsync(async x => await CompleteTTableAsync(x, context))
-            .SubstateOf(State.Accepting);
-
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.NegotiatingCharset).Permit(t, State.EvaluatingCharset));
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.NegotiatingAcceptedCharset).Permit(t, State.EvaluatingAcceptedCharsetValue));
-
-        stateMachine.Configure(State.EscapingCharsetValue)
-            .Permit(Trigger.IAC, State.EvaluatingCharset)
-            .Permit(Trigger.SE, State.CompletingCharset);
-
-        stateMachine.Configure(State.EscapingAcceptedCharsetValue)
-            .Permit(Trigger.IAC, State.EvaluatingAcceptedCharsetValue)
-            .Permit(Trigger.SE, State.CompletingAcceptedCharset);
-
-        stateMachine.Configure(State.NegotiatingCharset)
-            .Permit(Trigger.IAC, State.EscapingCharsetValue)
-            .OnEntry(GetCharset);
-
-        stateMachine.Configure(State.NegotiatingAcceptedCharset)
-            .Permit(Trigger.IAC, State.EscapingAcceptedCharsetValue)
-            .OnEntry(GetAcceptedCharset);
-
-        stateMachine.Configure(State.EvaluatingCharset)
-            .Permit(Trigger.IAC, State.EscapingCharsetValue);
-
-        stateMachine.Configure(State.EvaluatingAcceptedCharsetValue)
-            .Permit(Trigger.IAC, State.EscapingAcceptedCharsetValue);
-
-        TriggerHelper.ForAllTriggers(t => stateMachine.Configure(State.EvaluatingCharset).OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), CaptureCharset));
-        TriggerHelper.ForAllTriggers(t => stateMachine.Configure(State.EvaluatingAcceptedCharsetValue).OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), CaptureAcceptedCharset));
-
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.EvaluatingCharset).PermitReentry(t));
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.EvaluatingAcceptedCharsetValue).PermitReentry(t));
-
-        stateMachine.Configure(State.CompletingAcceptedCharset)
-            .OnEntryAsync(async x => await CompleteAcceptedCharsetAsync(x, context))
-            .SubstateOf(State.Accepting);
-
-        stateMachine.Configure(State.CompletingCharset)
-            .OnEntryAsync(async x => await CompleteCharsetAsync(x, context))
-            .SubstateOf(State.Accepting);
 
         // RFC 2066: the server initiates CHARSET by offering WILL CHARSET; the client responds
         // (DO CHARSET, then ACCEPTED). If the client also proactively offered WILL CHARSET, two
@@ -313,10 +195,6 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnProtocolDisabledAsync()
     {
         Context.Logger.LogInformation("Charset Protocol disabled");
-        _charsetByteState = [];
-        _charsetByteIndex = 0;
-        _acceptedCharsetByteState = [];
-        _acceptedCharsetByteIndex = 0;
         _charsetOffered = false;
         _ttableBytes.Reset();
         _currentTranslationTable = null;
@@ -326,8 +204,6 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
-        _charsetByteState = [];
-        _acceptedCharsetByteState = [];
         _ttableBytes.Reset();
         _currentTranslationTable = null;
         return default(ValueTask);
@@ -335,49 +211,33 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
-    private void GetCharset(StateMachine<State, Trigger>.Transition _)
-    {
-        _charsetByteState = new byte[1024];
-        _charsetByteIndex = 0;
-    }
-
-    private void GetAcceptedCharset(StateMachine<State, Trigger>.Transition _)
-    {
-        _acceptedCharsetByteState = new byte[42];
-        _acceptedCharsetByteIndex = 0;
-    }
-
-    private void CaptureCharset(ByteOrTrigger b)
-    {
-        if (_charsetByteIndex >= _charsetByteState.Length || b is not byte value) return;
-        _charsetByteState[_charsetByteIndex] = value;
-        _charsetByteIndex++;
-    }
-
-    private void CaptureAcceptedCharset(ByteOrTrigger b)
-    {
-        if (_acceptedCharsetByteIndex >= _acceptedCharsetByteState.Length || b is not byte value) return;
-        _acceptedCharsetByteState![_acceptedCharsetByteIndex] = value;
-        _acceptedCharsetByteIndex++;
-    }
-
     private IOrderedEnumerable<Encoding> GetCharsetOrder(IEnumerable<EncodingInfo> encodings)
     {
         return _charsetOrder(encodings);
     }
 
-    private async ValueTask CompleteCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    internal async ValueTask CompleteCharsetRequestFromBytesAsync(byte[] bytes, IProtocolContext context)
     {
         var ascii = Encoding.ASCII;
-        
+
         if (_charsetOffered && context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
             await context.SendNegotiationAsync(s_charsetRejected);
             return;
         }
 
-        var sep = ascii.GetString(_charsetByteState, 0, 1)?[0];
-        var charsetsOffered = ascii.GetString(_charsetByteState, 1, _charsetByteIndex - 1).Split(sep ?? ' ');
+        // A REQUEST with no bytes at all -- IAC SB CHARSET REQUEST IAC SE -- names no separator and no
+        // charset, so it offers nothing to choose from. Encoding.GetString(bytes, 0, 1) below assumes at
+        // least one byte for the separator; reject rather than let an empty array index out of range.
+        if (bytes.Length == 0)
+        {
+            context.Logger.LogDebug("Empty CHARSET REQUEST - nothing offered, rejecting");
+            await context.SendNegotiationAsync(s_charsetRejected);
+            return;
+        }
+
+        var sep = ascii.GetString(bytes, 0, 1)?[0];
+        var charsetsOffered = ascii.GetString(bytes, 1, bytes.Length - 1).Split(sep ?? ' ');
 
         context.Logger.LogDebug("Charsets offered to us: {@charsetResultDebug}", [..charsetsOffered]);
 
@@ -414,9 +274,9 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         await NotifyCharsetChangeAsync(context);
     }
 
-    private async ValueTask CompleteAcceptedCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    internal async ValueTask CompleteAcceptedCharsetFromBytesAsync(byte[] bytes, IProtocolContext context)
     {
-        var acceptedCharset = Encoding.ASCII.GetString(_acceptedCharsetByteState!, 0, _acceptedCharsetByteIndex).Trim();
+        var acceptedCharset = Encoding.ASCII.GetString(bytes, 0, bytes.Length).Trim();
 
         Encoding negotiated;
         try
@@ -473,7 +333,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         }
     }
 
-    private async ValueTask OnWillingCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask OnWillingCharsetAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Request charset negotiation from Client");
         await OnNegotiatedAsync(true);
@@ -487,7 +347,44 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_willCharset);
     }
 
-    private async ValueTask OnDoCharsetAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private ValueTask OnWontCharsetAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Won't do Character Set - do nothing");
+        return OnNegotiatedAsync(false);
+    }
+
+    private ValueTask OnDontCharsetAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Character Set - do nothing");
+        return OnNegotiatedAsync(false);
+    }
+
+    /// <summary>
+    /// RFC 2066's WILL/WONT/DO/DONT acceptance is symmetric: whichever side receives WILL answers
+    /// DO, and whichever side receives DO answers with the charset list, regardless of which of them
+    /// is the server. Only the initial offer (the server-only <c>RegisterInitialNegotiation</c> in
+    /// <see cref="ConfigureStateMachine"/>) is mode-specific.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.WILL:
+                await OnWillingCharsetAsync(context);
+                break;
+            case (byte)Trigger.WONT:
+                await OnWontCharsetAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                await OnDoCharsetAsync(context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontCharsetAsync(context);
+                break;
+        }
+    }
+
+    private async ValueTask OnDoCharsetAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Charsets String: {CharsetList}", ";" + string.Join(";", GetCharsetOrder(AllowedEncodings()).Select(x => x.WebName)));
         await OnNegotiatedAsync(true);
@@ -509,27 +406,33 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     private void UpdateInterpreterEncoding(IProtocolContext context)
         => context.Interpreter.CurrentEncoding = CurrentEncoding;
 
-    // TTABLE state machine handlers
-    private void GetTTable(StateMachine<State, Trigger>.Transition _) => _ttableBytes.Reset();
+    /// <summary>Resets the TTABLE buffer for the generated machine's TTABLE_IS start event --
+    /// streaming into it rather than an unbounded per-message list is what lets
+    /// <see cref="MaxTTableSize"/> reject an oversized table mid-stream instead of after it has
+    /// already been read into memory.</summary>
+    internal void StartTTableMessage() => _ttableBytes.Reset();
 
-    private void CaptureTTable(ByteOrTrigger b)
+    internal void AppendTTableBytes(ReadOnlyMemory<byte> data)
     {
-        if (b is byte value) _ttableBytes.Add(value);
+        foreach (var b in data.Span) _ttableBytes.Add(b);
     }
 
-    private async ValueTask CompleteTTableAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    internal ValueTask CompleteTTableFromBufferAsync(IProtocolContext context) =>
+        CompleteTTableFromBytesAsync(_ttableBytes.Bytes.ToArray(), context, _ttableBytes.Overflowed);
+
+    private async ValueTask CompleteTTableFromBytesAsync(byte[] ttableData, IProtocolContext context, bool overflowed)
     {
-        context.Logger.LogDebug("Processing TTABLE-IS message with {Bytes} bytes", _ttableBytes.Count);
+        context.Logger.LogDebug("Processing TTABLE-IS message with {Bytes} bytes", ttableData.Length);
 
         try
         {
-            if (_ttableBytes.Overflowed)
+            if (overflowed)
             {
                 // A truncated translation table is a wrong translation table. RFC 2066 gives us a
                 // way to say so, so say it instead of parsing the fragment.
                 context.Logger.LogError(
-                    "TTABLE-IS exceeded the maximum size of {MaxSize} bytes ({ReceivedBytes} bytes received) and was rejected. Raise CharsetProtocol.MaxTTableSize if this is legitimate traffic.",
-                    _ttableBytes.MaxMessageSize, _ttableBytes.ReceivedBytes);
+                    "TTABLE-IS exceeded the maximum size of {MaxSize} bytes and was rejected. Raise CharsetProtocol.MaxTTableSize if this is legitimate traffic.",
+                    MaxTTableSize);
                 await context.SendNegotiationAsync(s_ttableRejected);
                 return;
             }
@@ -537,14 +440,14 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             // Parse TTABLE-IS message according to RFC 2066
             // Format: <version> <sep> <charset1> <sep> <size1> <count1> <charset2> <sep> <size2> <count2> <map1> <map2>
 
-            if (_ttableBytes.Count < TTABLE_MIN_LENGTH)
+            if (ttableData.Length < TTABLE_MIN_LENGTH)
             {
                 context.Logger.LogWarning("TTABLE-IS message too short");
                 await context.SendNegotiationAsync(s_ttableRejected);
                 return;
             }
 
-            var version = _ttableBytes.Bytes[0];
+            var version = ttableData[0];
             if (version != TTABLE_VERSION_1)
             {
                 context.Logger.LogWarning("Unsupported TTABLE version: {Version}", version);
@@ -555,18 +458,19 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             // Invoke callback if registered
             if (_onTTableReceived != null)
             {
-                var ttableData = _ttableBytes.Bytes.ToArray();
-
                 var shouldAccept = await _onTTableReceived.Invoke(ttableData);
                 
-                if (shouldAccept)
+                if (shouldAccept && ParseTTableVersion1(ttableData, context))
                 {
-                    // Parse and store the translation table
-                    ParseTTableVersion1(ttableData, context);
-                    
                     // Send TTABLE-ACK
                     context.Logger.LogInformation("TTABLE accepted and acknowledged");
                     await context.SendNegotiationAsync(s_ttableAck);
+                }
+                else if (shouldAccept)
+                {
+                    // Callback accepted, but the payload didn't parse -- do not ACK a table we never stored
+                    context.Logger.LogWarning("TTABLE-IS accepted by callback but failed to parse; rejecting");
+                    await context.SendNegotiationAsync(s_ttableRejected);
                 }
                 else
                 {
@@ -589,18 +493,18 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         }
     }
 
-    private void ParseTTableVersion1(byte[] ttableData, IProtocolContext context)
+    private bool ParseTTableVersion1(byte[] ttableData, IProtocolContext context)
     {
         try
         {
             // Parse TTABLE version 1 data structure
             // Format: <version> <sep> <charset1> <sep> <size1> <count1> <charset2> <sep> <size2> <count2> <map1> <map2>
-            
+
             var version = ttableData[0];
             if (version != TTABLE_VERSION_1 || ttableData.Length < TTABLE_MIN_LENGTH)
             {
                 context.Logger.LogWarning("Invalid TTABLE format");
-                return;
+                return false;
             }
 
             var sep = (char)ttableData[1];
@@ -616,7 +520,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             if (pos + 4 > ttableData.Length)
             {
                 context.Logger.LogWarning("TTABLE too short for size1 and count1");
-                return;
+                return false;
             }
             
             var size1 = ttableData[pos++];
@@ -632,7 +536,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             if (pos + 4 > ttableData.Length)
             {
                 context.Logger.LogWarning("TTABLE too short for size2 and count2");
-                return;
+                return false;
             }
             
             var size2 = ttableData[pos++];
@@ -646,22 +550,24 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             if (pos + count1 + count2 > ttableData.Length)
             {
                 context.Logger.LogWarning("TTABLE data incomplete for specified counts");
-                return;
+                return false;
             }
-            
+
             // Build translation table from map1 (charset1 -> charset2)
             _currentTranslationTable = new Dictionary<int, int>();
             for (int i = 0; i < count1 && pos + i < ttableData.Length; i++)
             {
                 _currentTranslationTable[i] = ttableData[pos + i];
             }
-            
+
             context.Logger.LogInformation("TTABLE parsed successfully: {Charset1} -> {Charset2} with {Entries} mappings",
                 charset1, charset2, _currentTranslationTable.Count);
+            return true;
         }
         catch (Exception ex)
         {
             context.Logger.LogError(ex, "Error parsing TTABLE version 1 data");
+            return false;
         }
     }
 

@@ -1,12 +1,6 @@
-﻿using Stateless;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System.Collections.Generic;
 using System;
 using System.Buffers;
-using System.Collections.Immutable;
-using TelnetNegotiationCore.Models;
-using TelnetNegotiationCore.Generated;
-using Microsoft.Extensions.Logging;
 
 namespace TelnetNegotiationCore.Interpreters;
 
@@ -15,13 +9,6 @@ namespace TelnetNegotiationCore.Interpreters;
 /// </summary>
 public partial class TelnetInterpreter
 {
-	/// <summary>
-	/// Cached array of every trigger a peer's data can fire, to avoid repeated allocations.
-	/// Uses <see cref="TriggerHelper.DataTriggers"/> so <see cref="Trigger.Error"/> is excluded —
-	/// permitting it here would give the state a second, unguarded <see cref="Trigger.Error"/>
-	/// transition that collides with the recovery transition configured below.
-	/// </summary>
-	private static readonly Trigger[] s_allTriggers = [.. TriggerHelper.DataTriggers];
 	/// <summary>
 	/// The two-byte escaped IAC sequence (0xFF 0xFF) written between segments when escaping.
 	/// Stored as a static array so it can be sliced as a <see cref="ReadOnlySpan{T}"/> and
@@ -123,128 +110,5 @@ public partial class TelnetInterpreter
 			ArrayPool<byte>.Shared.Return(pooled);
 		}
 #endif
-	}
-
-	/// <summary>
-	/// Protect against State Transitions and Telnet Negotiations we do not recognize.
-	/// </summary>
-	/// <remarks>
-	/// TODO: Log what byte was sent using TriggerWithParameter output.
-	/// </remarks>
-	/// <param name="tsm">The state machine.</param>
-	/// <returns>Itself</returns>
-	internal void ApplySafetyConfiguration()
-	{
-		SetupSafeNegotiation(TelnetStateMachine);
-	}
-
-	private StateMachine<State, Trigger> SetupSafeNegotiation(StateMachine<State, Trigger> tsm)
-	{
-		var info = tsm.GetInfo();
-		// Use cached static array instead of generating new one each time
-		var triggers = s_allTriggers;
-		var refuseThese = new List<State> { State.Willing, State.Refusing, State.Do, State.Dont };
-
-		foreach (var stateInfo in info.States.Join(refuseThese, x => x.UnderlyingState, y => y, (x, y) => x))
-		{
-			var state = (State)stateInfo.UnderlyingState;
-			// Use HashSet for O(1) lookups instead of O(n) with Except
-			var handledTriggers = new HashSet<Trigger>(
-				stateInfo.Transitions.Select(x => (Trigger)x.Trigger.UnderlyingTrigger));
-			var outboundUnhandledTriggers = triggers.Where(t => !handledTriggers.Contains(t));
-
-			foreach (var trigger in outboundUnhandledTriggers)
-			{
-				// Use generated GetBadState method instead of Enum.Parse
-				var badState = StateExtensions.GetBadState(state);
-				tsm.Configure(state).Permit(trigger, badState);
-				tsm.Configure(badState)
-					.SubstateOf(State.Accepting);
-
-				// The refusal names the option byte that arrived, taken from the trigger's parameter rather
-				// than from the trigger. An option with no name of its own arrives as ReadNextCharacter,
-				// which is 256: cast to a byte that is 0, and every such offer was answered with a refusal
-				// of BINARY instead of a refusal of the option the peer asked about.
-				if (state is State.Do or State.Willing)
-				{
-					var refusal = state is State.Do ? Trigger.WONT : Trigger.DONT;
-					tsm.Configure(badState)
-						.OnEntryFromAsync(ParameterizedTrigger(trigger), async b =>
-						{
-							var option = b switch { byte arrived => arrived, Trigger unnamed => (byte)unnamed };
-							_logger.LogDebug("Connection: refusing option {Option} with {Refusal}.", option, refusal);
-							await WriteToNetworkAsync((byte[])[(byte)Trigger.IAC, (byte)refusal, option]);
-						});
-				}
-			}
-		}
-
-		var underlyingTriggers = new HashSet<Trigger>(
-			info.States.First(x => (State)x.UnderlyingState == State.SubNegotiation).Transitions
-				.Select(x => (Trigger)x.Trigger.UnderlyingTrigger));
-
-		foreach(var trigger in triggers.Where(t => !underlyingTriggers.Contains(t)))
-		{
-			tsm.Configure(State.SubNegotiation).Permit(trigger, State.BadSubNegotiation);
-		}
-
-		TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.BadSubNegotiation).Permit(t, State.BadSubNegotiationEvaluating));
-		TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.BadSubNegotiationEvaluating).PermitReentry(t));
-
-		tsm.Configure(State.BadSubNegotiation)
-			.Permit(Trigger.IAC, State.BadSubNegotiationEscaping);
-
-		// Name the option we are skipping. The trigger that moved us here from SubNegotiation carries
-		// the option byte, so the log says which peer feature went unhandled instead of just
-		// "Unsupported SubNegotiation."
-		TriggerHelper.ForAllTriggers(t => tsm.Configure(State.BadSubNegotiation)
-			.OnEntryFrom(ParameterizedTrigger(t), b => _logger.LogDebug(
-				"Connection: Unsupported SubNegotiation for option {Option}. Skipping its payload until IAC SE.",
-				b switch { byte option => option, Trigger unnamed => (short)unnamed })));
-		// RFC 855: "the receiver may locate the end of a parameter string by searching for the SE
-		// command (i.e., the string IAC SE), even if the receiver is unable to parse the parameters."
-		// Without this transition the only unsupported subnegotiation that could be skipped was the
-		// empty one (IAC SB <opt> IAC SE); any payload at all left the machine stuck in
-		// BadSubNegotiationEvaluating with nowhere to go on the terminating IAC.
-		tsm.Configure(State.BadSubNegotiationEvaluating)
-			.Permit(Trigger.IAC, State.BadSubNegotiationEscaping);
-		tsm.Configure(State.BadSubNegotiationEscaping)
-			.Permit(Trigger.IAC, State.BadSubNegotiationEvaluating)
-			.Permit(Trigger.SE, State.BadSubNegotiationCompleting);
-		tsm.Configure(State.BadSubNegotiationCompleting)
-			.OnEntry(() => _logger.LogDebug("Connection: Explicitly ignoring the SubNegotiation that was sent."))
-			.SubstateOf(State.Accepting);
-
-		var states = tsm.GetInfo().States.ToImmutableArray();
-		var acceptingStateInfo = states.Where(x => (State)x.UnderlyingState == State.Accepting);
-
-		var statesAllowingForErrorTransitions = states
-			.Except(acceptingStateInfo);
-
-		foreach(var state in statesAllowingForErrorTransitions)
-		{
-			tsm.Configure((State)state.UnderlyingState).Permit(Trigger.Error, State.Accepting);
-		}
-
-		// Accepting is where recovery lands, so it cannot transition on Error - but it must still
-		// *handle* it. Without this, an unhandled trigger fired while in Accepting would be
-		// unhandled itself and re-enter OnUnhandledTriggerAsync forever.
-		tsm.Configure(State.Accepting).Ignore(Trigger.Error);
-
-		tsm.OnUnhandledTriggerAsync(async (state, trigger, unmetGuards) =>
-		{
-			_logger.LogCritical("Bad transition from {@State} with trigger {@Trigger} due to unmet guards: {@UnmetGuards}. Cannot recover. " +
-				"Ignoring character and attempting to recover.", state, trigger, unmetGuards);
-
-			if (trigger == Trigger.Error)
-			{
-				// Recovery itself failed. Firing Error again would recurse; drop the byte instead.
-				return;
-			}
-
-			await tsm.FireAsync(ParameterizedTrigger(Trigger.Error), Trigger.Error);
-		});
-
-		return tsm;
 	}
 }

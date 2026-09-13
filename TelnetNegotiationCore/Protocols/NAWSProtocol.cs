@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -25,8 +24,6 @@ public class NAWSProtocol : TelnetProtocolPluginBase
     private static readonly byte[] s_doNaws = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NAWS };
     private static readonly byte[] s_willNaws = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NAWS };
 
-    private byte[] _nawsByteState = [];
-    private int _nawsIndex = 0;
     private bool _willingToDoNAWS = false;
 
     /// <summary>
@@ -133,107 +130,14 @@ public class NAWSProtocol : TelnetProtocolPluginBase
     public override IReadOnlyCollection<Type> Dependencies => Array.Empty<Type>();
 
     /// <inheritdoc />
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    /// <remarks>
+    /// Negotiation acceptance and the SB NAWS subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and <see cref="OnWindowSizeAsync"/>); this hook survives
+    /// only to register the initial negotiation, a cross-cutting mechanism independent of which
+    /// machine drives byte processing.
+    /// </remarks>
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring NAWS state machine");
-        
-        // Register NAWS protocol handlers with the context
-        context.SetSharedState("NAWS_Protocol", this);
-        
-        // Configure state machine transitions for NAWS protocol
-        stateMachine.Configure(State.Willing)
-            .Permit(Trigger.NAWS, State.WillDoNAWS);
-
-        stateMachine.Configure(State.Refusing)
-            .Permit(Trigger.NAWS, State.WontDoNAWS);
-
-        stateMachine.Configure(State.Dont)
-            .Permit(Trigger.NAWS, State.DontNAWS);
-
-        stateMachine.Configure(State.Do)
-            .Permit(Trigger.NAWS, State.DoNAWS);
-
-        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
-        {
-            stateMachine.Configure(State.DontNAWS)
-                .SubstateOf(State.Accepting)
-                .OnEntry(() => context.Logger.LogDebug("Client won't do NAWS - do nothing"));
-
-            stateMachine.Configure(State.DoNAWS)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await ServerWontNAWSAsync(context));
-        }
-
-        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client)
-        {
-            stateMachine.Configure(State.DontNAWS)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    // Server refused NAWS — must not report window size.
-                    _willingToDoNAWS = false;
-                    context.Logger.LogDebug("Server won't do NAWS - do nothing");
-                    await OnNegotiatedAsync(false);
-                });
-
-            stateMachine.Configure(State.DoNAWS)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    _willingToDoNAWS = true;
-                    await OnNegotiatedAsync(true);
-                });
-        }
-
-        stateMachine.Configure(State.WillDoNAWS)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async x =>
-            {
-                // The peer just sent WILL NAWS. Whether we already sent DO (server mode asks
-                // eagerly at connection start, without waiting for this) or are about to
-                // (RequestNAWSAsync, below), both halves of the exchange are on the wire the
-                // moment this trigger fires -- so this is the genuine completion point, not the
-                // eager initial DO that RequestNAWSAsync alone would otherwise fire early.
-                await RequestNAWSAsync(x, context);
-                await OnNegotiatedAsync(true);
-            });
-
-        stateMachine.Configure(State.WontDoNAWS)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                _willingToDoNAWS = false;
-                await OnNegotiatedAsync(false);
-            });
-
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.NAWS, State.NegotiatingNAWS);
-
-        stateMachine.Configure(State.NegotiatingNAWS)
-            .Permit(Trigger.IAC, State.EscapingNAWSValue)
-            .OnEntry(GetNAWS);
-
-        // Configure all triggers except IAC to permit transition to EvaluatingNAWS
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.NegotiatingNAWS).Permit(t, State.EvaluatingNAWS));
-
-        stateMachine.Configure(State.EvaluatingNAWS)
-            .PermitDynamic(Trigger.IAC, () => _nawsIndex < 4 ? State.EscapingNAWSValue : State.CompletingNAWS);
-
-        // Configure parameterized trigger handlers for all triggers
-        var interpreter = context.Interpreter;
-        TriggerHelper.ForAllTriggers(t => stateMachine.Configure(State.EvaluatingNAWS)
-            .OnEntryFrom(interpreter.ParameterizedTrigger(t), CaptureNAWS));
-
-        // Configure reentry for all triggers except IAC
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.EvaluatingNAWS).PermitReentry(t));
-
-        stateMachine.Configure(State.EscapingNAWSValue)
-            .Permit(Trigger.IAC, State.EvaluatingNAWS);
-
-        stateMachine.Configure(State.CompletingNAWS)
-            .SubstateOf(State.EndSubNegotiation)
-            .OnEntryAsync(async x => await CompleteNAWSAsync(x, context));
-
         // RFC 1073: NAWS describes the CLIENT's window. The client offers it with WILL NAWS and
         // the server enables it with DO NAWS. Only then may the client send SB NAWS. Previously
         // this initial negotiation was ungated, so a client also sent DO NAWS (asking the server
@@ -241,7 +145,7 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         // strict server's telnet parser and swallowed the following line (observed vs SharpMUSH).
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            context.RegisterInitialNegotiation(async () => await RequestNAWSAsync(null, context));
+            context.RegisterInitialNegotiation(async () => await RequestNAWSAsync(context));
         }
         else
         {
@@ -273,18 +177,11 @@ public class NAWSProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnProtocolDisabledAsync()
     {
         Context.Logger.LogInformation("NAWS Protocol disabled");
-        _nawsByteState = [];
-        _nawsIndex = 0;
         return default(ValueTask);
     }
 
     /// <inheritdoc />
-    protected override ValueTask OnDisposeAsync()
-    {
-        _nawsByteState = [];
-        _nawsIndex = 0;
-        return default(ValueTask);
-    }
+    protected override ValueTask OnDisposeAsync() => default(ValueTask);
 
     #region State Machine Handlers
 
@@ -294,7 +191,7 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_wontNaws);
     }
 
-    private async ValueTask RequestNAWSAsync(StateMachine<State, Trigger>.Transition? _, IProtocolContext context)
+    private async ValueTask RequestNAWSAsync(IProtocolContext context)
     {
         if (!_willingToDoNAWS)
         {
@@ -304,31 +201,54 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         }
     }
 
-    private void GetNAWS(StateMachine<State, Trigger>.Transition _)
+    /// <summary>
+    /// What arriving at each of Willing/Refusing/Do/Dont for NAWS does, independent of which machine got
+    /// there — the four branches <see cref="ConfigureStateMachine"/> wires as WillDoNAWS/WontDoNAWS/DoNAWS/DontNAWS.
+    /// </summary>
+    /// <param name="verb">The verb byte: WILL, WONT, DO or DONT.</param>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
     {
-        _nawsByteState = new byte[4];
-        _nawsIndex = 0;
+        switch (verb)
+        {
+            case (byte)Trigger.WILL:
+                // The peer just offered WILL NAWS. Whether we already sent DO (server mode asks eagerly at
+                // connection start) or are about to (RequestNAWSAsync itself), both halves of the exchange
+                // are on the wire the moment this fires -- so this is the genuine completion point.
+                await RequestNAWSAsync(context);
+                await OnNegotiatedAsync(true);
+                break;
+            case (byte)Trigger.WONT:
+                _willingToDoNAWS = false;
+                await OnNegotiatedAsync(false);
+                break;
+            case (byte)Trigger.DO when context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server:
+                // A client asking the server to report a window size the server does not have.
+                await ServerWontNAWSAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                _willingToDoNAWS = true;
+                await OnNegotiatedAsync(true);
+                break;
+            case (byte)Trigger.DONT when context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server:
+                context.Logger.LogDebug("Client won't do NAWS - do nothing");
+                break;
+            case (byte)Trigger.DONT:
+                // Server refused NAWS -- must not report window size.
+                _willingToDoNAWS = false;
+                context.Logger.LogDebug("Server won't do NAWS - do nothing");
+                await OnNegotiatedAsync(false);
+                break;
+        }
     }
 
-    private void CaptureNAWS(ByteOrTrigger b)
+    /// <summary>
+    /// What a window size report does, once its two numbers are known — independent of how they were
+    /// read, so the same call serves the Stateless configuration above and the generated machine.
+    /// </summary>
+    internal async ValueTask OnWindowSizeAsync(int width, int height, IProtocolContext context)
     {
-        // ">" let _nawsIndex == _nawsByteState.Length through and indexed one past the end. A peer
-        // sending a five-byte NAWS payload therefore threw IndexOutOfRangeException out of the
-        // state machine. RFC 1073 defines exactly four payload bytes; anything beyond them is
-        // surplus and is dropped.
-        if (_nawsIndex >= _nawsByteState.Length || b is not byte value) return;
-        _nawsByteState[_nawsIndex] = value;
-        _nawsIndex++;
-    }
-
-    private async ValueTask CompleteNAWSAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
-    {
-        // RFC 1073 sends WIDTH[1] WIDTH[0] HEIGHT[1] HEIGHT[0], high byte first, and gives the option
-        // "a limit of 65535 characters". Reading the pair with BitConverter.ToInt16 made every value
-        // above 32767 arrive negative (0xFFFF came back as -1). Assembling the bytes directly is both
-        // unsigned and endian-independent.
-        ClientWidth = (_nawsByteState[0] << 8) | _nawsByteState[1];
-        ClientHeight = (_nawsByteState[2] << 8) | _nawsByteState[3];
+        ClientWidth = width;
+        ClientHeight = height;
 
         context.Logger.LogDebug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
 

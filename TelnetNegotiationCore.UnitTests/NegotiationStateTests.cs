@@ -16,8 +16,8 @@ namespace TelnetNegotiationCore.UnitTests;
 /// to this option", which nothing exposed until now. These tests cover
 /// <see cref="ITelnetProtocolPlugin.IsNegotiated"/> and <see cref="ITelnetProtocolPlugin.OnNegotiatedAsync"/>:
 /// false before a real WILL/DO exchange completes, true once the peer agrees, and false again if the
-/// peer refuses or withdraws -- wired from each protocol's own <c>ConfigureStateMachine</c> handlers,
-/// not from plugin attachment.
+/// peer refuses or withdraws -- wired from each protocol's own negotiation handlers, not from plugin
+/// attachment.
 /// </summary>
 public class NegotiationStateTests : BaseTest
 {

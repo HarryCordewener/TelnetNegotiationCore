@@ -8,7 +8,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Helpers;
 using TelnetNegotiationCore.Models;
@@ -152,109 +151,53 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// </summary>
     public MSSPConfig GetMSSPConfig() => _msspConfig();
 
-    /// <inheritdoc />
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    private async ValueTask OnDontMsspAsServerAsync(IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring MSSP state machine");
-        
-        // Register MSSP protocol handlers with the context
-        context.SetSharedState("MSSP_Protocol", this);
-        
-        // Configure state machine transitions for MSSP protocol
+        context.Logger.LogDebug("Client won't do MSSP - do nothing");
+        await OnNegotiatedAsync(false);
+    }
+
+    private async ValueTask OnWontMsspAsClientAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Server won't do MSSP - do nothing");
+        await OnNegotiatedAsync(false);
+    }
+
+    /// <summary>
+    /// What arriving at DO/DONT (server) or WILL/WONT (client) for MSSP does -- each mode only ever
+    /// sees one direction.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.DO:
+                await OnDoMSSPAsync(context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontMsspAsServerAsync(context);
+                break;
+            case (byte)Trigger.WILL:
+                await OnWillMSSPAsync(context);
+                break;
+            case (byte)Trigger.WONT:
+                await OnWontMsspAsClientAsync(context);
+                break;
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Negotiation acceptance and the subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and <see cref="CompleteMsspAsync"/>); this hook survives
+    /// only to register the server's initial offer, a cross-cutting mechanism independent of which
+    /// machine drives byte processing.
+    /// </remarks>
+    public override void ConfigureStateMachine(IProtocolContext context)
+    {
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            stateMachine.Configure(State.Do)
-                .Permit(Trigger.MSSP, State.DoMSSP);
-
-            stateMachine.Configure(State.Dont)
-                .Permit(Trigger.MSSP, State.DontMSSP);
-
-            stateMachine.Configure(State.DoMSSP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async x => await OnDoMSSPAsync(x, context));
-
-            stateMachine.Configure(State.DontMSSP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    context.Logger.LogDebug("Client won't do MSSP - do nothing");
-                    await OnNegotiatedAsync(false);
-                });
-
             context.RegisterInitialNegotiation(async () => await WillingMSSPAsync(context));
-        }
-        else
-        {
-            stateMachine.Configure(State.Willing)
-                .Permit(Trigger.MSSP, State.WillMSSP);
-
-            stateMachine.Configure(State.Refusing)
-                .Permit(Trigger.MSSP, State.WontMSSP);
-
-            stateMachine.Configure(State.WillMSSP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnWillMSSPAsync(context));
-
-            stateMachine.Configure(State.WontMSSP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    context.Logger.LogDebug("Server won't do MSSP - do nothing");
-                    await OnNegotiatedAsync(false);
-                });
-
-            stateMachine.Configure(State.SubNegotiation)
-                .Permit(Trigger.MSSP, State.AlmostNegotiatingMSSP)
-                .OnEntry(ClearMSSPState);
-
-            stateMachine.Configure(State.AlmostNegotiatingMSSP)
-                .Permit(Trigger.MSSP_VAR, State.EvaluatingMSSPVar);
-
-            stateMachine.Configure(State.EvaluatingMSSPVar)
-                .Permit(Trigger.MSSP_VAL, State.EvaluatingMSSPVal)
-                .Permit(Trigger.IAC, State.EscapingMSSPVar)
-                .OnEntryFrom(Trigger.MSSP_VAR, () => OnMSSPVariableMarker(context));
-
-            // SE is permitted here as well as after a value: a payload whose last field is a variable
-            // name (IAC SB MSSP MSSP_VAR "FOO" IAC SE) is malformed but real, and without this the
-            // trigger went unhandled and the MSSP state machine stayed wedged for the connection.
-            stateMachine.Configure(State.EscapingMSSPVar)
-                .Permit(Trigger.IAC, State.EvaluatingMSSPVar)
-                .Permit(Trigger.SE, State.CompletingMSSP);
-
-            stateMachine.Configure(State.EvaluatingMSSPVal)
-                .Permit(Trigger.MSSP_VAR, State.EvaluatingMSSPVar)
-                .Permit(Trigger.IAC, State.EscapingMSSPVal)
-                .OnEntryFrom(Trigger.MSSP_VAL, () => OnMSSPValueMarker(context));
-
-            stateMachine.Configure(State.EscapingMSSPVal)
-                .Permit(Trigger.IAC, State.EvaluatingMSSPVal)
-                .Permit(Trigger.SE, State.CompletingMSSP);
-
-            stateMachine.Configure(State.CompletingMSSP)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await ReadMSSPValues(context));
-
-            var interpreter = context.Interpreter;
-            TriggerHelper.ForAllTriggersExcept([Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC],
-                t => stateMachine.Configure(State.EvaluatingMSSPVal).OnEntryFrom(interpreter.ParameterizedTrigger(t), CaptureMSSPFieldByte));
-            TriggerHelper.ForAllTriggersExcept([Trigger.MSSP_VAL, Trigger.MSSP_VAR, Trigger.IAC],
-                t => stateMachine.Configure(State.EvaluatingMSSPVar).OnEntryFrom(interpreter.ParameterizedTrigger(t), CaptureMSSPFieldByte));
-
-            // The only way back into a field on IAC is the un-escape from Escaping*: IAC IAC is one
-            // literal 0xFF data byte (RFC 854, "the IAC need be doubled to be sent as data"), and both
-            // transitions above dropped it because the capture handlers are registered for every
-            // trigger *except* IAC. Registering it here rather than widening those loops keeps the
-            // opening IAC of IAC SE out of the field.
-            stateMachine.Configure(State.EvaluatingMSSPVal)
-                .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.IAC), CaptureMSSPFieldByte);
-            stateMachine.Configure(State.EvaluatingMSSPVar)
-                .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.IAC), CaptureMSSPFieldByte);
-
-            TriggerHelper.ForAllTriggersExcept([Trigger.IAC, Trigger.MSSP_VAR],
-                t => stateMachine.Configure(State.EvaluatingMSSPVal).PermitReentry(t));
-            TriggerHelper.ForAllTriggersExcept([Trigger.IAC, Trigger.MSSP_VAL],
-                t => stateMachine.Configure(State.EvaluatingMSSPVar).PermitReentry(t));
         }
     }
 
@@ -554,7 +497,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_willMssp);
     }
 
-    private async ValueTask OnDoMSSPAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask OnDoMSSPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client wants MSSP data. Sending...");
         await OnNegotiatedAsync(true);
@@ -723,13 +666,28 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// One payload byte of the field being accumulated, whether it is a variable name or a value:
-    /// the two differ only in what <see cref="FlushField"/> does with them at the next marker.
+    /// A stretch of the field being accumulated, whether it is a variable name or a value: the two
+    /// differ only in what <see cref="FlushField"/> does with them at the next marker.
     /// </summary>
-    private void CaptureMSSPFieldByte(ByteOrTrigger b)
+    internal void AppendMsspBytes(ReadOnlyMemory<byte> data)
     {
-        if (b is byte value) _msspBytes.Add(value);
+        foreach (var b in data.Span)
+        {
+            _msspBytes.Add(b);
+        }
     }
+
+    /// <summary>The generated machine's equivalent of AlmostNegotiatingMSSP's OnEntry.</summary>
+    internal void StartMsspMessage() => ClearMSSPState();
+
+    /// <summary>The generated machine's equivalent of <see cref="OnMSSPVariableMarker"/>.</summary>
+    internal void OnMsspVariableMarker(IProtocolContext context) => OnMSSPVariableMarker(context);
+
+    /// <summary>The generated machine's equivalent of <see cref="OnMSSPValueMarker"/>.</summary>
+    internal void OnMsspValueMarker(IProtocolContext context) => OnMSSPValueMarker(context);
+
+    /// <summary>The generated machine's equivalent of <see cref="ReadMSSPValues"/>.</summary>
+    internal ValueTask CompleteMsspAsync(IProtocolContext context) => ReadMSSPValues(context);
 
     private async ValueTask ReadMSSPValues(IProtocolContext context)
     {

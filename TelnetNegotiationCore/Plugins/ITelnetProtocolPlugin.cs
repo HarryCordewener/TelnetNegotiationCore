@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Stateless;
-using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.Plugins;
 
@@ -42,8 +40,8 @@ public interface ITelnetProtocolPlugin
     /// has completed and the peer agreed. False before that ever happens, and false again if the
     /// peer later refuses or withdraws the option -- unlike <see cref="IsEnabled"/>, which does not
     /// move once the plugin is attached. Set only through <see cref="OnNegotiatedAsync"/>, which a
-    /// protocol calls from its own <see cref="ConfigureStateMachine"/> handlers at the point real
-    /// negotiation for its option resolves.
+    /// protocol calls from its own negotiation handlers at the point real negotiation for its option
+    /// resolves.
     /// </summary>
     bool IsNegotiated { get; }
 
@@ -54,14 +52,6 @@ public interface ITelnetProtocolPlugin
     /// <param name="context">The protocol context for interacting with the telnet system</param>
     /// <returns>A task representing the initialization</returns>
     ValueTask InitializeAsync(IProtocolContext context);
-
-    /// <summary>
-    /// Configures the state machine for this protocol.
-    /// Called during telnet interpreter construction.
-    /// </summary>
-    /// <param name="stateMachine">The state machine to configure</param>
-    /// <param name="context">The protocol context</param>
-    void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context);
 
     /// <summary>
     /// Called when the protocol is enabled at runtime.
@@ -77,9 +67,8 @@ public interface ITelnetProtocolPlugin
     /// Called the moment real wire negotiation for this plugin's option resolves -- <c>true</c>
     /// when the peer agreed (a positive WILL/DO exchange completed), <c>false</c> when it refused,
     /// or when an option it had previously agreed to is later withdrawn. Sets
-    /// <see cref="IsNegotiated"/> and is what a protocol's own <see cref="ConfigureStateMachine"/>
-    /// handlers call; it is public so <see cref="Plugins.ProtocolPluginManager"/> and tests can also
-    /// drive it directly.
+    /// <see cref="IsNegotiated"/> and is what a protocol's own negotiation handlers call; it is
+    /// public so <see cref="Plugins.ProtocolPluginManager"/> and tests can also drive it directly.
     /// </summary>
     /// <param name="isNegotiated">True if the peer just agreed, false if it just refused or withdrew.</param>
     ValueTask OnNegotiatedAsync(bool isNegotiated);

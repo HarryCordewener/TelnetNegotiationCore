@@ -7,7 +7,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -447,7 +446,7 @@ public class MudClientProtocol : TelnetProtocolPluginBase
 	/// path instead, which is what lets it take its own lines out of the stream rather than handing
 	/// them to the host application as if a user had typed them.
 	/// </remarks>
-	public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+	public override void ConfigureStateMachine(IProtocolContext context)
 	{
 		context.Logger.LogInformation("Configuring MCP");
 

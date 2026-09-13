@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -97,180 +96,22 @@ public class LineModeProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    /// <remarks>
+    /// Negotiation acceptance and the subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and <see cref="CompleteLineModeFromBytesAsync"/>); this
+    /// hook survives only to register the server's initial offer, a cross-cutting mechanism
+    /// independent of which machine drives byte processing.
+    /// </remarks>
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring Line Mode state machine");
-        
-        // Register Line Mode protocol handlers with the context
-        context.SetSharedState("LineMode_Protocol", this);
-        
-        // Common state machine configuration
-        stateMachine.Configure(State.Willing)
-            .Permit(Trigger.LINEMODE, State.WillLINEMODE);
-
-        stateMachine.Configure(State.Refusing)
-            .Permit(Trigger.LINEMODE, State.WontLINEMODE);
-
-        stateMachine.Configure(State.Do)
-            .Permit(Trigger.LINEMODE, State.DoLINEMODE);
-
-        stateMachine.Configure(State.Dont)
-            .Permit(Trigger.LINEMODE, State.DontLINEMODE);
-        
-        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client)
+        if (context.Mode != Interpreters.TelnetInterpreter.TelnetMode.Client)
         {
-            ConfigureAsClient(stateMachine, context);
+            context.RegisterInitialNegotiation(async () => await SendDoLineModeAsync(context));
         }
-        else
-        {
-            ConfigureAsServer(stateMachine, context);
-        }
-    }
-    
-    private void ConfigureAsClient(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Client handles DO/DONT from server (server asking client to use LINEMODE)
-        stateMachine.Configure(State.DoLINEMODE)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await WillLineModeAsync(context));
-
-        stateMachine.Configure(State.DontLINEMODE)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnDontLineModeAsync(context));
-
-        // Client also handles WILL/WONT from server (server announcing ability to use LINEMODE)
-        stateMachine.Configure(State.WillLINEMODE)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Server is willing to use line mode");
-                await SetLineModeStateAsync(true);
-                await OnNegotiatedAsync(true);
-            });
-
-        stateMachine.Configure(State.WontLINEMODE)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Server won't use line mode");
-                await SetLineModeStateAsync(false);
-                await OnNegotiatedAsync(false);
-            });
-
-        // Handle subnegotiations: IAC SB LINEMODE MODE <mode> IAC SE
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.LINEMODE, State.AlmostNegotiatingLINEMODE);
-
-        stateMachine.Configure(State.AlmostNegotiatingLINEMODE)
-            .Permit(Trigger.LINEMODE_MODE, State.NegotiatingLINEMODE)
-            .Permit(Trigger.LINEMODE_FORWARDMASK, State.NegotiatingLINEMODE)
-            .Permit(Trigger.LINEMODE_SLC, State.NegotiatingLINEMODE);
-
-        // Configure parameterized trigger handlers to capture the mode data
-        var interpreter = context.Interpreter;
-        
-        // Use ForAllTriggersButIAC pattern (like CHARSET) to permit ALL data bytes
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.NegotiatingLINEMODE).Permit(t, State.EvaluatingLINEMODE));
-        
-        stateMachine.Configure(State.NegotiatingLINEMODE)
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_MODE), _ => CaptureSubnegotiationType(SUBNEG_TYPE_MODE))
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_FORWARDMASK), _ => CaptureSubnegotiationType(SUBNEG_TYPE_FORWARDMASK))
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_SLC), _ => CaptureSubnegotiationType(SUBNEG_TYPE_SLC))
-            .Permit(Trigger.IAC, State.CompletingLINEMODE);
-
-        // Capture all data bytes using parameterized triggers (like CHARSET does)
-        TriggerHelper.ForAllTriggers(t => stateMachine.Configure(State.EvaluatingLINEMODE).OnEntryFromAsync(interpreter.ParameterizedTrigger(t), async (b) => await CaptureLineModeDataAsync(b)));
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.EvaluatingLINEMODE).PermitReentry(t));
-        
-        stateMachine.Configure(State.EvaluatingLINEMODE)
-            .Permit(Trigger.IAC, State.CompletingLINEMODE);
-
-        stateMachine.Configure(State.CompletingLINEMODE)
-            .SubstateOf(State.EndSubNegotiation)
-            .OnEntryAsync(async () => await CompleteLineModeAsync(context));
-    }
-    
-    private void ConfigureAsServer(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Server handles WILL/WONT from client (client announcing ability to use LINEMODE)
-        stateMachine.Configure(State.WillLINEMODE)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client is willing to use line mode");
-                await SetLineModeStateAsync(true);
-                await OnNegotiatedAsync(true);
-            });
-
-        stateMachine.Configure(State.WontLINEMODE)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't use line mode");
-                await SetLineModeStateAsync(false);
-                await OnNegotiatedAsync(false);
-            });
-
-        // Server also handles DO/DONT from client (client asking server to use LINEMODE)
-        stateMachine.Configure(State.DoLINEMODE)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await WillLineModeAsync(context));
-
-        stateMachine.Configure(State.DontLINEMODE)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnDontLineModeAsync(context));
-
-        // Server can receive MODE subnegotiations from client
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.LINEMODE, State.AlmostNegotiatingLINEMODE);
-
-        stateMachine.Configure(State.AlmostNegotiatingLINEMODE)
-            .Permit(Trigger.LINEMODE_MODE, State.NegotiatingLINEMODE)
-            .Permit(Trigger.LINEMODE_FORWARDMASK, State.NegotiatingLINEMODE)
-            .Permit(Trigger.LINEMODE_SLC, State.NegotiatingLINEMODE);
-
-        var interpreter = context.Interpreter;
-        
-        // Use ForAllTriggersButIAC pattern (like CHARSET) to permit ALL data bytes
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.NegotiatingLINEMODE).Permit(t, State.EvaluatingLINEMODE));
-        
-        stateMachine.Configure(State.NegotiatingLINEMODE)
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_MODE), _ => CaptureSubnegotiationType(SUBNEG_TYPE_MODE))
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_FORWARDMASK), _ => CaptureSubnegotiationType(SUBNEG_TYPE_FORWARDMASK))
-            .OnEntryFrom(interpreter.ParameterizedTrigger(Trigger.LINEMODE_SLC), _ => CaptureSubnegotiationType(SUBNEG_TYPE_SLC))
-            .Permit(Trigger.IAC, State.CompletingLINEMODE);
-
-        // Capture all data bytes using parameterized triggers (like CHARSET does)
-        TriggerHelper.ForAllTriggers(t => stateMachine.Configure(State.EvaluatingLINEMODE).OnEntryFromAsync(interpreter.ParameterizedTrigger(t), async (b) => await CaptureLineModeDataAsync(b)));
-        TriggerHelper.ForAllTriggersButIAC(t => stateMachine.Configure(State.EvaluatingLINEMODE).PermitReentry(t));
-        
-        stateMachine.Configure(State.EvaluatingLINEMODE)
-            .Permit(Trigger.IAC, State.CompletingLINEMODE);
-
-        stateMachine.Configure(State.CompletingLINEMODE)
-            .SubstateOf(State.EndSubNegotiation)
-            .OnEntryAsync(async () => await CompleteLineModeAsync(context));
-
-        context.RegisterInitialNegotiation(async () => await SendDoLineModeAsync(context));
     }
 
     private int _subnegotiationType = -1;
     private readonly List<byte> _buffer = new();
-
-    private void CaptureSubnegotiationType(int type)
-    {
-        _subnegotiationType = type;
-        _buffer.Clear();
-    }
-
-    private ValueTask CaptureLineModeDataAsync(ByteOrTrigger data)
-    {
-        if (data is byte value)
-        {
-            _buffer.Add(value);
-        }
-        return default(ValueTask);
-    }
 
     /// <inheritdoc />
     protected override ValueTask OnInitializeAsync()
@@ -384,6 +225,58 @@ public class LineModeProtocol : TelnetProtocolPluginBase
         _lineModeEnabled = enabled;
         Context.Logger.LogInformation("Line mode {State}", enabled ? "enabled" : "disabled");
         return default(ValueTask);
+    }
+
+    private async ValueTask OnWillLineModeAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}",
+            context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+                ? "Client is willing to use line mode"
+                : "Server is willing to use line mode");
+        await SetLineModeStateAsync(true);
+        await OnNegotiatedAsync(true);
+    }
+
+    private async ValueTask OnWontLineModeAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}",
+            context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+                ? "Client won't use line mode"
+                : "Server won't use line mode");
+        await SetLineModeStateAsync(false);
+        await OnNegotiatedAsync(false);
+    }
+
+    /// <summary>
+    /// Every verb is answered identically regardless of which side receives it -- WILL and WONT even
+    /// share their handler body verbatim but for log text, and DO/DONT are wired to the exact same
+    /// methods for both server and client.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.WILL:
+                await OnWillLineModeAsync(context);
+                break;
+            case (byte)Trigger.WONT:
+                await OnWontLineModeAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                await WillLineModeAsync(context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontLineModeAsync(context);
+                break;
+        }
+    }
+
+    internal ValueTask CompleteLineModeFromBytesAsync(byte kind, byte[] data, IProtocolContext context)
+    {
+        _subnegotiationType = kind;
+        _buffer.Clear();
+        _buffer.AddRange(data);
+        return CompleteLineModeAsync(context);
     }
 
     private async ValueTask WillLineModeAsync(IProtocolContext context)

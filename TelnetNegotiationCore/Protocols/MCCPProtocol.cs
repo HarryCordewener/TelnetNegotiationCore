@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -101,155 +100,18 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     public override IReadOnlyCollection<Type> Dependencies => Array.Empty<Type>();
 
     /// <inheritdoc />
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    /// <remarks>
+    /// Negotiation acceptance and the compression markers are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and <c>OnMccp1MarkerAsync</c>/<c>OnMccp2MarkerAsync</c>/
+    /// <c>OnMccp3MarkerAsync</c>); this hook survives only to register the server's initial offer, a
+    /// cross-cutting mechanism independent of which machine drives byte processing.
+    /// </remarks>
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring MCCP state machine");
-
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            // MCCP2: the server compresses its output once the client says DO.
-            stateMachine.Configure(State.Do)
-                .Permit(Trigger.MCCP2, State.DoMCCP2);
-
-            stateMachine.Configure(State.Dont)
-                .Permit(Trigger.MCCP2, State.DontMCCP2);
-
-            stateMachine.Configure(State.DoMCCP2)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDoMCCP2Async(context));
-
-            stateMachine.Configure(State.DontMCCP2)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDontMCCP2Async(context));
-
-            // MCCP3: the client compresses its output; the server inflates what it receives.
-            stateMachine.Configure(State.Do)
-                .Permit(Trigger.MCCP3, State.DoMCCP3);
-
-            stateMachine.Configure(State.Dont)
-                .Permit(Trigger.MCCP3, State.DontMCCP3);
-
-            stateMachine.Configure(State.DoMCCP3)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () =>
-                {
-                    context.Logger.LogDebug(
-                        "Client will use MCCP3 - awaiting IAC SB MCCP3 IAC SE before inflating");
-                    _mccp3Negotiated = true;
-                    await ReportAggregateNegotiationAsync();
-                });
-
-            stateMachine.Configure(State.DontMCCP3)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDontMCCP3Async(context));
-
-            // Only the client sends IAC SB MCCP3 IAC SE, so only the server listens for it.
-            ConfigureCompressionMarker(stateMachine, context, version: 3,
-                Trigger.MCCP3, Trigger.IAC, State.NegotiatingMCCP3, State.CompletingMCCP3);
-
-            // v1 only ever compressed server output, so a client sending its marker is starting
-            // nothing a server could inflate. It is still consumed here rather than left to the
-            // unsupported-subnegotiation skipper: its SE has no IAC before it, and the skipper ends
-            // only on IAC SE, so it would read on past the marker and swallow the client's plain text.
-            ConfigureCompressionMarker(stateMachine, context, version: 1,
-                Trigger.MCCP1, Trigger.WILL, State.NegotiatingMCCP1, State.CompletingMCCP1, inflates: false);
-
-            // Server initiates MCCP on connection
             context.RegisterInitialNegotiation(async () => await InitiateMCCPServerAsync(context));
         }
-        else
-        {
-            // MCCP2: the server compresses its output; the client inflates what it receives.
-            stateMachine.Configure(State.Willing)
-                .Permit(Trigger.MCCP2, State.WillMCCP2);
-
-            stateMachine.Configure(State.Refusing)
-                .Permit(Trigger.MCCP2, State.WontMCCP2);
-
-            stateMachine.Configure(State.WillMCCP2)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnWillMCCP2Async(context));
-
-            stateMachine.Configure(State.WontMCCP2)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnWontMCCP2Async(context));
-
-            // MCCP3: the client compresses its output once the server offers it.
-            stateMachine.Configure(State.Willing)
-                .Permit(Trigger.MCCP3, State.WillMCCP3);
-
-            stateMachine.Configure(State.Refusing)
-                .Permit(Trigger.MCCP3, State.WontMCCP3);
-
-            stateMachine.Configure(State.WillMCCP3)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnWillMCCP3Async(context));
-
-            stateMachine.Configure(State.WontMCCP3)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnWontMCCP3Async(context));
-
-            // Only the server sends IAC SB MCCP2 IAC SE, so only the client listens for it.
-            ConfigureCompressionMarker(stateMachine, context, version: 2,
-                Trigger.MCCP2, Trigger.IAC, State.NegotiatingMCCP2, State.CompletingMCCP2);
-
-            // MCCP v1's IAC SB COMPRESS WILL SE starts the same server-to-client stream. Its SE has no
-            // IAC before it, so without this it fell to the unsupported-subnegotiation skipper, which
-            // reads on for an IAC SE -- through the zlib behind the marker, until the compressed bytes
-            // happened to spell one, and then handed the rest of them to the host as text.
-            ConfigureCompressionMarker(stateMachine, context, version: 1,
-                Trigger.MCCP1, Trigger.WILL, State.NegotiatingMCCP1, State.CompletingMCCP1);
-        }
-    }
-
-    /// <summary>
-    /// Wires up <c>IAC SB MCCPn IAC SE</c>, the marker after which everything the peer sends is
-    /// compressed.
-    /// </summary>
-    /// <remarks>
-    /// The completing state is entered on the byte before the <c>SE</c> — the marker's second
-    /// <c>IAC</c>, or v1's <c>WILL</c> — so the inflater goes in on the way <i>out</i> of that state,
-    /// which is the moment the <c>SE</c> is consumed and the compressed stream begins. Installing it
-    /// on entry instead would feed the <c>SE</c> itself to zlib. With <paramref name="inflates"/>
-    /// false the marker is only consumed, for a side that recognises it but has nothing to inflate.
-    /// </remarks>
-    private void ConfigureCompressionMarker(
-        StateMachine<State, Trigger> stateMachine,
-        IProtocolContext context,
-        int version,
-        Trigger option,
-        Trigger beforeSe,
-        State negotiating,
-        State completing,
-        bool inflates = true)
-    {
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(option, negotiating);
-
-        stateMachine.Configure(negotiating)
-            .Permit(beforeSe, completing);
-
-        stateMachine.Configure(completing)
-            .SubstateOf(State.EndSubNegotiation)
-            .OnExitAsync(async transition =>
-            {
-                // Any other trigger out of here is the safety net recovering from a malformed
-                // marker, not the peer starting to compress.
-                if (transition.Trigger != Trigger.SE)
-                {
-                    return;
-                }
-
-                if (inflates)
-                {
-                    await StartInflatingAsync(context, version);
-                }
-                else
-                {
-                    context.Logger.LogDebug(
-                        "MCCP{Version}: ignoring a start marker from a peer that cannot compress with it", version);
-                }
-            });
     }
 
     /// <inheritdoc />
@@ -451,6 +313,88 @@ public class MCCPProtocol : TelnetProtocolPluginBase
         _mccp2Negotiated = false;
         await ReportAggregateNegotiationAsync();
         await StopCompressionAsync(context, version: 2, inbound: false);
+    }
+
+    private async ValueTask OnDoMCCP3Async(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Client will use MCCP3 - awaiting IAC SB MCCP3 IAC SE before inflating");
+        _mccp3Negotiated = true;
+        await ReportAggregateNegotiationAsync();
+    }
+
+    /// <summary>
+    /// MCCP2 and MCCP3 are two option numbers on one protocol class, each mode-gated the opposite way
+    /// -- a server only ever configured DO/DONT for either, a client only ever configured WILL/WONT --
+    /// so both the option and the verb decide which of the eight original handlers this is.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, byte option, IProtocolContext context)
+    {
+        var server = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+
+        if (option == (byte)Trigger.MCCP2)
+        {
+            if (server)
+            {
+                switch (verb)
+                {
+                    case (byte)Trigger.DO: await OnDoMCCP2Async(context); break;
+                    case (byte)Trigger.DONT: await OnDontMCCP2Async(context); break;
+                }
+            }
+            else
+            {
+                switch (verb)
+                {
+                    case (byte)Trigger.WILL: await OnWillMCCP2Async(context); break;
+                    case (byte)Trigger.WONT: await OnWontMCCP2Async(context); break;
+                }
+            }
+        }
+        else if (option == (byte)Trigger.MCCP3)
+        {
+            if (server)
+            {
+                switch (verb)
+                {
+                    case (byte)Trigger.DO: await OnDoMCCP3Async(context); break;
+                    case (byte)Trigger.DONT: await OnDontMCCP3Async(context); break;
+                }
+            }
+            else
+            {
+                switch (verb)
+                {
+                    case (byte)Trigger.WILL: await OnWillMCCP3Async(context); break;
+                    case (byte)Trigger.WONT: await OnWontMCCP3Async(context); break;
+                }
+            }
+        }
+    }
+
+    /// <summary>MCCP2's marker only ever started an inflater on a client -- a server never configured
+    /// a route to it at all, so it is a no-op there rather than an assumption about what it means.</summary>
+    internal ValueTask OnMccp2MarkerAsync(IProtocolContext context) =>
+        context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+            ? default
+            : StartInflatingAsync(context, version: 2);
+
+    /// <summary>MCCP3's marker only ever started an inflater on a server -- the mirror of MCCP2's.</summary>
+    internal ValueTask OnMccp3MarkerAsync(IProtocolContext context) =>
+        context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
+            ? StartInflatingAsync(context, version: 3)
+            : default;
+
+    /// <summary>MCCP1's marker starts the same server-to-client stream MCCP2's does, but only a
+    /// client ever inflates it; a server only ever configured itself to consume and ignore it.</summary>
+    internal ValueTask OnMccp1MarkerAsync(IProtocolContext context)
+    {
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            context.Logger.LogDebug("MCCP1: ignoring a start marker from a peer that cannot compress with it");
+            return default;
+        }
+
+        return StartInflatingAsync(context, version: 1);
     }
 
     private async ValueTask OnDontMCCP3Async(IProtocolContext context)
