@@ -195,6 +195,41 @@ The types defined in RFC 2946, for interoperability:
 - **10**: CAST128_CFB64
 - **11**: CAST128_OFB64
 
+## START and END
+
+`START` and `END` say when the encrypted stream actually begins and ends, and arrive from the peer as
+well as being sent:
+
+```csharp
+.AddPlugin<EncryptionProtocol>()
+    .OnEncryptionStart(keyId => ActivateDecryptionAsync(keyId))   // the peer is encrypting from now
+    .OnEncryptionEnd(() => DeactivateDecryptionAsync())           // and has stopped
+```
+
+`OnEncryptionStart` is handed **the key id alone** — the body after the command byte, which is what
+`SendEncryptionStartAsync` takes, so the two ends of that value have the same shape. `IsEncrypting`
+tracks the pair.
+
+**Which side may send what is fixed by RFC 2946**, and this library enforces it rather than trusting
+the peer to observe it:
+
+| | Sends | Receives |
+| --- | --- | --- |
+| The `WILL` side — a **client** here, since client mode answers `DO ENCRYPT` with `WILL ENCRYPT` | `IS`, `START`, `END` | `SUPPORT`, `REPLY`, `REQUEST-START`, `REQUEST-END` |
+| The `DO` side — a **server** here, since server mode opens with `DO ENCRYPT` | `SUPPORT`, `REPLY`, `REQUEST-START`, `REQUEST-END` | `IS`, `START`, `END` |
+
+A `START` arriving at a client is the peer talking out of turn, and is ignored with a `Warning`:
+acting on it would tell your consumer to decrypt a stream nobody is encrypting. A `DO` side that
+wants encryption to begin has `REQUEST-START` for it. One arriving **before the option is
+negotiated** is ignored for the same reason.
+
+## Bytes that look like protocol
+
+A subnegotiation ends at `IAC SE`, so a payload byte that is 0xFF has to go out as `IAC IAC` or the
+peer reads it as the terminator. Key ids and initialisation data are arbitrary bytes — 0xFF in them
+is one value in 256, not an edge case — so this library escapes on the way out and unescapes on the
+way in. What your callback is handed is the payload, with one byte per byte the peer meant.
+
 ## Encryption commands
 - **IS (0)**: Sent by WILL side to initialize encryption type
 - **SUPPORT (1)**: Sent by DO side with list of supported types

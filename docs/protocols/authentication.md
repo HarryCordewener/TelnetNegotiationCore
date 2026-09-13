@@ -178,6 +178,13 @@ not a parsed structure. `OnAuthenticationResponse` gets `[IS, authType, modifier
 `OnAuthenticationRequest` gets `[SEND, authType, modifiers, authType, modifiers, …]`. What you send
 back is the same shape without the command byte: the plugin writes that for you.
 
+## Bytes that look like protocol
+
+A subnegotiation ends at `IAC SE`, so a credential byte that is 0xFF has to go out as `IAC IAC` or
+the peer reads it as the terminator and the rest of the stream desyncs. Credentials are whatever the
+mechanism produced, so that is one byte in 256 rather than an exotic case. This library escapes on
+the way out and unescapes on the way in; your callback sees the credential, not the framing.
+
 ## Authentication types and modifiers
 Common authentication types defined in RFC 2941:
 - **0**: NULL (no authentication)

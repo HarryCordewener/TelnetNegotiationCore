@@ -5,7 +5,8 @@ using StateAlchemist;
 namespace TelnetNegotiationCore.Machine;
 
 // ENCRYPT (RFC 2946, option 38): the same shape as AUTHENTICATION — SEND asks which types are supported, IS
-// carries the initialization data, and IAC always ends the capture with no doubling. START and END are the
+// carries the initialization data, and an IAC is either the terminator or, doubled, a literal 0xFF in the
+// payload — an initialization blob or a keyid is arbitrary bytes, so that is one value in 256. START and END are the
 // WILL side's own markers -- "I am now/no longer encrypting what I send" -- rather than part of the
 // SEND/IS exchange. START carries a keyid payload, captured the same way SEND/IS are; END carries none at
 // all, so one boolean field does the job the way MCCP2/MCCP3's markers already do, rather than a second
@@ -152,10 +153,23 @@ public static class EncryptionModule
         to.Overflowed = from.Overflowed;
     }
 
-    /// <summary>Anything but SE here is malformed; ignored rather than left unhandled.</summary>
+    /// <summary>Anything but SE or a second IAC here is malformed; ignored rather than left unhandled.</summary>
     [Transition(From = typeof(EncryptionEnding)), OnAny]
     public static void IgnoreMalformedEnding()
     {
+    }
+
+    /// <summary>
+    /// A second IAC: the first one stood for a literal 0xFF in the payload rather than the
+    /// terminator, so it goes into the data and the capture resumes.
+    /// </summary>
+    [Transition(From = typeof(EncryptionEnding), To = typeof(EncryptionValue)), On(IAC)]
+    public static void Escaped(in EncryptionEnding from, ref EncryptionValue to)
+    {
+        to.IsReport = from.IsReport;
+        to.Data = from.Data;
+        to.Overflowed = from.Overflowed;
+        Capture(ref to, stackalloc byte[] { IAC });
     }
 
     [Transition(From = typeof(EncryptionEnding), To = typeof(Idle)), On(SE)]
@@ -216,6 +230,15 @@ public static class EncryptionModule
     [Transition(From = typeof(EncryptionStartEnding), To = typeof(SubNegotiating)), OnAny]
     public static void IgnoreMalformedStartEnding()
     {
+    }
+
+    /// <summary>A doubled IAC inside START's keyid, the same as in an IS body.</summary>
+    [Transition(From = typeof(EncryptionStartEnding), To = typeof(EncryptionStart)), On(IAC)]
+    public static void EscapedStart(in EncryptionStartEnding from, ref EncryptionStart to)
+    {
+        to.Data = from.Data;
+        to.Overflowed = from.Overflowed;
+        CaptureStart(ref to, stackalloc byte[] { IAC });
     }
 
     [Transition(From = typeof(EncryptionStartEnding), To = typeof(Idle)), On(SE)]

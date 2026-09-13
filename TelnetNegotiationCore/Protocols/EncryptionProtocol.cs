@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Attributes;
+using TelnetNegotiationCore.Helpers;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -297,7 +298,7 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
             ENC_SUPPORT
         };
 
-        bytes.AddRange(encryptionTypes);
+        SubnegotiationEscaping.AppendEscaped(bytes, encryptionTypes);
         bytes.Add((byte)Trigger.IAC);
         bytes.Add((byte)Trigger.SE);
 
@@ -335,7 +336,7 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
             ENC_IS
         };
 
-        bytes.AddRange(encryptionData);
+        SubnegotiationEscaping.AppendEscaped(bytes, encryptionData);
         bytes.Add((byte)Trigger.IAC);
         bytes.Add((byte)Trigger.SE);
 
@@ -360,7 +361,7 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
             ENC_REPLY
         };
 
-        bytes.AddRange(replyData);
+        SubnegotiationEscaping.AppendEscaped(bytes, replyData);
         bytes.Add((byte)Trigger.IAC);
         bytes.Add((byte)Trigger.SE);
 
@@ -386,7 +387,7 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         };
 
         if (keyId != null && keyId.Length > 0)
-            bytes.AddRange(keyId);
+            SubnegotiationEscaping.AppendEscaped(bytes, keyId);
         else
             bytes.Add(0); // Default keyid
 
@@ -437,7 +438,7 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         };
 
         if (keyId != null && keyId.Length > 0)
-            bytes.AddRange(keyId);
+            SubnegotiationEscaping.AppendEscaped(bytes, keyId);
 
         bytes.Add((byte)Trigger.IAC);
         bytes.Add((byte)Trigger.SE);
@@ -622,6 +623,22 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     /// </summary>
     internal async ValueTask ProcessEncryptionStartFromBytesAsync(byte[] keyId, IProtocolContext context)
     {
+        // RFC 2946 splits the messages by role: the side that said WILL sends IS, START and END;
+        // the side that said DO sends SUPPORT, REPLY and the REQUEST- pair. Client mode answers
+        // DO ENCRYPT with WILL ENCRYPT, so a client is always the WILL side and a START arriving at
+        // one is the peer talking out of turn. Acting on it would tell the consumer to decrypt a
+        // stream nobody is encrypting; a DO side that wants encryption to begin has REQUEST-START.
+        //
+        // IsNegotiated, not IsEnabled: the second only means the plugin is registered, so a server
+        // that offered DO ENCRYPT and was ignored would otherwise pass this.
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client || !IsNegotiated)
+        {
+            context.Logger.LogWarning(
+                "ENCRYPT: a START arrived that this side may not act on (mode {Mode}, negotiated {Negotiated}). Ignoring",
+                context.Mode, IsNegotiated);
+            return;
+        }
+
         context.Logger.LogDebug("Encryption started by peer");
         _isEncrypting = true;
 
@@ -638,6 +655,22 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     /// <summary>A genuine END marker arrived: the peer has stopped encrypting what it sends.</summary>
     internal async ValueTask ProcessEncryptionEndFromBytesAsync(IProtocolContext context)
     {
+        // RFC 2946 splits the messages by role: the side that said WILL sends IS, START and END;
+        // the side that said DO sends SUPPORT, REPLY and the REQUEST- pair. Client mode answers
+        // DO ENCRYPT with WILL ENCRYPT, so a client is always the WILL side and a END arriving at
+        // one is the peer talking out of turn. Acting on it would tell the consumer to decrypt a
+        // stream nobody is encrypting; a DO side that wants encryption to begin has REQUEST-START.
+        //
+        // IsNegotiated, not IsEnabled: the second only means the plugin is registered, so a server
+        // that offered DO ENCRYPT and was ignored would otherwise pass this.
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client || !IsNegotiated)
+        {
+            context.Logger.LogWarning(
+                "ENCRYPT: an END arrived that this side may not act on (mode {Mode}, negotiated {Negotiated}). Ignoring",
+                context.Mode, IsNegotiated);
+            return;
+        }
+
         context.Logger.LogDebug("Encryption ended by peer");
         _isEncrypting = false;
 

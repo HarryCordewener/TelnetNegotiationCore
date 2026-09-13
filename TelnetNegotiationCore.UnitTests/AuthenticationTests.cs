@@ -497,4 +497,74 @@ public class AuthenticationTests : BaseTest
         
         await server.DisposeAsync();
     }
+    /// <summary>
+    /// Credentials are whatever the mechanism produced, so a 0xFF among them is one byte in 256 —
+    /// not an edge case. Unescaped it ends the subnegotiation early and desyncs the peer's parser.
+    /// </summary>
+    [Test]
+    public async Task AnEscapedIacInAnIsBodyIsOneByte()
+    {
+        byte[] receivedAuthData = null;
+
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<AuthenticationProtocol>()
+                .OnAuthenticationResponse(data => { receivedAuthData = data; return ValueTask.CompletedTask; }));
+
+        await InterpretAndWaitAsync(server, new byte[]
+        {
+            (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.AUTHENTICATION
+        });
+
+        await InterpretAndWaitAsync(server, new byte[]
+        {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.AUTHENTICATION,
+            0,                                        // IS
+            5, 0,                                     // SRP, no modifiers
+            (byte)Trigger.IAC, (byte)Trigger.IAC,     // one 0xFF of credential
+            0x02,
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        });
+
+        await AssertByteArraysEqual(receivedAuthData, new byte[] { 0, 5, 0, 0xFF, 0x02 });
+
+        await server.DisposeAsync();
+    }
+
+    /// <summary>The sending half: a 0xFF in what a caller hands the plugin goes out doubled.</summary>
+    [Test]
+    public async Task AnIacInCredentialsIsDoubledOnTheWire()
+    {
+        byte[] negotiationOutput = null;
+
+        var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(data => { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; })
+            .AddPlugin<AuthenticationProtocol>());
+
+        await InterpretAndWaitAsync(client, new byte[]
+        {
+            (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.AUTHENTICATION
+        });
+
+        var auth = client.PluginManager!.GetPlugin<AuthenticationProtocol>()!;
+        await auth.SendAuthenticationResponseAsync(new byte[] { 5, 0, 0xFF, 0x02 });
+
+        await AssertByteArraysEqual(negotiationOutput, new byte[]
+        {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.AUTHENTICATION,
+            0,                                        // IS
+            5, 0,
+            (byte)Trigger.IAC, (byte)Trigger.IAC,     // the credential's 0xFF, escaped
+            0x02,
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        });
+
+        await client.DisposeAsync();
+    }
 }

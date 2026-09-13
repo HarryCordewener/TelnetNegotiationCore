@@ -3,6 +3,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **ENCRYPT and AUTHENTICATION did not escape `IAC` in a subnegotiation payload, in either
+  direction.** A credential byte or an encryption key id of 0xFF went out unescaped, where any
+  receiver reads it as the `IAC` that ends the subnegotiation and the rest of the stream desyncs; a
+  peer that escaped one correctly had its message truncated at that byte instead. Both now double it
+  on the way out and collapse it on the way in, as NAWS and MSSP already did. A callback is handed
+  the payload, one byte per byte the peer meant.
+- **A peer's ENCRYPT `START` and `END` are gated by role and by phase.** RFC 2946 gives them to the
+  side that said `WILL`, which here is always a client — so a server receives them and a client
+  ignores them with a `Warning`, rather than reporting to its consumer that a stream nobody is
+  encrypting has started. One arriving before the option is negotiated is ignored too.
+
+### Added
+- **`EncryptionTests`**, the first tests `EncryptionProtocol` itself has had: negotiation both ways,
+  the `SUPPORT` and `IS` bodies, the NULL rejection, `START` and `END`, and every send method's
+  frame. `AuthenticationTests` gains the escaping pair.
+
+
+## [Unreleased]
+
 ### Changed
 - **A peer may no longer authenticate or encrypt with a mechanism it was never offered.** When
   `WithAuthenticationTypes` or `WithEncryptionTypes` is configured, the plugin remembers what it put
