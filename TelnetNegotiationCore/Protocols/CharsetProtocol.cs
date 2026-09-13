@@ -688,15 +688,28 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             throw new InvalidOperationException("Protocol not initialized");
         }
 
-        var preamble = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_IS };
-        var postamble = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SE };
-        
-        var message = new byte[preamble.Length + ttableData.Length + postamble.Length];
-        Array.Copy(preamble, 0, message, 0, preamble.Length);
-        Array.Copy(ttableData, 0, message, preamble.Length, ttableData.Length);
-        Array.Copy(postamble, 0, message, preamble.Length + ttableData.Length, postamble.Length);
-        
-        await Context.SendNegotiationAsync(message);
+        // RFC 2066: "All octets of value 255 (other than IAC) MUST be quoted to conform with TELNET
+        // requirements." A translation table maps between character sets, so an entry for any 8-bit
+        // charset's 0xFF -- ISO-8859-1 'y with diaeresis', for one -- puts that byte in the payload.
+        //
+        // Sent raw it is worse than a desync: the receive side in CharsetModule already collapses
+        // IAC IAC back to one literal byte, so an unescaped 0xFF was read as the start of an escape
+        // and the table came back with bytes missing. This library mis-parsed its own output, the
+        // same one-directional asymmetry that was fixed for ENCRYPT and AUTHENTICATION.
+        //
+        // CHARSET's other payloads cannot reach this: ACCEPTED and REQUEST build their charset lists
+        // with Encoding.ASCII, which maps anything outside 0x00-0x7F to '?'.
+        var message = new List<byte>(ttableData.Length + 6)
+        {
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_IS,
+        };
+
+        Helpers.SubnegotiationEscaping.AppendEscaped(message, ttableData);
+
+        message.Add((byte)Trigger.IAC);
+        message.Add((byte)Trigger.SE);
+
+        await Context.SendNegotiationAsync(message.ToArray());
         Context.Logger.LogInformation("Sent TTABLE-IS message with {Bytes} bytes", ttableData.Length);
     }
 

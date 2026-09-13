@@ -26,6 +26,17 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **CHARSET's `TTABLE-IS` did not escape `IAC` in the translation table it sent.** RFC 2066: "All
+  octets of value 255 (other than IAC) MUST be quoted to conform with TELNET requirements." A
+  translation table maps between character sets, so an entry for any 8-bit charset's `0xFF` — ISO
+  8859-1 `ÿ`, for one — puts that byte in the payload, and `SendTTableAsync` copied it in raw.
+  - Worse than a desync: the receive side already collapses `IAC IAC` back to one literal byte, so an
+    unescaped `0xFF` was read as the start of an escape and the table came back with bytes missing.
+    Sending `[0, 255, 65, 255, 255, 66]` read back as `[0, 65, 255, 66]` — this library mis-parsed its
+    own output, the same one-directional asymmetry that was fixed for ENCRYPT and AUTHENTICATION.
+  - CHARSET's other payloads could never reach it: `ACCEPTED` and `REQUEST` build their charset lists
+    with `Encoding.ASCII`, which maps anything outside 0x00–0x7F to `?`.
+
 - **A client no longer silently accepts `DO ECHO`, and a server no longer accepts `WILL ECHO`.**
   `EchoProtocol.OnPeerNegotiatedAsync` routed every verb to a handler written for one role —
   `OnDoEchoAsync`'s own log line reads "Client requests server to echo", true only when this side is
@@ -98,6 +109,13 @@ All notable changes to this project will be documented in this file.
   encrypting has started. One arriving before the option is negotiated is ignored too.
 
 ### Added
+
+- **`MsdpWireEscapingTests`**, covering what MSDP puts on the wire. `SendMSDPPayloadAsync` and
+  `SendMSDPCommand` escape correctly and always have, but nothing asserted it — the behaviour was
+  documented in a comment and nothing held it in place, while GMCP, MSSP, NAWS, ENCRYPT and
+  AUTHENTICATION all had tests for theirs. Covers the framing, a literal `0xFF` in a payload and in a
+  command argument, a payload with no `0xFF` going out verbatim, and the round trip back through the
+  machine.
 
 - **`CarriageReturnMode`, and a choice about what a carriage return means.** A `NUL` after a carriage
   return used to reach the consumer as a literal `0x00` inside the line, which matches no RFC and no
