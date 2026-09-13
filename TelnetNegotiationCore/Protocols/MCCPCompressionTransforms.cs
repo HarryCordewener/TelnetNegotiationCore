@@ -164,6 +164,24 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 			return FailAsync();
 		}
 
+		// Counted before the stream-end check, not after: a peer that blows the budget on the very
+		// byte that ends its stream still blew it, and leaving that call out of the accounting would
+		// make the running total quietly wrong for anyone who reads it later. The exposure either
+		// way is one call -- at most DEFLATE's 1,032 bytes from one input byte -- since an ended
+		// stream inflates nothing further; the reason to count it is that the invariant should be
+		// true, not that the byte matters.
+		_inflatedOut += written;
+
+		if (ExpansionIsImplausible())
+		{
+			_failed = true;
+			_logger.LogError(
+				"MCCP: the peer's stream claims to expand {InflatedBytes} bytes out of {CompressedBytes} "
+				+ "({Ratio}:1, ceiling {Ceiling}:1). Decompression stopped",
+				_inflatedOut, _compressedIn, _inflatedOut / Math.Max(_compressedIn, 1), _maxExpansionRatio);
+			return FailAsync();
+		}
+
 		if (StreamHasEnded())
 		{
 			_ended = true;
@@ -175,18 +193,6 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 			// Dropping it would lose the peer's own "I have stopped compressing" negotiation.
 			written += TakeUnconsumedInput(written);
 			return EndAsync(written);
-		}
-
-		_inflatedOut += written;
-
-		if (ExpansionIsImplausible())
-		{
-			_failed = true;
-			_logger.LogError(
-				"MCCP: the peer's stream claims to expand {InflatedBytes} bytes out of {CompressedBytes} "
-				+ "({Ratio}:1, ceiling {Ceiling}:1). Decompression stopped",
-				_inflatedOut, _compressedIn, _inflatedOut / Math.Max(_compressedIn, 1), _maxExpansionRatio);
-			return FailAsync();
 		}
 
 		return new ValueTask<ReadOnlyMemory<byte>>(_output.AsMemory(0, written));
