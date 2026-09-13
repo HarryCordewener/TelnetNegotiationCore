@@ -15,6 +15,13 @@ public class RecordingTelnetContext : TelnetCoreContext
 {
     private readonly StringBuilder _line = new();
 
+    /// <summary>
+    /// The line being accumulated that has not been submitted yet. A stream whose trailing text
+    /// never receives its newline is otherwise indistinguishable from one that dropped the text,
+    /// which is a difference every generated property needs to see.
+    /// </summary>
+    public string PendingText => _line.ToString();
+
     public List<string> Lines { get; } = [];
 
     public List<string> Negotiations { get; } = [];
@@ -442,5 +449,137 @@ public class RecordingTelnetContext : TelnetCoreContext
     {
         Eors++;
         return default;
+    }
+
+    /// <summary>
+    /// Every recorded field rendered to one deterministic string, so that two runs compare with a
+    /// single equality and a failure prints a readable diff rather than thirty-six assertions.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The order is fixed and alphabetical by field name rather than by declaration, so that adding
+    /// a field to this class cannot silently reorder an existing snapshot.
+    /// </para>
+    /// <para>
+    /// <see cref="Write"/> call boundaries are deliberately absent. Chunking a stream legitimately
+    /// changes how byte runs batch into <see cref="Write"/> calls; a snapshot that could see those
+    /// boundaries would make the fragmentation property fail on every case for a reason of no
+    /// interest to anyone. The contract is which bytes arrive in which order, not how many calls
+    /// delivered them.
+    /// </para>
+    /// </remarks>
+    public string Snapshot()
+    {
+        var sb = new StringBuilder();
+
+        Bytes(sb, "AuthenticationIsMessages", AuthenticationIsMessages);
+        Bytes(sb, "AuthenticationSends", AuthenticationSends);
+        Bytes(sb, "CharsetAccepted", CharsetAccepted);
+        Count(sb, "CharsetRejections", CharsetRejections);
+        Bytes(sb, "CharsetRequests", CharsetRequests);
+        Count(sb, "CharsetTTableAcks", CharsetTTableAcks);
+        Count(sb, "CharsetTTableNaks", CharsetTTableNaks);
+        Count(sb, "CharsetTTableRejections", CharsetTTableRejections);
+        Bytes(sb, "CharsetTTables", CharsetTTables);
+        Count(sb, "EncryptionEnds", EncryptionEnds);
+        Bytes(sb, "EncryptionIsMessages", EncryptionIsMessages);
+        Bytes(sb, "EncryptionSends", EncryptionSends);
+        Bytes(sb, "EncryptionStarts", EncryptionStarts);
+        Strings(sb, "EnvironEvents", EnvironEvents);
+        Count(sb, "Eors", Eors);
+        Octets(sb, "FlowControlCommands", FlowControlCommands);
+        Bytes(sb, "GmcpMessages", GmcpMessages);
+        Count(sb, "GoAheads", GoAheads);
+
+        sb.Append("LineModeMessages=");
+        foreach (var (kind, data) in LineModeMessages)
+        {
+            sb.Append(kind).Append(':').Append(Hex(data)).Append(',');
+        }
+
+        sb.Append(';');
+
+        Strings(sb, "Lines", Lines);
+        Count(sb, "Mccp1Markers", Mccp1Markers);
+        Count(sb, "Mccp2Markers", Mccp2Markers);
+        Count(sb, "Mccp3Markers", Mccp3Markers);
+        Bytes(sb, "MsdpMessages", MsdpMessages);
+        Strings(sb, "MsspEvents", MsspEvents);
+        Count(sb, "MxpStarts", MxpStarts);
+        Strings(sb, "Negotiations", Negotiations);
+        Strings(sb, "NewEnvironEvents", NewEnvironEvents);
+        Strings(sb, "PendingText", [PendingText]);
+        Octets(sb, "SubNegotiations", SubNegotiations);
+        Bytes(sb, "TerminalSpeedReports", TerminalSpeedReports);
+        Count(sb, "TerminalSpeedRequests", TerminalSpeedRequests);
+        Bytes(sb, "TerminalTypeReports", TerminalTypeReports);
+        Count(sb, "TerminalTypeRequests", TerminalTypeRequests);
+
+        sb.Append("Windows=");
+        foreach (var (width, height) in Windows)
+        {
+            sb.Append(width).Append('x').Append(height).Append(',');
+        }
+
+        sb.Append(';');
+
+        Bytes(sb, "XDisplayLocationReports", XDisplayLocationReports);
+        Count(sb, "XDisplayLocationRequests", XDisplayLocationRequests);
+
+        return sb.ToString();
+
+        static void Count(StringBuilder sb, string name, int value) =>
+            sb.Append(name).Append('=').Append(value).Append(';');
+
+        static void Octets(StringBuilder sb, string name, List<byte> values)
+        {
+            sb.Append(name).Append('=');
+            foreach (var value in values)
+            {
+                sb.Append(value).Append(',');
+            }
+
+            sb.Append(';');
+        }
+
+        static void Bytes(StringBuilder sb, string name, List<byte[]> values)
+        {
+            sb.Append(name).Append('=');
+            foreach (var value in values)
+            {
+                sb.Append(Hex(value)).Append(',');
+            }
+
+            sb.Append(';');
+        }
+
+        static void Strings(StringBuilder sb, string name, IReadOnlyList<string> values)
+        {
+            sb.Append(name).Append('=');
+            foreach (var value in values)
+            {
+                // Length-prefixed so that ["a", "bc"] and ["ab", "c"] cannot collide.
+                sb.Append(value.Length).Append(':').Append(value).Append(',');
+            }
+
+            sb.Append(';');
+        }
+    }
+
+    /// <summary>Lower-case hex, so a snapshot diff points at a byte rather than at a code point.</summary>
+    private static string Hex(byte[] value)
+    {
+        if (value is null)
+        {
+            return "null";
+        }
+
+        var sb = new StringBuilder(value.Length * 2);
+        foreach (var b in value)
+        {
+            sb.Append(b.ToString("x2"));
+        }
+
+        return sb.ToString();
     }
 }
