@@ -26,6 +26,21 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **NEW-ENVIRON and ENVIRON now decode RFC 1572's and RFC 1408's `ESC` on the receive path.** Both
+  RFCs escape the four type bytes inside a name or a value — a literal `VAR` is sent as `ESC VAR`,
+  and an `ESC` itself as `ESC ESC` — and `NewEnvironProtocol.AppendEscaped` has always honoured that
+  when sending. Neither state machine module decoded it when receiving: the escape leaked through as
+  a literal `0x02` and the byte it was escaping was read as a real marker, splitting the value in
+  two. The library mis-parsed its own output, which is the same one-directional asymmetry fixed for
+  ENCRYPT and AUTHENTICATION above. An `ESC` before a byte that did not need escaping, and a trailing
+  `ESC` before `IAC SE`, are consumed as libtelnet consumes them.
+  - MNES forbids these bytes inside names and values, so MUD traffic never triggered it. A general
+    telnet peer is under no such restriction, and NEW-ENVIRON values arrive pre-authentication.
+- **The interpreter no longer discards carriage returns on its own account.** `WriteToBufferAndAdvance`
+  dropped `CR` independently of the state machine, so the two layers decided the same policy and the
+  lower one won silently. The machine is now the only place that decides. No change under the default
+  mode, where the machine never writes one.
+
 - **A CHARSET `REQUEST` offering a translation table was rejected outright.** RFC 2066 allows a
   `REQUEST` to be prefixed `{ "[TTABLE ]" <Version> }` to say the sender will accept a mapping
   between any charset it listed and any the receiver wants. That prefix sits *before* the separator
@@ -50,6 +65,26 @@ All notable changes to this project will be documented in this file.
   encrypting has started. One arriving before the option is negotiated is ignored too.
 
 ### Added
+
+- **`CarriageReturnMode`, and a choice about what a carriage return means.** A `NUL` after a carriage
+  return used to reach the consumer as a literal `0x00` inside the line, which matches no RFC and no
+  other implementation — every one checked consumes it. That part was simply a defect. What `CR NUL`
+  *means*, though, two standards read two ways, and both are right about their own case: RFC 1123
+  §3.3.1 requires that "CR LF and CR NUL MUST have the same effect on an ASCII server host when
+  received as input", while RFC 854 and libtelnet's `TELNET_FLAG_NVT_EOL` make it a literal carriage
+  return. So it is now a setting:
+  - `.DropCarriageReturns()` — discard it, and consume a `NUL` that follows. **The default**, and
+    what this library has always done apart from the leaked `NUL`. A consumer that sets nothing keeps
+    what it had.
+  - `.TreatCarriageReturnNullAsLineEnd()` — `CR NUL` ends the line, per RFC 1123. What a server
+    accepting arbitrary telnet clients wants, since some send `CR NUL` for the end-of-line key.
+  - `.PreserveCarriageReturns()` — deliver a literal `CR`, per RFC 854. What a client wants when the
+    peer's carriage returns carry meaning, such as a MUD overprinting an ASCII spinner.
+  - `.WithCarriageReturnMode(CarriageReturnMode)` takes the enum directly. `CR LF` ends a line in
+    every mode, and so does a bare `LF`. See
+    [Line endings and carriage returns](docs/guides/line-endings.md).
+  - Receive only. This library adds no outbound line terminator and still does not; what you write is
+    what goes out.
 
 - **A property-based regression suite for the negotiation engine.** Seven invariants asserted over
   generated input rather than over hand-picked examples, because the 899 example-based tests were

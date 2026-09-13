@@ -62,3 +62,22 @@ var telnet = await new TelnetInterpreterBuilder()
 **Note:** `NewEnvironProtocol` (RFC 1572) is the option to use for user-defined variables and for
 MNES. Both can be registered on one connection.
 
+
+## Escaped type bytes
+
+The four type bytes — `VAR` (0), `VALUE` (1), `ESC` (2) and `USERVAR` (3) — cannot appear
+literally inside a name or a value, because a receiver would read them as structure. RFC 1408
+therefore escapes each with a preceding `ESC`: a literal `VAR` is sent as `ESC VAR`, and an
+`ESC` itself as `ESC ESC`. `IAC` is doubled separately, as everywhere else.
+
+Both directions are handled for you. Names and values you supply are escaped on the way out, and a
+peer's escapes are decoded on the way in, so a callback receives the bytes the peer meant rather
+than the bytes it sent. Two cases the RFC leaves open are resolved the way libtelnet resolves them:
+an `ESC` before a byte that did not need escaping is consumed and the byte delivered literally,
+and an `ESC` immediately before `IAC SE` escapes nothing and is consumed.
+
+Decoding on receive was added after the fact — see
+[#110](https://github.com/HarryCordewener/TelnetNegotiationCore/issues/110). Before that an escaped
+type byte was read as a real marker, which split the value it was inside. MNES forbids these bytes in
+names and values, which is why it went unnoticed for so long; a general telnet peer is under no such
+restriction.
