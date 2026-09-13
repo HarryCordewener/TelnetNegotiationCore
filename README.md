@@ -9,6 +9,7 @@
   <a href="https://scorecard.dev/viewer/?uri=github.com/HarryCordewener/TelnetNegotiationCore"><img alt="OpenSSF Scorecard" src="https://img.shields.io/ossf-scorecard/github.com/HarryCordewener/TelnetNegotiationCore?style=for-the-badge&label=scorecard"></a>
   <a href="https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/HarryCordewener/TelnetNegotiationCore?style=for-the-badge"></a>
   <a href="https://discord.gg/SK2cWERJF7"><img alt="Discord" src="https://img.shields.io/discord/1193672869104861195?style=for-the-badge&logo=discord&logoColor=white&label=discord"></a>
+  <a href="https://www.bestpractices.dev/projects/14596"><img alt="Best Practices" src="https://www.bestpractices.dev/projects/14596/badge"></a>
 </p>
 
 # Telnet Negotiation Core
