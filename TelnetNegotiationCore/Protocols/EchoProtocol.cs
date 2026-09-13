@@ -22,6 +22,8 @@ public class EchoProtocol : TelnetProtocolPluginBase
 {
     private static readonly byte[] s_willEcho = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.ECHO };
     private static readonly byte[] s_doEcho = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.ECHO };
+    private static readonly byte[] s_wontEcho = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.ECHO };
+    private static readonly byte[] s_dontEcho = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.ECHO };
 
     private bool? _willEcho = null;
 
@@ -197,21 +199,62 @@ public class EchoProtocol : TelnetProtocolPluginBase
     /// What arriving at DO/DONT (server) or WILL/WONT (client) for ECHO does -- each mode only ever
     /// sees one direction.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Gated on which role this side has, because every handler below means something in one
+    /// direction only — <see cref="OnDoEchoAsync"/> is the server accepting a client's request, and
+    /// <see cref="OnWillEchoAsync"/> is the client accepting a server's offer. Running either in the
+    /// wrong role is not merely useless: it answers wrongly or not at all.
+    /// </para>
+    /// <para>
+    /// Wrong-direction offers are refused here rather than left to the interpreter's
+    /// unsupported-option refusal, which cannot reach them: that runs only when no plugin claims the
+    /// option, and a registered <see cref="EchoProtocol"/> claims it. v3.0.0 got the refusal for free
+    /// precisely because it had no handler for those directions; this has to send it explicitly. See
+    /// <see href="https://github.com/HarryCordewener/TelnetNegotiationCore/issues/118">#118</see>.
+    /// </para>
+    /// </remarks>
     internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
     {
+        var client = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client;
+
         switch (verb)
         {
-            case (byte)Trigger.DO:
+            // A client asks the server to echo, and the server accepts. It announced WILL ECHO on
+            // initialisation, so RFC 1143 does not want that repeated here.
+            case (byte)Trigger.DO when !client:
                 await OnDoEchoAsync(context);
                 break;
-            case (byte)Trigger.DONT:
+
+            case (byte)Trigger.DONT when !client:
                 await OnDontEchoAsync(context);
                 break;
-            case (byte)Trigger.WILL:
+
+            // A server offers to echo, and the client accepts with DO ECHO.
+            case (byte)Trigger.WILL when client:
                 await OnWillEchoAsync(context);
                 break;
-            case (byte)Trigger.WONT:
+
+            case (byte)Trigger.WONT when client:
                 await WontEchoAsync(context);
+                break;
+
+            // A server asking a client to echo: the server is the side that echoes, so refuse.
+            case (byte)Trigger.DO:
+                context.Logger.LogDebug("A peer asked this client to echo; refusing, the server echoes");
+                await context.SendNegotiationAsync(s_wontEcho);
+                break;
+
+            // A client offering to echo: a server has no use for it, so refuse.
+            case (byte)Trigger.WILL:
+                context.Logger.LogDebug("A peer offered to echo to this server; refusing");
+                await context.SendNegotiationAsync(s_dontEcho);
+                break;
+
+            // A refusal in the wrong direction needs no answer: refusing a refusal is not an
+            // exchange, which is the same rule the interpreter's own RefuseAsync follows.
+            case (byte)Trigger.DONT:
+            case (byte)Trigger.WONT:
                 break;
         }
     }
