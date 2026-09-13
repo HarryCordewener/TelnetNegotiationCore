@@ -201,10 +201,11 @@ public class EchoProtocol : TelnetProtocolPluginBase
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Gated on which role this side has, because every handler below means something in one
-    /// direction only — <see cref="OnDoEchoAsync"/> is the server accepting a client's request, and
+    /// Gated on which role this side has, because every handler below was written for one direction
+    /// only — <see cref="OnDoEchoAsync"/> is the server accepting a client's request, and
     /// <see cref="OnWillEchoAsync"/> is the client accepting a server's offer. Running either in the
-    /// wrong role is not merely useless: it answers wrongly or not at all.
+    /// wrong role is not merely useless: it answers wrongly or not at all. RFC 857 requires an answer
+    /// either way, since a <c>DO</c> is met with <c>WILL</c> or <c>WONT</c>.
     /// </para>
     /// <para>
     /// Wrong-direction offers are refused here rather than left to the interpreter's
@@ -239,15 +240,25 @@ public class EchoProtocol : TelnetProtocolPluginBase
                 await WontEchoAsync(context);
                 break;
 
-            // A server asking a client to echo: the server is the side that echoes, so refuse.
+            // A peer asking this client to echo. RFC 857 allows either side to echo -- "neither,
+            // either, or both directions may be operating simultaneously in echo mode" -- so this is
+            // not refused because clients may not echo. It is refused because this one does not
+            // implement echoing, and the RFC's default condition is WONT ECHO: agreeing to something
+            // it will not do would be worse than saying no.
             case (byte)Trigger.DO:
-                context.Logger.LogDebug("A peer asked this client to echo; refusing, the server echoes");
+                context.Logger.LogDebug("A peer asked this client to echo; refusing, this client does not echo");
                 await context.SendNegotiationAsync(s_wontEcho);
                 break;
 
-            // A client offering to echo: a server has no use for it, so refuse.
+            // A peer offering to echo to this server. RFC 857 permits accepting, but this server
+            // announced WILL ECHO on initialisation, so it is already echoing -- and the RFC is
+            // explicit about that combination: "if BOTH hosts enter the mode of echoing characters
+            // transmitted by the other host, then any character transmitted in either direction will
+            // be echoed back and forth indefinitely ... care should be taken in each implementation
+            // that if one site is echoing, echoing is not permitted to be turned on at the other."
+            // Refusing is that care.
             case (byte)Trigger.WILL:
-                context.Logger.LogDebug("A peer offered to echo to this server; refusing");
+                context.Logger.LogDebug("A peer offered to echo to this server, which already echoes; refusing to avoid an echo loop");
                 await context.SendNegotiationAsync(s_dontEcho);
                 break;
 

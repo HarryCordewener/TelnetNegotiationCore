@@ -11,9 +11,10 @@ using TUnit.Core;
 namespace TelnetNegotiationCore.UnitTests;
 
 /// <summary>
-/// ECHO's four verbs, in both roles. RFC 854 requires a <c>DO</c> or a <c>WILL</c> to be answered,
-/// with <c>WILL</c>/<c>WONT</c> or <c>DO</c>/<c>DONT</c> respectively; silence leaves the peer
-/// waiting.
+/// ECHO's four verbs, in both roles. RFC 857 has a party receiving <c>DO ECHO</c> answer with
+/// <c>WILL ECHO</c> or <c>WONT ECHO</c>, and refusal is always permitted — "if the request to operate
+/// the connection in echo mode is refused, then the connection continues to operate in non-echo
+/// mode". Silence is not one of the options, and leaves the peer waiting.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -72,10 +73,16 @@ public class EchoNegotiationDirectionTests : BaseTest
 	// ---------------------------------------------------------------------------------------------
 
 	/// <summary>
-	/// A client will not echo for a server — the server is the side that echoes — so it refuses.
-	/// Silently accepting also set <c>_willEcho</c>, leaving the client believing it had agreed to
-	/// something it never acknowledged.
+	/// This client does not implement echoing, so it refuses rather than agreeing to something it
+	/// will not do. RFC 857's default condition is <c>WONT ECHO</c>.
 	/// </summary>
+	/// <remarks>
+	/// Note what this is <em>not</em> justified by: RFC 857 permits either side to echo — "neither,
+	/// either, or both directions may be operating simultaneously in echo mode" — so a client
+	/// refusing is a fact about this implementation, not a rule about clients. Silently accepting
+	/// also set <c>_willEcho</c>, leaving the client believing it had agreed to something it never
+	/// acknowledged.
+	/// </remarks>
 	[Test]
 	public async Task AClientRefusesDoEcho()
 	{
@@ -84,7 +91,13 @@ public class EchoNegotiationDirectionTests : BaseTest
 		await AssertByteArraysEqual(sent, WontEcho);
 	}
 
-	/// <summary>And the mirror: a server has no use for a client offering to echo, so it refuses.</summary>
+	/// <summary>
+	/// And the mirror. RFC 857 would permit accepting, but this server announces <c>WILL ECHO</c> on
+	/// initialisation, so it is already echoing — and the RFC is explicit that both ends echoing
+	/// makes "any character transmitted in either direction ... echoed back and forth indefinitely",
+	/// with "care" required so that "if one site is echoing, echoing is not permitted to be turned on
+	/// at the other". Refusing is that care.
+	/// </summary>
 	[Test]
 	public async Task AServerRefusesWillEcho()
 	{
