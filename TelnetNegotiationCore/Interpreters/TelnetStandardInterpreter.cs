@@ -57,6 +57,21 @@ public partial class TelnetInterpreter : IAsyncDisposable
     public const int DefaultMaxBufferSize = 5242880;
 
     /// <summary>
+    /// What to do with a carriage return that is not part of a <c>CR LF</c> pair. Defaults to
+    /// <see cref="Models.CarriageReturnMode.Drop"/>, which is what this library has always done.
+    /// </summary>
+    /// <remarks>
+    /// Set through <c>TelnetInterpreterBuilder.WithCarriageReturnMode</c> or one of its named
+    /// shorthands. <c>init</c>-only because the meaning of a carriage return must not change part-way
+    /// through a stream: a peer's bytes would then parse differently depending on when the setting
+    /// was written.
+    /// </remarks>
+    public Models.CarriageReturnMode CarriageReturnMode { get; init; } = DefaultCarriageReturnMode;
+
+    /// <summary>The default value of <see cref="CarriageReturnMode"/>.</summary>
+    public const Models.CarriageReturnMode DefaultCarriageReturnMode = Models.CarriageReturnMode.Drop;
+
+    /// <summary>
     /// Local buffer for accumulating line data. Allocated on the first byte of input rather than in
     /// the constructor, so that <see cref="MaxBufferSize"/> (an init property, assigned after the
     /// constructor has run) is honoured and a negotiation-only connection allocates nothing.
@@ -367,11 +382,18 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// per-byte callback, which is the only reason that method is async. Split out for the generated
     /// machine's <c>Write</c>, which is itself synchronous — text is the hot path, and stays allocation-free.
     /// </summary>
-    /// <returns>False for a carriage return, which is not part of the line and has nothing left to do.</returns>
+    /// <returns>True when the byte was stored, so the caller knows whether to run its per-byte callback.</returns>
+    /// <remarks>
+    /// This used to discard a carriage return here, on the grounds that it "is not part of the line".
+    /// That duplicated a policy the state machine already owns — <c>AfterCarriageReturn</c> and
+    /// <see cref="Models.CarriageReturnMode"/> decide what a carriage return means — and the
+    /// duplicate silently won: under <see cref="Models.CarriageReturnMode.Preserve"/> the machine
+    /// wrote the carriage return the consumer asked for and this method dropped it again. The machine
+    /// is now the only place that decides, and under the default mode it never writes one, so nothing
+    /// reaches here that did not before.
+    /// </remarks>
     private bool WriteToBufferAndAdvance(byte b)
     {
-        if (b == (byte)Trigger.CARRIAGERETURN) return false;
-
         if (_logger.IsEnabled(LogLevel.Trace))
         {
             _logger.LogTrace("Debug: Writing into buffer: {Byte}", b);
