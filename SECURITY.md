@@ -58,9 +58,10 @@ worth making privately include:
   frameworks, not cryptography.** This library carries the messages; your callbacks implement the
   mechanism. RFC 2946's own algorithms — DES, 3DES, CAST — are long broken, and nothing here
   implements them. A report that "the DES mode is weak" is a fact about RFC 2946.
-- **MCCP inflates without a ratio ceiling of its own.** A compression bomb is bounded downstream, by
-  the line-buffer and subnegotiation limits every inflated byte then passes through, rather than at
-  the inflater. If you have a case where that downstream bound does not hold, that *is* a report.
+- **MCCP's expansion ceiling is a policy, not a proof.** A peer's compressed stream may expand
+  200:1 by default (`.WithMaxExpansionRatio`), on top of the downstream line-buffer and
+  subnegotiation limits. A peer that stays under the ceiling and still makes this side do
+  disproportionate work is a report; a peer that is refused at it is the feature working.
 
 ## How releases are made
 

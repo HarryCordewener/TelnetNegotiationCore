@@ -34,3 +34,23 @@ the interpreter assembles is the one accumulator a peer can grow simply by never
 `.WithMaxBufferSize(bytes)` sets that ceiling (default 5 MiB). A line past it is dropped whole, with
 an `Error` log, and the connection carries on with the next.
 
+## Compression, and the work a peer can buy
+
+The limits above bound how much **memory** a peer can make this side hold. They say nothing about the
+**work of getting there**, and [MCCP](../protocols/mccp.md) is where the difference shows: one
+compressed byte can inflate to 1,032, and every one of those goes through the state machine before
+any downstream ceiling looks at it.
+
+Measured on this library, in Release: 4 KiB of deflate holding 4 MiB of zeros — a ratio of about
+1,025:1 — costs roughly **430 ms of a core**, against about 1 ms for 4 KiB of plain telnet. That is
+the whole attack: a peer trades its own bandwidth for several hundred times as much of yours, and
+memory never grows enough for the line buffer to object.
+
+So the inflater has a ceiling of its own:
+
+| | |
+| --- | --- |
+| Default | **200:1** cumulative output to input, `.WithMaxExpansionRatio(n)` to change it |
+| Not judged below | 1 MiB of output, so a short stream is never condemned by a ratio taken from a handful of bytes |
+| At the ceiling | `Error` log naming the bytes and the ratio; the inflater stops for good, `IsMCCP2Enabled` / `IsMCCP3Enabled` go back to `false`, and nothing further is delivered from that direction — exactly what an invalid deflate stream already does |
+| Not affected | Real streams. MCCP's own claim is a 75–90% reduction, which is 4:1 to 10:1; zlib's window is 32 KiB, so a sustained ratio far above that needs input built to produce it rather than content that happens to repeat |
