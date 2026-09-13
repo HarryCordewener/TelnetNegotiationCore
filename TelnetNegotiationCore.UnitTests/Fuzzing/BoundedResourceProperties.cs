@@ -117,7 +117,7 @@ public class BoundedResourceProperties : BaseTest
 
 		// Each case builds an interpreter and inflates a stream, so the corpus is small and chosen
 		// to span the shapes that matter rather than generated wholesale.
-		foreach (var (name, wire) in CompressedCorpus())
+		foreach (var (name, wire, waitForRefusal) in CompressedCorpus())
 		{
 			var log = new CapturingLogger(logger);
 
@@ -146,13 +146,18 @@ public class BoundedResourceProperties : BaseTest
 			// The property is that this does not throw, whatever the peer sent.
 			await InterpretAndWaitAsync(client, wire);
 
-			// InterpretAndWaitAsync has already waited for the inflater to finish with these bytes,
-			// so the error is there or it is not coming. The timeout is short on purpose: polling
-			// for an absence pays the full timeout on every case that is not refused, which is most
-			// of them, and a generous one here cost more wall-clock than the rest of the suite.
+			// Sized by what this case expects, because one timeout cannot serve both directions.
+			// A case that should be refused is waited on generously: inflating a stream that expands
+			// a thousandfold and reporting it takes as long as the machine takes, and a runner slower
+			// than a developer's laptop takes longer. A case that should survive is given a brief
+			// settle only, because polling for an absence pays the whole timeout every time and there
+			// are more of those.
+			//
+			// Getting this wrong in both directions at once -- 500ms for every case -- is what made
+			// this property pass locally and fail on CI.
 			var refused = await PollUntilAsync(
 				() => log.Entries(LogLevel.Error).Any(),
-				timeoutMs: 500);
+				timeoutMs: waitForRefusal ? 60_000 : 500);
 
 			await Assert.That(plugin.IsMCCP2Enabled)
 				.IsEqualTo(!refused)
@@ -199,8 +204,26 @@ public class BoundedResourceProperties : BaseTest
 		// there would be asserting something false about a stream that is behaving correctly.
 	}
 
-	/// <summary>The compressed shapes worth driving: harmless, hostile, and malformed.</summary>
-	private static IEnumerable<(string Name, byte[] Wire)> CompressedCorpus()
+	/// <summary>
+	/// The compressed shapes worth driving, each with whether the stream should be refused.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// The flag says how long to wait for a refusal, not that one is guaranteed. Polling for an
+	/// <em>absence</em> has to be brief, because every case that is not refused pays the whole
+	/// timeout; polling for a <em>presence</em> has to be generous, because inflating a stream that
+	/// expands a thousandfold and reporting it takes as long as the machine takes, and a CI runner
+	/// takes longer than a developer's laptop. One timeout cannot serve both, and using a short one
+	/// for everything is what made this property pass locally and fail on CI.
+	/// </para>
+	/// <para>
+	/// Set only for the case whose refusal is asserted at the end. The two malformed streams are left
+	/// on the short settle deliberately: a truncated deflate stream may simply run out of input
+	/// without complaining, so waiting a minute for an error that is not coming would cost a minute
+	/// and prove nothing. Whatever they do, the consistency assertion still checks it.
+	/// </para>
+	/// </remarks>
+	private static IEnumerable<(string Name, byte[] Wire, bool WaitForRefusal)> CompressedCorpus()
 	{
 		var rng = new Rng(0xC0FFEE11);
 
@@ -208,7 +231,7 @@ public class BoundedResourceProperties : BaseTest
 			"You are standing in an open field west of a white house, with a boarded front door.\r\n");
 
 		// Realistic prose, which deflate gets perhaps five-fold: must survive.
-		yield return ("realistic prose", Deflate(Enumerable.Range(0, 2000).SelectMany(_ => line).ToArray()));
+		yield return ("realistic prose", Deflate(Enumerable.Range(0, 2000).SelectMany(_ => line).ToArray()), false);
 
 		// Incompressible noise, a ratio near 1:1: must survive.
 		var noise = new byte[64 * 1024];
@@ -217,20 +240,20 @@ public class BoundedResourceProperties : BaseTest
 			noise[i] = rng.NextByte();
 		}
 
-		yield return ("incompressible noise", Deflate(noise));
+		yield return ("incompressible noise", Deflate(noise), false);
 
 		// Zero runs across the ceiling: the small one survives, the large one is a bomb. 2 MiB is
 		// the smallest round size that still clears the mebibyte floor and so trips the 200:1
 		// ratio; MCCPExpansionLimitTests drives the full 4 MiB, and paying for it twice would cost
 		// this property more wall-clock than the rest of the suite combined.
-		yield return ("64 KiB of zeros", Deflate(new byte[64 * 1024]));
-		yield return ("2 MiB of zeros", Deflate(new byte[2 * 1024 * 1024]));
+		yield return ("64 KiB of zeros", Deflate(new byte[64 * 1024]), false);
+		yield return ("2 MiB of zeros", Deflate(new byte[2 * 1024 * 1024]), true);
 
 		// Malformed streams, which must not throw onto the read loop.
 		var bomb = Deflate(new byte[2 * 1024 * 1024]);
-		yield return ("truncated bomb", bomb[..(bomb.Length / 2)]);
-		yield return ("garbage claiming to be deflate", [0x78, 0x9C, 0xFF, 0x00, 0x13, 0x37, 0x42]);
-		yield return ("empty", []);
+		yield return ("truncated bomb", bomb[..(bomb.Length / 2)], false);
+		yield return ("garbage claiming to be deflate", [0x78, 0x9C, 0xFF, 0x00, 0x13, 0x37, 0x42], false);
+		yield return ("empty", [], false);
 	}
 
 	private static byte[] Deflate(byte[] payload)
