@@ -173,6 +173,54 @@ public class EnvironEscapeTests
 			.Because($"the ESC is consumed and the byte delivered. Got: {Trace(recorder, true)}");
 	}
 
+	/// <summary>
+	/// An <c>IAC</c> between the <c>ESC</c> and the byte it would have escaped spends the escape, so a
+	/// marker after it is still a marker.
+	/// </summary>
+	/// <remarks>
+	/// <c>ESC IAC IAC VAR</c>: the doubled <c>IAC</c> is a literal 0xFF of data, which is not one of
+	/// the four bytes <c>ESC</c> escapes, so the escape is consumed by it and the <c>VAR</c> that
+	/// follows is structure. Without this the pending escape survived the <c>IAC</c> path — which does
+	/// not go through <c>Capture</c> — and swallowed the next real marker: the stale-flag misfire that
+	/// <see cref="MalformedSubnegotiationRecoveryTests"/> documents.
+	/// </remarks>
+	[Test]
+	public async Task AnIacBetweenTheEscapeAndAMarkerSpendsTheEscape()
+	{
+		byte[] wire =
+		[
+			IAC, SB, NewEnviron, Is,
+			Var, (byte)'A', Value, Esc, IAC, IAC,
+			Var, (byte)'B',
+			IAC, SE,
+		];
+
+		var recorder = await Run(wire);
+
+		await Assert.That(recorder.NewEnvironEvents.Count(e => e == "VAR"))
+			.IsEqualTo(2)
+			.Because($"the VAR after a doubled IAC is a marker, not data. Got: {Trace(recorder, true)}");
+	}
+
+	/// <summary>The same, in ENVIRON.</summary>
+	[Test]
+	public async Task EnvironAlsoSpendsTheEscapeOnAnIac()
+	{
+		byte[] wire =
+		[
+			IAC, SB, Environ, Is,
+			Var, (byte)'A', Value, Esc, IAC, IAC,
+			Var, (byte)'B',
+			IAC, SE,
+		];
+
+		var recorder = await Run(wire);
+
+		await Assert.That(recorder.EnvironEvents.Count(e => e == "VAR"))
+			.IsEqualTo(2)
+			.Because($"the VAR after a doubled IAC is a marker, not data. Got: {Trace(recorder, false)}");
+	}
+
 	/// <summary>An unescaped marker is still a marker — the fix must not swallow real structure.</summary>
 	[Test]
 	public async Task AnUnescapedMarkerIsStillAMarker()

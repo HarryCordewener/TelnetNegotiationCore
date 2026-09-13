@@ -32,10 +32,16 @@ reading a line a user typed. So it is a setting.
 ```csharp
 var interpreter = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Server)
+    .UseLogger(logger)
     .OnSubmit(OnLine)
+    .OnNegotiation(WriteToNetwork)
     .TreatCarriageReturnNullAsLineEnd()
     .BuildAsync();
 ```
+
+`BuildAsync` requires the mode, the logger and both callbacks, so they are shown here even though
+only the last line is about carriage returns. See
+[Getting started](getting-started.md) for what each of them is for.
 
 | Method | Mode | A `CR` not followed by `LF` |
 | --- | --- | --- |
