@@ -26,6 +26,40 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **LINEMODE sent its `MODE` byte without escaping a literal 255, so the subnegotiation never
+  terminated.** RFC 1184 builds its subnegotiations out of ordinary bytes and adds no exemption from
+  RFC 854's rule that a 255 in data is doubled. Sent raw, the peer reads that byte as the `IAC`
+  beginning the end of the subnegotiation and then reads the real `IAC SE` as two more bytes of
+  payload — so the frame never closes. This library's own parser reports nothing at all for such a
+  frame, the same one-directional asymmetry as the CHARSET `TTABLE-IS` defect below.
+  - **Reachable from a peer.** The mode bits RFC 1184 defines are `EDIT` (1), `TRAPSIG` (2),
+    `MODE_ACK` (4), `SOFT_TAB` (8) and `LIT_ECHO` (16); bits 32, 64 and 128 are undefined, and a
+    peer's undefined bits are passed through rather than masked. A peer proposing `0xFB` — every bit
+    except the acknowledgment — is acknowledged with `0xFB | MODE_ACK`, which is `0xFF`.
+  - Also reachable without a peer: `SetModeAsync` is public and takes any byte.
+  - All three places that send a `MODE` frame now share one builder, so the escaping cannot be
+    present in one and missing in the next.
+
+### Changed
+
+- **RFC 854's escaping now has exactly one implementation.** The rule that a literal 255 on the wire
+  is doubled had been written out four separate times — in `Helpers.SubnegotiationEscaping`, in
+  `MSSPProtocol`, in `NewEnvironProtocol`, and again as the interpreter's span-based text path — and
+  LINEMODE, which needed it and had none of the four to hand, simply did without. The four are now
+  one helper with the shapes each caller needs: a single byte, a byte sequence, a string with its
+  encoding, and an array-returning form that keeps the early exit and pooled buffer the output path
+  wants.
+  - `NewEnvironProtocol` keeps its own RFC 1572 escaping, which is a different rule about four
+    different marker bytes, and delegates only the 255 underneath. None of RFC 1572's markers is
+    255, so the two never overlap.
+  - No behaviour change for anything that was already escaping; the helper's two shapes are pinned
+    to each other across generated payloads rather than each to a hand-written expectation.
+  - The five sites that deliberately do not escape — TTYPE's `IS`, TSPEED's `IS`, XDISPLOC's `IS`,
+    and CHARSET's `ACCEPTED` and `REQUEST` — are unchanged: all five encode with `Encoding.ASCII`,
+    which replaces anything outside 0x00–0x7F with `?` and so cannot emit 255. That was an
+    assumption nothing stated; it is now a test, so substituting a wider encoding at any of those
+    sites fails rather than silently opening the payload.
+
 - **CHARSET's `TTABLE-IS` did not escape `IAC` in the translation table it sent.** RFC 2066: "All
   octets of value 255 (other than IAC) MUST be quoted to conform with TELNET requirements." A
   translation table maps between character sets, so an entry for any 8-bit charset's `0xFF` — ISO
