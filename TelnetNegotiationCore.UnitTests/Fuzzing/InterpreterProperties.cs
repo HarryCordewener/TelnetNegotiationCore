@@ -3,6 +3,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -71,16 +72,24 @@ public class InterpreterProperties : BaseTest
 	/// </remarks>
 	private static readonly byte[] LeaveItOpen = [255, 250];
 
-	private static async Task<(TelnetInterpreter Interpreter, List<string> Submitted)> BuildClientAsync()
+	/// <remarks>
+	/// The submitted lines are a <see cref="ConcurrentQueue{T}"/> and not a <c>List</c>. The submit
+	/// callback runs on the interpreter's own processing task and can append <em>after</em>
+	/// <see cref="BaseTest.InterpretAndWaitAsync"/>'s barrier has returned — measurably so: a probe
+	/// line surfaces a couple of hundred milliseconds later, which is why the liveness check below
+	/// polls at all. A <c>List</c> being appended to while <see cref="BaseTest.PollUntilAsync"/>
+	/// enumerates it throws <see cref="System.InvalidOperationException"/>.
+	/// </remarks>
+	private static async Task<(TelnetInterpreter Interpreter, ConcurrentQueue<string> Submitted)> BuildClientAsync()
 	{
-		var submitted = new List<string>();
+		var submitted = new ConcurrentQueue<string>();
 
 		var builder = new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)
 			.UseLogger(silentLogger)
 			.OnSubmit((data, encoding, _) =>
 			{
-				submitted.Add(encoding.GetString(data));
+				submitted.Enqueue(encoding.GetString(data));
 				return ValueTask.CompletedTask;
 			})
 			.OnNegotiation(_ => ValueTask.CompletedTask)

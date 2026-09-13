@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -112,6 +113,7 @@ public class BoundedResourceProperties : BaseTest
 	public async Task AnyCompressedStreamIsEitherDeliveredOrStopped()
 	{
 		var outcomes = new Dictionary<string, bool>();
+		var delivered = new Dictionary<string, ConcurrentQueue<string>>();
 
 		// Each case builds an interpreter and inflates a stream, so the corpus is small and chosen
 		// to span the shapes that matter rather than generated wholesale.
@@ -119,10 +121,20 @@ public class BoundedResourceProperties : BaseTest
 		{
 			var log = new CapturingLogger(logger);
 
+			// The inflater's output has to be observed, not discarded. Comparing IsMCCP2Enabled
+			// against the error log alone would pass a stream that decompressed to nothing at all,
+			// since "still running and nothing reported wrong" is exactly what that looks like.
+			var lines = new ConcurrentQueue<string>();
+			delivered[name] = lines;
+
 			var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
 				.UseMode(TelnetInterpreter.TelnetMode.Client)
 				.UseLogger(log)
-				.OnSubmit(NoOpSubmitCallback)
+				.OnSubmit((data, encoding, _) =>
+				{
+					lines.Enqueue(encoding.GetString(data));
+					return ValueTask.CompletedTask;
+				})
 				.OnNegotiation(_ => ValueTask.CompletedTask)
 				.AddPlugin<MCCPProtocol>());
 
@@ -169,6 +181,22 @@ public class BoundedResourceProperties : BaseTest
 		await Assert.That(outcomes["incompressible noise"])
 			.IsFalse()
 			.Because("a stream that barely compresses at all must be left alone");
+
+		// And the streams that were left alone actually delivered what they carried. Without this
+		// the consistency check above is satisfied by an inflater that quietly produces nothing.
+		var prose = await PollUntilAsync(
+			() => delivered["realistic prose"].Any(line => line.Contains("boarded front door")),
+			timeoutMs: 5_000);
+
+		await Assert.That(prose)
+			.IsTrue()
+			.Because("the prose stream stayed enabled, so its lines must have reached the consumer. "
+				+ $"Saw {delivered["realistic prose"].Count} lines");
+
+		// Only the prose case can be observed this way, and deliberately so. A submitted line needs
+		// a newline to terminate it: 64 KiB of NULs inflates perfectly well but completes no line,
+		// so its bytes reach the context's Write and nothing is ever submitted. Asserting delivery
+		// there would be asserting something false about a stream that is behaving correctly.
 	}
 
 	/// <summary>The compressed shapes worth driving: harmless, hostile, and malformed.</summary>

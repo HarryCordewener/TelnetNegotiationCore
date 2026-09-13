@@ -318,7 +318,7 @@ git commit -m "test(recorder): expose pending text and a deterministic snapshot"
 
 ---
 
-### Task 2: Verify the resync token against all 28 options
+### Task 2: Verify the resync token against all 21 options
 
 Properties 1 and 3 append a probe line to arbitrary garbage and assert it still arrives. That
 needs a byte sequence returning the machine to `Idle` from any state. Reading
@@ -356,7 +356,7 @@ namespace TelnetNegotiationCore.UnitTests;
 
 /// <summary>
 /// The resynchronisation token that the liveness and fragmentation properties are built on, and
-/// the evidence that it actually works from every state any of the 28 options can leave the
+/// the evidence that it actually works from every state any of the 21 options can leave the
 /// machine in.
 /// </summary>
 /// <remarks>
@@ -562,7 +562,7 @@ namespace TelnetNegotiationCore.UnitTests;
 /// ending in <c>"leftover"</c> would submit <c>"leftoverREGRESSION_PROBE"</c>.
 /// </para>
 /// <para>
-/// <c>ResyncTests</c> is the evidence that this works for all 28 options, and pins the two cases
+/// <c>ResyncTests</c> is the evidence that this works for all 21 options, and pins the two cases
 /// that make a single pair insufficient. Shorten this and those tests fail.
 /// </para>
 /// </remarks>
@@ -610,7 +610,7 @@ the test can actually tell the difference. Restore the two-pair token.
 
 ```bash
 git add TelnetNegotiationCore.UnitTests/TelnetProbe.cs TelnetNegotiationCore.UnitTests/ResyncTests.cs
-git commit -m "test(resync): establish the resynchronisation token for all 28 options"
+git commit -m "test(resync): establish the resynchronisation token for all 21 options"
 ```
 
 ---

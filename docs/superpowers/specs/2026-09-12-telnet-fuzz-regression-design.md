@@ -95,7 +95,7 @@ falls to `UnknownCommand`, which returns to `Idle`.
 That reasoning covers the core module only. The sixteen protocol modules contribute
 their own substates beneath `SubNegotiation` — CHARSET's translation-table states, MSSP's
 variable and value markers, LINEMODE's SLC triplets — and some of those handle `IAC`
-themselves. **Verifying the sequence against all 28 options is the first implementation
+themselves. **Verifying the sequence against all 21 options is the first implementation
 task.** If some module is not resynchronised by it, that is a finding worth having
 before anything is built on top, and the resync token changes to whatever the evidence
 supports.
@@ -111,7 +111,7 @@ stumbling onto one are negligible — and frame handling is where the state mach
 
 | Weight | Token |
 | --- | --- |
-| 35% | A well-formed frame for one of the 28 options, payload drawn from that option's own grammar as its RFC defines it |
+| 35% | A well-formed frame for one of the 21 options, payload drawn from that option's own grammar as its RFC defines it |
 | 25% | Plain text, including `CR LF`, `CR NUL`, bare `CR`, bare `LF` and high bytes |
 | 20% | A mutation of a well-formed frame: truncated at an arbitrary offset, missing its `SE`, option byte replaced, a stray `IAC` injected, an `SB` nested inside |
 | 10% | A bare verb sequence, including the `IAC`-interrupts-a-pending-option path that `WillInterrupted` exists for |

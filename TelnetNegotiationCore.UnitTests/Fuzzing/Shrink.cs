@@ -40,7 +40,10 @@ internal static class Shrink
 				candidate.AddRange(current.Take(start));
 				candidate.AddRange(current.Skip(start + granularity));
 
-				if (candidate.Count > 0 && stillFails(candidate))
+				// No Count > 0 guard: if the empty sequence still fails then it is the minimal
+				// counterexample, and refusing to test it would leave a byte in the report that has
+				// nothing to do with the failure.
+				if (stillFails(candidate))
 				{
 					current = candidate;
 					removedSomething = true;

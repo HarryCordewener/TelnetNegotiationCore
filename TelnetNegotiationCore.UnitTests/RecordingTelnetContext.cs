@@ -43,27 +43,60 @@ public class RecordingTelnetContext : TelnetCoreContext
     /// </remarks>
     private sealed class CoalescingTrace
     {
-        private readonly List<(bool IsData, string Text)> _entries = [];
+        /// <summary>
+        /// A marker carries its name; a payload run carries its raw bytes.
+        /// </summary>
+        /// <remarks>
+        /// Payload is kept as bytes rather than as an ASCII-decoded string on purpose. ASCII
+        /// decoding maps every byte above 0x7F to the same replacement character, so a
+        /// fragmentation-dependent substitution between two high bytes — exactly the defect
+        /// <see cref="FragmentationProperties"/> exists to catch — would produce identical snapshots
+        /// and pass. The public event lists keep the decoded strings, because that is what the
+        /// existing tests assert on.
+        /// </remarks>
+        private readonly List<(bool IsData, string Marker, List<byte> Data)> _entries = [];
 
-        public void Marker(string name) => _entries.Add((false, name));
+        public void Marker(string name) => _entries.Add((false, name, null));
 
-        public void Data(string text)
+        public void Data(ReadOnlySpan<byte> data)
         {
             if (_entries.Count > 0 && _entries[^1].IsData)
             {
-                _entries[^1] = (true, _entries[^1].Text + text);
+                foreach (var b in data)
+                {
+                    _entries[^1].Data.Add(b);
+                }
+
                 return;
             }
 
-            _entries.Add((true, text));
+            var run = new List<byte>(data.Length);
+            foreach (var b in data)
+            {
+                run.Add(b);
+            }
+
+            _entries.Add((true, null, run));
         }
 
         public void Render(StringBuilder sb, string name)
         {
             sb.Append(name).Append('=');
-            foreach (var (isData, text) in _entries)
+            foreach (var (isData, marker, data) in _entries)
             {
-                sb.Append(isData ? 'd' : 'm').Append(text.Length).Append(':').Append(text).Append(',');
+                if (isData)
+                {
+                    sb.Append('d').Append(data.Count).Append(':');
+                    foreach (var b in data)
+                    {
+                        sb.Append(b.ToString("x2"));
+                    }
+
+                    sb.Append(',');
+                    continue;
+                }
+
+                sb.Append('m').Append(marker.Length).Append(':').Append(marker).Append(',');
             }
 
             sb.Append(';');
@@ -282,7 +315,7 @@ public class RecordingTelnetContext : TelnetCoreContext
     public override ValueTask MsspDataAsync(ReadOnlyMemory<byte> data)
     {
         MsspEvents.Add(Encoding.ASCII.GetString(data.Span));
-        _msspTrace.Data(Encoding.ASCII.GetString(data.Span));
+        _msspTrace.Data(data.Span);
         return default;
     }
 
@@ -393,7 +426,7 @@ public class RecordingTelnetContext : TelnetCoreContext
     public override ValueTask NewEnvironDataAsync(ReadOnlyMemory<byte> data)
     {
         NewEnvironEvents.Add(Encoding.ASCII.GetString(data.Span));
-        _newEnvironTrace.Data(Encoding.ASCII.GetString(data.Span));
+        _newEnvironTrace.Data(data.Span);
         return default;
     }
 
@@ -428,7 +461,7 @@ public class RecordingTelnetContext : TelnetCoreContext
     public override ValueTask EnvironDataAsync(ReadOnlyMemory<byte> data)
     {
         EnvironEvents.Add(Encoding.ASCII.GetString(data.Span));
-        _environTrace.Data(Encoding.ASCII.GetString(data.Span));
+        _environTrace.Data(data.Span);
         return default;
     }
 

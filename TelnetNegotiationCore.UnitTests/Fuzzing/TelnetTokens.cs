@@ -196,12 +196,12 @@ internal static class TelnetTokens
 		for (var i = 0; i < pairs; i++)
 		{
 			payload.Add(rng.Bool(50) ? Var : UserVar);
-			payload.AddRange(EnvironEscaped(Ascii(rng, 8)));
+			payload.AddRange(EnvironEscaped(EnvironField(rng)));
 
 			if (rng.Bool(70))
 			{
 				payload.Add(Value);
-				payload.AddRange(EnvironEscaped(Ascii(rng, 8)));
+				payload.AddRange(EnvironEscaped(EnvironField(rng)));
 			}
 		}
 
@@ -213,6 +213,21 @@ internal static class TelnetTokens
 		}
 
 		return payload;
+
+		// A name or value that can contain the four reserved type bytes, which is the whole point of
+		// RFC 1572's ESC escaping. Ascii() alone returns 33..126, so with it the escaping branch
+		// below never ran and this corpus could not have exercised ENVIRON field escaping at all.
+		static List<byte> EnvironField(Rng rng)
+		{
+			var length = rng.Next(9);
+			var field = new List<byte>(length);
+			for (var i = 0; i < length; i++)
+			{
+				field.Add(rng.Bool(25) ? (byte)rng.Next(4) : (byte)(33 + rng.Next(94)));
+			}
+
+			return field;
+		}
 
 		static List<byte> EnvironEscaped(IEnumerable<byte> name)
 		{

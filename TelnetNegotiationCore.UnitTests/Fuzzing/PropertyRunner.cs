@@ -50,7 +50,13 @@ internal static class PropertyRunner
 			}
 
 			var shrunk = ShrinkStream(tokens, check);
-			return Report(seed, i, reason, shrunk);
+
+			// The shrinker keeps any non-null failure, so the shrunk stream may well fail for a
+			// different reason than the one the full stream failed for. Reporting the original
+			// reason beside the shrunk bytes would describe a counterexample that does not exist.
+			var shrunkReason = await check(shrunk) ?? reason;
+
+			return Report(seed, i, shrunkReason, shrunk);
 		}
 
 		return null;

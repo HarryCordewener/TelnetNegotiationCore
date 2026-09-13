@@ -90,6 +90,19 @@ public class RngTests
 		await Assert.That(shrunk.Contains(9)).IsTrue();
 	}
 
+	/// <summary>
+	/// When the empty sequence still fails, it is the minimal counterexample and the shrinker has to
+	/// be able to reach it. Anything it kept back would be a byte in the report with nothing to do
+	/// with the failure.
+	/// </summary>
+	[Test]
+	public async Task ShrinkReachesTheEmptySequenceWhenThatStillFails()
+	{
+		var shrunk = Shrink.Sequence<int>([1, 2, 3, 4, 5], _ => true);
+
+		await Assert.That(shrunk.Count).IsEqualTo(0);
+	}
+
 	[Test]
 	public async Task ShrinkReturnsTheInputWhenNothingCanBeRemoved()
 	{
