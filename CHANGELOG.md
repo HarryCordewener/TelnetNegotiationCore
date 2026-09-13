@@ -26,6 +26,30 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **A client no longer silently accepts `DO ECHO`, and a server no longer accepts `WILL ECHO`.**
+  `EchoProtocol.OnPeerNegotiatedAsync` routed every verb to a handler written for one role —
+  `OnDoEchoAsync`'s own log line reads "Client requests server to echo", true only when this side is
+  the server — with no check on which role this side has. So a client asked to echo answered nothing
+  and set `_willEcho` anyway, believing it had agreed to something it never acknowledged; and a
+  server offered an echo answered `DO ECHO`, turning echoing on at both ends. RFC 857 has a party
+  receiving `DO ECHO` answer with `WILL ECHO` or `WONT ECHO`; silence is not one of the options. Both
+  wrong-direction offers are now refused, `WONT ECHO` and `DONT ECHO`.
+  - Not because clients may not echo: RFC 857 permits either side to, "neither, either, or both
+    directions may be operating simultaneously in echo mode". The client refuses because it does not
+    implement echoing and the RFC's default is `WONT ECHO`. The server refuses because it announced
+    `WILL ECHO` on initialisation and is therefore already echoing — and RFC 857 warns that with both
+    ends echoing, characters are "echoed back and forth indefinitely", requiring "care ... that if
+    one site is echoing, echoing is not permitted to be turned on at the other".
+  - Refused inside the protocol rather than by the interpreter's unsupported-option refusal, which
+    cannot reach it: that runs only when no plugin claims the option. v3.0.0 got the refusal for free
+    because it configured `State.DoECHO` in its server branch only, so the other direction had no
+    handler at all; collapsing that branching into one switch during the StateAlchemist migration
+    took the fall-through with it.
+  - Found by differential testing against the released 3.0.0 engine
+    ([#112](https://github.com/HarryCordewener/TelnetNegotiationCore/issues/112)), which is the only
+    thing that could have: the property suite asserts the engine never throws, never wedges and
+    parses consistently, and a silent non-answer is none of those.
+
 - **NEW-ENVIRON and ENVIRON now decode RFC 1572's and RFC 1408's `ESC` on the receive path.** Both
   RFCs escape the four type bytes inside a name or a value — a literal `VAR` is sent as `ESC VAR`,
   and an `ESC` itself as `ESC ESC` — and `NewEnvironProtocol.AppendEscaped` has always honoured that
