@@ -65,6 +65,17 @@ All notable changes to this project will be documented in this file.
     delivered or stopped, never an OOM and never a throw onto the read loop.
   - Each one is verified by mutation — the invariant is broken on purpose and the property has to
     fail — because a property that cannot fail reads as evidence while providing none.
+- **`EnvironEscapeDivergenceTests`**, recording that NEW-ENVIRON and ENVIRON do not *un*escape on
+  the receive path. RFC 1572 and RFC 1408 both require the type bytes to be escaped inside a name or
+  a value — `ESC VAR` for a literal `VAR`, and so on — and `NewEnvironProtocol` honours that when it
+  sends, but neither module has any transition for `ESC` when receiving, so the escape leaks through
+  as a literal `0x02` and the byte it was escaping is read as a real marker, splitting the value.
+  The library would mis-parse its own output: the same one-directional asymmetry that was fixed for
+  ENCRYPT and AUTHENTICATION above. Recorded rather than fixed because it needs guards on the marker
+  transitions and a decision about how those interact with the generated machine's run batching,
+  which deserves its own change. An escape-heavy payload does at least not wedge the connection, and
+  that is asserted too. MNES forbids these bytes inside names and values, which is why the gap went
+  unnoticed.
 - **`CarriageReturnPolicyTests`**, pinning what the core machine does with `CR`, `LF` and `CR NUL`.
   Note that RFC 854 defines `CR NUL` as a bare carriage return in the data, and this library
   delivers the `NUL` to the consumer as a literal `0x00` inside the line. That predates the
