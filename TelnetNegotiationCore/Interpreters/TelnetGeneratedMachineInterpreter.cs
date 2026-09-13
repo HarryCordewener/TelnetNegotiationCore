@@ -193,13 +193,9 @@ public partial class TelnetInterpreter
 
         // Same discriminator-byte restoration AuthenticationSendAsync/AuthenticationIsAsync need --
         // ENCRYPT shares AUTHENTICATION's exact Stateless capture shape (RFC 2946 mirrors RFC 2941's).
-        //
-        // All four dispatches below gate on IsPluginEnabled, not just GetPlugin: a disabled plugin is
-        // still registered (GetPlugin would find it), and delivering subnegotiation data to it would
-        // undo what disabling it means -- matching NegotiateAsync's IsPluginEnabled gate above.
         public override ValueTask EncryptionSendAsync(byte[] data)
         {
-            if (IsEncryptionEnabled(out var encryption))
+            if (TryGetEnabledPlugin<Protocols.EncryptionProtocol>(out var encryption))
             {
                 return encryption.ProcessEncryptionSupportFromBytesAsync(PrependAuthCommand(1, data), Context());
             }
@@ -209,7 +205,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask EncryptionIsAsync(byte[] data)
         {
-            if (IsEncryptionEnabled(out var encryption))
+            if (TryGetEnabledPlugin<Protocols.EncryptionProtocol>(out var encryption))
             {
                 return encryption.ProcessEncryptionIsFromBytesAsync(PrependAuthCommand(0, data), Context());
             }
@@ -219,7 +215,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask EncryptionStartAsync(byte[] keyId)
         {
-            if (IsEncryptionEnabled(out var encryption))
+            if (TryGetEnabledPlugin<Protocols.EncryptionProtocol>(out var encryption))
             {
                 return encryption.ProcessEncryptionStartFromBytesAsync(keyId, Context());
             }
@@ -229,7 +225,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask EncryptionEndAsync()
         {
-            if (IsEncryptionEnabled(out var encryption))
+            if (TryGetEnabledPlugin<Protocols.EncryptionProtocol>(out var encryption))
             {
                 return encryption.ProcessEncryptionEndFromBytesAsync(Context());
             }
@@ -237,33 +233,29 @@ public partial class TelnetInterpreter
             return default;
         }
 
-        private bool IsEncryptionEnabled(out Protocols.EncryptionProtocol encryption)
-        {
-            if (owner.PluginManager?.IsPluginEnabled(typeof(Protocols.EncryptionProtocol)) == true &&
-                owner.PluginManager.GetPlugin(typeof(Protocols.EncryptionProtocol)) is Protocols.EncryptionProtocol found)
-            {
-                encryption = found;
-                return true;
-            }
-
-            encryption = null!;
-            return false;
-        }
         public override ValueTask MsdpStartedAsync()
         {
-            (owner.PluginManager?.GetPlugin(typeof(Protocols.MSDPProtocol)) as Protocols.MSDPProtocol)?.StartMsdpMessage();
+            if (TryGetEnabledPlugin<Protocols.MSDPProtocol>(out var msdp))
+            {
+                msdp.StartMsdpMessage();
+            }
+
             return default;
         }
 
         public override ValueTask MsdpDataAsync(ReadOnlyMemory<byte> data)
         {
-            (owner.PluginManager?.GetPlugin(typeof(Protocols.MSDPProtocol)) as Protocols.MSDPProtocol)?.AppendMsdpBytes(data);
+            if (TryGetEnabledPlugin<Protocols.MSDPProtocol>(out var msdp))
+            {
+                msdp.AppendMsdpBytes(data);
+            }
+
             return default;
         }
 
         public override ValueTask MsdpEndedAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.MSDPProtocol)) is Protocols.MSDPProtocol msdp)
+            if (TryGetEnabledPlugin<Protocols.MSDPProtocol>(out var msdp))
             {
                 return msdp.CompleteMsdpAsync(Context());
             }
@@ -272,31 +264,47 @@ public partial class TelnetInterpreter
         }
         public override ValueTask MsspStartedAsync()
         {
-            (owner.PluginManager?.GetPlugin(typeof(Protocols.MSSPProtocol)) as Protocols.MSSPProtocol)?.StartMsspMessage();
+            if (TryGetEnabledPlugin<Protocols.MSSPProtocol>(out var mssp))
+            {
+                mssp.StartMsspMessage();
+            }
+
             return default;
         }
 
         public override ValueTask MsspVariableMarkerAsync()
         {
-            (owner.PluginManager?.GetPlugin(typeof(Protocols.MSSPProtocol)) as Protocols.MSSPProtocol)?.OnMsspVariableMarker(Context());
+            if (TryGetEnabledPlugin<Protocols.MSSPProtocol>(out var mssp))
+            {
+                mssp.OnMsspVariableMarker(Context());
+            }
+
             return default;
         }
 
         public override ValueTask MsspValueMarkerAsync()
         {
-            (owner.PluginManager?.GetPlugin(typeof(Protocols.MSSPProtocol)) as Protocols.MSSPProtocol)?.OnMsspValueMarker(Context());
+            if (TryGetEnabledPlugin<Protocols.MSSPProtocol>(out var mssp))
+            {
+                mssp.OnMsspValueMarker(Context());
+            }
+
             return default;
         }
 
         public override ValueTask MsspDataAsync(ReadOnlyMemory<byte> data)
         {
-            (owner.PluginManager?.GetPlugin(typeof(Protocols.MSSPProtocol)) as Protocols.MSSPProtocol)?.AppendMsspBytes(data);
+            if (TryGetEnabledPlugin<Protocols.MSSPProtocol>(out var mssp))
+            {
+                mssp.AppendMsspBytes(data);
+            }
+
             return default;
         }
 
         public override ValueTask MsspEndedAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.MSSPProtocol)) is Protocols.MSSPProtocol mssp)
+            if (TryGetEnabledPlugin<Protocols.MSSPProtocol>(out var mssp))
             {
                 return mssp.CompleteMsspAsync(Context());
             }
@@ -305,7 +313,7 @@ public partial class TelnetInterpreter
         }
         public override ValueTask FlowControlAsync(byte command)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.FlowControlProtocol)) is Protocols.FlowControlProtocol flowControl)
+            if (TryGetEnabledPlugin<Protocols.FlowControlProtocol>(out var flowControl))
             {
                 return flowControl.OnFlowControlCommandAsync(command, Context());
             }
@@ -314,7 +322,7 @@ public partial class TelnetInterpreter
         }
         public override ValueTask LineModeAsync(byte kind, byte[] data)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.LineModeProtocol)) is Protocols.LineModeProtocol lineMode)
+            if (TryGetEnabledPlugin<Protocols.LineModeProtocol>(out var lineMode))
             {
                 return lineMode.CompleteLineModeFromBytesAsync(kind, data, Context());
             }
@@ -323,19 +331,27 @@ public partial class TelnetInterpreter
         }
         public override ValueTask GmcpStartedAsync()
         {
-            (owner.PluginManager?.GetPlugin(typeof(Protocols.GMCPProtocol)) as Protocols.GMCPProtocol)?.StartGmcpMessage();
+            if (TryGetEnabledPlugin<Protocols.GMCPProtocol>(out var gmcp))
+            {
+                gmcp.StartGmcpMessage();
+            }
+
             return default;
         }
 
         public override ValueTask GmcpDataAsync(ReadOnlyMemory<byte> data)
         {
-            (owner.PluginManager?.GetPlugin(typeof(Protocols.GMCPProtocol)) as Protocols.GMCPProtocol)?.AppendGmcpBytes(data);
+            if (TryGetEnabledPlugin<Protocols.GMCPProtocol>(out var gmcp))
+            {
+                gmcp.AppendGmcpBytes(data);
+            }
+
             return default;
         }
 
         public override ValueTask GmcpEndedAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.GMCPProtocol)) is Protocols.GMCPProtocol gmcp)
+            if (TryGetEnabledPlugin<Protocols.GMCPProtocol>(out var gmcp))
             {
                 return gmcp.CompleteGmcpAsync(Context());
             }
@@ -344,7 +360,7 @@ public partial class TelnetInterpreter
         }
         public override ValueTask CharsetRequestAsync(byte[] text)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.CharsetProtocol)) is Protocols.CharsetProtocol charset)
+            if (TryGetEnabledPlugin<Protocols.CharsetProtocol>(out var charset))
             {
                 return charset.CompleteCharsetRequestFromBytesAsync(text, Context());
             }
@@ -354,7 +370,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask CharsetAcceptedAsync(byte[] text)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.CharsetProtocol)) is Protocols.CharsetProtocol charset)
+            if (TryGetEnabledPlugin<Protocols.CharsetProtocol>(out var charset))
             {
                 return charset.CompleteAcceptedCharsetFromBytesAsync(text, Context());
             }
@@ -369,19 +385,27 @@ public partial class TelnetInterpreter
 
         public override ValueTask CharsetTTableStartedAsync()
         {
-            (owner.PluginManager?.GetPlugin(typeof(Protocols.CharsetProtocol)) as Protocols.CharsetProtocol)?.StartTTableMessage();
+            if (TryGetEnabledPlugin<Protocols.CharsetProtocol>(out var charset))
+            {
+                charset.StartTTableMessage();
+            }
+
             return default;
         }
 
         public override ValueTask CharsetTTableDataAsync(ReadOnlyMemory<byte> data)
         {
-            (owner.PluginManager?.GetPlugin(typeof(Protocols.CharsetProtocol)) as Protocols.CharsetProtocol)?.AppendTTableBytes(data);
+            if (TryGetEnabledPlugin<Protocols.CharsetProtocol>(out var charset))
+            {
+                charset.AppendTTableBytes(data);
+            }
+
             return default;
         }
 
         public override ValueTask CharsetTTableEndedAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.CharsetProtocol)) is Protocols.CharsetProtocol charset)
+            if (TryGetEnabledPlugin<Protocols.CharsetProtocol>(out var charset))
             {
                 return charset.CompleteTTableFromBufferAsync(Context());
             }
@@ -400,7 +424,7 @@ public partial class TelnetInterpreter
         // so it is restored here rather than changed out from under existing consumers.
         public override ValueTask AuthenticationSendAsync(byte[] data)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.AuthenticationProtocol)) is Protocols.AuthenticationProtocol authentication)
+            if (TryGetEnabledPlugin<Protocols.AuthenticationProtocol>(out var authentication))
             {
                 return authentication.RespondToAuthenticationSendFromBytesAsync(PrependAuthCommand(1, data), Context());
             }
@@ -410,7 +434,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask AuthenticationIsAsync(byte[] data)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.AuthenticationProtocol)) is Protocols.AuthenticationProtocol authentication)
+            if (TryGetEnabledPlugin<Protocols.AuthenticationProtocol>(out var authentication))
             {
                 return authentication.ProcessAuthenticationResponseFromBytesAsync(PrependAuthCommand(0, data), Context());
             }
@@ -427,7 +451,7 @@ public partial class TelnetInterpreter
         }
         public override ValueTask MxpStartedAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.MXPProtocol)) is Protocols.MXPProtocol mxp)
+            if (TryGetEnabledPlugin<Protocols.MXPProtocol>(out var mxp))
             {
                 return mxp.StartMxpModeAsync(Context());
             }
@@ -437,7 +461,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask GoAheadAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.SuppressGoAheadProtocol)) is Protocols.SuppressGoAheadProtocol sga)
+            if (TryGetEnabledPlugin<Protocols.SuppressGoAheadProtocol>(out var sga))
             {
                 return sga.OnBareGoAheadAsync(Context());
             }
@@ -447,7 +471,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask EorAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EORProtocol)) is Protocols.EORProtocol eor)
+            if (TryGetEnabledPlugin<Protocols.EORProtocol>(out var eor))
             {
                 return eor.OnBareEorAsync();
             }
@@ -456,7 +480,7 @@ public partial class TelnetInterpreter
         }
         public override ValueTask TerminalTypeRequestedAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.TerminalTypeProtocol)) is Protocols.TerminalTypeProtocol ttype)
+            if (TryGetEnabledPlugin<Protocols.TerminalTypeProtocol>(out var ttype))
             {
                 return ttype.OnRequestedAsync(Context());
             }
@@ -466,7 +490,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask TerminalTypeAsync(byte[] text)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.TerminalTypeProtocol)) is Protocols.TerminalTypeProtocol ttype)
+            if (TryGetEnabledPlugin<Protocols.TerminalTypeProtocol>(out var ttype))
             {
                 return ttype.CompleteTerminalTypeFromBytesAsync(text, Context());
             }
@@ -475,7 +499,7 @@ public partial class TelnetInterpreter
         }
         public override ValueTask NewEnvironStartedAsync(byte command)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.NewEnvironProtocol)) is Protocols.NewEnvironProtocol newEnviron)
+            if (TryGetEnabledPlugin<Protocols.NewEnvironProtocol>(out var newEnviron))
             {
                 return newEnviron.OnNewEnvironStartedAsync(command, Context());
             }
@@ -485,7 +509,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask NewEnvironVarAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.NewEnvironProtocol)) is Protocols.NewEnvironProtocol newEnviron)
+            if (TryGetEnabledPlugin<Protocols.NewEnvironProtocol>(out var newEnviron))
             {
                 return newEnviron.OnNewEnvironVarMarkerAsync(Context());
             }
@@ -495,7 +519,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask NewEnvironUserVarAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.NewEnvironProtocol)) is Protocols.NewEnvironProtocol newEnviron)
+            if (TryGetEnabledPlugin<Protocols.NewEnvironProtocol>(out var newEnviron))
             {
                 return newEnviron.OnNewEnvironUserVarMarkerAsync(Context());
             }
@@ -505,7 +529,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask NewEnvironValueAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.NewEnvironProtocol)) is Protocols.NewEnvironProtocol newEnviron)
+            if (TryGetEnabledPlugin<Protocols.NewEnvironProtocol>(out var newEnviron))
             {
                 return newEnviron.OnNewEnvironValueMarkerAsync(Context());
             }
@@ -515,7 +539,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask NewEnvironDataAsync(ReadOnlyMemory<byte> data)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.NewEnvironProtocol)) is Protocols.NewEnvironProtocol newEnviron)
+            if (TryGetEnabledPlugin<Protocols.NewEnvironProtocol>(out var newEnviron))
             {
                 return newEnviron.OnNewEnvironDataAsync(data, Context());
             }
@@ -525,7 +549,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask NewEnvironEndedAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.NewEnvironProtocol)) is Protocols.NewEnvironProtocol newEnviron)
+            if (TryGetEnabledPlugin<Protocols.NewEnvironProtocol>(out var newEnviron))
             {
                 return newEnviron.OnNewEnvironEndedAsync(Context());
             }
@@ -534,7 +558,7 @@ public partial class TelnetInterpreter
         }
         public override ValueTask XDisplayLocationRequestedAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.XDisplayProtocol)) is Protocols.XDisplayProtocol xdisploc)
+            if (TryGetEnabledPlugin<Protocols.XDisplayProtocol>(out var xdisploc))
             {
                 return xdisploc.OnRequestedAsync(Context());
             }
@@ -544,7 +568,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask XDisplayLocationAsync(byte[] text)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.XDisplayProtocol)) is Protocols.XDisplayProtocol xdisploc)
+            if (TryGetEnabledPlugin<Protocols.XDisplayProtocol>(out var xdisploc))
             {
                 return xdisploc.CompleteXDisplayLocationFromBytesAsync(text, Context());
             }
@@ -553,7 +577,7 @@ public partial class TelnetInterpreter
         }
         public override ValueTask Mccp2MarkerAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.MCCPProtocol)) is Protocols.MCCPProtocol mccp)
+            if (TryGetEnabledPlugin<Protocols.MCCPProtocol>(out var mccp))
             {
                 return mccp.OnMccp2MarkerAsync(Context());
             }
@@ -563,7 +587,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask Mccp3MarkerAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.MCCPProtocol)) is Protocols.MCCPProtocol mccp)
+            if (TryGetEnabledPlugin<Protocols.MCCPProtocol>(out var mccp))
             {
                 return mccp.OnMccp3MarkerAsync(Context());
             }
@@ -573,7 +597,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask Mccp1MarkerAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.MCCPProtocol)) is Protocols.MCCPProtocol mccp)
+            if (TryGetEnabledPlugin<Protocols.MCCPProtocol>(out var mccp))
             {
                 return mccp.OnMccp1MarkerAsync(Context());
             }
@@ -582,7 +606,7 @@ public partial class TelnetInterpreter
         }
         public override ValueTask EnvironStartedAsync(byte command)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EnvironProtocol)) is Protocols.EnvironProtocol environ)
+            if (TryGetEnabledPlugin<Protocols.EnvironProtocol>(out var environ))
             {
                 return environ.OnEnvironStartedAsync(command, Context());
             }
@@ -592,7 +616,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask EnvironVarAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EnvironProtocol)) is Protocols.EnvironProtocol environ)
+            if (TryGetEnabledPlugin<Protocols.EnvironProtocol>(out var environ))
             {
                 return environ.OnEnvironVarMarkerAsync(Context());
             }
@@ -602,7 +626,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask EnvironValueAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EnvironProtocol)) is Protocols.EnvironProtocol environ)
+            if (TryGetEnabledPlugin<Protocols.EnvironProtocol>(out var environ))
             {
                 return environ.OnEnvironValueMarkerAsync(Context());
             }
@@ -612,7 +636,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask EnvironDataAsync(ReadOnlyMemory<byte> data)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EnvironProtocol)) is Protocols.EnvironProtocol environ)
+            if (TryGetEnabledPlugin<Protocols.EnvironProtocol>(out var environ))
             {
                 return environ.OnEnvironDataAsync(data, Context());
             }
@@ -622,7 +646,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask EnvironEndedAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.EnvironProtocol)) is Protocols.EnvironProtocol environ)
+            if (TryGetEnabledPlugin<Protocols.EnvironProtocol>(out var environ))
             {
                 return environ.OnEnvironEndedAsync(Context());
             }
@@ -631,7 +655,7 @@ public partial class TelnetInterpreter
         }
         public override ValueTask TerminalSpeedRequestedAsync()
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.TerminalSpeedProtocol)) is Protocols.TerminalSpeedProtocol tspeed)
+            if (TryGetEnabledPlugin<Protocols.TerminalSpeedProtocol>(out var tspeed))
             {
                 return tspeed.OnRequestedAsync(Context());
             }
@@ -641,7 +665,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask TerminalSpeedAsync(byte[] text)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.TerminalSpeedProtocol)) is Protocols.TerminalSpeedProtocol tspeed)
+            if (TryGetEnabledPlugin<Protocols.TerminalSpeedProtocol>(out var tspeed))
             {
                 return tspeed.CompleteTerminalSpeedFromBytesAsync(text, Context());
             }
@@ -651,7 +675,7 @@ public partial class TelnetInterpreter
 
         public override ValueTask WindowSizeAsync(int width, int height)
         {
-            if (owner.PluginManager?.GetPlugin(typeof(Protocols.NAWSProtocol)) is Protocols.NAWSProtocol naws)
+            if (TryGetEnabledPlugin<Protocols.NAWSProtocol>(out var naws))
             {
                 return naws.OnWindowSizeAsync(width, height, Context());
             }
@@ -668,6 +692,28 @@ public partial class TelnetInterpreter
         /// protocol reading, say, the client identity through this seam would silently see none.
         /// </summary>
         private IProtocolContext Context() => owner.SharedProtocolContext!;
+
+        /// <summary>
+        /// Every dispatch in this class goes through this rather than a bare <c>GetPlugin</c>: a disabled
+        /// plugin is still registered (<c>GetPlugin</c> would find it) because
+        /// <c>ProtocolPluginManager.DisablePluginAsync</c> never tells the peer to stop negotiating --
+        /// it only flips <c>IsEnabled</c>. Without this gate, a peer that negotiated an option before
+        /// this side disabled the plugin could keep sending subnegotiation data and have it delivered
+        /// as if nothing had changed, undoing what disabling the plugin was meant to do. Matches
+        /// <see cref="NegotiateAsync"/>'s own <c>IsPluginEnabled</c> gate above.
+        /// </summary>
+        private bool TryGetEnabledPlugin<T>(out T plugin) where T : class, ITelnetProtocolPlugin
+        {
+            if (owner.PluginManager?.IsPluginEnabled(typeof(T)) == true &&
+                owner.PluginManager.GetPlugin(typeof(T)) is T found)
+            {
+                plugin = found;
+                return true;
+            }
+
+            plugin = null!;
+            return false;
+        }
     }
 
     /// <summary>

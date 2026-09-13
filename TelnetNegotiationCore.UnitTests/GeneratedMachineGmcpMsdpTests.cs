@@ -50,6 +50,50 @@ public class GeneratedMachineGmcpMsdpTests : BaseTest
         await server.DisposeAsync();
     }
 
+    /// <summary>
+    /// Disabling a plugin does not tell the peer to stop negotiating (<c>DisablePluginAsync</c> flips
+    /// <c>IsEnabled</c> only), so a peer that already negotiated GMCP can keep sending messages after
+    /// it. The dispatch in TelnetGeneratedMachineInterpreter must still refuse to deliver that data --
+    /// <c>GetPlugin</c> alone would find the (still-registered) plugin regardless.
+    /// </summary>
+    [Test]
+    public async Task DisabledPluginDoesNotProcessAMessage()
+    {
+        (string Package, string Info)? receivedGMCP = null;
+        ValueTask WriteBackToGMCP((string Package, string Info) tuple) { receivedGMCP = tuple; return ValueTask.CompletedTask; }
+
+        var server = await new TelnetInterpreterBuilder()
+            .UseGeneratedMachine()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit((a, e, t) => ValueTask.CompletedTask)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<GMCPProtocol>()
+                .OnGMCPMessage(WriteBackToGMCP)
+            .BuildAsync();
+
+        await server.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP });
+        await server.WaitForProcessingAsync();
+
+        await server.PluginManager!.DisablePluginAsync<GMCPProtocol>();
+
+        var package = "Core.Hello";
+        var message = "{\"client\":\"TestClient\",\"version\":\"1.0\"}";
+        var gmcpBytes = new List<byte> { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.GMCP };
+        gmcpBytes.AddRange(Encoding.ASCII.GetBytes(package));
+        gmcpBytes.Add((byte)' ');
+        gmcpBytes.AddRange(Encoding.ASCII.GetBytes(message));
+        gmcpBytes.Add((byte)Trigger.IAC);
+        gmcpBytes.Add((byte)Trigger.SE);
+
+        await server.InterpretByteArrayAsync(gmcpBytes.ToArray());
+        await server.WaitForProcessingAsync();
+
+        await Assert.That(receivedGMCP).IsNull();
+
+        await server.DisposeAsync();
+    }
+
     /// <summary>The same maximum-message-size enforcement the plugin always had, unaffected by which machine streams to it.</summary>
     [Test]
     public async Task AnOversizedGMCPMessageIsDroppedNotTruncated()
