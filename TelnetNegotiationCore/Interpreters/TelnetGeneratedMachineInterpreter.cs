@@ -85,6 +85,9 @@ public partial class TelnetInterpreter
     /// </summary>
     private sealed class GeneratedContext(TelnetInterpreter owner) : TelnetCoreContext
     {
+        /// <inheritdoc />
+        public override Models.CarriageReturnMode CarriageReturnMode => owner.CarriageReturnMode;
+
         public override void Write(ReadOnlySpan<byte> text)
         {
             foreach (var b in text)

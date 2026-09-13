@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Plugins;
+using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.Builders;
 
@@ -23,6 +24,8 @@ public class TelnetInterpreterBuilder
     private Func<byte[], System.Text.Encoding, TelnetInterpreter, ValueTask>? _onSubmit;
     private Func<ReadOnlyMemory<byte>, ValueTask>? _onNegotiation;
     private int? _maxBufferSize;
+
+    private CarriageReturnMode? _carriageReturnMode;
     private TimeSpan? _keepAliveInterval;
     private Func<TelnetInterpreter, CancellationToken, ValueTask>? _keepAliveAsync;
     private readonly List<ITelnetProtocolPlugin> _plugins = new();
@@ -137,6 +140,68 @@ public class TelnetInterpreterBuilder
         _maxBufferSize = size;
         return this;
     }
+
+    /// <summary>
+    /// Chooses what happens to a carriage return that is not part of a <c>CR LF</c> pair.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Defaults to <see cref="CarriageReturnMode.Drop"/>, which is what this library has always done.
+    /// The named shorthands <see cref="DropCarriageReturns"/>,
+    /// <see cref="TreatCarriageReturnNullAsLineEnd"/> and <see cref="PreserveCarriageReturns"/> say
+    /// the same thing more legibly at a call site.
+    /// </para>
+    /// <para>
+    /// <c>CR LF</c> ends a line whatever this is set to, and so does a bare <c>LF</c>.
+    /// </para>
+    /// </remarks>
+    /// <param name="mode">What a carriage return means on this connection.</param>
+    /// <returns>This builder for chaining</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not a defined mode.</exception>
+    public TelnetInterpreterBuilder WithCarriageReturnMode(CarriageReturnMode mode)
+    {
+        if (mode is not (CarriageReturnMode.Drop or CarriageReturnMode.EndOfLine or CarriageReturnMode.Preserve))
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Not a defined carriage-return mode");
+
+        _carriageReturnMode = mode;
+        return this;
+    }
+
+    /// <summary>
+    /// Discards a carriage return, and consumes a <c>NUL</c> that follows it. The default.
+    /// </summary>
+    /// <remarks>
+    /// Right for a line-oriented consumer with no use for carriage returns, which is most of them.
+    /// Equivalent to <c>WithCarriageReturnMode(CarriageReturnMode.Drop)</c>.
+    /// </remarks>
+    /// <returns>This builder for chaining</returns>
+    public TelnetInterpreterBuilder DropCarriageReturns() =>
+        WithCarriageReturnMode(CarriageReturnMode.Drop);
+
+    /// <summary>
+    /// Treats <c>CR NUL</c> as the end of a line, exactly as <c>CR LF</c> is treated.
+    /// </summary>
+    /// <remarks>
+    /// RFC 1123 §3.3.1 requires this of an ASCII server host reading user input: "CR LF and CR NUL
+    /// MUST have the same effect". Right for a server whose clients may send <c>CR NUL</c> for the
+    /// end-of-line key. Equivalent to <c>WithCarriageReturnMode(CarriageReturnMode.EndOfLine)</c>.
+    /// </remarks>
+    /// <returns>This builder for chaining</returns>
+    public TelnetInterpreterBuilder TreatCarriageReturnNullAsLineEnd() =>
+        WithCarriageReturnMode(CarriageReturnMode.EndOfLine);
+
+    /// <summary>
+    /// Delivers a literal carriage return for one that does not begin <c>CR LF</c>.
+    /// </summary>
+    /// <remarks>
+    /// RFC 854's reading of <c>CR NUL</c>, and what libtelnet implements. Right when the peer's
+    /// carriage returns carry meaning — a MUD overprinting an ASCII spinner sends bare ones, and the
+    /// other modes discard exactly that. Equivalent to
+    /// <c>WithCarriageReturnMode(CarriageReturnMode.Preserve)</c>.
+    /// </remarks>
+    /// <returns>This builder for chaining</returns>
+    public TelnetInterpreterBuilder PreserveCarriageReturns() =>
+        WithCarriageReturnMode(CarriageReturnMode.Preserve);
 
     /// <summary>
     /// Enables an idle keep-alive on the connection. Disabled unless this is called.
@@ -417,6 +482,7 @@ public class TelnetInterpreterBuilder
             KeepAliveInterval = _keepAliveInterval,
             KeepAliveAsync = _keepAliveAsync,
             MaxBufferSize = _maxBufferSize ?? TelnetInterpreter.DefaultMaxBufferSize,
+            CarriageReturnMode = _carriageReturnMode ?? TelnetInterpreter.DefaultCarriageReturnMode,
             UseGeneratedMachine = _useGeneratedMachine
         };
 

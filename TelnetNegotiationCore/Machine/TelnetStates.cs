@@ -7,7 +7,7 @@ namespace TelnetNegotiationCore.Machine;
 // it ends, which is the field on the interpreter it replaces.
 //
 // Connected
-// └── Accepting ── Idle [initial], ReadingCharacters, DoNothing, GoAhead
+// └── Accepting ── Idle [initial], ReadingCharacters, AfterCarriageReturn, DoNothing, GoAhead
 // ├── StartNegotiation
 // ├── Willing, Refusing, Do, Dont
 // └── SubNegotiation ── ReadingOption [initial], EndSubNegotiation
@@ -39,6 +39,19 @@ public struct Idle : IState<Accepting>
 
 /// <summary>Part-way through a line.</summary>
 public struct ReadingCharacters : IState<Accepting>
+{
+}
+
+/// <summary>
+/// A carriage return arrived and what it meant depends on the byte after it: <c>LF</c> ends the line,
+/// <c>NUL</c> is RFC 854's bare carriage return, and anything else means the CR terminated nothing.
+/// </summary>
+/// <remarks>
+/// This state exists because the decision cannot be made when the CR arrives. The machine used to
+/// discard a carriage return on the spot, which is why the <c>NUL</c> of a <c>CR NUL</c> pair used to
+/// fall through to the text path and reach the consumer as a literal <c>0x00</c>.
+/// </remarks>
+public struct AfterCarriageReturn : IState<Accepting>
 {
 }
 

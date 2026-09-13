@@ -6,6 +6,7 @@ using System;
 using System.Text;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Machine;
+using TelnetNegotiationCore.Models;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -126,27 +127,43 @@ public class EngineProperties
 	/// </summary>
 	/// <remarks>
 	/// <para>
-	/// <c>TelnetCoreModule.DropReturn</c> and <c>DropReturnInLine</c> discard a carriage return
-	/// wherever it arrives — "a carriage return is not part of the line" — and <c>EndOfLine</c>
-	/// submits on a line feed. So the rule is simply: drop every CR, break on every LF.
+	/// The machine's rule under <see cref="CarriageReturnMode.Drop"/>, which is what
+	/// <see cref="RecordingTelnetContext"/> reports: drop every carriage return, consume a
+	/// <c>NUL</c> that directly follows one, and break on every line feed.
 	/// </para>
 	/// <para>
-	/// NUL has no transition of its own and is therefore ordinary text, which means RFC 854's
-	/// <c>CR NUL</c> reaches a consumer as a literal 0x00 inside the line rather than as the bare
-	/// carriage return the RFC defines it to be. That is pre-existing behaviour, outside the change
-	/// under test here, and <c>CarriageReturnPolicyTests</c> pins it so it stays deliberate.
+	/// The <c>NUL</c>-consuming half is the part that changed. It used to be ordinary text, so
+	/// RFC 854's <c>CR NUL</c> reached a consumer as a literal 0x00 inside the line — which matched
+	/// no RFC and no other implementation. Only a <c>NUL</c> <em>directly</em> after a carriage
+	/// return is consumed: in <c>CR NUL NUL</c> the second one is text, because the first consumed
+	/// the pending carriage return along with itself.
+	/// </para>
+	/// <para>
+	/// The other two modes are covered by <see cref="CarriageReturnPolicyTests"/>, which drives them
+	/// explicitly rather than through a generated corpus.
 	/// </para>
 	/// </remarks>
 	private static string Normalise(byte[] bytes)
 	{
 		var sb = new StringBuilder();
+		var afterCarriageReturn = false;
+
 		foreach (var b in bytes)
 		{
 			if (b == (byte)'\r')
 			{
+				afterCarriageReturn = true;
 				continue;
 			}
 
+			if (afterCarriageReturn && b == 0)
+			{
+				// CR NUL: the pair is consumed entirely.
+				afterCarriageReturn = false;
+				continue;
+			}
+
+			afterCarriageReturn = false;
 			sb.Append(b == (byte)'\n' ? '\n' : (char)b);
 		}
 

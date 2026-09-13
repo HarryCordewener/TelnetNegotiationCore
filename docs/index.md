@@ -27,6 +27,7 @@ dotnet add package TelnetNegotiationCore
 | [Keep-alive](guides/keep-alive.md) | `IAC NOP` on an idle connection, and what it does not prove |
 | [Managing the read loop yourself](guides/connection-management.md) | `UsePipe`, `UseStream`, `OnNegotiation`, `InterpretByteArrayAsync` |
 | [Implementing an authentication mechanism](guides/authentication-mechanisms.md) | Kerberos, SRP, RSA and TLS on top of RFC 2941 |
+| [Line endings and carriage returns](guides/line-endings.md) | `CR LF`, `CR NUL` and bare `CR`, and the three modes for choosing what they mean |
 | [The property-based regression suite](guides/property-testing.md) | Seven invariants over generated input, and how to read a counterexample |
 
 ## Concepts

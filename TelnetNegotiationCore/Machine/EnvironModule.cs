@@ -18,6 +18,16 @@ public struct EnvironField : IState<SubNegotiation>
 {
     /// <summary>An IAC has been read; the next byte says whether this ends the subnegotiation.</summary>
     public bool Escaping;
+
+    /// <summary>
+    /// An <c>ESC</c> has been read, so the next byte is data even if it is a type byte.
+    /// </summary>
+    /// <remarks>
+    /// RFC 1408 escapes the four type bytes inside a name or a value: a literal <c>VAR</c> is sent as
+    /// <c>ESC VAR</c>, and likewise for <c>VALUE</c>, <c>USERVAR</c> and <c>ESC</c> itself. Distinct
+    /// from <see cref="Escaping"/>, which is about <c>IAC</c> doubling.
+    /// </remarks>
+    public bool TypeEscaped;
 }
 
 public abstract partial class TelnetCoreContext
@@ -47,6 +57,7 @@ public static class EnvironModule
     private const byte Send = 1;
     private const byte Var = 0;
     private const byte Value = 1;
+    private const byte Esc = 2;
     private const byte Option = 36;
 
     [Transition(From = typeof(ReadingOption), To = typeof(Environ)), On(Option)]
@@ -86,6 +97,13 @@ public static class EnvironModule
     [Transition(From = typeof(EnvironField)), On(Var)]
     public static class VarMarker
     {
+        /// <summary>
+        /// An escaped type byte is data, not structure. The run's stop set is computed at compile time
+        /// from which transitions exist rather than from what their guards return, so this trigger still
+        /// stops the run; declining here falls through to <c>Capture</c>, which takes the byte as data.
+        /// </summary>
+        public static bool Guard(in EnvironField self) => !self.TypeEscaped;
+
         public static void Transform(ref EnvironField self) => self.Escaping = false;
 
         public static ValueTask CompletedAsync(TelnetCoreContext context) => context.EnvironVarAsync();
@@ -94,6 +112,13 @@ public static class EnvironModule
     [Transition(From = typeof(EnvironField)), On(Value)]
     public static class ValueMarker
     {
+        /// <summary>
+        /// An escaped type byte is data, not structure. The run's stop set is computed at compile time
+        /// from which transitions exist rather than from what their guards return, so this trigger still
+        /// stops the run; declining here falls through to <c>Capture</c>, which takes the byte as data.
+        /// </summary>
+        public static bool Guard(in EnvironField self) => !self.TypeEscaped;
+
         public static void Transform(ref EnvironField self) => self.Escaping = false;
 
         public static ValueTask CompletedAsync(TelnetCoreContext context) => context.EnvironValueAsync();
@@ -102,17 +127,51 @@ public static class EnvironModule
     [Transition(From = typeof(EnvironField)), OnAny, Run]
     public static class Capture
     {
-        public static void Transform(ref EnvironField self, ReadOnlySpan<byte> run) => self.Escaping = false;
+        public static void Transform(ref EnvironField self, ReadOnlySpan<byte> run)
+        {
+            self.Escaping = false;
+
+            // Whatever the run covered, any pending type escape has been spent on its first byte.
+            self.TypeEscaped = false;
+        }
 
         public static ValueTask CompletedAsync(TelnetCoreContext context, ReadOnlyMemory<byte> run) =>
             context.EnvironDataAsync(run);
+    }
+
+    /// <summary>
+    /// RFC 1408's <c>ESC</c>: the next byte is data even if it is a type byte. <c>ESC ESC</c> is one
+    /// literal <c>ESC</c> of data, which is why this toggles rather than sets.
+    /// </summary>
+    /// <remarks>
+    /// An <c>ESC</c> before a byte the RFC does not list as escapable is still consumed and the byte
+    /// delivered literally, and a trailing <c>ESC</c> before <c>IAC SE</c> escapes nothing and is
+    /// consumed. Both match libtelnet, which skips the <c>ESC</c> unconditionally.
+    /// </remarks>
+    [Transition(From = typeof(EnvironField)), On(Esc)]
+    public static class TypeEscape
+    {
+        public static void Transform(ref EnvironField self) => self.TypeEscaped = !self.TypeEscaped;
+
+        public static ValueTask CompletedAsync(TelnetCoreContext context, in EnvironField self) =>
+            self.TypeEscaped ? default : context.EnvironDataAsync(new byte[] { Esc });
     }
 
     /// <summary>The first IAC of a pair waits to see whether it doubles into data or is followed by SE.</summary>
     [Transition(From = typeof(EnvironField)), On(IAC)]
     public static class Mark
     {
-        public static void Transform(ref EnvironField self) => self.Escaping = !self.Escaping;
+        public static void Transform(ref EnvironField self)
+        {
+            self.Escaping = !self.Escaping;
+
+            // An IAC spends any pending type escape. ESC escapes only the four type bytes, so an
+            // IAC-escaped literal 0xFF is not something it can apply to -- and this path does not go
+            // through Capture, which is the only other place the flag is cleared. Leaving it set here
+            // made ESC IAC IAC VAR swallow a real marker as data: the stale-flag misfire that
+            // MalformedSubnegotiationRecoveryTests documents.
+            self.TypeEscaped = false;
+        }
 
         public static ValueTask CompletedAsync(TelnetCoreContext context, in EnvironField self) =>
             self.Escaping ? default : context.EnvironDataAsync(new byte[] { IAC });

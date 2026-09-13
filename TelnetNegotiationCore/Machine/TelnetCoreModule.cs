@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using StateAlchemist;
+using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.Machine;
 
@@ -29,6 +30,16 @@ public abstract partial class TelnetCoreContext
 
     /// <summary>A bare IAC EOR arrived. RFC 885: a NOP unless END-OF-RECORD is in effect, which is a protocol's business.</summary>
     public abstract ValueTask EorAsync();
+
+    /// <summary>
+    /// What to do with a carriage return that is not part of a <c>CR LF</c> pair.
+    /// </summary>
+    /// <remarks>
+    /// Virtual rather than abstract so that an existing implementation of this context keeps
+    /// compiling and keeps the behaviour it had. <see cref="CarriageReturnMode.Drop"/> is what this
+    /// machine has always done.
+    /// </remarks>
+    public virtual CarriageReturnMode CarriageReturnMode => CarriageReturnMode.Drop;
 
 }
 
@@ -65,9 +76,13 @@ public static class TelnetCoreModule
     [Transition(From = typeof(ReadingCharacters)), OnAny, Run]
     public static void MoreText(ref ReadingCharacters self, ReadOnlySpan<byte> run, TelnetCoreContext context) => context.Write(run);
 
-    /// <summary>A carriage return is not part of the line, wherever it arrives.</summary>
-    [Transition(From = typeof(Accepting)), On(CarriageReturn)]
-    public static void DropReturn()
+    private const byte Nul = 0;
+
+    /// <summary>
+    /// A carriage return: what it meant depends on the next byte, so it is remembered rather than acted on.
+    /// </summary>
+    [Transition(From = typeof(Accepting), To = typeof(AfterCarriageReturn)), On(CarriageReturn)]
+    public static void PendingReturn()
     {
     }
 
@@ -75,9 +90,94 @@ public static class TelnetCoreModule
     /// And in the middle of a line. Declared again rather than inherited: a state's <c>[OnAny]</c> shadows what
     /// its ancestors do with values, so the state that takes a run of text has to name what stops that run.
     /// </summary>
-    [Transition(From = typeof(ReadingCharacters)), On(CarriageReturn)]
-    public static void DropReturnInLine()
+    [Transition(From = typeof(ReadingCharacters), To = typeof(AfterCarriageReturn)), On(CarriageReturn)]
+    public static void PendingReturnInLine()
     {
+    }
+
+    /// <summary>CR LF: the line ends, and the carriage return was part of the terminator rather than data.</summary>
+    [Transition(From = typeof(AfterCarriageReturn), To = typeof(Idle)), On(Newline)]
+    public static class ReturnThenNewline
+    {
+        public static void Transform()
+        {
+        }
+
+        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.SubmitAsync();
+    }
+
+    /// <summary>
+    /// CR NUL, which two standards read two ways — so the mode decides, and the branch lives here rather than
+    /// in competing guards. Three guarded transitions would need an explicit order and raise an ambiguity
+    /// question; the target is <see cref="Idle"/> in every case, so nothing forces the choice into the
+    /// transition table.
+    /// </summary>
+    [Transition(From = typeof(AfterCarriageReturn), To = typeof(Idle)), On(Nul)]
+    public static class ReturnThenNul
+    {
+        public static void Transform()
+        {
+        }
+
+        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.CarriageReturnMode switch
+        {
+            // RFC 1123 §3.3.1: the same effect as CR LF on a server reading user input.
+            CarriageReturnMode.EndOfLine => context.SubmitAsync(),
+
+            // RFC 854, and libtelnet: a bare carriage return in the data.
+            CarriageReturnMode.Preserve => Write(context, CarriageReturn),
+
+            // Drop: the pair is consumed entirely. The NUL never reaches the consumer.
+            _ => default,
+        };
+    }
+
+    /// <summary>
+    /// A second carriage return. The first is now known not to have begun CR LF or CR NUL, so
+    /// <see cref="CarriageReturnMode.Preserve"/> emits it and the others discard it — and this one is pending
+    /// in its turn, which is why this is a stay.
+    /// </summary>
+    [Transition(From = typeof(AfterCarriageReturn)), On(CarriageReturn)]
+    public static void RepeatedReturn(TelnetCoreContext context)
+    {
+        if (context.CarriageReturnMode == CarriageReturnMode.Preserve)
+        {
+            context.Write(Single(CarriageReturn));
+        }
+    }
+
+    /// <summary>
+    /// A command after a carriage return. The CR terminated nothing, so under
+    /// <see cref="CarriageReturnMode.Preserve"/> it is data and is written before the command begins.
+    /// </summary>
+    [Transition(From = typeof(AfterCarriageReturn), To = typeof(StartNegotiation)), On(IAC)]
+    public static void ReturnThenCommand(TelnetCoreContext context)
+    {
+        if (context.CarriageReturnMode == CarriageReturnMode.Preserve)
+        {
+            context.Write(Single(CarriageReturn));
+        }
+    }
+
+    /// <summary>
+    /// Ordinary text after a carriage return: the CR terminated nothing. Under
+    /// <see cref="CarriageReturnMode.Preserve"/> it is written first, then the byte that ended the wait.
+    /// </summary>
+    /// <remarks>
+    /// The target is <see cref="ReadingCharacters"/> because a line is being read from here on. Note that a
+    /// carriage return still pending when the input stops writes nothing at all, in every mode: until the next
+    /// byte arrives the machine cannot know which of the three cases it is in, and resolving it at the end of a
+    /// batch would make the same bytes parse differently depending on where the peer stopped sending.
+    /// </remarks>
+    [Transition(From = typeof(AfterCarriageReturn), To = typeof(ReadingCharacters)), OnAny]
+    public static void ReturnThenText(TelnetCoreContext context, byte value)
+    {
+        if (context.CarriageReturnMode == CarriageReturnMode.Preserve)
+        {
+            context.Write(Single(CarriageReturn));
+        }
+
+        context.Write(Single(value));
     }
 
     /// <summary>The line ends. Back to waiting for the next one.</summary>
@@ -282,6 +382,13 @@ public static class TelnetCoreModule
     [Transition(From = typeof(SubNegotiating)), OnAny, Run]
     public static void Payload(ref SubNegotiating self, ReadOnlySpan<byte> run)
     {
+    }
+
+    /// <summary>Writes one byte and completes, so a switch arm can both write and return a task.</summary>
+    private static ValueTask Write(TelnetCoreContext context, byte value)
+    {
+        context.Write(Single(value));
+        return default;
     }
 
     /// <summary>One byte as a span, without allocating: the run path takes spans, and so does the context.</summary>
