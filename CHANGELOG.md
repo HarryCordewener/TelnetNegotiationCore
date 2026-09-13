@@ -1,6 +1,61 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- **A peer may no longer authenticate or encrypt with a mechanism it was never offered.** When
+  `WithAuthenticationTypes` or `WithEncryptionTypes` is configured, the plugin remembers what it put
+  in its `SEND` / `SUPPORT`, and an `IS` naming anything else is logged at `Warning` and dropped
+  before `OnAuthenticationResponse` / `OnEncryptionRequest` runs. Those callbacks are where a
+  consumer validates credentials and initialises decryption, so doing the check there means it
+  cannot be forgotten. Nothing is sent in reply: RFC 2941 and RFC 2946 leave everything after the
+  type to the mechanism, so there is no rejection this library could write that a peer would read.
+  - **This is a behaviour change.** A consumer whose callback deliberately accepted more than it
+    advertised now sees less; widen the offered list, which is what the peer is told either way.
+  - The advertisement is whatever this side last actually sent, so calling the public
+    `SendAuthenticationRequestAsync` / `SendEncryptionSupportAsync` arms the check just as a provider
+    does, and a later offer replaces an earlier one rather than being measured against it.
+  - Configure no provider and make no such call, and nothing changes: with no advertisement to
+    honour there is nothing to enforce, and the callback keeps receiving whatever arrives. A
+    provider that *returns* an empty list is a different thing — an advertisement saying you accept
+    nothing — and is enforced as one.
+  - An offer whose write threw is not recorded, and does not displace the one that did reach the
+    peer.
+
+### Added
+- **Fluent builder configuration for ENCRYPT and CHARSET's encoding callback.**
+  `WithEncryptionTypes`, `OnEncryptionSupport`, `OnEncryptionRequest`, `OnEncryptionStart` and
+  `OnEncryptionEnd` had no `PluginConfigurationContext<EncryptionProtocol>` extension, and neither
+  did `CharsetProtocol.OnCharsetChange`, so the chain the documentation showed did not compile —
+  those settings could only be applied through `GetPlugin<T>()` after `BuildAsync()`, by which point
+  the plugin's initial negotiation has already gone out. Every other plugin's settings were
+  reachable from the chain; these now are too.
+
+### Documentation
+- **The README is a README again**, and the reference lives in [`docs/`](docs/index.md): a page per
+  protocol, guides for the builder, dependency injection, prompts, keep-alive and the read loop, and
+  an index for each. `AUTHENTICATION.md` moved to
+  [`docs/guides/authentication-mechanisms.md`](docs/guides/authentication-mechanisms.md).
+- **ECHO, MXP, EOR/SUPPRESS-GO-AHEAD and TTYPE/MTTS now have pages.** All four were implemented and
+  undocumented beyond a row in the support table.
+- **The authentication and encryption callback payloads are documented as they actually are.** Both
+  are handed the subnegotiation body with the command byte still on the front — `[IS, authType,
+  modifiers, …]`, `[SUPPORT, type, …]` — which the examples had been indexing past. The behaviour is
+  unchanged and now pinned by tests; the indices in the examples were wrong. `AuthenticationProtocol`'s
+  own XML documentation carried the same off-by-one, so IntelliSense was wrong too; corrected.
+- **`SendAuthenticationReplyAsync` no longer documents `0x00` / `0xFF` as accept and reject.** RFC 2941
+  leaves everything after the (authType, modifiers) pair to the mechanism, and this library interprets
+  none of it; the convention only exists where both ends have agreed one.
+- **`EnvironProtocol` implements RFC 1408's `VAR` but not `USERVAR`**, which the page now states as a
+  limitation of the implementation. It had said the RFC has no user variables, which is not true.
+
+### Security
+- **OpenSSF Scorecard, CodeQL, a security policy and SHA-pinned actions.** Every action is pinned to
+  a commit digest with Dependabot keeping the digests current, every workflow declares least-
+  privilege token permissions, and the release workflow's dispatch input reaches the shell as an
+  environment variable rather than as interpolated text.
+
 ## [3.0.0]
 
 ### Breaking

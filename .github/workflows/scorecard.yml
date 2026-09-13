@@ -1,0 +1,45 @@
+name: Scorecard
+
+# OpenSSF Scorecard: the security health of the repository, checked rather than claimed — branch
+# protection, pinned actions, token permissions, signed releases, dependency update tooling and the
+# rest. Publishing the result is what makes the README's badge and https://scorecard.dev/viewer work
+# for this repository.
+on:
+  push:
+    # The default branch only; the action does not support any other.
+    branches: [ main ]
+  schedule:
+    # Weekly, so a score that decays is noticed without a push.
+    - cron: '30 1 * * 6'
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # Uploading the SARIF to code scanning.
+      security-events: write
+      # The OIDC token publish_results needs.
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Scorecard scans public repositories weekly anyway; publishing from here is what puts this
+          # repository in the public dataset the badge and the viewer read.
+          publish_results: true
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        with:
+          sarif_file: results.sarif

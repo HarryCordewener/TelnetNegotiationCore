@@ -1,6 +1,12 @@
-# Authentication Implementation Guide
+# Implementing an authentication mechanism
 
-This guide demonstrates how to implement various authentication mechanisms using the TelnetNegotiationCore `AuthenticationProtocol` plugin with external cryptographic libraries.
+[`AuthenticationProtocol`](../protocols/authentication.md) carries RFC 2941's messages; it implements
+no cryptography of its own. This guide is the other half: worked implementations of Kerberos V4 and
+V5, SRP, RSA and SSL/TLS on top of those callbacks, using external cryptographic libraries.
+
+> **Read [the security policy's scope](../../SECURITY.md#what-is-out-of-scope) first.** Telnet is a
+> cleartext protocol, and the mechanisms below are only as strong as the library you back them with.
+> For a new application, TLS underneath telnet is the shorter answer than any of this.
 
 ## Table of Contents
 

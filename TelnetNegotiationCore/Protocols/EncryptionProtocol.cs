@@ -121,6 +121,10 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     private Func<byte[], ValueTask<byte[]?>>? _onEncryptionSupport;
     private Func<byte[], ValueTask>? _onEncryptionRequest;
     private Func<ValueTask<List<byte>>>? _encryptionTypesProvider;
+
+    // What this side actually put in its SUPPORT, kept so the peer's IS can be held to it. Null
+    // until a SUPPORT built from a configured provider has gone out.
+    private List<byte>? _offeredEncryptionTypes;
     private Func<byte[], ValueTask>? _onEncryptionStart;
     private Func<ValueTask>? _onEncryptionEnd;
     private bool _isEncrypting = false;
@@ -271,7 +275,16 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     /// <para><strong>Server-side.</strong> Used by servers to announce supported encryption types.</para>
     /// <para>This sends an IAC SB ENCRYPT SUPPORT [types] IAC SE message.</para>
     /// </remarks>
-    public async ValueTask SendEncryptionSupportAsync(List<byte> encryptionTypes)
+    public ValueTask SendEncryptionSupportAsync(List<byte> encryptionTypes)
+        => SendEncryptionSupportAsync(encryptionTypes, recordAsOffer: true);
+
+    /// <param name="recordAsOffer">
+    /// Whether this list becomes the advertisement the peer's <c>IS</c> is held to, once it is sent. True for every
+    /// deliberate offer; false only for the empty <c>SUPPORT</c> the plugin emits when nothing is
+    /// configured, which is a refusal rather than an advertisement.
+    /// </param>
+    /// <inheritdoc cref="SendEncryptionSupportAsync(List{byte})"/>
+    private async ValueTask SendEncryptionSupportAsync(List<byte> encryptionTypes, bool recordAsOffer)
     {
         if (!IsEnabled)
             return;
@@ -289,6 +302,12 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         bytes.Add((byte)Trigger.SE);
 
         await Context.SendNegotiationAsync(bytes.ToArray());
+
+        // Only once it is on the wire — see the note on the authentication side.
+        if (recordAsOffer)
+        {
+            _offeredEncryptionTypes = [.. encryptionTypes];
+        }
     }
 
     /// <summary>
@@ -507,6 +526,21 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         });
     }
 
+    /// <summary>
+    /// Whether an inbound <c>IS</c> names a type this side put in its <c>SUPPORT</c>. Always true
+    /// when no encryption types were configured: there is no advertisement to hold the peer to.
+    /// </summary>
+    /// <param name="message">The subnegotiation body, command byte first.</param>
+    private bool IsOfferedEncryptionType(byte[] message)
+    {
+        if (_offeredEncryptionTypes is null)
+        {
+            return true;
+        }
+
+        return message.Length >= 2 && _offeredEncryptionTypes.Contains(message[1]);
+    }
+
     private async ValueTask OnClientWillEncryptAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client willing to encrypt - sending encryption types");
@@ -520,7 +554,7 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         }
 
         // Send SUPPORT subnegotiation with encryption types
-        await SendEncryptionSupportAsync(encTypes);
+        await SendEncryptionSupportAsync(encTypes, recordAsOffer: _encryptionTypesProvider != null);
     }
 
     private async ValueTask OnServerRequestsEncryptionAsync(IProtocolContext context)
@@ -560,6 +594,17 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     internal async ValueTask ProcessEncryptionIsFromBytesAsync(byte[] data, IProtocolContext context)
     {
         context.Logger.LogDebug("Processing encryption IS from client");
+
+        if (!IsOfferedEncryptionType(data))
+        {
+            // Refused before the callback, which is the point: OnEncryptionRequest is where a
+            // consumer initialises decryption, and initialising it for an algorithm this side
+            // never offered is exactly what this stops.
+            context.Logger.LogWarning(
+                "Client answered ENCRYPT with type {EncryptionType}, which was not offered. Ignoring.",
+                data.Length > 1 ? data[1] : -1);
+            return;
+        }
 
         // Invoke callback if provided
         if (_onEncryptionRequest != null)

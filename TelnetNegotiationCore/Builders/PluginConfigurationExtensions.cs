@@ -831,4 +831,19 @@ public static class PluginConfigurationExtensions
         context.Plugin.SupportsCordType(type, onOpened);
         return context;
     }
+
+    /// <summary>
+    /// Sets the callback invoked when CHARSET negotiation settles on an encoding, in a fluent
+    /// manner (RFC 2066). The argument is the encoding the connection now reads and writes in.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle the new encoding</param>
+    /// <returns>The plugin configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<CharsetProtocol> OnCharsetChange(
+        this PluginConfigurationContext<CharsetProtocol> context,
+        Func<System.Text.Encoding, ValueTask>? callback)
+    {
+        context.Plugin.OnCharsetChange(callback);
+        return context;
+    }
 }
