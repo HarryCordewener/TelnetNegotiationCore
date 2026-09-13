@@ -282,7 +282,13 @@ public class CharsetProtocol : TelnetProtocolPluginBase
                     "CHARSET REQUEST offers a translation table, version {Version}", version);
             }
 
-            offered = bytes[(prefix.Length + 1)..];
+            // Array.Copy rather than a range slice: this assembly also targets netstandard2.0, which
+            // has no RuntimeHelpers.GetSubArray for the compiler to lower `bytes[n..]` onto.
+            var start = prefix.Length + 1;
+            var rest = new byte[bytes.Length - start];
+            Array.Copy(bytes, start, rest, 0, rest.Length);
+
+            offered = rest;
             return true;
         }
 
