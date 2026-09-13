@@ -115,6 +115,19 @@ public static class AuthenticationModule
     {
     }
 
+    /// <summary>
+    /// A second IAC: the first one stood for a literal 0xFF in the payload rather than the
+    /// terminator. Credentials are whatever the mechanism produced, so that is one byte in 256.
+    /// </summary>
+    [Transition(From = typeof(AuthenticationEnding), To = typeof(AuthenticationValue)), On(IAC)]
+    public static void Escaped(in AuthenticationEnding from, ref AuthenticationValue to)
+    {
+        to.IsReport = from.IsReport;
+        to.Data = from.Data;
+        to.Overflowed = from.Overflowed;
+        Capture(ref to, stackalloc byte[] { IAC });
+    }
+
     [Transition(From = typeof(AuthenticationEnding), To = typeof(Idle)), On(SE)]
     public static class Ended
     {

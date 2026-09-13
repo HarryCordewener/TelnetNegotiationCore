@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Attributes;
+using TelnetNegotiationCore.Helpers;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -277,8 +278,7 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
 
         foreach (var (authType, modifiers) in authenticationTypes)
         {
-            bytes.Add(authType);
-            bytes.Add(modifiers);
+            SubnegotiationEscaping.AppendEscaped(bytes, [authType, modifiers]);
         }
 
         bytes.Add((byte)Trigger.IAC);
@@ -331,7 +331,7 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
             AUTH_IS
         };
 
-        bytes.AddRange(authData);
+        SubnegotiationEscaping.AppendEscaped(bytes, authData);
         bytes.Add((byte)Trigger.IAC);
         bytes.Add((byte)Trigger.SE);
 
@@ -383,7 +383,7 @@ public class AuthenticationProtocol : TelnetProtocolPluginBase
             AUTH_REPLY
         };
 
-        bytes.AddRange(replyData);
+        SubnegotiationEscaping.AppendEscaped(bytes, replyData);
         bytes.Add((byte)Trigger.IAC);
         bytes.Add((byte)Trigger.SE);
 
