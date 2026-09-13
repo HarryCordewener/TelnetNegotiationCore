@@ -40,6 +40,15 @@ All notable changes to this project will be documented in this file.
   dropped `CR` independently of the state machine, so the two layers decided the same policy and the
   lower one won silently. The machine is now the only place that decides. No change under the default
   mode, where the machine never writes one.
+- **TERMINAL-TYPE now enforces RFC 1091's 40-character limit when sending.** "The maximum length of
+  a terminal type name is 40 characters", and nothing checked. `WithTerminalTypes`,
+  `ClientIdentity.Name` and `ClientIdentity.TerminalType` now throw `ArgumentException` naming the
+  offending value and its length. Refused rather than truncated because nothing legitimate comes
+  close — the longest values the MTTS cycle sends are terminal types like `XTERM-256COLOR`, at 14
+  characters — so a limit no real client approaches cannot wrongly refuse one, and silently
+  shortening what an application asked to send would be worse than telling it. Receiving stays
+  liberal: the limit constrains senders. `ClientIdentity.Version` is unconstrained, since it goes to
+  MNES as `CLIENT_VERSION` rather than into a TTYPE response.
 
 - **A CHARSET `REQUEST` offering a translation table was rejected outright.** RFC 2066 allows a
   `REQUEST` to be prefixed `{ "[TTABLE ]" <Version> }` to say the sender will accept a mapping

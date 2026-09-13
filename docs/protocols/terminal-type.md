@@ -35,3 +35,21 @@ itself. The library never invents a terminal, and never introduces your applicat
 **As a server**, registering the plugin is enough: it asks, and the answers arrive over the usual
 plugin state. `TerminalTypeProtocol.ObservedCapabilities(context)` reports the MTTS bits this library
 can see for itself on a connection.
+
+## The 40-character limit
+
+RFC 1091 says "the maximum length of a terminal type name is 40 characters". That constrains
+senders, so this library enforces it where a name is *configured* — `WithTerminalTypes`,
+`ClientIdentity.Name` and `ClientIdentity.TerminalType` all throw `ArgumentException` naming the
+offending value — rather than at the moment of sending, where a mistake would already be a
+non-conforming frame on the wire.
+
+It is refused rather than truncated because nothing legitimate comes close. The MTTS cycle sends a
+client name, a terminal type and an `MTTS <bitvector>` claim, and the longest values in real use are
+terminal types like `XTERM-256COLOR`, at 14 characters. A limit no real client approaches cannot
+wrongly refuse one, and silently shortening what an application asked to send would be worse than
+telling it.
+
+Receiving stays deliberately liberal: the limit is a rule for senders, and a peer that exceeds it is
+still understood. `ClientIdentity.Version` is not constrained either — it goes to MNES as
+`CLIENT_VERSION`, not into a TTYPE response, and MNES sets no such limit.

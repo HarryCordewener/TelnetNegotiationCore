@@ -56,6 +56,18 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     /// <param name="terminalTypes">The terminal types to report, in order</param>
     /// <returns>This instance for fluent chaining</returns>
     /// <exception cref="ArgumentException">The list is null, empty, or contains a blank entry.</exception>
+    /// <summary>
+    /// The longest terminal type name RFC 1091 permits: "The maximum length of a terminal type name
+    /// is 40 characters."
+    /// </summary>
+    /// <remarks>
+    /// Enforced where a name is configured — here, and on <see cref="Models.ClientIdentity"/> — rather
+    /// than where it is sent, so a mistake surfaces with the offending value named instead of becoming
+    /// a non-conforming frame on the wire. The receive side is deliberately liberal: the limit
+    /// constrains senders, and a peer that exceeds it should still be understood.
+    /// </remarks>
+    public const int MaxTerminalTypeLength = 40;
+
     public TerminalTypeProtocol WithTerminalTypes(params string[] terminalTypes)
     {
         if (terminalTypes == null || terminalTypes.Length == 0)
@@ -68,6 +80,19 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
         if (terminalTypes.Any(string.IsNullOrWhiteSpace))
         {
             throw new ArgumentException("A terminal type cannot be blank.", nameof(terminalTypes));
+        }
+
+        foreach (var terminalType in terminalTypes)
+        {
+            if (terminalType.Trim().Length > MaxTerminalTypeLength)
+            {
+                throw new ArgumentException(
+                    $"\"{terminalType}\" is {terminalType.Trim().Length} characters. RFC 1091 allows a "
+                    + $"terminal type name of at most {MaxTerminalTypeLength}. Nothing in real use comes "
+                    + "close — the longest values the MTTS cycle sends are terminal types like "
+                    + "\"XTERM-256COLOR\" — so this is refused rather than truncated.",
+                    nameof(terminalTypes));
+            }
         }
 
         _configuredTerminalTypes = [.. terminalTypes];

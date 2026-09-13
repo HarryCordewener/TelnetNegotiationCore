@@ -64,6 +64,15 @@ public sealed record ClientIdentity
                 + "server it connects to.", nameof(name));
         }
 
+        if (name.Trim().Length > Protocols.TerminalTypeProtocol.MaxTerminalTypeLength)
+        {
+            throw new ArgumentException(
+                $"\"{name}\" is {name.Trim().Length} characters. This name is sent as the first TTYPE "
+                + $"response, and RFC 1091 allows at most "
+                + $"{Protocols.TerminalTypeProtocol.MaxTerminalTypeLength} characters there.",
+                nameof(name));
+        }
+
         Name = name.Trim();
     }
 
@@ -84,7 +93,25 @@ public sealed record ClientIdentity
     /// TTYPE response and as MNES <c>TERMINAL_TYPE</c>. Not sent when null: an application that
     /// renders nothing has no terminal type, and the library will not invent one for it.
     /// </summary>
-    public string? TerminalType { get; init; }
+    public string? TerminalType
+    {
+        get => _terminalType;
+        init
+        {
+            if (value?.Trim().Length > Protocols.TerminalTypeProtocol.MaxTerminalTypeLength)
+            {
+                throw new ArgumentException(
+                    $"\"{value}\" is {value.Trim().Length} characters. This is sent as a TTYPE "
+                    + $"response, and RFC 1091 allows at most "
+                    + $"{Protocols.TerminalTypeProtocol.MaxTerminalTypeLength} characters there.",
+                    nameof(TerminalType));
+            }
+
+            _terminalType = value;
+        }
+    }
+
+    private readonly string? _terminalType;
 
     /// <summary>
     /// The MTTS capabilities the application claims — the ones only it can know, such as colour
