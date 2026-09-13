@@ -201,12 +201,10 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
         // Use configured display location or empty string if not configured
         var displayString = _displayLocation;
         
-        byte[] xDisplayLocation =
-        [
-            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.XDISPLOC, (byte)Trigger.IS,
-            .. Encoding.ASCII.GetBytes(displayString),
-            (byte)Trigger.IAC, (byte)Trigger.SE
-        ];
+        // RFC 1096 is silent on escaping; RFC 855's general rule for subnegotiation parameters
+        // covers it. See Helpers.SubnegotiationFrame.
+        var xDisplayLocation = Helpers.SubnegotiationFrame.Build(
+            (byte)Trigger.XDISPLOC, (byte)Trigger.IS, Encoding.ASCII.GetBytes(displayString));
 
         await context.SendNegotiationAsync(xDisplayLocation);
     }

@@ -363,9 +363,13 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
         context.Logger.LogDebug("Charsets chosen by us: {@charsetWebName} (CP: {@cp})", chosenEncoding.WebName, chosenEncoding.CodePage);
 
-        byte[] preamble = [(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED];
-        byte[] charsetAscii = ascii.GetBytes(chosenEncoding.WebName);
-        byte[] postAmble = [ (byte)Trigger.IAC, (byte)Trigger.SE ];
+        // RFC 2066 is explicit that this is not conditional on what the payload can hold: "All
+        // octets of value 255 (other than IAC) MUST be quoted to conform with TELNET requirements."
+        // A charset name is IANA-registered and so ASCII, which cannot produce a 255 -- but TTABLE-IS
+        // on this same option needed the escaping badly enough to be a bug (see the CHANGELOG), and
+        // the difference between the two was the payload, not the rule.
+        byte[] response = Helpers.SubnegotiationFrame.Build(
+            (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED, ascii.GetBytes(chosenEncoding.WebName));
 
         CurrentEncoding = chosenEncoding;
         UpdateInterpreterEncoding(context);
@@ -374,7 +378,6 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         // subnegotiation, and the consumer's notification is its cue to send whatever it queued while
         // CHARSET was in flight - so notifying first would invite it to send text the peer would still
         // be reading in the old charset.
-        byte[] response = [.. preamble, .. charsetAscii, .. postAmble];
         await context.SendNegotiationAsync(response);
 
         await NotifyCharsetChangeAsync(context);
@@ -500,9 +503,9 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
     private byte[] CharacterSets()
     {
-        return [(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
-                        .. Encoding.ASCII.GetBytes($";{string.Join(";", GetCharsetOrder(AllowedEncodings()).Select(x => x.WebName))}"),
-                        (byte)Trigger.IAC, (byte)Trigger.SE];
+        return Helpers.SubnegotiationFrame.Build(
+            (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
+            Encoding.ASCII.GetBytes($";{string.Join(";", GetCharsetOrder(AllowedEncodings()).Select(x => x.WebName))}"));
     }
     
     /// <summary>

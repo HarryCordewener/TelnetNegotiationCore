@@ -217,12 +217,10 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
         // Format: "transmit,receive" (e.g., "38400,38400")
         var speedString = $"{_transmitSpeed},{_receiveSpeed}";
         
-        byte[] terminalSpeed =
-        [
-            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TSPEED, (byte)Trigger.IS,
-            .. Encoding.ASCII.GetBytes(speedString),
-            (byte)Trigger.IAC, (byte)Trigger.SE
-        ];
+        // RFC 1079 is silent on escaping; RFC 855's general rule for subnegotiation parameters
+        // covers it. See Helpers.SubnegotiationFrame.
+        var terminalSpeed = Helpers.SubnegotiationFrame.Build(
+            (byte)Trigger.TSPEED, (byte)Trigger.IS, Encoding.ASCII.GetBytes(speedString));
 
         await context.SendNegotiationAsync(terminalSpeed);
     }

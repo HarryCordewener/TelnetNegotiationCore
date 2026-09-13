@@ -54,11 +54,30 @@ All notable changes to this project will be documented in this file.
     255, so the two never overlap.
   - No behaviour change for anything that was already escaping; the helper's two shapes are pinned
     to each other across generated payloads rather than each to a hand-written expectation.
-  - The five sites that deliberately do not escape — TTYPE's `IS`, TSPEED's `IS`, XDISPLOC's `IS`,
-    and CHARSET's `ACCEPTED` and `REQUEST` — are unchanged: all five encode with `Encoding.ASCII`,
-    which replaces anything outside 0x00–0x7F with `?` and so cannot emit 255. That was an
-    assumption nothing stated; it is now a test, so substituting a wider encoding at any of those
-    sites fails rather than silently opening the payload.
+  - **Every subnegotiation this library sends now escapes its parameters, unconditionally.** TTYPE's
+    `IS`, TSPEED's `IS`, XDISPLOC's `IS` and CHARSET's `ACCEPTED` and `REQUEST` previously did not,
+    on the grounds that all five encode with `Encoding.ASCII`, which cannot emit 255. True, but not
+    the obligation. RFC 855 — the option specifications standard, which governs every option rather
+    than particular ones — states it generally: "if parameters in an option 'subnegotiation' include
+    a byte with a value of 255, it is necessary to double this byte in accordance the general TELNET
+    rules." RFC 1073 calls it "as required by the Telnet protocol, any occurrence of 255 in the
+    subnegotiation", and RFC 2066 addresses the exact reasoning above in a note to implementers:
+    "since TELNET works in octets, it is possible for octets of value 255 to appear
+    'spontaneously' when using multi-octet or non-8-bit characters. All octets of value 255 (other
+    than IAC) MUST be quoted to conform with TELNET requirements."
+    - RFC 1091, RFC 1079 and RFC 1096 say nothing about escaping, which is why those three sites
+      had none: their own RFCs are silent because RFC 855 already covers them, and an implementer
+      reading only the option's own document finds no instruction.
+    - **No change on the wire.** Those five payloads are still ASCII-encoded, which remains correct
+      (RFC 1091's terminal type names, RFC 1079's speeds, RFC 1096's display locations and IANA
+      charset names are all ASCII), so the escaping finds nothing to do and the bytes are identical.
+      What changed is that the obligation is discharged by the code that builds the frame, and
+      tested, instead of resting on a property of whichever encoder a line above it picked.
+    - The six sites sharing the `IAC SB <option> <command> <payload> IAC SE` shape — those five plus
+      LINEMODE's `MODE` — now build it through one helper, so a new option of that shape gets the
+      escaping by construction rather than by remembering. Writing it turned up a double-escaping
+      bug in its own single-byte overload, caught by the test pinning that overload against the
+      general one.
 
 - **CHARSET's `TTABLE-IS` did not escape `IAC` in the translation table it sent.** RFC 2066: "All
   octets of value 255 (other than IAC) MUST be quoted to conform with TELNET requirements." A

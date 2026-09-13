@@ -375,12 +375,13 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
             reportedType = CurrentTerminalType;
         }
 
-        byte[] terminalType =
-        [
-            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS,
-            .. Encoding.ASCII.GetBytes(reportedType),
-            (byte)Trigger.IAC, (byte)Trigger.SE
-        ];
+        // RFC 1091 says nothing about escaping, because RFC 855 already does for every option:
+        // "if parameters in an option 'subnegotiation' include a byte with a value of 255, it is
+        // necessary to double this byte". ASCII cannot produce one -- RFC 1091's names are ASCII, so
+        // that is the right encoder here -- but the obligation is on this frame, not on the encoder
+        // chosen above it.
+        var terminalType = Helpers.SubnegotiationFrame.Build(
+            (byte)Trigger.TTYPE, (byte)Trigger.IS, Encoding.ASCII.GetBytes(reportedType));
 
         await context.SendNegotiationAsync(terminalType);
 

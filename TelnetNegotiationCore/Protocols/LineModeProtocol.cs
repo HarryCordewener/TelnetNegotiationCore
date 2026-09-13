@@ -176,20 +176,8 @@ public class LineModeProtocol : TelnetProtocolPluginBase
     /// frame never closes -- this library's own parser reports nothing at all for such a frame.
     /// </para>
     /// </remarks>
-    private static byte[] ModeFrame(byte mode)
-    {
-        var frame = new List<byte>(8)
-        {
-            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.LINEMODE, (byte)Trigger.LINEMODE_MODE,
-        };
-
-        Helpers.SubnegotiationEscaping.AppendEscaped(frame, mode);
-
-        frame.Add((byte)Trigger.IAC);
-        frame.Add((byte)Trigger.SE);
-
-        return frame.ToArray();
-    }
+    private static byte[] ModeFrame(byte mode) => Helpers.SubnegotiationFrame.Build(
+        (byte)Trigger.LINEMODE, (byte)Trigger.LINEMODE_MODE, mode);
 
     /// <summary>
     /// Sends a MODE command to enable EDIT mode (client does local line editing)
