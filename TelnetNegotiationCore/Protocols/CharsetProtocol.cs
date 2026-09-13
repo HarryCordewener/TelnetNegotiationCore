@@ -216,6 +216,104 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         return _charsetOrder(encodings);
     }
 
+    /// <summary>
+    /// The two spellings of RFC 2066's translation-table prefix. The RFC's format line writes
+    /// <c>"[TTABLE ]"</c> and its prose writes <c>[TTABLE]</c>; both are accepted, because being
+    /// strict about which would refuse real peers over an ambiguity in the specification itself.
+    /// </summary>
+    private static readonly string[] s_ttablePrefixes = ["[TTABLE]", "[TTABLE ]"];
+
+    /// <summary>
+    /// Takes RFC 2066's optional <c>{ "[TTABLE ]" &lt;Version&gt; }</c> prefix off the front of a
+    /// <c>REQUEST</c> payload, leaving the <c>&lt;sep&gt;&lt;charset&gt;…</c> list.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The prefix sits before the separator octet, so it has to come off before the first remaining
+    /// byte can be read as one. Left in place, the <c>[</c> is taken for the separator and the whole
+    /// charset list collapses into a single unrecognised name, which is why a peer offering a
+    /// translation table alongside charsets this library supports used to be rejected outright.
+    /// </para>
+    /// <para>
+    /// The prefix means the peer is willing to accept a mapping between any charset it listed and
+    /// any the receiver wants. Nothing here acts on that beyond noting it: choosing to send a
+    /// <c>TTABLE-IS</c> is the receiver's option, and this library does not.
+    /// </para>
+    /// </remarks>
+    /// <param name="bytes">The <c>REQUEST</c> payload.</param>
+    /// <param name="context">For logging.</param>
+    /// <param name="offered">The payload with any prefix removed.</param>
+    /// <returns>
+    /// False when the message is malformed — a prefix with no version octet after it — in which case
+    /// the caller rejects. True otherwise, prefix or no prefix.
+    /// </returns>
+    private static bool TryStripTTablePrefix(byte[] bytes, IProtocolContext context, out byte[] offered)
+    {
+        offered = bytes;
+
+        foreach (var prefix in s_ttablePrefixes)
+        {
+            if (!StartsWithAscii(bytes, prefix))
+            {
+                continue;
+            }
+
+            if (bytes.Length <= prefix.Length)
+            {
+                // RFC 2066 requires a version octet after the prefix. Without one there is neither a
+                // version nor a charset list, so there is nothing to answer.
+                context.Logger.LogWarning(
+                    "CHARSET REQUEST carries {Prefix} with no version octet after it, rejecting", prefix);
+                return false;
+            }
+
+            var version = bytes[prefix.Length];
+            if (version == 0)
+            {
+                // "This field must not be zero." The sender is broken, but its charset list may be
+                // perfectly good, so the offer of a table is ignored rather than the message refused.
+                context.Logger.LogWarning(
+                    "CHARSET REQUEST carries {Prefix} with a zero version, which RFC 2066 forbids. "
+                    + "Ignoring the translation-table offer and reading the charset list", prefix);
+            }
+            else
+            {
+                context.Logger.LogDebug(
+                    "CHARSET REQUEST offers a translation table, version {Version}", version);
+            }
+
+            // Array.Copy rather than a range slice: this assembly also targets netstandard2.0, which
+            // has no RuntimeHelpers.GetSubArray for the compiler to lower `bytes[n..]` onto.
+            var start = prefix.Length + 1;
+            var rest = new byte[bytes.Length - start];
+            Array.Copy(bytes, start, rest, 0, rest.Length);
+
+            offered = rest;
+            return true;
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether <paramref name="bytes"/> begins with <paramref name="prefix"/>, case-insensitively.</summary>
+    private static bool StartsWithAscii(byte[] bytes, string prefix)
+    {
+        if (bytes.Length < prefix.Length)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < prefix.Length; i++)
+        {
+            if (char.ToUpperInvariant((char)bytes[i]) != char.ToUpperInvariant(prefix[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     internal async ValueTask CompleteCharsetRequestFromBytesAsync(byte[] bytes, IProtocolContext context)
     {
         var ascii = Encoding.ASCII;
@@ -226,18 +324,26 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             return;
         }
 
+        // RFC 2066's optional translation-table prefix comes before the separator, so it has to be
+        // taken off before the first byte can be read as one.
+        if (!TryStripTTablePrefix(bytes, context, out var offered))
+        {
+            await context.SendNegotiationAsync(s_charsetRejected);
+            return;
+        }
+
         // A REQUEST with no bytes at all -- IAC SB CHARSET REQUEST IAC SE -- names no separator and no
-        // charset, so it offers nothing to choose from. Encoding.GetString(bytes, 0, 1) below assumes at
-        // least one byte for the separator; reject rather than let an empty array index out of range.
-        if (bytes.Length == 0)
+        // charset, so it offers nothing to choose from. Encoding.GetString(offered, 0, 1) below assumes
+        // at least one byte for the separator; reject rather than let an empty array index out of range.
+        if (offered.Length == 0)
         {
             context.Logger.LogDebug("Empty CHARSET REQUEST - nothing offered, rejecting");
             await context.SendNegotiationAsync(s_charsetRejected);
             return;
         }
 
-        var sep = ascii.GetString(bytes, 0, 1)?[0];
-        var charsetsOffered = ascii.GetString(bytes, 1, bytes.Length - 1).Split(sep ?? ' ');
+        var sep = ascii.GetString(offered, 0, 1)?[0];
+        var charsetsOffered = ascii.GetString(offered, 1, offered.Length - 1).Split(sep ?? ' ');
 
         context.Logger.LogDebug("Charsets offered to us: {@charsetResultDebug}", [..charsetsOffered]);
 

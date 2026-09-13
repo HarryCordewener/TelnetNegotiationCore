@@ -30,6 +30,18 @@ namespace TelnetNegotiationCore.UnitTests
 		}
 
 		/// <summary>
+		/// A logger that discards everything, for tests that drive hundreds or thousands of streams.
+		/// </summary>
+		/// <remarks>
+		/// <see cref="logger"/> writes to the console at <c>Debug</c>, which is exactly what is
+		/// wanted for a test whose output a person reads after a failure. For a property-based test
+		/// it is the dominant cost: each generated stream provokes a great many entries, and the
+		/// console I/O to print them took longer than everything the test was actually measuring.
+		/// </remarks>
+		internal static readonly Microsoft.Extensions.Logging.ILogger silentLogger =
+			Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+
+		/// <summary>
 		/// Creates a no-op submit callback for tests that don't need to capture submitted data.
 		/// </summary>
 		protected static ValueTask NoOpSubmitCallback(byte[] data, Encoding encoding, TelnetInterpreter ti) => 

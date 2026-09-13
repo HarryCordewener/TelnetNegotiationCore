@@ -15,6 +15,100 @@ public class RecordingTelnetContext : TelnetCoreContext
 {
     private readonly StringBuilder _line = new();
 
+    /// <summary>
+    /// The line being accumulated that has not been submitted yet. A stream whose trailing text
+    /// never receives its newline is otherwise indistinguishable from one that dropped the text,
+    /// which is a difference every generated property needs to see.
+    /// </summary>
+    public string PendingText => _line.ToString();
+
+    /// <summary>
+    /// A protocol's structural markers and payload in order, with adjacent payload runs merged.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The streaming protocols — MSSP, ENVIRON and NEW-ENVIRON — deliver payload through a
+    /// <c>DataAsync</c> callback that fires once per run of payload bytes, and a run necessarily
+    /// stops at a chunk boundary because the span it is handed cannot cross one. So the number of
+    /// <c>DataAsync</c> calls is a function of how the peer's bytes happened to arrive, not of what
+    /// the peer said, and any consumer has to concatenate consecutive calls to recover a value.
+    /// GMCP, MSDP and CHARSET's translation table already accumulate for exactly this reason.
+    /// </para>
+    /// <para>
+    /// The public event lists keep one entry per call, because that is what the existing tests
+    /// assert on. This parallel trace merges adjacent payload runs so that
+    /// <see cref="Snapshot"/> compares what the peer said and in what order, and stays blind to how
+    /// the bytes were split — the same distinction <see cref="Write"/> already relies on.
+    /// </para>
+    /// </remarks>
+    private sealed class CoalescingTrace
+    {
+        /// <summary>
+        /// A marker carries its name; a payload run carries its raw bytes.
+        /// </summary>
+        /// <remarks>
+        /// Payload is kept as bytes rather than as an ASCII-decoded string on purpose. ASCII
+        /// decoding maps every byte above 0x7F to the same replacement character, so a
+        /// fragmentation-dependent substitution between two high bytes — exactly the defect
+        /// <see cref="FragmentationProperties"/> exists to catch — would produce identical snapshots
+        /// and pass. The public event lists keep the decoded strings, because that is what the
+        /// existing tests assert on.
+        /// </remarks>
+        private readonly List<(bool IsData, string Marker, List<byte> Data)> _entries = [];
+
+        public void Marker(string name) => _entries.Add((false, name, null));
+
+        public void Data(ReadOnlySpan<byte> data)
+        {
+            if (_entries.Count > 0 && _entries[^1].IsData)
+            {
+                foreach (var b in data)
+                {
+                    _entries[^1].Data.Add(b);
+                }
+
+                return;
+            }
+
+            var run = new List<byte>(data.Length);
+            foreach (var b in data)
+            {
+                run.Add(b);
+            }
+
+            _entries.Add((true, null, run));
+        }
+
+        public void Render(StringBuilder sb, string name)
+        {
+            sb.Append(name).Append('=');
+            foreach (var (isData, marker, data) in _entries)
+            {
+                if (isData)
+                {
+                    sb.Append('d').Append(data.Count).Append(':');
+                    foreach (var b in data)
+                    {
+                        sb.Append(b.ToString("x2"));
+                    }
+
+                    sb.Append(',');
+                    continue;
+                }
+
+                sb.Append('m').Append(marker.Length).Append(':').Append(marker).Append(',');
+            }
+
+            sb.Append(';');
+        }
+    }
+
+    private readonly CoalescingTrace _msspTrace = new();
+
+    private readonly CoalescingTrace _newEnvironTrace = new();
+
+    private readonly CoalescingTrace _environTrace = new();
+
     public List<string> Lines { get; } = [];
 
     public List<string> Negotiations { get; } = [];
@@ -200,30 +294,35 @@ public class RecordingTelnetContext : TelnetCoreContext
     public override ValueTask MsspStartedAsync()
     {
         MsspEvents.Add("started");
+        _msspTrace.Marker("started");
         return default;
     }
 
     public override ValueTask MsspVariableMarkerAsync()
     {
         MsspEvents.Add("VAR");
+        _msspTrace.Marker("VAR");
         return default;
     }
 
     public override ValueTask MsspValueMarkerAsync()
     {
         MsspEvents.Add("VAL");
+        _msspTrace.Marker("VAL");
         return default;
     }
 
     public override ValueTask MsspDataAsync(ReadOnlyMemory<byte> data)
     {
         MsspEvents.Add(Encoding.ASCII.GetString(data.Span));
+        _msspTrace.Data(data.Span);
         return default;
     }
 
     public override ValueTask MsspEndedAsync()
     {
         MsspEvents.Add("ended");
+        _msspTrace.Marker("ended");
         return default;
     }
 
@@ -299,66 +398,77 @@ public class RecordingTelnetContext : TelnetCoreContext
     public override ValueTask NewEnvironStartedAsync(byte command)
     {
         NewEnvironEvents.Add($"started {command}");
+        _newEnvironTrace.Marker($"started {command}");
         return default;
     }
 
     public override ValueTask NewEnvironVarAsync()
     {
         NewEnvironEvents.Add("VAR");
+        _newEnvironTrace.Marker("VAR");
         return default;
     }
 
     public override ValueTask NewEnvironUserVarAsync()
     {
         NewEnvironEvents.Add("USERVAR");
+        _newEnvironTrace.Marker("USERVAR");
         return default;
     }
 
     public override ValueTask NewEnvironValueAsync()
     {
         NewEnvironEvents.Add("VALUE");
+        _newEnvironTrace.Marker("VALUE");
         return default;
     }
 
     public override ValueTask NewEnvironDataAsync(ReadOnlyMemory<byte> data)
     {
         NewEnvironEvents.Add(Encoding.ASCII.GetString(data.Span));
+        _newEnvironTrace.Data(data.Span);
         return default;
     }
 
     public override ValueTask NewEnvironEndedAsync()
     {
         NewEnvironEvents.Add("ended");
+        _newEnvironTrace.Marker("ended");
         return default;
     }
 
     public override ValueTask EnvironStartedAsync(byte command)
     {
         EnvironEvents.Add($"started {command}");
+        _environTrace.Marker($"started {command}");
         return default;
     }
 
     public override ValueTask EnvironVarAsync()
     {
         EnvironEvents.Add("VAR");
+        _environTrace.Marker("VAR");
         return default;
     }
 
     public override ValueTask EnvironValueAsync()
     {
         EnvironEvents.Add("VALUE");
+        _environTrace.Marker("VALUE");
         return default;
     }
 
     public override ValueTask EnvironDataAsync(ReadOnlyMemory<byte> data)
     {
         EnvironEvents.Add(Encoding.ASCII.GetString(data.Span));
+        _environTrace.Data(data.Span);
         return default;
     }
 
     public override ValueTask EnvironEndedAsync()
     {
         EnvironEvents.Add("ended");
+        _environTrace.Marker("ended");
         return default;
     }
 
@@ -442,5 +552,137 @@ public class RecordingTelnetContext : TelnetCoreContext
     {
         Eors++;
         return default;
+    }
+
+    /// <summary>
+    /// Every recorded field rendered to one deterministic string, so that two runs compare with a
+    /// single equality and a failure prints a readable diff rather than thirty-six assertions.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The order is fixed and alphabetical by field name rather than by declaration, so that adding
+    /// a field to this class cannot silently reorder an existing snapshot.
+    /// </para>
+    /// <para>
+    /// <see cref="Write"/> call boundaries are deliberately absent. Chunking a stream legitimately
+    /// changes how byte runs batch into <see cref="Write"/> calls; a snapshot that could see those
+    /// boundaries would make the fragmentation property fail on every case for a reason of no
+    /// interest to anyone. The contract is which bytes arrive in which order, not how many calls
+    /// delivered them.
+    /// </para>
+    /// </remarks>
+    public string Snapshot()
+    {
+        var sb = new StringBuilder();
+
+        Bytes(sb, "AuthenticationIsMessages", AuthenticationIsMessages);
+        Bytes(sb, "AuthenticationSends", AuthenticationSends);
+        Bytes(sb, "CharsetAccepted", CharsetAccepted);
+        Count(sb, "CharsetRejections", CharsetRejections);
+        Bytes(sb, "CharsetRequests", CharsetRequests);
+        Count(sb, "CharsetTTableAcks", CharsetTTableAcks);
+        Count(sb, "CharsetTTableNaks", CharsetTTableNaks);
+        Count(sb, "CharsetTTableRejections", CharsetTTableRejections);
+        Bytes(sb, "CharsetTTables", CharsetTTables);
+        Count(sb, "EncryptionEnds", EncryptionEnds);
+        Bytes(sb, "EncryptionIsMessages", EncryptionIsMessages);
+        Bytes(sb, "EncryptionSends", EncryptionSends);
+        Bytes(sb, "EncryptionStarts", EncryptionStarts);
+        _environTrace.Render(sb, "EnvironEvents");
+        Count(sb, "Eors", Eors);
+        Octets(sb, "FlowControlCommands", FlowControlCommands);
+        Bytes(sb, "GmcpMessages", GmcpMessages);
+        Count(sb, "GoAheads", GoAheads);
+
+        sb.Append("LineModeMessages=");
+        foreach (var (kind, data) in LineModeMessages)
+        {
+            sb.Append(kind).Append(':').Append(Hex(data)).Append(',');
+        }
+
+        sb.Append(';');
+
+        Strings(sb, "Lines", Lines);
+        Count(sb, "Mccp1Markers", Mccp1Markers);
+        Count(sb, "Mccp2Markers", Mccp2Markers);
+        Count(sb, "Mccp3Markers", Mccp3Markers);
+        Bytes(sb, "MsdpMessages", MsdpMessages);
+        _msspTrace.Render(sb, "MsspEvents");
+        Count(sb, "MxpStarts", MxpStarts);
+        Strings(sb, "Negotiations", Negotiations);
+        _newEnvironTrace.Render(sb, "NewEnvironEvents");
+        Strings(sb, "PendingText", [PendingText]);
+        Octets(sb, "SubNegotiations", SubNegotiations);
+        Bytes(sb, "TerminalSpeedReports", TerminalSpeedReports);
+        Count(sb, "TerminalSpeedRequests", TerminalSpeedRequests);
+        Bytes(sb, "TerminalTypeReports", TerminalTypeReports);
+        Count(sb, "TerminalTypeRequests", TerminalTypeRequests);
+
+        sb.Append("Windows=");
+        foreach (var (width, height) in Windows)
+        {
+            sb.Append(width).Append('x').Append(height).Append(',');
+        }
+
+        sb.Append(';');
+
+        Bytes(sb, "XDisplayLocationReports", XDisplayLocationReports);
+        Count(sb, "XDisplayLocationRequests", XDisplayLocationRequests);
+
+        return sb.ToString();
+
+        static void Count(StringBuilder sb, string name, int value) =>
+            sb.Append(name).Append('=').Append(value).Append(';');
+
+        static void Octets(StringBuilder sb, string name, List<byte> values)
+        {
+            sb.Append(name).Append('=');
+            foreach (var value in values)
+            {
+                sb.Append(value).Append(',');
+            }
+
+            sb.Append(';');
+        }
+
+        static void Bytes(StringBuilder sb, string name, List<byte[]> values)
+        {
+            sb.Append(name).Append('=');
+            foreach (var value in values)
+            {
+                sb.Append(Hex(value)).Append(',');
+            }
+
+            sb.Append(';');
+        }
+
+        static void Strings(StringBuilder sb, string name, IReadOnlyList<string> values)
+        {
+            sb.Append(name).Append('=');
+            foreach (var value in values)
+            {
+                // Length-prefixed so that ["a", "bc"] and ["ab", "c"] cannot collide.
+                sb.Append(value.Length).Append(':').Append(value).Append(',');
+            }
+
+            sb.Append(';');
+        }
+    }
+
+    /// <summary>Lower-case hex, so a snapshot diff points at a byte rather than at a code point.</summary>
+    private static string Hex(byte[] value)
+    {
+        if (value is null)
+        {
+            return "null";
+        }
+
+        var sb = new StringBuilder(value.Length * 2);
+        foreach (var b in value)
+        {
+            sb.Append(b.ToString("x2"));
+        }
+
+        return sb.ToString();
     }
 }

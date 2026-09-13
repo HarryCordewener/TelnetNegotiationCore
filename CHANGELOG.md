@@ -3,27 +3,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Fixed
-- **ENCRYPT and AUTHENTICATION did not escape `IAC` in a subnegotiation payload, in either
-  direction.** A credential byte or an encryption key id of 0xFF went out unescaped, where any
-  receiver reads it as the `IAC` that ends the subnegotiation and the rest of the stream desyncs; a
-  peer that escaped one correctly had its message truncated at that byte instead. Both now double it
-  on the way out and collapse it on the way in, as NAWS and MSSP already did. A callback is handed
-  the payload, one byte per byte the peer meant.
-- **A peer's ENCRYPT `START` and `END` are gated by role and by phase.** RFC 2946 gives them to the
-  side that said `WILL`, which here is always a client — so a server receives them and a client
-  ignores them with a `Warning`, rather than reporting to its consumer that a stream nobody is
-  encrypting has started. One arriving before the option is negotiated is ignored too.
-
-### Added
-- **`EncryptionTests`**, the first tests `EncryptionProtocol` itself has had: negotiation both ways,
-  the `SUPPORT` and `IS` bodies, the NULL rejection, `START` and `END`, and every send method's
-  frame. `AuthenticationTests` gains the escaping pair.
-
-
-## [Unreleased]
-
 ### Changed
+
 - **A peer may no longer authenticate or encrypt with a mechanism it was never offered.** When
   `WithAuthenticationTypes` or `WithEncryptionTypes` is configured, the plugin remembers what it put
   in its `SEND` / `SUPPORT`, and an `IS` naming anything else is logged at `Warning` and dropped
@@ -43,7 +24,67 @@ All notable changes to this project will be documented in this file.
   - An offer whose write threw is not recorded, and does not displace the one that did reach the
     peer.
 
+### Fixed
+
+- **A CHARSET `REQUEST` offering a translation table was rejected outright.** RFC 2066 allows a
+  `REQUEST` to be prefixed `{ "[TTABLE ]" <Version> }` to say the sender will accept a mapping
+  between any charset it listed and any the receiver wants. That prefix sits *before* the separator
+  octet, and it was never taken off — so the `[` was read as the separator, the whole charset list
+  collapsed into one unrecognised name, and a peer was refused even when it offered charsets this
+  library supports. Both spellings of the literal are now accepted, because the RFC's format line
+  writes `"[TTABLE ]"` while its prose writes `[TTABLE]`, and being strict about which would refuse
+  real peers over an ambiguity in the specification. A zero `<Version>`, which RFC 2066 forbids, is
+  logged at `Warning` and the table offer ignored, rather than the charset list being thrown away
+  with it. The irony this fixes is that `TTABLE-IS` was already implemented: the library could parse
+  the table it was refusing to let anyone offer.
+
+- **ENCRYPT and AUTHENTICATION did not escape `IAC` in a subnegotiation payload, in either
+  direction.** A credential byte or an encryption key id of 0xFF went out unescaped, where any
+  receiver reads it as the `IAC` that ends the subnegotiation and the rest of the stream desyncs; a
+  peer that escaped one correctly had its message truncated at that byte instead. Both now double it
+  on the way out and collapse it on the way in, as NAWS and MSSP already did. A callback is handed
+  the payload, one byte per byte the peer meant.
+- **A peer's ENCRYPT `START` and `END` are gated by role and by phase.** RFC 2946 gives them to the
+  side that said `WILL`, which here is always a client — so a server receives them and a client
+  ignores them with a `Warning`, rather than reporting to its consumer that a stream nobody is
+  encrypting has started. One arriving before the option is negotiated is ignored too.
+
 ### Added
+
+- **A property-based regression suite for the negotiation engine.** Seven invariants asserted over
+  generated input rather than over hand-picked examples, because the 899 example-based tests were
+  written alongside the StateAlchemist migration and so show that the new engine matches the new
+  tests rather than that it matches the released one. Streams are built from weighted telnet tokens
+  — well-formed frames, mutations of them, bare verbs, adversarial bytes — with each option's
+  payload grammar taken from its RFC rather than from this library's implementation of it. A
+  counterexample is shrunk to a minimal byte array and printed as a C# literal to be committed as
+  an ordinary named test.
+  - The properties: a chunked stream parses identically to a whole one; `FireAsync` never throws;
+    any garbage plus a resynchronisation recovers; escaping round-trips for any payload; IAC-free
+    text arrives intact; `SubnegotiationBuffer` stays inside its cap; and an MCCP stream is either
+    delivered or stopped, never an OOM and never a throw onto the read loop.
+  - Each one is verified by mutation — the invariant is broken on purpose and the property has to
+    fail — because a property that cannot fail reads as evidence while providing none.
+- **`EnvironEscapeDivergenceTests`**, recording that NEW-ENVIRON and ENVIRON do not *un*escape on
+  the receive path. RFC 1572 and RFC 1408 both require the type bytes to be escaped inside a name or
+  a value — `ESC VAR` for a literal `VAR`, and so on — and `NewEnvironProtocol` honours that when it
+  sends, but neither module has any transition for `ESC` when receiving, so the escape leaks through
+  as a literal `0x02` and the byte it was escaping is read as a real marker, splitting the value.
+  The library would mis-parse its own output: the same one-directional asymmetry that was fixed for
+  ENCRYPT and AUTHENTICATION above. Recorded rather than fixed because it needs guards on the marker
+  transitions and a decision about how those interact with the generated machine's run batching,
+  which deserves its own change. An escape-heavy payload does at least not wedge the connection, and
+  that is asserted too. MNES forbids these bytes inside names and values, which is why the gap went
+  unnoticed.
+- **`CarriageReturnPolicyTests`**, pinning what the core machine does with `CR`, `LF` and `CR NUL`.
+  Note that RFC 854 defines `CR NUL` as a bare carriage return in the data, and this library
+  delivers the `NUL` to the consumer as a literal `0x00` inside the line. That predates the
+  migration and changing it would change what every existing consumer receives, so it is recorded
+  rather than altered.
+
+- **`EncryptionTests`**, the first tests `EncryptionProtocol` itself has had: negotiation both ways,
+  the `SUPPORT` and `IS` bodies, the NULL rejection, `START` and `END`, and every send method's
+  frame. `AuthenticationTests` gains the escaping pair.
 - **MCCP now bounds how far a peer's stream may expand** — 200:1 cumulatively once it has produced
   more than a mebibyte, `.WithMaxExpansionRatio(n)` to change it. The existing limits bound the
   memory a peer can make this side hold, not the work of getting there: one compressed byte can
@@ -60,29 +101,6 @@ All notable changes to this project will be documented in this file.
   the plugin's initial negotiation has already gone out. Every other plugin's settings were
   reachable from the chain; these now are too.
 
-### Documentation
-- **The README is a README again**, and the reference lives in [`docs/`](docs/index.md): a page per
-  protocol, guides for the builder, dependency injection, prompts, keep-alive and the read loop, and
-  an index for each. `AUTHENTICATION.md` moved to
-  [`docs/guides/authentication-mechanisms.md`](docs/guides/authentication-mechanisms.md).
-- **ECHO, MXP, EOR/SUPPRESS-GO-AHEAD and TTYPE/MTTS now have pages.** All four were implemented and
-  undocumented beyond a row in the support table.
-- **The authentication and encryption callback payloads are documented as they actually are.** Both
-  are handed the subnegotiation body with the command byte still on the front — `[IS, authType,
-  modifiers, …]`, `[SUPPORT, type, …]` — which the examples had been indexing past. The behaviour is
-  unchanged and now pinned by tests; the indices in the examples were wrong. `AuthenticationProtocol`'s
-  own XML documentation carried the same off-by-one, so IntelliSense was wrong too; corrected.
-- **`SendAuthenticationReplyAsync` no longer documents `0x00` / `0xFF` as accept and reject.** RFC 2941
-  leaves everything after the (authType, modifiers) pair to the mechanism, and this library interprets
-  none of it; the convention only exists where both ends have agreed one.
-- **`EnvironProtocol` implements RFC 1408's `VAR` but not `USERVAR`**, which the page now states as a
-  limitation of the implementation. It had said the RFC has no user variables, which is not true.
-
-### Security
-- **OpenSSF Scorecard, CodeQL, a security policy and SHA-pinned actions.** Every action is pinned to
-  a commit digest with Dependabot keeping the digests current, every workflow declares least-
-  privilege token permissions, and the release workflow's dispatch input reaches the shell as an
-  environment variable rather than as interpolated text.
 
 ## [3.0.0]
 
