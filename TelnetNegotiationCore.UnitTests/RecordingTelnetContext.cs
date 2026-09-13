@@ -22,6 +22,60 @@ public class RecordingTelnetContext : TelnetCoreContext
     /// </summary>
     public string PendingText => _line.ToString();
 
+    /// <summary>
+    /// A protocol's structural markers and payload in order, with adjacent payload runs merged.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The streaming protocols — MSSP, ENVIRON and NEW-ENVIRON — deliver payload through a
+    /// <c>DataAsync</c> callback that fires once per run of payload bytes, and a run necessarily
+    /// stops at a chunk boundary because the span it is handed cannot cross one. So the number of
+    /// <c>DataAsync</c> calls is a function of how the peer's bytes happened to arrive, not of what
+    /// the peer said, and any consumer has to concatenate consecutive calls to recover a value.
+    /// GMCP, MSDP and CHARSET's translation table already accumulate for exactly this reason.
+    /// </para>
+    /// <para>
+    /// The public event lists keep one entry per call, because that is what the existing tests
+    /// assert on. This parallel trace merges adjacent payload runs so that
+    /// <see cref="Snapshot"/> compares what the peer said and in what order, and stays blind to how
+    /// the bytes were split — the same distinction <see cref="Write"/> already relies on.
+    /// </para>
+    /// </remarks>
+    private sealed class CoalescingTrace
+    {
+        private readonly List<(bool IsData, string Text)> _entries = [];
+
+        public void Marker(string name) => _entries.Add((false, name));
+
+        public void Data(string text)
+        {
+            if (_entries.Count > 0 && _entries[^1].IsData)
+            {
+                _entries[^1] = (true, _entries[^1].Text + text);
+                return;
+            }
+
+            _entries.Add((true, text));
+        }
+
+        public void Render(StringBuilder sb, string name)
+        {
+            sb.Append(name).Append('=');
+            foreach (var (isData, text) in _entries)
+            {
+                sb.Append(isData ? 'd' : 'm').Append(text.Length).Append(':').Append(text).Append(',');
+            }
+
+            sb.Append(';');
+        }
+    }
+
+    private readonly CoalescingTrace _msspTrace = new();
+
+    private readonly CoalescingTrace _newEnvironTrace = new();
+
+    private readonly CoalescingTrace _environTrace = new();
+
     public List<string> Lines { get; } = [];
 
     public List<string> Negotiations { get; } = [];
@@ -207,30 +261,35 @@ public class RecordingTelnetContext : TelnetCoreContext
     public override ValueTask MsspStartedAsync()
     {
         MsspEvents.Add("started");
+        _msspTrace.Marker("started");
         return default;
     }
 
     public override ValueTask MsspVariableMarkerAsync()
     {
         MsspEvents.Add("VAR");
+        _msspTrace.Marker("VAR");
         return default;
     }
 
     public override ValueTask MsspValueMarkerAsync()
     {
         MsspEvents.Add("VAL");
+        _msspTrace.Marker("VAL");
         return default;
     }
 
     public override ValueTask MsspDataAsync(ReadOnlyMemory<byte> data)
     {
         MsspEvents.Add(Encoding.ASCII.GetString(data.Span));
+        _msspTrace.Data(Encoding.ASCII.GetString(data.Span));
         return default;
     }
 
     public override ValueTask MsspEndedAsync()
     {
         MsspEvents.Add("ended");
+        _msspTrace.Marker("ended");
         return default;
     }
 
@@ -306,66 +365,77 @@ public class RecordingTelnetContext : TelnetCoreContext
     public override ValueTask NewEnvironStartedAsync(byte command)
     {
         NewEnvironEvents.Add($"started {command}");
+        _newEnvironTrace.Marker($"started {command}");
         return default;
     }
 
     public override ValueTask NewEnvironVarAsync()
     {
         NewEnvironEvents.Add("VAR");
+        _newEnvironTrace.Marker("VAR");
         return default;
     }
 
     public override ValueTask NewEnvironUserVarAsync()
     {
         NewEnvironEvents.Add("USERVAR");
+        _newEnvironTrace.Marker("USERVAR");
         return default;
     }
 
     public override ValueTask NewEnvironValueAsync()
     {
         NewEnvironEvents.Add("VALUE");
+        _newEnvironTrace.Marker("VALUE");
         return default;
     }
 
     public override ValueTask NewEnvironDataAsync(ReadOnlyMemory<byte> data)
     {
         NewEnvironEvents.Add(Encoding.ASCII.GetString(data.Span));
+        _newEnvironTrace.Data(Encoding.ASCII.GetString(data.Span));
         return default;
     }
 
     public override ValueTask NewEnvironEndedAsync()
     {
         NewEnvironEvents.Add("ended");
+        _newEnvironTrace.Marker("ended");
         return default;
     }
 
     public override ValueTask EnvironStartedAsync(byte command)
     {
         EnvironEvents.Add($"started {command}");
+        _environTrace.Marker($"started {command}");
         return default;
     }
 
     public override ValueTask EnvironVarAsync()
     {
         EnvironEvents.Add("VAR");
+        _environTrace.Marker("VAR");
         return default;
     }
 
     public override ValueTask EnvironValueAsync()
     {
         EnvironEvents.Add("VALUE");
+        _environTrace.Marker("VALUE");
         return default;
     }
 
     public override ValueTask EnvironDataAsync(ReadOnlyMemory<byte> data)
     {
         EnvironEvents.Add(Encoding.ASCII.GetString(data.Span));
+        _environTrace.Data(Encoding.ASCII.GetString(data.Span));
         return default;
     }
 
     public override ValueTask EnvironEndedAsync()
     {
         EnvironEvents.Add("ended");
+        _environTrace.Marker("ended");
         return default;
     }
 
@@ -485,7 +555,7 @@ public class RecordingTelnetContext : TelnetCoreContext
         Bytes(sb, "EncryptionIsMessages", EncryptionIsMessages);
         Bytes(sb, "EncryptionSends", EncryptionSends);
         Bytes(sb, "EncryptionStarts", EncryptionStarts);
-        Strings(sb, "EnvironEvents", EnvironEvents);
+        _environTrace.Render(sb, "EnvironEvents");
         Count(sb, "Eors", Eors);
         Octets(sb, "FlowControlCommands", FlowControlCommands);
         Bytes(sb, "GmcpMessages", GmcpMessages);
@@ -504,10 +574,10 @@ public class RecordingTelnetContext : TelnetCoreContext
         Count(sb, "Mccp2Markers", Mccp2Markers);
         Count(sb, "Mccp3Markers", Mccp3Markers);
         Bytes(sb, "MsdpMessages", MsdpMessages);
-        Strings(sb, "MsspEvents", MsspEvents);
+        _msspTrace.Render(sb, "MsspEvents");
         Count(sb, "MxpStarts", MxpStarts);
         Strings(sb, "Negotiations", Negotiations);
-        Strings(sb, "NewEnvironEvents", NewEnvironEvents);
+        _newEnvironTrace.Render(sb, "NewEnvironEvents");
         Strings(sb, "PendingText", [PendingText]);
         Octets(sb, "SubNegotiations", SubNegotiations);
         Bytes(sb, "TerminalSpeedReports", TerminalSpeedReports);

@@ -92,4 +92,33 @@ public class RecorderSnapshotTests
 
         await Assert.That(whole.Snapshot()).IsEqualTo(split.Snapshot());
     }
+
+	/// <summary>
+	/// The snapshot merges adjacent payload runs for the streaming protocols, which is what makes
+	/// it blind to chunk boundaries. It must not thereby become blind to where the peer actually
+	/// put its structural markers: "VAR ab" and "VAR a VALUE b" carry different meanings and have
+	/// to compare differently.
+	/// </summary>
+	[Test]
+	public async Task CoalescingPayloadDoesNotHideWhereTheMarkersWere()
+	{
+		// NEW-ENVIRON (39) IS (0), VAR (0) "ab"  versus  VAR (0) "a" VALUE (1) "b".
+		var oneValue = await Run([IAC, SB, 39, 0, 0, (byte)'a', (byte)'b', IAC, SE]);
+		var twoFields = await Run([IAC, SB, 39, 0, 0, (byte)'a', 1, (byte)'b', IAC, SE]);
+
+		await Assert.That(oneValue.Snapshot()).IsNotEqualTo(twoFields.Snapshot());
+	}
+
+	/// <summary>
+	/// And it must still notice a payload byte going missing, which is the failure the coalescing
+	/// could plausibly have masked.
+	/// </summary>
+	[Test]
+	public async Task CoalescingPayloadStillNoticesADroppedByte()
+	{
+		var full = await Run([IAC, SB, 39, 0, 0, (byte)'a', (byte)'b', IAC, SE]);
+		var short_ = await Run([IAC, SB, 39, 0, 0, (byte)'a', IAC, SE]);
+
+		await Assert.That(full.Snapshot()).IsNotEqualTo(short_.Snapshot());
+	}
 }
