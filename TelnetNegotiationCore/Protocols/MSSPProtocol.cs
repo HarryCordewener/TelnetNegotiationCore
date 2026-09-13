@@ -673,24 +673,14 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// Appends the encoded bytes of <paramref name="text"/>, doubling any <c>IAC</c> among them.
     /// </summary>
     /// <remarks>
-    /// RFC 854: "the IAC need be doubled to be sent as data". MSSP itself says a variable or value
-    /// "cannot contain the MSSP_VAL, MSSP_VAR, IAC, or NUL byte", so this should never fire on a
-    /// well-behaved configuration -- but with a non-ASCII encoding a single character can now encode
-    /// to 0xFF (ISO-8859-1 'ÿ'), and an unescaped one would end the subnegotiation early and desync
-    /// the peer's parser. Doubling it costs nothing when it never happens.
+    /// Kept as a named method here because <see cref="MSSPPlaintextProtocol"/> writes the same report
+    /// over the plaintext transport and escapes it the same way; the rule itself lives in
+    /// <see cref="Helpers.SubnegotiationEscaping"/>. MSSP says a variable or value "cannot contain
+    /// the MSSP_VAL, MSSP_VAR, IAC, or NUL byte", which is not something this library can rely on:
+    /// with a non-ASCII encoding a single character encodes to 0xFF (ISO-8859-1 'ÿ').
     /// </remarks>
     internal static void AppendEscaped(List<byte> destination, string text, Encoding encoding)
-    {
-        foreach (var b in encoding.GetBytes(text))
-        {
-            destination.Add(b);
-
-            if (b == (byte)Trigger.IAC)
-            {
-                destination.Add((byte)Trigger.IAC);
-            }
-        }
-    }
+        => Helpers.SubnegotiationEscaping.AppendEscaped(destination, text, encoding);
 
     /// <summary>
     /// An <c>MSSP_VAR</c> marker: whatever was being accumulated is finished, and a variable name

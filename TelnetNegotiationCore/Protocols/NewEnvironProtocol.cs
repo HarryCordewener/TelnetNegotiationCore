@@ -636,12 +636,11 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
                 case (byte)Trigger.NEWENVIRON_USERVAR:
                     target.Add((byte)Trigger.NEWENVIRON_ESC);
                     break;
-                case (byte)Trigger.IAC:
-                    target.Add((byte)Trigger.IAC);
-                    break;
             }
 
-            target.Add(b);
+            // RFC 1572's escape covers its own four markers; the 255 underneath is still RFC 854's
+            // business, and none of those markers is 255, so the two never overlap.
+            Helpers.SubnegotiationEscaping.AppendEscaped(target, b);
         }
     }
 

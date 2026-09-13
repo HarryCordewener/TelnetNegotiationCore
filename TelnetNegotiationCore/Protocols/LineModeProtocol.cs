@@ -157,13 +157,27 @@ public class LineModeProtocol : TelnetProtocolPluginBase
             return;
 
         Context.Logger.LogDebug("Sending MODE command with mode byte: {Mode:X2}", mode);
-        await Context.SendNegotiationAsync(new byte[]
-        {
-            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.LINEMODE,
-            (byte)Trigger.LINEMODE_MODE, mode,
-            (byte)Trigger.IAC, (byte)Trigger.SE
-        });
+        await Context.SendNegotiationAsync(ModeFrame(mode));
     }
+
+    /// <summary>
+    /// An <c>IAC SB LINEMODE MODE &lt;mode&gt; IAC SE</c> frame, with the mode byte escaped.
+    /// </summary>
+    /// <remarks>
+    /// The mode byte is data, and RFC 1184 adds no exemption from RFC 854's rule that a literal 255
+    /// in data is doubled. 255 is reachable: the bits RFC 1184 defines are EDIT, TRAPSIG, MODE_ACK,
+    /// SOFT_TAB and LIT_ECHO, bits 32, 64 and 128 are undefined, and a peer's undefined bits are
+    /// passed through rather than masked -- so a peer proposing <c>0xFB</c> is acknowledged with
+    /// <c>0xFB | MODE_ACK</c>, which is 255. <see cref="SetModeAsync"/> is public and takes any byte,
+    /// so an application reaches it without a peer being involved at all.
+    /// <para>
+    /// Sent unescaped, the peer reads that byte as the <c>IAC</c> that begins the end of the
+    /// subnegotiation and then reads the real <c>IAC SE</c> as two more bytes of payload, so the
+    /// frame never closes -- this library's own parser reports nothing at all for such a frame.
+    /// </para>
+    /// </remarks>
+    private static byte[] ModeFrame(byte mode) => Helpers.SubnegotiationFrame.Build(
+        (byte)Trigger.LINEMODE, (byte)Trigger.LINEMODE_MODE, mode);
 
     /// <summary>
     /// Sends a MODE command to enable EDIT mode (client does local line editing)
@@ -329,12 +343,7 @@ public class LineModeProtocol : TelnetProtocolPluginBase
                     // Client is proposing a mode (without ACK bit) - we should acknowledge it
                     context.Logger.LogDebug("Client proposing mode, sending acknowledgment");
                     var ackMode = (byte)(mode | MODE_ACK);
-                    await context.SendNegotiationAsync(new byte[]
-                    {
-                        (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.LINEMODE,
-                        (byte)Trigger.LINEMODE_MODE, ackMode,
-                        (byte)Trigger.IAC, (byte)Trigger.SE
-                    });
+                    await context.SendNegotiationAsync(ModeFrame(ackMode));
                 }
                 // Client mode: If we receive a mode without ACK bit, it means the server
                 // is commanding us to use this mode. We should acknowledge it.
@@ -342,12 +351,7 @@ public class LineModeProtocol : TelnetProtocolPluginBase
                 {
                     context.Logger.LogDebug("Server commanding mode, sending acknowledgment");
                     var ackMode = (byte)(mode | MODE_ACK);
-                    await context.SendNegotiationAsync(new byte[]
-                    {
-                        (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.LINEMODE,
-                        (byte)Trigger.LINEMODE_MODE, ackMode,
-                        (byte)Trigger.IAC, (byte)Trigger.SE
-                    });
+                    await context.SendNegotiationAsync(ModeFrame(ackMode));
                 }
                 
                 // Update current mode (remove ACK bit for storage)
