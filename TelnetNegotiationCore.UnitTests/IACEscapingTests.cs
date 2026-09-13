@@ -266,40 +266,6 @@ public class IACEscapingTests : BaseTest
 			.Because($"{name} must resynchronise at its IAC SE");
 	}
 
-	/// <summary>
-	/// The root cause of defect 2 was structural: <c>Trigger.Error</c> sat in the set that every
-	/// <c>ForAllTriggers*</c> loop enumerates, so states configured that way got a second, unguarded
-	/// <c>Error</c> transition on top of the safe interpreter's single recovery transition. Stateless
-	/// only notices at fire time, which is exactly when the interpreter is trying to recover.
-	/// </summary>
-	[Test]
-	public async Task NoStateHasAmbiguousErrorRecovery()
-	{
-		await using var server = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Server)
-			.UseLogger(logger)
-			.OnSubmit(NoOpSubmitCallback)
-			.OnNegotiation(_ => ValueTask.CompletedTask)
-			.AddPlugin<NAWSProtocol>()
-			.AddPlugin<CharsetProtocol>()
-			.AddPlugin<TerminalTypeProtocol>()
-			.AddPlugin<LineModeProtocol>()
-			.AddPlugin<GMCPProtocol>()
-			.AddPlugin<MSSPProtocol>()
-			.BuildAsync();
-
-		var ambiguous = server.TelnetStateMachine.GetInfo().States
-			.Select(state => (
-				State: (State)state.UnderlyingState,
-				ErrorTransitions: state.Transitions.Count(t => (Trigger)t.Trigger.UnderlyingTrigger == Trigger.Error)))
-			.Where(x => x.ErrorTransitions > 1)
-			.Select(x => $"{x.State} ({x.ErrorTransitions})")
-			.ToArray();
-
-		await Assert.That(ambiguous).IsEmpty()
-			.Because("a state with two unguarded Error transitions throws 'Multiple permitted exit transitions' the moment recovery is attempted");
-	}
-
 	// ---------------------------------------------------------------------------------------------
 	// Defect 3: the default ECHO handler re-emitted a bare 0xFF.
 	//

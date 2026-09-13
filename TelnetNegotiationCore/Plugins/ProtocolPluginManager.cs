@@ -42,6 +42,11 @@ public class ProtocolPluginManager
             _plugins[type] = plugin;
             _logger.LogInformation("Registered plugin: {PluginName} ({PluginType})", plugin.ProtocolName, type.Name);
         }
+
+        // Registration is still allowed at this point (only initialization closes it off), so a
+        // dependency order computed by an earlier ConfigureStateMachines/InitializePluginsAsync call
+        // would otherwise go stale and silently omit this plugin from both.
+        _initializationOrder.Clear();
     }
 
     /// <summary>
@@ -103,15 +108,7 @@ public class ProtocolPluginManager
 
         _logger.LogInformation("Initializing {PluginCount} plugins with dependency resolution", _plugins.Count);
 
-        // Perform topological sort to resolve dependencies
-        _initializationOrder.Clear();
-        var resolved = new HashSet<Type>();
-        var visiting = new HashSet<Type>();
-
-        foreach (var pluginType in _plugins.Keys)
-        {
-            ResolveDependencies(pluginType, resolved, visiting);
-        }
+        EnsureInitializationOrder();
 
         // Initialize plugins in dependency order
         foreach (var pluginType in _initializationOrder)
@@ -126,24 +123,50 @@ public class ProtocolPluginManager
     }
 
     /// <summary>
-    /// Configures all plugin state machines in dependency order.
+    /// Runs each plugin's <see cref="TelnetProtocolPluginBase.ConfigureStateMachine"/> hook, in
+    /// dependency order, before any plugin is initialized.
     /// </summary>
-    /// <param name="stateMachine">The state machine to configure</param>
     /// <param name="context">The protocol context</param>
-    public void ConfigureStateMachines(Stateless.StateMachine<Models.State, Models.Trigger> stateMachine, IProtocolContext context)
+    public void ConfigureStateMachines(IProtocolContext context)
     {
         _logger.LogInformation("Configuring state machines for {PluginCount} plugins", _plugins.Count);
 
-        // If initialization order is already determined, use it for consistency
-        // Otherwise, configure plugins in registration order
-        var pluginsToConfig = _initializationOrder.Count > 0
-            ? _initializationOrder.Select(t => _plugins[t])
-            : _plugins.Values;
+        // Computed here rather than left to whichever of this method or InitializePluginsAsync runs
+        // first: both need the same dependency order, and the builder calls this one first, so relying
+        // on InitializePluginsAsync to have computed it already would silently fall back to
+        // registration order every time, contradicting this method's own contract.
+        EnsureInitializationOrder();
 
-        foreach (var plugin in pluginsToConfig)
+        foreach (var pluginType in _initializationOrder)
         {
+            var plugin = _plugins[pluginType];
             _logger.LogDebug("Configuring state machine for: {PluginName}", plugin.ProtocolName);
-            plugin.ConfigureStateMachine(stateMachine, context);
+
+            // Every real plugin extends TelnetProtocolPluginBase, which is where this hook lives.
+            (plugin as TelnetProtocolPluginBase)?.ConfigureStateMachine(context);
+        }
+    }
+
+    /// <summary>
+    /// Topologically sorts the registered plugins by <see cref="ITelnetProtocolPlugin.Dependencies"/>,
+    /// populating <see cref="_initializationOrder"/>. A call while the order is already populated is a
+    /// no-op, so either <see cref="ConfigureStateMachines"/> or <see cref="InitializePluginsAsync"/> can
+    /// run first and the other reuses the same order rather than recomputing it -- unless
+    /// <see cref="RegisterPlugin{T}"/> ran since, which clears the cache so the next call here rebuilds it.
+    /// </summary>
+    private void EnsureInitializationOrder()
+    {
+        if (_initializationOrder.Count > 0)
+        {
+            return;
+        }
+
+        var resolved = new HashSet<Type>();
+        var visiting = new HashSet<Type>();
+
+        foreach (var pluginType in _plugins.Keys)
+        {
+            ResolveDependencies(pluginType, resolved, visiting);
         }
     }
 

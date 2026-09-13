@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -102,7 +101,7 @@ public class McpCordProtocol : TelnetProtocolPluginBase
 
 	/// <inheritdoc />
 	/// <remarks>A package adds no telnet states and no triggers: it is carried on MCP messages.</remarks>
-	public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+	public override void ConfigureStateMachine(IProtocolContext context)
 	{
 		context.Logger.LogInformation("Configuring {Package}", PackageName);
 	}

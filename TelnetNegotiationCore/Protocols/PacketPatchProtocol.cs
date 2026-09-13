@@ -4,9 +4,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Attributes;
-using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
 namespace TelnetNegotiationCore.Protocols;
@@ -165,7 +163,7 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <inheritdoc />
-	public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+	public override void ConfigureStateMachine(IProtocolContext context)
 	{
 		// Nothing: this plugin's whole input is the absence of bytes, which the state machine has
 		// no trigger for.

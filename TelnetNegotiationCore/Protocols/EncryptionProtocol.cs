@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -128,9 +127,6 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     private List<byte>? _offeredEncryptionTypes;
     private Func<byte[], ValueTask>? _onEncryptionStart;
     private Func<ValueTask>? _onEncryptionEnd;
-    
-    // State for capturing encryption data during subnegotiation
-    private List<byte> _encryptionData = new();
     private bool _isEncrypting = false;
 
     /// <inheritdoc />
@@ -164,8 +160,9 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     /// <code>
     /// .OnEncryptionSupport(async (supportedTypes) =>
     /// {
-    ///     // supportedTypes format: [type1, type2, ...]
-    ///     if (supportedTypes.Contains(1)) // DES_CFB64
+    ///     // supportedTypes[0] is the SUPPORT command byte (1); the offered types start at index 1.
+    ///     // format: [1, type1, type2, ...]
+    ///     if (supportedTypes.Skip(1).Contains((byte)1)) // DES_CFB64
     ///     {
     ///         var initData = await GetEncryptionInitData(1);
     ///         return new byte[] { 1 }.Concat(initData).ToArray();
@@ -196,8 +193,9 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     /// <code>
     /// .OnEncryptionRequest(async (encData) =>
     /// {
-    ///     var encType = encData[0];
-    ///     var initData = encData.Skip(1).ToArray();
+    ///     // encData[0] is the IS command byte (0); the type and init data start at index 1.
+    ///     var encType = encData[1];
+    ///     var initData = encData.Skip(2).ToArray();
     ///     await InitializeDecryption(encType, initData);
     /// })
     /// </code>
@@ -244,9 +242,11 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// Sets the callback invoked when encryption starts.
+    /// Sets the callback invoked when a genuine START marker arrives from the peer -- it is now
+    /// encrypting what it sends. <see cref="IsEncrypting"/> is already true by the time this runs.
     /// </summary>
-    /// <param name="callback">Callback to handle encryption start event. Receives keyid data.</param>
+    /// <param name="callback">Callback to handle encryption start event. Receives the keyid bytes,
+    /// or an empty array if the peer sent none.</param>
     /// <returns>This instance for fluent chaining</returns>
     public EncryptionProtocol OnEncryptionStart(Func<byte[], ValueTask>? callback)
     {
@@ -255,7 +255,8 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// Sets the callback invoked when encryption ends.
+    /// Sets the callback invoked when a genuine END marker arrives from the peer -- it has stopped
+    /// encrypting what it sends. <see cref="IsEncrypting"/> is already false by the time this runs.
     /// </summary>
     /// <param name="callback">Callback to handle encryption end event</param>
     /// <returns>This instance for fluent chaining</returns>
@@ -467,129 +468,20 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    /// <remarks>
+    /// Negotiation acceptance and the subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/>, <see cref="ProcessEncryptionSupportFromBytesAsync"/>/
+    /// <see cref="ProcessEncryptionIsFromBytesAsync"/>, and <see cref="ProcessEncryptionStartFromBytesAsync"/>/
+    /// <see cref="ProcessEncryptionEndFromBytesAsync"/>); this hook survives only to register the
+    /// server's initial offer, a cross-cutting mechanism independent of which machine drives byte
+    /// processing.
+    /// </remarks>
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring Encryption state machine");
-        
-        // Register Encryption protocol handlers with the context
-        context.SetSharedState("Encryption_Protocol", this);
-        
-        // Configure state machine transitions for Encryption protocol
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            ConfigureAsServer(stateMachine, context);
+            context.RegisterInitialNegotiation(async () => await SendDoEncryptAsync(context));
         }
-        else
-        {
-            ConfigureAsClient(stateMachine, context);
-        }
-    }
-
-    private void ConfigureAsServer(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Server side: Receives WILL ENCRYPT from client
-        stateMachine.Configure(State.Willing)
-            .Permit(Trigger.ENCRYPT, State.WillEncryption);
-
-        stateMachine.Configure(State.Refusing)
-            .Permit(Trigger.ENCRYPT, State.WontEncryption);
-
-        stateMachine.Configure(State.WillEncryption)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnClientWillEncryptAsync(context));
-
-        stateMachine.Configure(State.WontEncryption)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Client won't encrypt");
-                await OnNegotiatedAsync(false);
-            });
-
-        // Server handles IS subnegotiation (encryption initialization from client)
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.ENCRYPT, State.AlmostNegotiatingEncryption);
-
-        stateMachine.Configure(State.AlmostNegotiatingEncryption)
-            .Permit(Trigger.IS, State.NegotiatingEncryptionIs)
-            .OnEntry(() =>
-            {
-                context.Logger.LogDebug("Receiving encryption IS from client");
-                _encryptionData = new List<byte>();
-            });
-
-        // Handle the IS command - capture all encryption data until IAC
-        stateMachine.Configure(State.NegotiatingEncryptionIs)
-            .Permit(Trigger.IAC, State.CompletingEncryptionNegotiation);
-        
-        // Capture all other triggers as encryption data
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.NegotiatingEncryptionIs)
-                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (ByteOrTrigger b) => { if (b is byte value) _encryptionData.Add(value); })
-                .PermitReentry(t));
-
-        stateMachine.Configure(State.CompletingEncryptionNegotiation)
-            .Permit(Trigger.SE, State.ProcessingEncryptionIs)
-            .OnEntry(() => context.Logger.LogDebug("Received end of IS subnegotiation"));
-
-        stateMachine.Configure(State.ProcessingEncryptionIs)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await ProcessEncryptionIsAsync(context));
-
-        // Server initiates encryption negotiation
-        context.RegisterInitialNegotiation(async () => await SendDoEncryptAsync(context));
-    }
-
-    private void ConfigureAsClient(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Client side: Receives DO ENCRYPT from server
-        stateMachine.Configure(State.Do)
-            .Permit(Trigger.ENCRYPT, State.DoEncryption);
-
-        stateMachine.Configure(State.Dont)
-            .Permit(Trigger.ENCRYPT, State.DontEncryption);
-
-        stateMachine.Configure(State.DoEncryption)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnServerRequestsEncryptionAsync(context));
-
-        stateMachine.Configure(State.DontEncryption)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Server doesn't want encryption");
-                await OnNegotiatedAsync(false);
-            });
-
-        // Client handles SUPPORT subnegotiation
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.ENCRYPT, State.AlmostNegotiatingEncryption);
-
-        stateMachine.Configure(State.AlmostNegotiatingEncryption)
-            .Permit(Trigger.SEND, State.NegotiatingEncryptionSupport)
-            .OnEntry(() =>
-            {
-                context.Logger.LogDebug("Starting encryption subnegotiation");
-                _encryptionData = new List<byte>();
-            });
-
-        // Handle the SUPPORT command - capture all encryption types until IAC
-        stateMachine.Configure(State.NegotiatingEncryptionSupport)
-            .Permit(Trigger.IAC, State.CompletingEncryptionNegotiation);
-        
-        // Capture all other triggers as encryption types
-        TriggerHelper.ForAllTriggersButIAC(t => 
-            stateMachine.Configure(State.NegotiatingEncryptionSupport)
-                .OnEntryFrom(context.Interpreter.ParameterizedTrigger(t), (ByteOrTrigger b) => { if (b is byte value) _encryptionData.Add(value); })
-                .PermitReentry(t));
-
-        stateMachine.Configure(State.CompletingEncryptionNegotiation)
-            .Permit(Trigger.SE, State.ProcessingEncryptionSupport)
-            .OnEntry(() => context.Logger.LogDebug("Received end of SUPPORT subnegotiation"));
-
-        stateMachine.Configure(State.ProcessingEncryptionSupport)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await ProcessEncryptionSupportAsync(context));
     }
 
     /// <inheritdoc />
@@ -677,53 +569,119 @@ public class EncryptionProtocol : TelnetProtocolPluginBase
         });
     }
 
-    private async ValueTask ProcessEncryptionSupportAsync(IProtocolContext context)
+    internal async ValueTask ProcessEncryptionSupportFromBytesAsync(byte[] data, IProtocolContext context)
     {
         context.Logger.LogDebug("Processing encryption SUPPORT");
-        
+
         byte[]? responseData = null;
-        
+
         // If callback is provided, let it handle the encryption type selection
         if (_onEncryptionSupport != null)
         {
-            responseData = await _onEncryptionSupport(_encryptionData.ToArray());
+            responseData = await _onEncryptionSupport(data);
         }
-        
+
         // If no response data or callback not set, send NULL rejection
         if (responseData == null)
         {
             context.Logger.LogDebug("Sending IS NULL response - rejecting all encryption types");
             responseData = new byte[] { ENC_NULL };
         }
-        
+
         await SendEncryptionIsAsync(responseData);
     }
 
-    private async ValueTask ProcessEncryptionIsAsync(IProtocolContext context)
+    internal async ValueTask ProcessEncryptionIsFromBytesAsync(byte[] data, IProtocolContext context)
     {
         context.Logger.LogDebug("Processing encryption IS from client");
 
-        var message = _encryptionData.ToArray();
-
-        if (!IsOfferedEncryptionType(message))
+        if (!IsOfferedEncryptionType(data))
         {
             // Refused before the callback, which is the point: OnEncryptionRequest is where a
             // consumer initialises decryption, and initialising it for an algorithm this side
             // never offered is exactly what this stops.
             context.Logger.LogWarning(
                 "Client answered ENCRYPT with type {EncryptionType}, which was not offered. Ignoring.",
-                message.Length > 1 ? message[1] : -1);
+                data.Length > 1 ? data[1] : -1);
             return;
         }
 
         // Invoke callback if provided
         if (_onEncryptionRequest != null)
         {
-            await _onEncryptionRequest(_encryptionData.ToArray());
+            await _onEncryptionRequest(data);
         }
         else
         {
             context.Logger.LogDebug("No encryption request handler configured - encryption data ignored");
+        }
+    }
+
+    /// <summary>
+    /// A genuine START marker arrived: the peer is now encrypting what it sends, using <paramref name="keyId"/>.
+    /// </summary>
+    internal async ValueTask ProcessEncryptionStartFromBytesAsync(byte[] keyId, IProtocolContext context)
+    {
+        context.Logger.LogDebug("Encryption started by peer");
+        _isEncrypting = true;
+
+        if (_onEncryptionStart != null)
+        {
+            await _onEncryptionStart(keyId);
+        }
+        else
+        {
+            context.Logger.LogDebug("No encryption start handler configured - START marker ignored");
+        }
+    }
+
+    /// <summary>A genuine END marker arrived: the peer has stopped encrypting what it sends.</summary>
+    internal async ValueTask ProcessEncryptionEndFromBytesAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Encryption ended by peer");
+        _isEncrypting = false;
+
+        if (_onEncryptionEnd != null)
+        {
+            await _onEncryptionEnd();
+        }
+        else
+        {
+            context.Logger.LogDebug("No encryption end handler configured - END marker ignored");
+        }
+    }
+
+    private ValueTask OnWontEncryptAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Client won't encrypt");
+        return OnNegotiatedAsync(false);
+    }
+
+    private ValueTask OnDontEncryptAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Server doesn't want encryption");
+        return OnNegotiatedAsync(false);
+    }
+
+    /// <summary>A server only ever configured WILL/WONT for this option, a client only ever
+    /// configured DO/DONT -- the same split AuthenticationProtocol needed.</summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        var server = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+        switch (verb)
+        {
+            case (byte)Trigger.WILL when server:
+                await OnClientWillEncryptAsync(context);
+                break;
+            case (byte)Trigger.WONT when server:
+                await OnWontEncryptAsync(context);
+                break;
+            case (byte)Trigger.DO when !server:
+                await OnServerRequestsEncryptionAsync(context);
+                break;
+            case (byte)Trigger.DONT when !server:
+                await OnDontEncryptAsync(context);
+                break;
         }
     }
 

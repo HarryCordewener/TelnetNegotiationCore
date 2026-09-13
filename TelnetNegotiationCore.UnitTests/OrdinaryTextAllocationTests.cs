@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
@@ -86,9 +85,8 @@ public class OrdinaryTextAllocationTests : BaseTest
 	/// <remarks>
 	/// Space is TSPEED (32), <c>[</c> is MXP (91), <c>U</c> is COMPRESS (85), and <c>E F V W</c> and
 	/// <c>! " # $ % &amp; ' *</c> are options too. Each of them used to miss the shortcut because it
-	/// has a trigger of its own, although in <see cref="Models.State.ReadingCharacters"/> it means
-	/// exactly what an unnamed byte means -- so every space of prose and every colour escape paid for a
-	/// full transition.
+	/// has a trigger of its own, although reading ordinary characters it means exactly what an unnamed
+	/// byte means -- so every space of prose and every colour escape paid for a full transition.
 	/// </remarks>
 	[Test]
 	[NotInParallel]
@@ -191,50 +189,6 @@ public class OrdinaryTextAllocationTests : BaseTest
 		expected.AddRange(Encoding.ASCII.GetBytes("end"));
 
 		await AssertByteArraysEqual(submitted[0], expected.ToArray());
-
-		await interpreter.DisposeAsync();
-	}
-
-	/// <summary>
-	/// What a transition subscriber sees, which is not every byte.
-	/// </summary>
-	/// <remarks>
-	/// TelnetStateMachine is public and ProtocolContext hands the same machine to plugins, so
-	/// subscribing to OnTransitioned is something a caller can do -- and the shortcut means ordinary
-	/// text does not reach it. Stateless publishes no way to ask whether a handler is registered, so
-	/// this cannot be detected and turned off; it is documented on the property instead, and pinned
-	/// here so the documented behaviour and the real one cannot drift apart silently.
-	/// </remarks>
-	[Test]
-	public async Task ATransitionSubscriberSeesTheLineBoundariesAndNotEveryTextByte()
-	{
-		var submitted = new List<byte[]>();
-		var transitions = 0;
-
-		var interpreter = await new TelnetInterpreterBuilder()
-			.UseMode(TelnetInterpreter.TelnetMode.Client)
-			.UseLogger(logger)
-			.OnSubmit((data, _, _) =>
-			{
-				lock (submitted) submitted.Add((byte[])data.Clone());
-				return ValueTask.CompletedTask;
-			})
-			.OnNegotiation(_ => ValueTask.CompletedTask)
-			.BuildAsync();
-
-		interpreter.TelnetStateMachine.OnTransitioned(_ => Interlocked.Increment(ref transitions));
-
-		// 78 characters and a terminator.
-		await InterpretAndWaitAsync(interpreter, Encoding.ASCII.GetBytes(new string('x', 78) + "\r\n"));
-		await PollUntilAsync(() => submitted.Count > 0);
-
-		// The line arrives whole, so nothing was dropped.
-		await Assert.That(submitted.Count).IsEqualTo(1);
-		await Assert.That(submitted[0].Length).IsEqualTo(78);
-
-		// And the subscriber saw the boundaries rather than one transition per character: entering
-		// ReadingCharacters, and the terminator's move to Act. Far fewer than the 80 bytes fed.
-		await Assert.That(transitions).IsLessThan(10);
 
 		await interpreter.DisposeAsync();
 	}

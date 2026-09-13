@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -63,55 +62,17 @@ public class EORProtocol : TelnetProtocolPluginBase
     // This could be expressed as a soft dependency if needed
 
     /// <inheritdoc />
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    /// <remarks>
+    /// Negotiation acceptance is wired to the generated machine (see <see cref="OnPeerNegotiatedAsync"/>);
+    /// this hook survives only to register the server's initial offer, a cross-cutting mechanism
+    /// independent of which machine drives byte processing.
+    /// </remarks>
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring EOR state machine");
-        
-        // Register EOR protocol handlers with the context
-        context.SetSharedState("EOR_Protocol", this);
-        
-        // Configure state machine transitions for EOR protocol
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            stateMachine.Configure(State.Do)
-                .Permit(Trigger.TELOPT_EOR, State.DoEOR);
-
-            stateMachine.Configure(State.Dont)
-                .Permit(Trigger.TELOPT_EOR, State.DontEOR);
-
-            stateMachine.Configure(State.DoEOR)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async x => await OnDoEORAsync(x, context));
-
-            stateMachine.Configure(State.DontEOR)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDontEORAsync(context));
-
             context.RegisterInitialNegotiation(async () => await WillingEORAsync(context));
         }
-        else
-        {
-            stateMachine.Configure(State.Willing)
-                .Permit(Trigger.TELOPT_EOR, State.WillEOR);
-
-            stateMachine.Configure(State.Refusing)
-                .Permit(Trigger.TELOPT_EOR, State.WontEOR);
-
-            stateMachine.Configure(State.WontEOR)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await WontEORAsync(context));
-
-            stateMachine.Configure(State.WillEOR)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async x => await OnWillEORAsync(x, context));
-        }
-
-        stateMachine.Configure(State.StartNegotiation)
-            .Permit(Trigger.EOR, State.Prompting);
-
-        stateMachine.Configure(State.Prompting)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await OnEORPromptAsync());
     }
 
     /// <inheritdoc />
@@ -190,6 +151,32 @@ public class EORProtocol : TelnetProtocolPluginBase
     #region State Machine Handlers
 
     /// <summary>
+    /// What arriving at DO/DONT (server) or WILL/WONT (client) for TELOPT_EOR does -- only one
+    /// direction is ever meaningful for a given interpreter's mode.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.DO:
+                await OnDoEORAsync(context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontEORAsync(context);
+                break;
+            case (byte)Trigger.WILL:
+                await OnWillEORAsync(context);
+                break;
+            case (byte)Trigger.WONT:
+                await WontEORAsync(context);
+                break;
+        }
+    }
+
+    /// <summary>A bare IAC EOR. Delegates to the same guarded prompt logic.</summary>
+    internal ValueTask OnBareEorAsync() => OnEORPromptAsync();
+
+    /// <summary>
     /// A bare <c>IAC EOR</c> arrived: a prompt boundary where the option is in effect, and a NOP
     /// where it is not.
     /// </summary>
@@ -237,14 +224,14 @@ public class EORProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_willEor);
     }
 
-    private async ValueTask OnDoEORAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask OnDoEORAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client supports End of Record.");
         _doEOR = true;
         await OnNegotiatedAsync(true);
     }
 
-    private async ValueTask OnWillEORAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask OnWillEORAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server supports End of Record.");
         _doEOR = true;

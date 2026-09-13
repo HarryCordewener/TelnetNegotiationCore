@@ -18,6 +18,7 @@ namespace TelnetNegotiationCore.Builders;
 public class TelnetInterpreterBuilder
 {
     private TelnetInterpreter.TelnetMode _mode = TelnetInterpreter.TelnetMode.Error;
+    private bool _useGeneratedMachine = true;
     private ILogger? _logger;
     private Func<byte[], System.Text.Encoding, TelnetInterpreter, ValueTask>? _onSubmit;
     private Func<ReadOnlyMemory<byte>, ValueTask>? _onNegotiation;
@@ -37,6 +38,19 @@ public class TelnetInterpreterBuilder
     /// </summary>
     /// <param name="mode">The telnet mode</param>
     /// <returns>This builder for chaining</returns>
+    /// <summary>
+    /// Drives the connection with the generated machine instead of Stateless. All 18 protocols this
+    /// library negotiates now have their acceptance and subnegotiation wired to real behaviour on this
+    /// path, and it is the default (see <see cref="_useGeneratedMachine"/>'s initializer) -- this method
+    /// is now a no-op kept for the call sites that still say so explicitly, and for the day Stateless's
+    /// own configuration is deleted and this flag along with it.
+    /// </summary>
+    internal TelnetInterpreterBuilder UseGeneratedMachine()
+    {
+        _useGeneratedMachine = true;
+        return this;
+    }
+
     public TelnetInterpreterBuilder UseMode(TelnetInterpreter.TelnetMode mode)
     {
         _mode = mode;
@@ -402,11 +416,16 @@ public class TelnetInterpreterBuilder
             PluginManager = _pluginManager,
             KeepAliveInterval = _keepAliveInterval,
             KeepAliveAsync = _keepAliveAsync,
-            MaxBufferSize = _maxBufferSize ?? TelnetInterpreter.DefaultMaxBufferSize
+            MaxBufferSize = _maxBufferSize ?? TelnetInterpreter.DefaultMaxBufferSize,
+            UseGeneratedMachine = _useGeneratedMachine
         };
 
-        // Create protocol context
+        // Create protocol context. The generated machine reuses this exact instance (see
+        // TelnetInterpreter.SharedProtocolContext) rather than creating its own -- ProtocolContext's
+        // shared state is per instance, and this is the one WithClientIdentity below, and every
+        // plugin's ConfigureStateMachine, populate.
         var context = new ProtocolContext(interpreter, _pluginManager, _logger);
+        interpreter.SharedProtocolContext = context;
 
         // Publish the client identity before any plugin configures itself, so that the protocols
         // that report it — TTYPE and NEW-ENVIRON — read the same one.
@@ -415,16 +434,17 @@ public class TelnetInterpreterBuilder
             context.SetSharedState(Models.ClientIdentity.SharedStateKey, _clientIdentity);
         }
 
-        // Configure state machines for all plugins BEFORE initialization
-        // This matches the existing pattern where Setup* methods configure the state machine
-        _pluginManager.ConfigureStateMachines(interpreter.TelnetStateMachine, context);
-
-        // Apply safety configuration AFTER protocol configuration
-        // This ensures safety catches only apply to truly unhandled triggers
-        interpreter.ApplySafetyConfiguration();
+        // Run each plugin's ConfigureStateMachine hook BEFORE initialization, so any cross-cutting
+        // setup it registers (e.g. a server's initial negotiation offer) is in place first.
+        _pluginManager.ConfigureStateMachines(context);
 
         // Initialize plugins in dependency order
         await _pluginManager.InitializePluginsAsync(context);
+
+        if (_useGeneratedMachine)
+        {
+            await interpreter.StartGeneratedMachineAsync();
+        }
 
         // Build the interpreter (call existing BuildAsync if needed)
         await interpreter.BuildAsync();

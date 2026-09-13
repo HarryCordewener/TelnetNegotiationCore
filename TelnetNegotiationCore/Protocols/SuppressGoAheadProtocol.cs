@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -75,93 +74,16 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     // This could be expressed as a soft dependency if needed
 
     /// <inheritdoc />
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    /// <remarks>
+    /// Negotiation acceptance is wired to the generated machine (see <see cref="OnPeerNegotiatedAsync"/>);
+    /// this hook survives only to register the server's initial offer, a cross-cutting mechanism
+    /// independent of which machine drives byte processing.
+    /// </remarks>
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring Suppress Go-Ahead state machine");
-        
-        // Register SuppressGA protocol handlers with the context
-        context.SetSharedState("SuppressGA_Protocol", this);
-        
-        // Configure state machine transitions for Suppress Go-Ahead protocol
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            stateMachine.Configure(State.Do)
-                .Permit(Trigger.SUPPRESSGOAHEAD, State.DoSUPPRESSGOAHEAD);
-
-            stateMachine.Configure(State.Dont)
-                .Permit(Trigger.SUPPRESSGOAHEAD, State.DontSUPPRESSGOAHEAD);
-
-            stateMachine.Configure(State.DoSUPPRESSGOAHEAD)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async x => await OnDoSuppressGAAsync(x, context));
-
-            stateMachine.Configure(State.DontSUPPRESSGOAHEAD)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDontSuppressGAAsync(context));
-
-            // The other direction: the peer offering to suppress its own outbound Go-Ahead. RFC 858
-            // §5 requires the two directions negotiated independently. Reuses the client branch's
-            // WillSUPPRESSGOAHEAD/WontSUPPRESSGOAHEAD states rather than duplicating them -- only
-            // one branch of this `if` ever configures a given interpreter instance.
-            stateMachine.Configure(State.Willing)
-                .Permit(Trigger.SUPPRESSGOAHEAD, State.WillSUPPRESSGOAHEAD);
-
-            stateMachine.Configure(State.Refusing)
-                .Permit(Trigger.SUPPRESSGOAHEAD, State.WontSUPPRESSGOAHEAD);
-
-            stateMachine.Configure(State.WillSUPPRESSGOAHEAD)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnWillPeerSuppressGAAsync(context));
-
-            stateMachine.Configure(State.WontSUPPRESSGOAHEAD)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnWontPeerSuppressGAAsync(context));
-
             context.RegisterInitialNegotiation(async () => await WillingSuppressGAAsync(context));
-        }
-        else
-        {
-            stateMachine.Configure(State.Willing)
-                .Permit(Trigger.SUPPRESSGOAHEAD, State.WillSUPPRESSGOAHEAD);
-
-            stateMachine.Configure(State.Refusing)
-                .Permit(Trigger.SUPPRESSGOAHEAD, State.WontSUPPRESSGOAHEAD);
-
-            // The other direction: a server asking us to suppress our own outbound Go-Ahead.
-            // RFC 858 §5 requires the two directions negotiated independently. Reuses the server
-            // branch's DoSUPPRESSGOAHEAD/DontSUPPRESSGOAHEAD states rather than duplicating them --
-            // only one branch of this `if` ever configures a given interpreter instance.
-            stateMachine.Configure(State.Do)
-                .Permit(Trigger.SUPPRESSGOAHEAD, State.DoSUPPRESSGOAHEAD);
-
-            stateMachine.Configure(State.Dont)
-                .Permit(Trigger.SUPPRESSGOAHEAD, State.DontSUPPRESSGOAHEAD);
-
-            stateMachine.Configure(State.DoSUPPRESSGOAHEAD)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDoOwnSuppressGAAsync(context));
-
-            stateMachine.Configure(State.DontSUPPRESSGOAHEAD)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDontOwnSuppressGAAsync(context));
-
-            stateMachine.Configure(State.WontSUPPRESSGOAHEAD)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await WontSuppressGAAsync(context));
-
-            stateMachine.Configure(State.WillSUPPRESSGOAHEAD)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async x => await OnWillSuppressGAAsync(x, context));
-
-            // A bare IAC GA arriving from the server. The interpreter permits the transition; what
-            // the GA *means* is this plugin's knowledge, because RFC 858 is the only thing that ever
-            // takes the meaning away. Client mode only: RFC 854 defines GA in the server-to-user
-            // direction ("the process must transmit the TELNET Go Ahead (GA) command" when it cannot
-            // proceed without input from the other end) and says of the other direction only that
-            // "GAs may be sent at any time, but need not ever be sent" — so a GA reaching a server is
-            // not a statement about anything and this library does not invent one.
-            stateMachine.Configure(State.GoAhead)
-                .OnEntryAsync(async () => await OnGoAheadAsync(context));
         }
     }
 
@@ -236,6 +158,53 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     #region State Machine Handlers
 
     /// <summary>
+    /// What arriving at each of WILL/WONT/DO/DONT for SUPPRESS-GO-AHEAD does. Both directions are
+    /// negotiated independently (RFC 858 §5): a server answers DO/DONT for its own outbound GA and
+    /// WILL/WONT for the peer's, a client answers the mirror image of that.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        var server = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
+        switch (verb)
+        {
+            case (byte)Trigger.DO when server:
+                await OnDoSuppressGAAsync(context);
+                break;
+            case (byte)Trigger.DONT when server:
+                await OnDontSuppressGAAsync(context);
+                break;
+            case (byte)Trigger.WILL when server:
+                await OnWillPeerSuppressGAAsync(context);
+                break;
+            case (byte)Trigger.WONT when server:
+                await OnWontPeerSuppressGAAsync(context);
+                break;
+            case (byte)Trigger.DO:
+                await OnDoOwnSuppressGAAsync(context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontOwnSuppressGAAsync(context);
+                break;
+            case (byte)Trigger.WONT:
+                await WontSuppressGAAsync(context);
+                break;
+            case (byte)Trigger.WILL:
+                await OnWillSuppressGAAsync(context);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// A bare IAC GA. Client mode only: RFC 854 defines GA in the server-to-user direction ("the
+    /// process must transmit the TELNET Go Ahead (GA) command" when it cannot proceed without input
+    /// from the other end) and says of the other direction only that "GAs may be sent at any time,
+    /// but need not ever be sent" -- so a GA reaching a server is not a statement about anything and
+    /// this library does not invent one.
+    /// </summary>
+    internal ValueTask OnBareGoAheadAsync(IProtocolContext context) =>
+        context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client ? OnGoAheadAsync(context) : default;
+
+    /// <summary>
     /// A bare <c>IAC GA</c> arrived from the server: the RFC 854 Go-Ahead signal, which is a prompt
     /// boundary unless RFC 858 suppression is in effect, in which case it is a NOP.
     /// </summary>
@@ -299,14 +268,14 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_willSga);
     }
 
-    private async ValueTask OnDoSuppressGAAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask OnDoSuppressGAAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client supports Suppress Go-Ahead.");
         _ownGoAheadSuppressed = true;
         await OnNegotiatedAsync(true);
     }
 
-    private async ValueTask OnWillSuppressGAAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask OnWillSuppressGAAsync(IProtocolContext context)
     {
         // RFC 1123 §3.2.2: "A User or Server Telnet MUST always accept negotiation of the Suppress
         // Go Ahead option."

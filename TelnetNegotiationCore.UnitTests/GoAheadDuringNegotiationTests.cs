@@ -17,7 +17,7 @@ namespace TelnetNegotiationCore.UnitTests;
 /// A bare <c>IAC GA</c> arriving while the state machine is mid-negotiation, which real servers do
 /// — Iron Realms' "Rapture" engine (Achaea, Aetolia) sends one at the end of every prompt, including
 /// the one immediately before it starts MCCP2. Nothing configured a transition for
-/// <see cref="Trigger.GA"/> from <see cref="State.StartNegotiation"/>, so it always reached
+/// <see cref="Trigger.GA"/> from the negotiation-start state, so it always reached
 /// <c>OnUnhandledTriggerAsync</c>, which logs Critical and recovers via <see cref="Trigger.Error"/>.
 /// </summary>
 /// <remarks>

@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Stateless;
-using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.Plugins;
 
@@ -43,8 +41,16 @@ public abstract class TelnetProtocolPluginBase : ITelnetProtocolPlugin, IAsyncDi
         await OnInitializeAsync();
     }
 
-    /// <inheritdoc />
-    public abstract void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context);
+    /// <summary>
+    /// Runs once per plugin, before any plugin is initialized, to register cross-cutting setup that
+    /// does not depend on which machine drives byte processing -- most commonly a server's initial
+    /// negotiation offer via <see cref="IProtocolContext.RegisterInitialNegotiation"/>. No longer
+    /// part of <see cref="ITelnetProtocolPlugin"/>: a leftover from when this method also wired a
+    /// protocol's Stateless state machine, empty by default for a plugin with nothing to register here.
+    /// </summary>
+    public virtual void ConfigureStateMachine(IProtocolContext context)
+    {
+    }
 
     /// <inheritdoc />
     public virtual async ValueTask OnEnabledAsync()
@@ -70,9 +76,8 @@ public abstract class TelnetProtocolPluginBase : ITelnetProtocolPlugin, IAsyncDi
     /// <inheritdoc />
     /// <remarks>
     /// This is the one place <see cref="IsNegotiated"/> changes. A protocol calls it from its own
-    /// <see cref="ConfigureStateMachine"/> handlers, at the state entered when a WILL/DO exchange for
-    /// its option genuinely resolves -- not at <see cref="InitializeAsync"/>, which runs before any
-    /// negotiation has happened at all.
+    /// negotiation handlers, at the point a WILL/DO exchange for its option genuinely resolves -- not
+    /// at <see cref="InitializeAsync"/>, which runs before any negotiation has happened at all.
     /// <para>
     /// <b>Transition-only, not level-triggered.</b> A protocol's own state machine can re-enter the
     /// same accepted (or refused) state more than once for reasons that are its own business -- a

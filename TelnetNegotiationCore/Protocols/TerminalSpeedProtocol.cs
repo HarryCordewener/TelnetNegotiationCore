@@ -4,7 +4,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -23,8 +22,6 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
     private int _transmitSpeed = 38400;  // Default speeds
     private int _receiveSpeed = 38400;
     private Func<int, int, ValueTask>? _onTerminalSpeed;
-    private readonly List<byte> _speedBuffer = new();
-    private bool _isCapturingSpeed = false;
 
     /// <summary>
     /// Gets the current transmit speed in bits per second
@@ -75,118 +72,55 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    /// <remarks>
+    /// Negotiation acceptance and the subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and <see cref="CompleteTerminalSpeedFromBytesAsync"/>);
+    /// this hook survives only to register the server's initial offer, a cross-cutting mechanism
+    /// independent of which machine drives byte processing.
+    /// </remarks>
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring Terminal Speed state machine");
-        
-        // Register Terminal Speed protocol handlers with the context
-        context.SetSharedState("TerminalSpeed_Protocol", this);
-        
-        // Common state machine configuration
-        stateMachine.Configure(State.Willing)
-            .Permit(Trigger.TSPEED, State.WillTSPEED);
-
-        stateMachine.Configure(State.Refusing)
-            .Permit(Trigger.TSPEED, State.WontTSPEED);
-
-        stateMachine.Configure(State.Do)
-            .Permit(Trigger.TSPEED, State.DoTSPEED);
-
-        stateMachine.Configure(State.Dont)
-            .Permit(Trigger.TSPEED, State.DontTSPEED);
-        
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            ConfigureAsServer(stateMachine, context);
+            context.RegisterInitialNegotiation(async () => await SendDoTerminalSpeedAsync(context));
         }
-        else
+    }
+
+    private async ValueTask OnDontTerminalSpeedAsClientAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to send Terminal Speed");
+        await OnNegotiatedAsync(false);
+    }
+
+    private async ValueTask OnWontTerminalSpeedAsServerAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't send Terminal Speed");
+        await OnNegotiatedAsync(false);
+    }
+
+    /// <summary>What arriving at WILL/WONT (client) or DO/DONT (server) for TSPEED does.</summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        var client = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client;
+        switch (verb)
         {
-            ConfigureAsClient(stateMachine, context);
+            case (byte)Trigger.DO when client:
+                await WillTerminalSpeedAsync(context);
+                break;
+            case (byte)Trigger.DONT when client:
+                await OnDontTerminalSpeedAsClientAsync(context);
+                break;
+            case (byte)Trigger.WILL when !client:
+                await RequestTerminalSpeedAsync(context);
+                break;
+            case (byte)Trigger.WONT when !client:
+                await OnWontTerminalSpeedAsServerAsync(context);
+                break;
         }
     }
-    
-    private void ConfigureAsClient(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Client responds to server's DO TSPEED
-        stateMachine.Configure(State.DoTSPEED)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await WillTerminalSpeedAsync(context));
 
-        stateMachine.Configure(State.DontTSPEED)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to send Terminal Speed");
-                await OnNegotiatedAsync(false);
-            });
-
-        // Handle subnegotiation: IAC SB TSPEED SEND IAC SE
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.TSPEED, State.AlmostNegotiatingTSPEED);
-
-        stateMachine.Configure(State.AlmostNegotiatingTSPEED)
-            .Permit(Trigger.SEND, State.NegotiatingTSPEED);
-
-        stateMachine.Configure(State.NegotiatingTSPEED)
-            .Permit(Trigger.IAC, State.CompletingTSPEED);
-
-        stateMachine.Configure(State.CompletingTSPEED)
-            .SubstateOf(State.EndSubNegotiation)
-            .OnEntryAsync(async () => await SendTerminalSpeedAsync(context));
-    }
-    
-    private void ConfigureAsServer(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Server sends DO TSPEED to client
-        stateMachine.Configure(State.WillTSPEED)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await RequestTerminalSpeedAsync(context));
-
-        stateMachine.Configure(State.WontTSPEED)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't send Terminal Speed");
-                await OnNegotiatedAsync(false);
-            });
-
-        // Handle subnegotiation: IAC SB TSPEED IS <speed> IAC SE
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.TSPEED, State.AlmostNegotiatingTSPEED);
-
-        stateMachine.Configure(State.AlmostNegotiatingTSPEED)
-            .Permit(Trigger.IS, State.NegotiatingTSPEED);
-
-        stateMachine.Configure(State.NegotiatingTSPEED)
-            .Permit(Trigger.IAC, State.EscapingTSPEEDValue)
-            .OnEntry(() => StartCapturingSpeed());
-
-        // Configure all triggers except IAC to permit transition to EvaluatingTSPEED
-        TriggerHelper.ForAllTriggersButIAC(t =>
-            stateMachine.Configure(State.NegotiatingTSPEED).Permit(t, State.EvaluatingTSPEED));
-
-        // Configure parameterized trigger handlers for all triggers
-        var interpreter = context.Interpreter;
-        TriggerHelper.ForAllTriggers(t =>
-            stateMachine.Configure(State.EvaluatingTSPEED).OnEntryFrom(interpreter.ParameterizedTrigger(t), CaptureSpeedByte));
-
-        // Configure reentry for all triggers except IAC
-        TriggerHelper.ForAllTriggersButIAC(t =>
-            stateMachine.Configure(State.EvaluatingTSPEED).PermitReentry(t));
-
-        stateMachine.Configure(State.EvaluatingTSPEED)
-            .Permit(Trigger.IAC, State.EscapingTSPEEDValue);
-
-        stateMachine.Configure(State.EscapingTSPEEDValue)
-            .Permit(Trigger.IAC, State.EvaluatingTSPEED)
-            .Permit(Trigger.SE, State.CompletingTSPEED);
-
-        stateMachine.Configure(State.CompletingTSPEED)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await CompleteTerminalSpeedAsServerAsync(context));
-
-        context.RegisterInitialNegotiation(async () => await SendDoTerminalSpeedAsync(context));
-    }
+    /// <summary>What SEND means, from either side: the client reports its terminal speed.</summary>
+    internal ValueTask OnRequestedAsync(IProtocolContext context) => SendTerminalSpeedAsync(context);
 
     /// <inheritdoc />
     protected override ValueTask OnInitializeAsync()
@@ -206,61 +140,39 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnProtocolDisabledAsync()
     {
         Context.Logger.LogInformation("Terminal Speed Protocol disabled");
-        _speedBuffer.Clear();
-        _isCapturingSpeed = false;
         return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
-        _speedBuffer.Clear();
-        _isCapturingSpeed = false;
         _onTerminalSpeed = null;
         return default(ValueTask);
     }
 
     #region State Machine Handlers
 
-    private void StartCapturingSpeed()
+    internal async ValueTask CompleteTerminalSpeedFromBytesAsync(byte[] bytes, IProtocolContext context)
     {
-        _speedBuffer.Clear();
-        _isCapturingSpeed = true;
-    }
-
-    private void CaptureSpeedByte(ByteOrTrigger b)
-    {
-        if (!_isCapturingSpeed || b is not byte value) return;
-        _speedBuffer.Add(value);
-    }
-
-    private async ValueTask CompleteTerminalSpeedAsServerAsync(IProtocolContext context)
-    {
-        _isCapturingSpeed = false;
-        
-        if (_speedBuffer.Count == 0)
+        if (bytes.Length == 0)
         {
             context.Logger.LogWarning("No speed data received");
             return;
         }
 
-#if NET5_0_OR_GREATER
-        var speedString = Encoding.ASCII.GetString(CollectionsMarshal.AsSpan(_speedBuffer));
-#else
-        var speedString = Encoding.ASCII.GetString(_speedBuffer.ToArray());
-#endif
+        var speedString = Encoding.ASCII.GetString(bytes);
         context.Logger.LogDebug("Connection: {ConnectionState}: {SpeedString}",
             "Received Terminal Speed", speedString);
 
         // Parse the speed string (format: "transmit,receive")
         var parts = speedString.Split(',');
-        if (parts.Length == 2 && 
-            int.TryParse(parts[0], out var transmit) && 
+        if (parts.Length == 2 &&
+            int.TryParse(parts[0], out var transmit) &&
             int.TryParse(parts[1], out var receive))
         {
             _transmitSpeed = transmit;
             _receiveSpeed = receive;
-            
+
             context.Logger.LogInformation("Terminal Speed set to {Transmit} bps transmit, {Receive} bps receive",
                 transmit, receive);
 
@@ -272,8 +184,6 @@ public class TerminalSpeedProtocol : TelnetProtocolPluginBase
             context.Logger.LogWarning("Invalid terminal speed format: {SpeedString}. Expected format: transmit,receive",
                 speedString);
         }
-
-        _speedBuffer.Clear();
     }
 
     private async ValueTask WillTerminalSpeedAsync(IProtocolContext context)

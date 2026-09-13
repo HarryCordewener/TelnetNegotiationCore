@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Attributes;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
@@ -84,50 +83,16 @@ public class EchoProtocol : TelnetProtocolPluginBase
     public override IReadOnlyCollection<Type> Dependencies => Array.Empty<Type>();
 
     /// <inheritdoc />
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    /// <remarks>
+    /// Negotiation acceptance is wired to the generated machine (see <see cref="OnPeerNegotiatedAsync"/>);
+    /// this hook survives only to register the server's initial offer, a cross-cutting mechanism
+    /// independent of which machine drives byte processing.
+    /// </remarks>
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring Echo state machine");
-        
-        // Register Echo protocol handlers with the context
-        context.SetSharedState("Echo_Protocol", this);
-        
-        // Configure state machine transitions for Echo protocol
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            // Server side: Can offer to echo for the client (WILL ECHO) or be requested to echo (DO ECHO)
-            stateMachine.Configure(State.Do)
-                .Permit(Trigger.ECHO, State.DoECHO);
-
-            stateMachine.Configure(State.Dont)
-                .Permit(Trigger.ECHO, State.DontECHO);
-
-            stateMachine.Configure(State.DoECHO)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async x => await OnDoEchoAsync(x, context));
-
-            stateMachine.Configure(State.DontECHO)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await OnDontEchoAsync(context));
-
-            // Server can announce willingness to echo
             context.RegisterInitialNegotiation(async () => await WillingEchoAsync(context));
-        }
-        else
-        {
-            // Client side: Can request server to echo (DO ECHO) or respond to server's offer (WILL ECHO)
-            stateMachine.Configure(State.Willing)
-                .Permit(Trigger.ECHO, State.WillECHO);
-
-            stateMachine.Configure(State.Refusing)
-                .Permit(Trigger.ECHO, State.WontECHO);
-
-            stateMachine.Configure(State.WontECHO)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async () => await WontEchoAsync(context));
-
-            stateMachine.Configure(State.WillECHO)
-                .SubstateOf(State.Accepting)
-                .OnEntryAsync(async x => await OnWillEchoAsync(x, context));
         }
     }
 
@@ -228,6 +193,29 @@ public class EchoProtocol : TelnetProtocolPluginBase
 
     #region State Machine Handlers
 
+    /// <summary>
+    /// What arriving at DO/DONT (server) or WILL/WONT (client) for ECHO does -- each mode only ever
+    /// sees one direction.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
+        {
+            case (byte)Trigger.DO:
+                await OnDoEchoAsync(context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontEchoAsync(context);
+                break;
+            case (byte)Trigger.WILL:
+                await OnWillEchoAsync(context);
+                break;
+            case (byte)Trigger.WONT:
+                await WontEchoAsync(context);
+                break;
+        }
+    }
+
     private async ValueTask OnDontEchoAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client doesn't want server to echo - disabling echo");
@@ -256,7 +244,7 @@ public class EchoProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_willEcho);
     }
 
-    private async ValueTask OnDoEchoAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask OnDoEchoAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Client requests server to echo - enabling echo");
         var previousState = _willEcho;
@@ -267,7 +255,7 @@ public class EchoProtocol : TelnetProtocolPluginBase
             await _onEchoStateChanged(true);
     }
 
-    private async ValueTask OnWillEchoAsync(StateMachine<State, Trigger>.Transition _, IProtocolContext context)
+    private async ValueTask OnWillEchoAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Server will echo - client accepting");
         var previousState = _willEcho;

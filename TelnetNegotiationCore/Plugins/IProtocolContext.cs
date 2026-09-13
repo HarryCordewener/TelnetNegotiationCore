@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
-using TelnetNegotiationCore.Models;
 
 namespace TelnetNegotiationCore.Plugins;
 
@@ -34,11 +32,6 @@ public interface IProtocolContext
     /// Gets the telnet mode (Server or Client).
     /// </summary>
     Interpreters.TelnetInterpreter.TelnetMode Mode { get; }
-
-    /// <summary>
-    /// Gets the state machine instance.
-    /// </summary>
-    StateMachine<State, Trigger> StateMachine { get; }
 
     /// <summary>
     /// Sends negotiation bytes to the remote endpoint.

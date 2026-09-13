@@ -6,11 +6,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Stateless;
 using TelnetNegotiationCore.Models;
-using TelnetNegotiationCore.Generated;
 using Microsoft.Extensions.Logging;
-using LocalMoreLinq;
 
 namespace TelnetNegotiationCore.Interpreters;
 
@@ -27,8 +24,6 @@ namespace TelnetNegotiationCore.Interpreters;
 /// </remarks>
 public partial class TelnetInterpreter : IAsyncDisposable
 {
-    private readonly Dictionary<byte, Trigger> _isDefinedDictionary = new();
-
     /// <summary>
     /// A list of functions to call at the start.
     /// </summary>
@@ -43,24 +38,6 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// The current Encoding used for interpreting incoming non-negotiation text, and what we should send on outbound.
     /// </summary>
     public Encoding CurrentEncoding { get; internal set; } = Encoding.UTF8;
-
-    /// <summary>
-    /// Telnet state machine.
-    /// </summary>
-    /// <remarks>
-    /// <b><c>OnTransitioned</c> does not see every byte.</b> Ordinary text in
-    /// <see cref="State.ReadingCharacters"/> is written to the line buffer directly rather than fired
-    /// through the machine -- see <see cref="FireByteAsync"/> for why -- so a subscriber gets the
-    /// negotiation transitions and the line boundaries, and not the re-entry per text byte. That is
-    /// most of a text stream. Configuring the machine, which is what <c>ProtocolContext.StateMachine</c>
-    /// is for, is unaffected; only observing transitions is.
-    /// </remarks>
-    public StateMachine<State, Trigger> TelnetStateMachine { get; }
-
-    /// <summary>
-    /// A cache of parameterized triggers.
-    /// </summary>
-    private readonly ParameterizedTriggers _parameterizedTriggers;
 
     /// <summary>
     /// The longest line of ordinary (non-negotiation) input this connection will assemble, in bytes.
@@ -264,27 +241,9 @@ public partial class TelnetInterpreter : IAsyncDisposable
     private IOutboundByteTransform? _outboundTransform;
 
     /// <summary>
-    /// Helper function for Byte parameterized triggers.
-    /// </summary>
-    /// <param name="t">The Trigger</param>
-    /// <returns>A Parameterized trigger</returns>
-    internal StateMachine<State, Trigger>.TriggerWithParameters<ByteOrTrigger> ParameterizedTrigger(Trigger t)
-        => _parameterizedTriggers.ParameterizedTrigger(TelnetStateMachine, t);
-
-    /// <summary>
     /// The Logger
     /// </summary>
     private readonly ILogger _logger;
-
-    /// <summary>
-    /// Whether this class subscribed its own transition logger, which it does only at trace level.
-    /// </summary>
-    /// <remarks>
-    /// Deliberately not "whether anything is watching transitions": <see cref="TelnetStateMachine"/>
-    /// is public and Stateless publishes no way to ask whether a handler is registered, so a
-    /// subscriber other than ours cannot be detected. What that costs is documented on that property.
-    /// </remarks>
-    private readonly bool _tracingTransitions;
 
     public enum TelnetMode
     {
@@ -326,8 +285,6 @@ public partial class TelnetInterpreter : IAsyncDisposable
         logger.BeginScope(new Dictionary<string, object> { { "TelnetMode", mode } });
 
         _initialCall = [];
-        TelnetStateMachine = new StateMachine<State, Trigger>(State.Accepting);
-        _parameterizedTriggers = new ParameterizedTriggers();
 
         // Create bounded channel with backpressure (max 10,000 bytes buffered)
         _byteChannel = Channel.CreateBounded<short>(new BoundedChannelOptions(10000)
@@ -336,24 +293,6 @@ public partial class TelnetInterpreter : IAsyncDisposable
             SingleReader = true,   // Optimization: only one consumer
             SingleWriter = false   // Multiple threads may write
         });
-
-        new List<Func<StateMachine<State, Trigger>, StateMachine<State, Trigger>>>
-        {
-            // NOTE: SetupSafeNegotiation must run AFTER protocol ConfigureStateMachine calls
-            // so it only adds safety catches for truly unhandled triggers.
-            // It's now called explicitly by TelnetInterpreterBuilder after ConfigureStateMachines.
-            
-            SetupStandardProtocol
-        }.AggregateRight(TelnetStateMachine, (func, stateMachine) => func(stateMachine));
-
-        _tracingTransitions = logger.IsEnabled(LogLevel.Trace);
-
-        if (_tracingTransitions)
-        {
-            TelnetStateMachine.OnTransitioned(transition => _logger.LogTrace(
-                "Telnet StateMachine: {Source} --[{Trigger}({TriggerByte})]--> {Destination}",
-                transition.Source, transition.Trigger, transition.Parameters[0], transition.Destination));
-        }
     }
 
     /// <summary>
@@ -376,137 +315,6 @@ public partial class TelnetInterpreter : IAsyncDisposable
         }
 
         return validatedInterpreter;
-    }
-
-    /// <summary>
-    /// Setup standard processes.
-    /// </summary>
-    /// <param name="tsm">The state machine.</param>
-    /// <returns>Itself</returns>
-    private StateMachine<State, Trigger> SetupStandardProtocol(StateMachine<State, Trigger> tsm)
-    {
-        // If we are in Accepting mode, these should be interpreted as regular characters.
-        // EXCEPTION: NEWLINE should trigger submission (Act), not start a new character sequence
-        TriggerHelper.ForAllTriggersButIAC(t =>
-        {
-            if (t == Trigger.NEWLINE)
-            {
-                tsm.Configure(State.Accepting).Permit(t, State.Act);
-            }
-            else
-            {
-                tsm.Configure(State.Accepting).Permit(t, State.ReadingCharacters);
-            }
-        });
-
-        // Standard triggers, which are fine in the Awaiting state and should just be interpreted as a character in this state.
-        tsm.Configure(State.ReadingCharacters)
-            .SubstateOf(State.Accepting)
-            .Permit(Trigger.NEWLINE, State.Act);
-
-        // Configure OnEntryFrom for all triggers to write bytes to buffer
-        // EXCEPT IAC which has special handling below
-        TriggerHelper.ForAllTriggersButIAC(t => tsm.Configure(State.ReadingCharacters)
-            .OnEntryFromAsync(ParameterizedTrigger(t), async x =>
-            {
-                if (x is byte b) await WriteToBufferAndAdvanceAsync(b);
-            }));
-
-        // Allow re-entry for continued character reading (critical fix for multi-byte data)
-        // Exclude NEWLINE since it transitions to Act
-        TriggerHelper.ForAllTriggersButIAC(t =>
-        {
-            if (t != Trigger.NEWLINE)
-            {
-                tsm.Configure(State.ReadingCharacters).PermitReentry(t);
-            }
-        });
-
-        // We've gotten a newline. We interpret this as time to act and send a signal back.
-        tsm.Configure(State.Act)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await WriteToOutput());
-
-        // SubNegotiation
-        tsm.Configure(State.Accepting)
-            .Permit(Trigger.IAC, State.StartNegotiation);
-
-        // Escaped IAC, interpret as actual IAC
-        tsm.Configure(State.StartNegotiation)
-            .Permit(Trigger.IAC, State.ReadingCharacters)
-            .Permit(Trigger.WILL, State.Willing)
-            .Permit(Trigger.WONT, State.Refusing)
-            .Permit(Trigger.DO, State.Do)
-            .Permit(Trigger.DONT, State.Dont)
-            .Permit(Trigger.SB, State.SubNegotiation)
-            .OnEntry(_ => _logger.LogTrace("Connection: {ConnectionState}", "Starting Negotiation"));
-
-        tsm.Configure(State.StartNegotiation)
-            .Permit(Trigger.NOP, State.DoNothing);
-
-        tsm.Configure(State.DoNothing)
-            .SubstateOf(State.Accepting)
-            .OnEntry(() => _logger.LogTrace("Connection: {ConnectionState}", "NOP call. Do nothing."));
-
-        // IAC GA (Go-Ahead) is the original 1983 prompt marker (RFC 854) and predates both EOR and
-        // SUPPRESS-GO-AHEAD: a server is free to send it regardless of which options either side
-        // negotiated, and several real ones do on every prompt. Before this, GA had no permitted
-        // transition from StartNegotiation at all, so it always reached OnUnhandledTriggerAsync: a
-        // logged Critical and a recovery through Trigger.Error on every single occurrence. Servers
-        // that pair a trailing GA with another IAC sequence right behind it — achaea.com does, at
-        // the exact moment it starts MCCP2 — could lose that sequence to the recovery instead of
-        // parsing it, which is how a still-compressed byte stream ends up read as plain telnet.
-        //
-        // The state itself does nothing. Whether this particular GA is a prompt boundary or a
-        // leftover to drop is the negotiated state, which is the plugins' knowledge and not the
-        // interpreter's: SuppressGoAheadProtocol adds its own entry action here, and drops the GA
-        // only where RFC 858 says to — once SUPPRESS-GO-AHEAD is in effect. EOR is not part of that
-        // condition; RFC 885 is a different marker and says nothing about Go-Ahead.
-        tsm.Configure(State.StartNegotiation)
-            .Permit(Trigger.GA, State.GoAhead);
-
-        tsm.Configure(State.GoAhead)
-            .SubstateOf(State.Accepting)
-            .OnEntry(() => _logger.LogTrace("Connection: {ConnectionState}", "GA (Go-Ahead) received."));
-
-        // As a general documentation, negotiation means a Do followed by a Will, or a Will followed by a Do.
-        // Do is followed by Refusing or Will followed by Don't indicate negative negotiation.
-        //
-        // Each of these four states expects exactly one more byte: the option number the WILL,
-        // WONT, DO or DONT was about. A peer that sends a fresh IAC there instead — achaea.com does,
-        // immediately after a bare IAC WONT with no option byte at all, right at the point it starts
-        // MCCP2 — is not completing that negotiation. Without a permitted transition, that IAC used
-        // to be a byte with no meaning the state machine could assign it: an unhandled trigger,
-        // recovered through the generic Trigger.Error path into State.Accepting, which does not
-        // know a subnegotiation was about to start. The IAC SB COMPRESS2 IAC SE right behind it then
-        // read as four bytes of plain text and the zlib that followed read as more of the same,
-        // never inflated. Permitting IAC here abandons the incomplete negotiation and starts parsing
-        // the new command from where it actually begins, the same way IAC IAC is already handled as
-        // an escaped literal from StartNegotiation rather than through the same generic recovery.
-        tsm.Configure(State.Willing)
-            .Permit(Trigger.IAC, State.StartNegotiation);
-        tsm.Configure(State.Refusing)
-            .Permit(Trigger.IAC, State.StartNegotiation);
-        tsm.Configure(State.Do)
-            .Permit(Trigger.IAC, State.StartNegotiation);
-        tsm.Configure(State.Dont)
-            .Permit(Trigger.IAC, State.StartNegotiation);
-
-        tsm.Configure(State.ReadingCharacters)
-            .OnEntryFromAsync(Trigger.IAC, async _ =>
-            {
-                _logger.LogDebug("Connection: {ConnectionState}", "Escaped IAC - writing byte 255 to buffer");
-                // Escaped IAC (255,255) - write the actual IAC byte to buffer
-                await WriteToBufferAndAdvanceAsync((byte)Trigger.IAC);
-            });
-
-        tsm.Configure(State.SubNegotiation)
-            .OnEntryFrom(Trigger.IAC, _ => _logger.LogDebug("Connection: {ConnectionState}", "SubNegotiation request"));
-
-        tsm.Configure(State.EndSubNegotiation)
-            .Permit(Trigger.SE, State.Accepting);
-
-        return tsm;
     }
 
     /// <summary>
@@ -546,7 +354,23 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// <param name="b">A useful byte for the Client/Server</param>
     private async ValueTask WriteToBufferAndAdvanceAsync(byte b)
     {
-        if (b == (byte)Trigger.CARRIAGERETURN) return;
+        if (!WriteToBufferAndAdvance(b))
+        {
+            return;
+        }
+
+        await (CallbackOnByteAsync?.Invoke(b, CurrentEncoding) ?? default(ValueTask));
+    }
+
+    /// <summary>
+    /// The synchronous heart of <see cref="WriteToBufferAndAdvanceAsync"/>: everything except the optional
+    /// per-byte callback, which is the only reason that method is async. Split out for the generated
+    /// machine's <c>Write</c>, which is itself synchronous — text is the hot path, and stays allocation-free.
+    /// </summary>
+    /// <returns>False for a carriage return, which is not part of the line and has nothing left to do.</returns>
+    private bool WriteToBufferAndAdvance(byte b)
+    {
+        if (b == (byte)Trigger.CARRIAGERETURN) return false;
 
         if (_logger.IsEnabled(LogLevel.Trace))
         {
@@ -578,7 +402,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
             _bufferPosition++;
         }
 
-        await (CallbackOnByteAsync?.Invoke(b, CurrentEncoding) ?? default(ValueTask));
+        return true;
     }
 
     /// <summary>
@@ -973,8 +797,8 @@ public partial class TelnetInterpreter : IAsyncDisposable
                             }
                             catch (Exception ex) when (ex is not OperationCanceledException)
                             {
-                                // Mirrors FireByteAsync's own catch: a consumer's callback throwing
-                                // must not take down byte processing for the rest of the connection.
+                                // Mirrors FireGeneratedByteAsync's own catch: a consumer's callback
+                                // throwing must not take down byte processing for the rest of the connection.
                                 _logger.LogError(ex,
                                     "The inferred-prompt callback threw. Connection continues.");
                             }
@@ -994,7 +818,8 @@ public partial class TelnetInterpreter : IAsyncDisposable
                     var transform = _inboundTransform;
                     if (transform is null)
                     {
-                        await FireByteAsync(bt, ++byteCount);
+                        byteCount++;
+                        await FireGeneratedByteAsync(bt);
                         await NotifyByteProcessedAsync();
                         continue;
                     }
@@ -1021,7 +846,8 @@ public partial class TelnetInterpreter : IAsyncDisposable
                     {
                         for (var i = 0; i < decoded.Length; i++)
                         {
-                            await FireByteAsync(decoded.Span[i], ++byteCount);
+                            byteCount++;
+                            await FireGeneratedByteAsync(decoded.Span[i]);
 
                             // Once per decoded byte, not once per wire byte, so a large decoded batch
                             // keeps disarming throughout rather than only at its end. A premature idle
@@ -1048,67 +874,6 @@ public partial class TelnetInterpreter : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Fires a single telnet byte into the state machine.
-    /// </summary>
-    /// <param name="bt">The telnet byte, after any inbound transform has decoded it.</param>
-    /// <param name="byteCount">Its position in the decoded stream, for tracing.</param>
-    private async ValueTask FireByteAsync(byte bt, int byteCount)
-    {
-        if (!_isDefinedDictionary.TryGetValue(bt, out var triggerOrByte))
-        {
-            // Use generated IsDefined method instead of reflection
-            triggerOrByte = TriggerExtensions.IsDefined((short)bt)
-                ? (Trigger)bt
-                : Trigger.ReadNextCharacter;
-            _isDefinedDictionary.Add(bt, triggerOrByte);
-        }
-
-        // Guarded: this built an argument array and boxed four values on every byte, whatever the level.
-        if (_logger.IsEnabled(LogLevel.Trace))
-        {
-            _logger.LogTrace("Processing byte #{ByteNum}: {Byte:X2} (trigger: {Trigger}), current state: {State}",
-                byteCount, bt, triggerOrByte, TelnetStateMachine.State);
-        }
-
-        try
-        {
-            // ReadingCharacters permits every trigger but IAC and NEWLINE as a re-entry whose only
-            // effect is WriteToBufferAndAdvanceAsync (SetupStandardProtocol), so firing the machine
-            // for one bought nothing and cost ~3.3 KB a byte -- 92% of the cost of reading one.
-            // That covers the named triggers too: in text, a space is only nominally TSPEED and a
-            // '[' only nominally MXP, and both are far too common to pay for the name.
-            //
-            // Held back while our own transition logger is subscribed, so trace output is unchanged.
-            // That is not the same as "nothing is watching": a caller can subscribe to the public
-            // TelnetStateMachine and would not see these re-entries. Documented there.
-            if (!_tracingTransitions
-                && triggerOrByte is not (Trigger.IAC or Trigger.NEWLINE)
-                && TelnetStateMachine.State == State.ReadingCharacters)
-            {
-                await WriteToBufferAndAdvanceAsync(bt);
-            }
-            else
-            {
-                await TelnetStateMachine.FireAsync(ParameterizedTrigger(triggerOrByte), bt);
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // One malformed byte must not end the connection. Before this, any throw out of
-            // the state machine escaped the whole loop and every subsequent byte on the
-            // socket was silently discarded for the life of the connection.
-            _logger.LogError(ex,
-                "Dropping byte #{ByteNum} ({Byte:X2}, trigger {Trigger}) that could not be processed in state {State}. Connection continues.",
-                byteCount, bt, triggerOrByte, TelnetStateMachine.State);
-        }
-
-        if (_logger.IsEnabled(LogLevel.Trace))
-        {
-            _logger.LogTrace("After byte #{ByteNum}, new state: {State}, buffer position: {BufferPos}",
-                byteCount, TelnetStateMachine.State, _bufferPosition);
-        }
-    }
 
     /// <summary>
     /// Tells a registered handler that one more byte has been processed, and whether the channel is

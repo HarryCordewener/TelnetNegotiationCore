@@ -4,7 +4,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Stateless;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Plugins;
 
@@ -22,8 +21,6 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
 
     private string _displayLocation = string.Empty;
     private Func<string, ValueTask>? _onDisplayLocation;
-    private readonly List<byte> _displayBuffer = new();
-    private bool _isCapturingDisplay = false;
 
     /// <summary>
     /// Gets the current X display location
@@ -69,143 +66,54 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
-    public override void ConfigureStateMachine(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
+    /// <remarks>
+    /// Negotiation acceptance and the subnegotiation are wired to the generated machine (see
+    /// <see cref="OnPeerNegotiatedAsync"/> and <see cref="CompleteXDisplayLocationFromBytesAsync"/>);
+    /// this hook survives only to register the server's initial offer, a cross-cutting mechanism
+    /// independent of which machine drives byte processing.
+    /// </remarks>
+    public override void ConfigureStateMachine(IProtocolContext context)
     {
-        context.Logger.LogInformation("Configuring X-Display Location state machine");
-        
-        // Register X-Display protocol handlers with the context
-        context.SetSharedState("XDisplay_Protocol", this);
-        
-        // Common state machine configuration
-        stateMachine.Configure(State.Willing)
-            .Permit(Trigger.XDISPLOC, State.WillXDISPLOC);
-
-        stateMachine.Configure(State.Refusing)
-            .Permit(Trigger.XDISPLOC, State.WontXDISPLOC);
-
-        stateMachine.Configure(State.Do)
-            .Permit(Trigger.XDISPLOC, State.DoXDISPLOC);
-
-        stateMachine.Configure(State.Dont)
-            .Permit(Trigger.XDISPLOC, State.DontXDISPLOC);
-        
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            ConfigureAsServer(stateMachine, context);
+            context.RegisterInitialNegotiation(async () => await SendDoXDisplayLocationAsync(context));
         }
-        else
+    }
+
+    private async ValueTask OnDontXDisplayAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Told not to send X Display Location");
+        await OnNegotiatedAsync(false);
+    }
+
+    private async ValueTask OnWontXDisplayAsync(IProtocolContext context)
+    {
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Peer won't do X Display Location");
+        await OnNegotiatedAsync(false);
+    }
+
+    /// <summary>
+    /// What arriving at each of WILL/WONT/DO/DONT for XDISPLOC does. Unlike most of this library's
+    /// options, both directions are answered identically in either mode, so this needs no mode
+    /// branch at all.
+    /// </summary>
+    internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
+    {
+        switch (verb)
         {
-            ConfigureAsClient(stateMachine, context);
+            case (byte)Trigger.DO:
+                await WillXDisplayAsync(context);
+                break;
+            case (byte)Trigger.DONT:
+                await OnDontXDisplayAsync(context);
+                break;
+            case (byte)Trigger.WILL:
+                await RequestXDisplayLocationAsync(context);
+                break;
+            case (byte)Trigger.WONT:
+                await OnWontXDisplayAsync(context);
+                break;
         }
-    }
-    
-    private void ConfigureAsClient(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Client handles DO/DONT from server (server asking client to send XDISPLOC)
-        stateMachine.Configure(State.DoXDISPLOC)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await WillXDisplayAsync(context));
-
-        stateMachine.Configure(State.DontXDISPLOC)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to send X Display Location");
-                await OnNegotiatedAsync(false);
-            });
-
-        // Client also handles WILL/WONT from server (server announcing ability to request XDISPLOC)
-        stateMachine.Configure(State.WillXDISPLOC)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await RequestXDisplayLocationAsync(context));
-
-        stateMachine.Configure(State.WontXDISPLOC)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Server won't request X Display Location");
-                await OnNegotiatedAsync(false);
-            });
-
-        // Handle subnegotiation: IAC SB XDISPLOC SEND IAC SE
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.XDISPLOC, State.AlmostNegotiatingXDISPLOC);
-
-        stateMachine.Configure(State.AlmostNegotiatingXDISPLOC)
-            .Permit(Trigger.SEND, State.NegotiatingXDISPLOC);
-
-        stateMachine.Configure(State.NegotiatingXDISPLOC)
-            .Permit(Trigger.IAC, State.CompletingXDISPLOC);
-
-        stateMachine.Configure(State.CompletingXDISPLOC)
-            .SubstateOf(State.EndSubNegotiation)
-            .OnEntryAsync(async () => await SendXDisplayLocationAsync(context));
-    }
-    
-    private void ConfigureAsServer(StateMachine<State, Trigger> stateMachine, IProtocolContext context)
-    {
-        // Server handles WILL/WONT from client (client announcing ability to send XDISPLOC)
-        stateMachine.Configure(State.WillXDISPLOC)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await RequestXDisplayLocationAsync(context));
-
-        stateMachine.Configure(State.WontXDISPLOC)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't send X Display Location");
-                await OnNegotiatedAsync(false);
-            });
-
-        // Server also handles DO/DONT from client (client asking server to send XDISPLOC)
-        stateMachine.Configure(State.DoXDISPLOC)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await WillXDisplayAsync(context));
-
-        stateMachine.Configure(State.DontXDISPLOC)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () =>
-            {
-                context.Logger.LogDebug("Connection: {ConnectionState}", "Client doesn't want X Display Location");
-                await OnNegotiatedAsync(false);
-            });
-
-        // Handle subnegotiation: IAC SB XDISPLOC IS <display> IAC SE
-        stateMachine.Configure(State.SubNegotiation)
-            .Permit(Trigger.XDISPLOC, State.AlmostNegotiatingXDISPLOC);
-
-        stateMachine.Configure(State.AlmostNegotiatingXDISPLOC)
-            .Permit(Trigger.IS, State.NegotiatingXDISPLOC);
-
-        stateMachine.Configure(State.NegotiatingXDISPLOC)
-            .Permit(Trigger.IAC, State.EscapingXDISPLOCValue)
-            .OnEntry(() => StartCapturingDisplay());
-
-        // Configure all triggers except IAC to permit transition to EvaluatingXDISPLOC
-        TriggerHelper.ForAllTriggersButIAC(t =>
-            stateMachine.Configure(State.NegotiatingXDISPLOC).Permit(t, State.EvaluatingXDISPLOC));
-
-        // Configure parameterized trigger handlers for all triggers
-        var interpreter = context.Interpreter;
-        TriggerHelper.ForAllTriggers(t =>
-            stateMachine.Configure(State.EvaluatingXDISPLOC).OnEntryFrom(interpreter.ParameterizedTrigger(t), CaptureDisplayByte));
-
-        // Configure reentry for all triggers except IAC
-        TriggerHelper.ForAllTriggersButIAC(t =>
-            stateMachine.Configure(State.EvaluatingXDISPLOC).PermitReentry(t));
-
-        stateMachine.Configure(State.EvaluatingXDISPLOC)
-            .Permit(Trigger.IAC, State.EscapingXDISPLOCValue);
-
-        stateMachine.Configure(State.EscapingXDISPLOCValue)
-            .Permit(Trigger.IAC, State.EvaluatingXDISPLOC)
-            .Permit(Trigger.SE, State.CompletingXDISPLOC);
-
-        stateMachine.Configure(State.CompletingXDISPLOC)
-            .SubstateOf(State.Accepting)
-            .OnEntryAsync(async () => await CompleteXDisplayLocationAsServerAsync(context));
-
-        context.RegisterInitialNegotiation(async () => await SendDoXDisplayLocationAsync(context));
     }
 
     /// <inheritdoc />
@@ -226,61 +134,41 @@ public class XDisplayProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnProtocolDisabledAsync()
     {
         Context.Logger.LogInformation("X-Display Location Protocol disabled");
-        _displayBuffer.Clear();
-        _isCapturingDisplay = false;
         return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
-        _displayBuffer.Clear();
-        _isCapturingDisplay = false;
         _onDisplayLocation = null;
         return default(ValueTask);
     }
 
     #region State Machine Handlers
 
-    private void StartCapturingDisplay()
+    /// <summary>What an IS report's raw bytes mean, once read.</summary>
+    internal async ValueTask CompleteXDisplayLocationFromBytesAsync(byte[] bytes, IProtocolContext context)
     {
-        _displayBuffer.Clear();
-        _isCapturingDisplay = true;
-    }
-
-    private void CaptureDisplayByte(ByteOrTrigger b)
-    {
-        if (!_isCapturingDisplay || b is not byte value) return;
-        _displayBuffer.Add(value);
-    }
-
-    private async ValueTask CompleteXDisplayLocationAsServerAsync(IProtocolContext context)
-    {
-        _isCapturingDisplay = false;
-        
-        if (_displayBuffer.Count == 0)
+        if (bytes.Length == 0)
         {
             context.Logger.LogWarning("No X display location data received");
             return;
         }
 
-#if NET5_0_OR_GREATER
-        var displayString = Encoding.ASCII.GetString(CollectionsMarshal.AsSpan(_displayBuffer));
-#else
-        var displayString = Encoding.ASCII.GetString(_displayBuffer.ToArray());
-#endif
+        var displayString = Encoding.ASCII.GetString(bytes);
         context.Logger.LogDebug("Connection: {ConnectionState}: {DisplayLocation}",
             "Received X Display Location", displayString);
 
         _displayLocation = displayString;
-        
+
         context.Logger.LogInformation("X Display Location set to {DisplayLocation}", displayString);
 
         if (_onDisplayLocation != null)
             await _onDisplayLocation(displayString);
-
-        _displayBuffer.Clear();
     }
+
+    /// <summary>What SEND means, from either side -- independent of which machine asked.</summary>
+    internal ValueTask OnRequestedAsync(IProtocolContext context) => SendXDisplayLocationAsync(context);
 
     private async ValueTask WillXDisplayAsync(IProtocolContext context)
     {
