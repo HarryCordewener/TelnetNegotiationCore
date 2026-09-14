@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
@@ -7,9 +8,9 @@ using TUnit.Core;
 
 namespace TelnetNegotiationCore.UnitTests;
 
-/// <summary>MXP through the generated machine. A server only ever configured DO/DONT and a client only
-/// ever configured WILL/WONT, so OnPeerNegotiatedAsync mirrors that asymmetry rather than handling all
-/// four verbs identically on both sides.</summary>
+/// <summary>MXP through the generated machine. Servers normally receive DO/DONT and clients normally
+/// receive WILL/WONT. A client explicitly refuses the wrong-direction DO used by some deployed servers
+/// before accepting their conventional WILL offer.</summary>
 public class GeneratedMachineMxpTests : BaseTest
 {
     private static readonly byte[] MxpStartMarker =
@@ -50,13 +51,15 @@ public class GeneratedMachineMxpTests : BaseTest
     public async Task ClientNegotiatesButDoesNotStartModeOnServerWill()
     {
         var callbackFired = false;
+        byte[] negotiationOutput = null;
+        ValueTask CaptureNegotiation(System.ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
             .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
-            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .OnNegotiation(CaptureNegotiation)
             .AddPlugin<MXPProtocol>()
                 .OnMXPEnabled(() => { callbackFired = true; return ValueTask.CompletedTask; }));
 
@@ -67,6 +70,55 @@ public class GeneratedMachineMxpTests : BaseTest
         await Assert.That(mxpPlugin!.IsMXPActive).IsTrue();
         await Assert.That(mxpPlugin.IsMxpModeStarted).IsFalse();
         await Assert.That(callbackFired).IsFalse();
+        await Assert.That(negotiationOutput).IsNotNull();
+        await AssertByteArraysEqual(negotiationOutput,
+            [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MXP]);
+
+        await client.DisposeAsync();
+    }
+
+    [Test]
+    public async Task ClientRefusesProbeThenAcceptsConventionalOffer()
+    {
+        var negotiationOutput = new List<byte[]>();
+        var callbackCount = 0;
+        ValueTask CaptureNegotiation(System.ReadOnlyMemory<byte> data)
+        {
+            negotiationOutput.Add(data.ToArray());
+            return ValueTask.CompletedTask;
+        }
+
+        var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseGeneratedMachine()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(CaptureNegotiation)
+            .AddPlugin<MXPProtocol>()
+                .OnMXPEnabled(() => { callbackCount++; return ValueTask.CompletedTask; }));
+        var mxpPlugin = client.PluginManager!.GetPlugin<MXPProtocol>()!;
+
+        await InterpretAndWaitAsync(client,
+            [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MXP]);
+        await Assert.That(mxpPlugin.IsMXPActive).IsFalse();
+        await Assert.That(mxpPlugin.IsMxpModeStarted).IsFalse();
+        await Assert.That(callbackCount).IsEqualTo(0);
+
+        await InterpretAndWaitAsync(client,
+            [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MXP]);
+        await Assert.That(mxpPlugin.IsMXPActive).IsTrue();
+        await Assert.That(mxpPlugin.IsMxpModeStarted).IsFalse();
+        await Assert.That(callbackCount).IsEqualTo(0);
+
+        await InterpretAndWaitAsync(client, MxpStartMarker);
+
+        await Assert.That(negotiationOutput).Count().IsEqualTo(2);
+        await AssertByteArraysEqual(negotiationOutput[0],
+            [(byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.MXP]);
+        await AssertByteArraysEqual(negotiationOutput[1],
+            [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MXP]);
+        await Assert.That(mxpPlugin.IsMxpModeStarted).IsTrue();
+        await Assert.That(callbackCount).IsEqualTo(1);
 
         await client.DisposeAsync();
     }

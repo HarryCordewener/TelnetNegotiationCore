@@ -142,9 +142,9 @@ public class MXPProtocol : TelnetProtocolPluginBase
     #region State Machine Handlers
 
     /// <summary>
-    /// A server only ever expects DO/DONT and a client only ever expects WILL/WONT for this option,
-    /// so the verb the other role never wired for is a no-op rather than an assumption about what
-    /// the peer meant.
+    /// A server normally expects DO/DONT and a client normally expects WILL/WONT for this option.
+    /// A wrong-direction request is still owed the RFC 854 refusal paired with that verb; several
+    /// deployed servers probe with DO MXP before making the conventional WILL MXP offer.
     /// </summary>
     internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
     {
@@ -164,6 +164,9 @@ public class MXPProtocol : TelnetProtocolPluginBase
         {
             switch (verb)
             {
+                case (byte)Trigger.DO:
+                    await Helpers.OptionNegotiation.AnswerAsync(false, verb, (byte)Trigger.MXP, context);
+                    break;
                 case (byte)Trigger.WILL:
                     await OnWillMXPAsync(context);
                     break;
