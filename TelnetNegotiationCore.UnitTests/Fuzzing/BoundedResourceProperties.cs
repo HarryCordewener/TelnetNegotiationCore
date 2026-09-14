@@ -159,6 +159,21 @@ public class BoundedResourceProperties : BaseTest
 				() => log.Entries(LogLevel.Error).Any(),
 				timeoutMs: waitForRefusal ? 60_000 : 500);
 
+			// The log and the plugin's own state do not become consistent in the same instant: the
+			// ceiling is reported from inside the inflater, and the flag is cleared further along
+			// the failure path, across an async boundary. So a poll that returns the moment the log
+			// goes red can read the flag while it is still set -- and then the assertion below
+			// reports a contradiction that is a sample taken mid-transition, not a defect.
+			//
+			// Waiting for the state as well cannot hide a real failure: if the flag never clears,
+			// this poll spends its timeout and the assertion still fires. That is the shape
+			// MCCPExpansionLimitTests already uses, and this is the one place that read the log as
+			// a proxy for the state instead.
+			if (refused)
+			{
+				await PollUntilAsync(() => !plugin.IsMCCP2Enabled, timeoutMs: 30_000);
+			}
+
 			await Assert.That(plugin.IsMCCP2Enabled)
 				.IsEqualTo(!refused)
 				.Because($"\"{name}\": the inflater is "

@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Helpers;
 using TUnit.Assertions;
+using TUnit.Assertions.Enums;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
@@ -57,8 +58,9 @@ public class SubnegotiationEscapingTests
 	[Arguments(new byte[] { 254, 250, 240 }, new byte[] { 254, 250, 240 })]
 	public async Task EveryIacIsDoubledAndNothingElseIs(byte[] input, byte[] expected)
 	{
-		await Assert.That(SubnegotiationEscaping.Escaped(input)).IsEquivalentTo(expected);
-		await Assert.That(ViaList(input)).IsEquivalentTo(expected);
+		await Assert.That(SubnegotiationEscaping.Escaped(input))
+			.IsEquivalentTo(expected, CollectionOrdering.Matching);
+		await Assert.That(ViaList(input)).IsEquivalentTo(expected, CollectionOrdering.Matching);
 	}
 
 	/// <summary>A single byte, the shape LINEMODE's <c>MODE</c> needs.</summary>
@@ -67,11 +69,11 @@ public class SubnegotiationEscapingTests
 	{
 		var escaped = new List<byte>();
 		SubnegotiationEscaping.AppendEscaped(escaped, IAC);
-		await Assert.That(escaped).IsEquivalentTo(new List<byte> { IAC, IAC });
+		await Assert.That(escaped).IsEquivalentTo(new List<byte> { IAC, IAC }, CollectionOrdering.Matching);
 
 		var plain = new List<byte>();
 		SubnegotiationEscaping.AppendEscaped(plain, (byte)7);
-		await Assert.That(plain).IsEquivalentTo(new List<byte> { 7 });
+		await Assert.That(plain).IsEquivalentTo(new List<byte> { 7 }, CollectionOrdering.Matching);
 	}
 
 	// ---------------------------------------------------------------------------------------------
@@ -114,7 +116,7 @@ public class SubnegotiationEscapingTests
 				var viaSpan = SubnegotiationEscaping.Escaped(input);
 				var viaList = ViaList(input);
 
-				await Assert.That(viaSpan).IsEquivalentTo(viaList)
+				await Assert.That(viaSpan).IsEquivalentTo(viaList, CollectionOrdering.Matching)
 					.Because($"length {length}, IAC in every {iacInEvery}: the two shapes disagree");
 
 				// And the result is the input with exactly the IAC count added.
@@ -178,11 +180,11 @@ public class SubnegotiationEscapingTests
 	{
 		var encoded = Encoding.Latin1.GetBytes("ÿ");
 
-		await Assert.That(encoded).IsEquivalentTo(new byte[] { IAC });
+		await Assert.That(encoded).IsEquivalentTo(new byte[] { IAC }, CollectionOrdering.Matching);
 
 		var escaped = new List<byte>();
 		SubnegotiationEscaping.AppendEscaped(escaped, "ÿ", Encoding.Latin1);
 
-		await Assert.That(escaped).IsEquivalentTo(new List<byte> { IAC, IAC });
+		await Assert.That(escaped).IsEquivalentTo(new List<byte> { IAC, IAC }, CollectionOrdering.Matching);
 	}
 }

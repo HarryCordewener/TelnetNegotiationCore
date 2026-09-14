@@ -175,6 +175,11 @@ public class WrongDirectionNegotiationTests : BaseTest
 	/// Agreeing has to mean the option is actually on, or the next prompt goes out with the wrong
 	/// terminator and the agreement was a lie.
 	/// </summary>
+	/// <remarks>
+	/// Asserts <see cref="EORProtocol.MarksOutboundRecords"/> rather than
+	/// <see cref="EORProtocol.IsEOREnabled"/>: a <c>DO</c> establishes this end's own direction, and
+	/// the aggregate would report true even if the <c>DO</c> had wrongly turned on the peer's.
+	/// </remarks>
 	[Test]
 	public async Task AClientThatAgreesToDoEorThenMarksItsPrompts()
 	{
@@ -193,8 +198,8 @@ public class WrongDirectionNegotiationTests : BaseTest
 
 		var eor = client.PluginManager!.GetPlugin<EORProtocol>();
 
-		await Assert.That(eor!.IsEOREnabled)
-			.IsTrue().Because("a WILL EOR that does not turn the option on is an empty promise");
+		await Assert.That(eor!.MarksOutboundRecords)
+			.IsTrue().Because("a WILL EOR that does not turn on this end's own direction is an empty promise");
 	}
 
 	// ---------------------------------------------------------------------------------------------

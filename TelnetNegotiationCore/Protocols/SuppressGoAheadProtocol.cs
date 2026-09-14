@@ -135,16 +135,27 @@ public class SuppressGoAheadProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// Checks if prompting should use EOR as fallback
+    /// Whether an outbound prompt has to fall back to <c>IAC EOR</c> because this end has promised
+    /// not to send <c>IAC GA</c>.
     /// </summary>
+    /// <remarks>
+    /// Both halves of the question are <em>this end's own</em> direction, and both used to be read
+    /// as something else. The Go-Ahead half asked <see cref="IsGoAheadSuppressed"/>, the peer's
+    /// direction, which says nothing about whether this end may still send a GA -- RFC 858 §5 makes
+    /// the two independent. The EOR half asked <c>EORProtocol.IsEnabled</c>, which is plugin
+    /// lifetime: true from initialisation onwards for every registered plugin, so it answered "yes"
+    /// on a connection where EOR had never been negotiated at all.
+    /// <para>
+    /// Answers the same question <c>TelnetInterpreter.PromptTerminator</c> decides for itself, from
+    /// the same two properties, so the two cannot disagree.
+    /// </para>
+    /// </remarks>
     public bool ShouldUseEORFallback()
     {
-        if (!IsEnabled || !IsGoAheadSuppressed)
+        if (!IsEnabled || !SuppressesOutboundGoAhead)
             return false;
 
-        // Check if EOR plugin is available and enabled
-        var eorPlugin = Context.GetPlugin<EORProtocol>();
-        return eorPlugin != null && eorPlugin.IsEnabled;
+        return Context.GetPlugin<EORProtocol>() is { IsEnabled: true, MarksOutboundRecords: true };
     }
 
     /// <inheritdoc />

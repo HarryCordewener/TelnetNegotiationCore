@@ -26,6 +26,99 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **TERMINAL-SPEED reported a request that had no adjacent `IAC SE`.** `TerminalSpeedModule`'s
+  malformed-byte handler for the `SEND` state had an empty body, alone among the three options with
+  such a state — `TerminalTypeModule` and `XDisplayModule` both clear the escape flag there and both
+  carry a comment explaining that they must. So a stray byte between a genuine `IAC` and an unrelated
+  later `SE` still satisfied the terminator guard, and `IAC SB TSPEED SEND IAC 0x01 SE` reported a
+  terminal-speed request. This is the same stale-flag class as the NEW-ENVIRON defect fixed earlier,
+  and `MalformedSubnegotiationRecoveryTests` covers that class for every other such state — it missed
+  only this one.
+
+- **Nine states accepted `IAC IAC SE` as the end of a subnegotiation.** RFC 855 makes `IAC IAC` one
+  data byte 255, so the `SE` after it is data and the frame is not over. Those nine latched their
+  escape flag to true rather than toggling it, so a doubled `IAC` terminated the subnegotiation one
+  byte early. The twelve states that buffer a payload already toggled, and were correct.
+  - Observable in MXP: `IAC SB MXP IAC IAC SE 'A' IAC SE` ended early and the `'A'` leaked into the
+    ordinary text stream as data.
+  - Observable in MCCP2 and MCCP3 as the harm those modules' own comments warn about — inflation
+    starting at the wrong stream position.
+  - Also corrected in FLOWCONTROL, CHARSET's ending marker, ENCRYPT's `END`, and the `SEND` states of
+    TERMINAL-TYPE, TERMINAL-SPEED and X-DISPLAY-LOCATION.
+
+- **FLOWCONTROL discarded an escaped command byte and ended the subnegotiation early.** It was the
+  one payload-carrying option implementing no un-doubling at all: its capture took a single byte
+  rather than a run, and its `IAC` handler latched, so a doubled `IAC` never reached the command
+  byte. RFC 1372 defines only commands 0 through 3, so a 255 is not a command this library acts on —
+  but dropping it silently and ending the frame a byte early are separate wrongs from it being
+  meaningless.
+
+- **CHARSET's request text and TERMINAL-SPEED's speed text accumulated without a ceiling.** Five
+  sibling states carry an 8192-byte cap with a comment saying it "exists only to bound a peer that
+  never sends IAC SE"; these two buffered into an unbounded `List<byte>`, so a peer that opened the
+  subnegotiation and kept sending grew it until the process ran out of memory. Both are now bounded
+  the same way, and an overflowed report is dropped rather than delivered truncated — a cut-short
+  charset list names a different set of charsets than the peer offered, and a cut-short
+  `transmit,receive` parses as a different speed.
+
+### Changed
+
+- **Every option's inbound un-escaping is now covered by one sweep.** RFC 855's rule is stated once
+  for all options, but the receive side implements it separately in each option's state module, and
+  only four were covered: GMCP, MSDP, CHARSET's translation table, and ENVIRON/NEW-ENVIRON. Nothing
+  covered MSSP, NAWS, LINEMODE, TTYPE, TSPEED, XDISPLOC, CHARSET's other payloads, AUTH, ENCRYPT, or
+  any of the marker-only states — which is where all four defects above were hiding.
+  - Each case asserts both halves: the literal 255 reached the payload, *and* the byte after it was
+    still read as structure. Either alone passes a mutant that gets the other wrong.
+  - Assertions are made on undecoded payload bytes. `RecordingTelnetContext`'s public event lists
+    decode with `Encoding.ASCII`, which renders 0xFF as `?` — so an assertion made there cannot tell
+    a literal that survived un-escaping from one that was dropped. The recorder always kept the bytes
+    undecoded for this reason; it just did not expose them, and now does.
+  - The existing `ENVIRON`/`NEW-ENVIRON` escape test asserted only that a marker after a doubled
+    `IAC` survived, which a mutant dropping the literal passed. It now asserts the payload too.
+
+- **EOR tracked one negotiated state for two directions RFC 885 negotiates independently.** The RFC
+  is explicit — "the use of EORs must be negotiated independently for each direction" — and the two
+  verbs establish different facts: a peer's `WILL` says the peer will send markers, a peer's `DO`
+  asks *this* end to send them. One flag held both, and the library's two readers disagreed about
+  which it meant, so each single-verb case was wrong in one of the two places.
+  - **A server's ordinary handshake was one of the wrong cases.** A server offers `WILL EOR`, the
+    client answers `DO`, and the server then treated any inbound `IAC EOR` as a prompt although the
+    client never said it would send one — against RFC 885's "when the END-OF-RECORD option is not in
+    effect, the IAC EOR command should be treated as a NOP if received". The mirror case, a client
+    receiving only `WILL`, had the client marking its own prompts with a marker the peer never
+    agreed to receive.
+  - **A refusal in one direction no longer withdraws the other.** `DO` then `WONT` used to stop this
+    end marking prompts the peer had explicitly asked for; `WILL` then `DONT` used to turn an
+    inbound marker back into a NOP while the peer's `WILL` still stood, dropping real prompts.
+  - New `PeerMarksRecords` (the peer's direction, set by its `WILL`) and `MarksOutboundRecords`
+    (this end's own, set by the peer's `DO`), following the naming and documentation of
+    `SuppressGoAheadProtocol`'s `IsGoAheadSuppressed` / `SuppressesOutboundGoAhead`, which splits the
+    same way per RFC 858 §5. `PromptTerminator` reads the outbound one; the inbound bare-`IAC EOR`
+    handler reads the peer's.
+  - **`IsEOREnabled` keeps its meaning — "EOR is on in some direction" — but is not bit-for-bit what
+    the old flag returned.** For a single verb it matches: `DO` or `WILL` gives true, `DONT` or
+    `WONT` gives false. It diverges on a mixed sequence, and does so deliberately. `DO` then `WONT`
+    returned false before, because the second verb overwrote the first on a shared flag; it now
+    returns true, because this end genuinely is still marking its prompts at the peer's request.
+    That is the defect being fixed, visible through the aggregate: the old value was wrong, not
+    merely different. Prefer one of the two new properties wherever the direction matters.
+  - `IsNegotiated` reports the aggregate rather than whichever direction resolved last. It is
+    transition-only, so handing it one direction's own outcome let the second to resolve stomp the
+    first; `MCCPProtocol` already does this for the same reason.
+  - Enabling the plugin no longer fabricates an agreement. `OnProtocolEnabledAsync` used to write
+    "EOR is on", so disabling and re-enabling the plugin through the manager turned the marker on
+    with no peer having agreed to anything. `SuppressGoAheadProtocol`'s equivalents write nothing.
+
+- **`SuppressGoAheadProtocol.ShouldUseEORFallback()` was wrong on both of its terms.** It asks
+  whether an outbound prompt must fall back to `IAC EOR` because this end promised not to send
+  `IAC GA` — a question that is this end's own direction twice over. It read `IsGoAheadSuppressed`,
+  the *peer's* Go-Ahead direction, which says nothing about whether this end may still send one; and
+  it read `EORProtocol.IsEnabled`, which is plugin lifetime rather than negotiated state, so it
+  answered "use EOR" on any connection that merely had the plugin registered. It is public, and had
+  no test coverage at all, which is how both errors survived. Now reads the two outbound directions,
+  and is pinned against what a prompt actually sends across all sixteen negotiation combinations.
+
 - **LINEMODE sent its `MODE` byte without escaping a literal 255, so the subnegotiation never
   terminated.** RFC 1184 builds its subnegotiations out of ordinary bytes and adds no exemption from
   RFC 854's rule that a 255 in data is doubled. Sent raw, the peer reads that byte as the `IAC`

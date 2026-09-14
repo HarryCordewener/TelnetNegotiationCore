@@ -5,7 +5,9 @@ A "prompt" is the point where a server has stopped talking and is waiting on the
 optional and all of them routed to the same `.OnPrompt(() => ...)` callback:
 
 - **`EORProtocol`** — the peer negotiates and then sends `IAC EOR` (RFC 885) at the end of each
-  prompt. The clearest signal, when a server offers it.
+  prompt. The clearest signal, when a server offers it. Detection follows the peer's own direction
+  (`PeerMarksRecords`, set by its `WILL`); being asked to send the marker yourself is the other
+  direction and does not make an inbound one a prompt.
 - **`SuppressGoAheadProtocol`** — the default NVT (no options negotiated) ends every prompt with a
   bare `IAC GA`, RFC 854's own Go-Ahead. A client always accepts a peer's `SUPPRESS-GO-AHEAD` offer
   (RFC 1123 §3.2.2), which stops the marker; `PacketPatchProtocol` is the fallback when that happens.

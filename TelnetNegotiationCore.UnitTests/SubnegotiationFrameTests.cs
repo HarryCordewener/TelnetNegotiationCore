@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using TelnetNegotiationCore.Helpers;
 using TelnetNegotiationCore.Models;
 using TUnit.Assertions;
+using TUnit.Assertions.Enums;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
@@ -53,7 +54,7 @@ public class SubnegotiationFrameTests
 
 		byte[] expected = [IAC, SB, TTYPE, IS, .. "XTERM"u8, IAC, SE];
 
-		await Assert.That(frame).IsEquivalentTo(expected);
+		await Assert.That(frame).IsEquivalentTo(expected, CollectionOrdering.Matching);
 	}
 
 	[Test]
@@ -61,7 +62,7 @@ public class SubnegotiationFrameTests
 	{
 		var frame = SubnegotiationFrame.Build(TTYPE, IS, Array.Empty<byte>());
 
-		await Assert.That(frame).IsEquivalentTo(new byte[] { IAC, SB, TTYPE, IS, IAC, SE });
+		await Assert.That(frame).IsEquivalentTo(new byte[] { IAC, SB, TTYPE, IS, IAC, SE }, CollectionOrdering.Matching);
 	}
 
 	/// <summary>The rule itself: a 255 among the parameters is doubled.</summary>
@@ -70,8 +71,9 @@ public class SubnegotiationFrameTests
 	{
 		var frame = SubnegotiationFrame.Build(TTYPE, IS, new byte[] { (byte)'A', IAC, (byte)'B' });
 
-		await Assert.That(frame).IsEquivalentTo(new byte[]
-			{ IAC, SB, TTYPE, IS, (byte)'A', IAC, IAC, (byte)'B', IAC, SE });
+		await Assert.That(frame).IsEquivalentTo(
+			new byte[] { IAC, SB, TTYPE, IS, (byte)'A', IAC, IAC, (byte)'B', IAC, SE },
+			CollectionOrdering.Matching);
 	}
 
 	[Test]
@@ -79,8 +81,9 @@ public class SubnegotiationFrameTests
 	{
 		var frame = SubnegotiationFrame.Build(TTYPE, IS, new byte[] { IAC, IAC, 1, IAC });
 
-		await Assert.That(frame).IsEquivalentTo(new byte[]
-			{ IAC, SB, TTYPE, IS, IAC, IAC, IAC, IAC, 1, IAC, IAC, IAC, SE });
+		await Assert.That(frame).IsEquivalentTo(
+			new byte[] { IAC, SB, TTYPE, IS, IAC, IAC, IAC, IAC, 1, IAC, IAC, IAC, SE },
+			CollectionOrdering.Matching);
 	}
 
 	/// <summary>
@@ -93,7 +96,8 @@ public class SubnegotiationFrameTests
 	{
 		var frame = SubnegotiationFrame.Build(TTYPE, IS, new byte[] { IAC });
 
-		await Assert.That(frame).IsEquivalentTo(new byte[] { IAC, SB, TTYPE, IS, IAC, IAC, IAC, SE });
+		await Assert.That(frame).IsEquivalentTo(
+			new byte[] { IAC, SB, TTYPE, IS, IAC, IAC, IAC, SE }, CollectionOrdering.Matching);
 
 		// The terminator is the last two bytes and is preceded by an even number of IACs, so the
 		// peer's parser sees the payload's 255 resolve before the terminator begins.
@@ -113,7 +117,8 @@ public class SubnegotiationFrameTests
 		// ordinary values and must be passed through.
 		var frame = SubnegotiationFrame.Build(254, 250, Array.Empty<byte>());
 
-		await Assert.That(frame).IsEquivalentTo(new byte[] { IAC, SB, 254, 250, IAC, SE });
+		await Assert.That(frame).IsEquivalentTo(
+			new byte[] { IAC, SB, 254, 250, IAC, SE }, CollectionOrdering.Matching);
 	}
 
 	/// <summary>The single-byte overload must agree with the span one, for all 256 values.</summary>
@@ -125,7 +130,8 @@ public class SubnegotiationFrameTests
 			var one = SubnegotiationFrame.Build(TTYPE, IS, (byte)value);
 			var span = SubnegotiationFrame.Build(TTYPE, IS, new[] { (byte)value });
 
-			await Assert.That(one).IsEquivalentTo(span).Because($"payload byte {value}");
+			await Assert.That(one).IsEquivalentTo(span, CollectionOrdering.Matching)
+				.Because($"payload byte {value}");
 		}
 	}
 
@@ -147,6 +153,6 @@ public class SubnegotiationFrameTests
 		byte[] byHand = [IAC, SB, TTYPE, IS, .. encoded, IAC, SE];
 
 
-		await Assert.That(built).IsEquivalentTo(byHand);
+		await Assert.That(built).IsEquivalentTo(byHand, CollectionOrdering.Matching);
 	}
 }
