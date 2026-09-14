@@ -31,6 +31,14 @@ public abstract partial class TelnetCoreContext
     /// <summary>A bare IAC EOR arrived. RFC 885: a NOP unless END-OF-RECORD is in effect, which is a protocol's business.</summary>
     public abstract ValueTask EorAsync();
 
+    /// <summary>
+    /// What to do with a carriage return that is not part of a <c>CR LF</c> pair.
+    /// </summary>
+    /// <remarks>
+    /// Generated-machine parsing receives this choice through <see cref="TelnetMachineConfig"/>.
+    /// </remarks>
+    public virtual CarriageReturnMode CarriageReturnMode => CarriageReturnMode.Drop;
+
 }
 
 public readonly struct InitializeConnection : IEvent;

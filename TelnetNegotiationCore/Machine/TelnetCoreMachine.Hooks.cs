@@ -5,6 +5,11 @@ namespace TelnetNegotiationCore.Machine;
 
 public sealed partial class TelnetCoreMachine
 {
+    /// <summary>Creates a machine with the default carriage-return behavior.</summary>
+    public TelnetCoreMachine(TelnetCoreContext context) : this(context, TelnetMachineConfig.Default)
+    {
+    }
+
     internal Action<Exception, TransitionInfo<byte>>? TransitionFailed { get; set; }
     internal Action<Type, byte>? ValueUnhandled { get; set; }
 

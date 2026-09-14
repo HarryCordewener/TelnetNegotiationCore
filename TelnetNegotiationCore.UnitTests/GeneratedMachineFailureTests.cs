@@ -15,6 +15,20 @@ namespace TelnetNegotiationCore.UnitTests;
 
 public class GeneratedMachineFailureTests
 {
+    private sealed class PreserveCarriageReturnContext : RecordingTelnetContext
+    {
+        public override Models.CarriageReturnMode CarriageReturnMode => Models.CarriageReturnMode.Preserve;
+    }
+
+    [Test]
+    public async Task ContextPropertyAndDefaultMachineConstructorRemainAvailable()
+    {
+        var context = new PreserveCarriageReturnContext();
+        await using var machine = new TelnetCoreMachine(context);
+
+        await Assert.That(context.CarriageReturnMode).IsEqualTo(Models.CarriageReturnMode.Preserve);
+    }
+
     private sealed class ThrowOnceContext(Exception exception) : RecordingTelnetContext
     {
         private bool _throw = true;
