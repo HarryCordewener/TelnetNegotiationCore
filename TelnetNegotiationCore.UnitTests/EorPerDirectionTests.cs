@@ -269,9 +269,14 @@ public class EorPerDirectionTests : BaseTest
 	}
 
 	/// <summary>
-	/// <c>IsEOREnabled</c> is the aggregate and reports exactly what the single flag behind it used
-	/// to: true once either direction is on. That is what keeps the split off a consumer's radar.
+	/// <c>IsEOREnabled</c> is the aggregate: true once either direction is on. For a single verb
+	/// that is also what the shared flag behind it used to return.
 	/// </summary>
+	/// <remarks>
+	/// Single verbs only, which is the limit of the equivalence — see
+	/// <see cref="TheAggregateDivergesFromTheOldSharedFlagOnAMixedSequence"/> for the case where the
+	/// two genuinely differ, and why the new answer is the right one.
+	/// </remarks>
 	[Test]
 	[Arguments((byte)Trigger.DO, true)]
 	[Arguments((byte)Trigger.WILL, true)]
@@ -285,6 +290,45 @@ public class EorPerDirectionTests : BaseTest
 		await Assert.That(h.Eor.IsEOREnabled).IsEqualTo(expected);
 		await Assert.That(h.Eor.IsEOREnabled)
 			.IsEqualTo(h.Eor.PeerMarksRecords || h.Eor.MarksOutboundRecords);
+	}
+
+	/// <summary>
+	/// The one case where the aggregate does <em>not</em> reproduce what the old shared flag
+	/// returned, kept as a test because it is a real observable change for a consumer.
+	/// </summary>
+	/// <remarks>
+	/// Before the split, <c>DO</c> set the flag and <c>WONT</c> cleared it, so the pair returned
+	/// false. It now returns true, and that is the point rather than a regression: the peer asked
+	/// this end to mark its records and then said only that it would not send markers of its own, so
+	/// this end is still marking prompts and "EOR is on in some direction" is the honest answer. The
+	/// prompt terminator asserted alongside is what makes that concrete.
+	/// </remarks>
+	[Test]
+	public async Task TheAggregateDivergesFromTheOldSharedFlagOnAMixedSequence()
+	{
+		var h = await NegotiateAsync(TelnetInterpreter.TelnetMode.Server, (byte)Trigger.DO, (byte)Trigger.WONT);
+		await using var _ = h.Interpreter;
+
+		await Assert.That(h.Eor.IsEOREnabled).IsTrue()
+			.Because("the old shared flag returned false here, because WONT overwrote DO");
+
+		await Assert.That(h.Eor.MarksOutboundRecords).IsTrue();
+		await Assert.That(h.Eor.PeerMarksRecords).IsFalse();
+
+		await Assert.That(Hex(await PromptTerminatorOf(h))).IsEqualTo(Hex([IAC, EOR_MARKER]))
+			.Because("and the prompt really is still marked, so true is the correct answer");
+	}
+
+	/// <summary>And the mirror, for the same reason.</summary>
+	[Test]
+	public async Task TheAggregateAlsoDivergesOnAWillThenDont()
+	{
+		var h = await NegotiateAsync(TelnetInterpreter.TelnetMode.Client, (byte)Trigger.WILL, (byte)Trigger.DONT);
+		await using var _ = h.Interpreter;
+
+		await Assert.That(h.Eor.IsEOREnabled).IsTrue();
+		await Assert.That(h.Eor.PeerMarksRecords).IsTrue();
+		await Assert.That(h.Eor.MarksOutboundRecords).IsFalse();
 	}
 
 	/// <summary>Neither verb: nothing is on, and a prompt falls back to Go-Ahead.</summary>

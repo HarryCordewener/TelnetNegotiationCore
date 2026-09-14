@@ -96,9 +96,13 @@ All notable changes to this project will be documented in this file.
     `SuppressGoAheadProtocol`'s `IsGoAheadSuppressed` / `SuppressesOutboundGoAhead`, which splits the
     same way per RFC 858 §5. `PromptTerminator` reads the outbound one; the inbound bare-`IAC EOR`
     handler reads the peer's.
-  - **`IsEOREnabled` is unchanged for consumers.** It now reports whether *either* direction is on,
-    which is bit-for-bit what the single flag behind it always returned, so nothing reading it sees a
-    different value. Prefer one of the two new properties where the direction matters.
+  - **`IsEOREnabled` keeps its meaning — "EOR is on in some direction" — but is not bit-for-bit what
+    the old flag returned.** For a single verb it matches: `DO` or `WILL` gives true, `DONT` or
+    `WONT` gives false. It diverges on a mixed sequence, and does so deliberately. `DO` then `WONT`
+    returned false before, because the second verb overwrote the first on a shared flag; it now
+    returns true, because this end genuinely is still marking its prompts at the peer's request.
+    That is the defect being fixed, visible through the aggregate: the old value was wrong, not
+    merely different. Prefer one of the two new properties wherever the direction matters.
   - `IsNegotiated` reports the aggregate rather than whichever direction resolved last. It is
     transition-only, so handing it one direction's own outcome let the second to resolve stomp the
     first; `MCCPProtocol` already does this for the same reason.

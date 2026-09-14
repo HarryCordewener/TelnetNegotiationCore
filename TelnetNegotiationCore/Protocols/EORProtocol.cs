@@ -265,8 +265,10 @@ public class EORProtocol : TelnetProtocolPluginBase
     /// RFC 885: "When the END-OF-RECORD option is not in effect, the IAC EOR command should be
     /// treated as a NOP if received, although IAC EOR should not normally be sent in this mode."
     /// <para>
-    /// The condition is <see cref="IsEOREnabled"/> — the negotiated state — and not
-    /// <see cref="TelnetProtocolPluginBase.IsEnabled"/>, which is the guard
+    /// The condition is <see cref="PeerMarksRecords"/> — the peer's own direction, since this is
+    /// the peer's marker arriving — and not <see cref="IsEOREnabled"/>, which is the aggregate and
+    /// would treat an inbound marker as a prompt on the strength of an agreement about the
+    /// <em>outbound</em> direction. Nor <see cref="TelnetProtocolPluginBase.IsEnabled"/>, the guard
     /// <see cref="OnPromptAsync"/> applies and which is about plugin lifetime: it is true from
     /// initialisation onwards for every registered plugin, so it let an unnegotiated EOR through as
     /// a prompt on every connection that merely had this plugin added.

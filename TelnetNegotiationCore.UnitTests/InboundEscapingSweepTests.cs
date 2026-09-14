@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Machine;
 using TUnit.Assertions;
+using TUnit.Assertions.Enums;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
@@ -313,7 +314,7 @@ public class InboundEscapingSweepTests
 	{
 		var r = await Run(Frame(33, IAC, IAC));
 
-		await Assert.That(r.FlowControlCommands).IsEquivalentTo(new List<byte> { 255 })
+		await Assert.That(r.FlowControlCommands).IsEquivalentTo(new List<byte> { 255 }, CollectionOrdering.Matching)
 			.Because("RFC 1372 defines no command 255, but dropping it and ending early are separate wrongs");
 	}
 
@@ -322,7 +323,7 @@ public class InboundEscapingSweepTests
 	{
 		var r = await Run(Frame(33, 1));
 
-		await Assert.That(r.FlowControlCommands).IsEquivalentTo(new List<byte> { 1 });
+		await Assert.That(r.FlowControlCommands).IsEquivalentTo(new List<byte> { 1 }, CollectionOrdering.Matching);
 	}
 
 	// =============================================================================================

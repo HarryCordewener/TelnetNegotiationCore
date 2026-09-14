@@ -2,6 +2,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Machine;
 using TUnit.Assertions;
+using TUnit.Assertions.Enums;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
@@ -215,7 +216,8 @@ public class EnvironEscapeTests
 			.SelectMany(e => e.Data)
 			.ToArray();
 
-		await Assert.That(payload).IsEquivalentTo(new byte[] { (byte)'A', 255, (byte)'B' })
+		await Assert.That(payload)
+			.IsEquivalentTo(new byte[] { (byte)'A', 255, (byte)'B' }, CollectionOrdering.Matching)
 			.Because("spending the escape must not also spend the byte that spent it");
 	}
 

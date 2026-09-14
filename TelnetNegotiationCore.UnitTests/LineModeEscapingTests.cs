@@ -9,6 +9,7 @@ using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
 using TelnetNegotiationCore.Protocols;
 using TUnit.Assertions;
+using TUnit.Assertions.Enums;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
@@ -89,7 +90,7 @@ public class LineModeEscapingTests : BaseTest
 
 		// IAC SB LINEMODE MODE IAC IAC IAC SE -- the payload 255 doubled, then the real terminator.
 		await Assert.That(ack!).IsEquivalentTo(
-			new byte[] { IAC, SB, LINEMODE, SUBNEG_MODE, IAC, IAC, IAC, SE });
+			new byte[] { IAC, SB, LINEMODE, SUBNEG_MODE, IAC, IAC, IAC, SE }, CollectionOrdering.Matching);
 	}
 
 	/// <summary>
@@ -157,6 +158,6 @@ public class LineModeEscapingTests : BaseTest
 
 		await Assert.That(frame).IsNotNull().Because($"Sent: {Render(frames)}");
 		await Assert.That(frame!).IsEquivalentTo(
-			new byte[] { IAC, SB, LINEMODE, SUBNEG_MODE, IAC, IAC, IAC, SE });
+			new byte[] { IAC, SB, LINEMODE, SUBNEG_MODE, IAC, IAC, IAC, SE }, CollectionOrdering.Matching);
 	}
 }
