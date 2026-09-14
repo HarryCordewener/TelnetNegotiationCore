@@ -163,6 +163,9 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// </summary>
     private const short InferredPromptSentinel = -1;
 
+    /// <summary>Maximum raw bytes drained from the channel as one bounded machine batch.</summary>
+    internal const int MachineBatchSize = 4 * 1024;
+
     /// <summary>
     /// Channel for byte processing pipeline with backpressure. Element type is <c>short</c>, not
     /// <c>byte</c>, so the negative range can carry <see cref="InferredPromptSentinel"/>.
@@ -799,6 +802,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 // handler that threw. An item left uncounted would strand WaitForProcessingAsync on a
                 // target it can never reach, turning one failed callback into a timeout on every
                 // barrier for the rest of the connection.
+                var handledItems = 1;
                 try
                 {
                     if (raw == InferredPromptSentinel)
@@ -840,9 +844,27 @@ public partial class TelnetInterpreter : IAsyncDisposable
                     var transform = _inboundTransform;
                     if (transform is null)
                     {
-                        byteCount++;
-                        await FireGeneratedByteAsync(bt);
-                        await NotifyByteProcessedAsync();
+                        var rented = ArrayPool<byte>.Shared.Rent(MachineBatchSize);
+                        try
+                        {
+                            rented[0] = bt;
+                            var count = 1;
+                            while (count < MachineBatchSize
+                                   && _byteChannel.Reader.TryPeek(out var next)
+                                   && next != InferredPromptSentinel
+                                   && _byteChannel.Reader.TryRead(out next))
+                            {
+                                rented[count++] = (byte)next;
+                                handledItems++;
+                            }
+
+                            byteCount += await ProcessRawBatchAsync(rented.AsMemory(0, count));
+                        }
+                        finally
+                        {
+                            ArrayPool<byte>.Shared.Return(rented);
+                        }
+
                         continue;
                     }
 
@@ -869,7 +891,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
                         for (var i = 0; i < decoded.Length; i++)
                         {
                             byteCount++;
-                            await FireGeneratedByteAsync(decoded.Span[i]);
+                            await FireGeneratedBytesAsync(decoded.Slice(i, 1));
 
                             // Once per decoded byte, not once per wire byte, so a large decoded batch
                             // keeps disarming throughout rather than only at its end. A premature idle
@@ -880,7 +902,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 }
                 finally
                 {
-                    Interlocked.Increment(ref _itemsHandled);
+                    Interlocked.Add(ref _itemsHandled, handledItems);
                 }
             }
             _logger.LogDebug("Byte processing completed. Total bytes processed: {ByteCount}", byteCount);
@@ -894,6 +916,58 @@ public partial class TelnetInterpreter : IAsyncDisposable
         {
             _logger.LogError(ex, "Error in byte processing pipeline at byte position");
         }
+    }
+
+    /// <summary>Processes a bounded batch, switching to a newly installed decoder at the exact machine boundary.</summary>
+    private async ValueTask<int> ProcessRawBatchAsync(ReadOnlyMemory<byte> raw)
+    {
+        // A machine run can suspend in its completed action. Disarm any timer left from the preceding
+        // idle period before entering that action, just as the former byte-at-a-time loop did after
+        // the first byte of a queued burst.
+        if (raw.Length > 1 || _byteChannel.Reader.Count > 0)
+        {
+            await NotifyByteProcessedAsync(idle: false);
+        }
+
+        var telnetBytes = 0;
+        var offset = 0;
+        while (offset < raw.Length)
+        {
+            var transform = _inboundTransform;
+            if (transform is null)
+            {
+                var consumed = await _generatedMachine!.FireUntilBoundaryAsync(raw.Slice(offset));
+                if (consumed <= 0)
+                {
+                    throw new InvalidOperationException("The generated machine returned a batch boundary without consuming input.");
+                }
+
+                offset += consumed;
+                telnetBytes += consumed;
+                for (var i = 0; i < consumed; i++)
+                {
+                    await NotifyByteProcessedAsync();
+                }
+
+                continue;
+            }
+
+            var decoded = await transform.DecodeAsync(raw.Span[offset++]);
+            if (decoded.Length == 0)
+            {
+                await NotifyByteProcessedAsync();
+                continue;
+            }
+
+            telnetBytes += decoded.Length;
+            await FireGeneratedBytesAsync(decoded);
+            for (var i = 0; i < decoded.Length; i++)
+            {
+                await NotifyByteProcessedAsync();
+            }
+        }
+
+        return telnetBytes;
     }
 
 
@@ -913,11 +987,14 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// </para>
     /// </remarks>
     private async ValueTask NotifyByteProcessedAsync()
+        => await NotifyByteProcessedAsync(_byteChannel.Reader.Count == 0);
+
+    private async ValueTask NotifyByteProcessedAsync(bool idle)
     {
         var handler = _onByteProcessed;
         if (handler is not null)
         {
-            await handler(_byteChannel.Reader.Count == 0);
+            await handler(idle);
         }
     }
 

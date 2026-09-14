@@ -9,26 +9,15 @@ namespace TelnetNegotiationCore.Interpreters;
 
 /// <summary>
 /// The StateAlchemist-generated machine that now drives every protocol's negotiation and subnegotiation.
-/// Every interpreter built through <see cref="Builders.TelnetInterpreterBuilder"/> uses it, because that
-/// builder always sets <see cref="UseGeneratedMachine"/> true regardless of the bare property's own
-/// <see langword="false"/> default; the Stateless machine and the flag itself are a migration-era seam
-/// kept only until the last of it is deleted.
+/// Every interpreter built through <see cref="Builders.TelnetInterpreterBuilder"/> uses it.
 /// </summary>
 /// <remarks>
-/// <c>ConfigureStateMachine</c> still runs for every plugin either way -- it is also where a plugin
+/// <c>ConfigureStateMachine</c> still runs for every plugin because it is also where a plugin
 /// registers its initial negotiation offer, which has nothing to do with which machine reads bytes off
-/// the wire. Only <see cref="FireGeneratedByteAsync"/> decides that.
+/// the wire.
 /// </remarks>
 public partial class TelnetInterpreter
 {
-    /// <summary>
-    /// Drive the generated machine instead of leaving it unused. Defaults to <see langword="false"/> on
-    /// this bare property; <see cref="Builders.TelnetInterpreterBuilder"/> always sets it
-    /// <see langword="true"/>, which is why every interpreter built the normal way uses the generated
-    /// machine regardless of this default.
-    /// </summary>
-    internal bool UseGeneratedMachine { get; init; }
-
     private TelnetCoreMachine? _generatedMachine;
 
     /// <summary>Option bytes whose negotiation acceptance is wired to their real protocol logic so far.</summary>
@@ -59,35 +48,58 @@ public partial class TelnetInterpreter
     /// <summary>Builds and starts the generated machine. Called once, after plugins have configured themselves.</summary>
     internal async ValueTask StartGeneratedMachineAsync()
     {
-        _generatedMachine = new TelnetCoreMachine(new GeneratedContext(this));
+        _generatedMachine = new TelnetCoreMachine(new GeneratedContext(this), new TelnetMachineConfig(CarriageReturnMode))
+        {
+            TransitionFailed = LogTransitionFailure,
+            ValueUnhandled = (state, value) => _logger.LogCritical(
+                "Generated machine did not handle byte {Value} while {State} was active.", value, state.Name),
+        };
         await _generatedMachine.StartAsync();
+        await _generatedMachine.FireAsync(new InitializeConnection());
     }
 
-    /// <summary>Fires one byte into the generated machine. Errors are handled the same way <see cref="FireByteAsync"/> handles Stateless's.</summary>
-    private async ValueTask FireGeneratedByteAsync(byte bt)
+    private void LogTransitionFailure(Exception exception, StateAlchemist.TransitionInfo<byte> transition) =>
+        _logger.LogError(
+            exception,
+            "Generated machine {Phase} failure in {Transition} from {Source} to {Target} while {Leaf} was active. Connection continues.",
+            transition.Phase,
+            transition.Transition,
+            transition.Source.Name,
+            transition.Target.Name,
+            transition.Leaf.Name);
+
+    /// <summary>Fires telnet bytes through cooperative protocol boundaries.</summary>
+    private async ValueTask FireGeneratedBytesAsync(ReadOnlyMemory<byte> bytes)
     {
         try
         {
-            await _generatedMachine!.FireAsync(bt);
+            var offset = 0;
+            while (offset < bytes.Length)
+            {
+                var consumed = await _generatedMachine!.FireUntilBoundaryAsync(bytes.Slice(offset));
+                if (consumed <= 0)
+                {
+                    throw new InvalidOperationException("The generated machine returned a batch boundary without consuming input.");
+                }
+
+                offset += consumed;
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "Dropping a byte that could not be processed by the generated machine. Connection continues.");
+            _logger.LogError(ex, "Dropping telnet input that could not be processed by the generated machine. Connection continues.");
         }
     }
 
     /// <summary>
     /// Bridges the generated machine to this interpreter's own buffer, callbacks and plugins — the same
-    /// things <see cref="Plugins.ProtocolContext"/> bridges Stateless's handlers to, reused rather than
+    /// things <see cref="Plugins.ProtocolContext"/> bridges protocol handlers to, reused rather than
     /// duplicated. Nested so it can reach this interpreter's private members the way any other part of it
     /// can, the same reason <c>TelnetSafeInterpreter.cs</c> and its neighbours are partial classes of it
     /// rather than separate collaborators.
     /// </summary>
     private sealed class GeneratedContext(TelnetInterpreter owner) : TelnetCoreContext
     {
-        /// <inheritdoc />
-        public override Models.CarriageReturnMode CarriageReturnMode => owner.CarriageReturnMode;
-
         public override void Write(ReadOnlySpan<byte> text)
         {
             foreach (var b in text)
@@ -582,34 +594,49 @@ public partial class TelnetInterpreter
 
             return default;
         }
-        public override ValueTask Mccp2MarkerAsync()
+        public override async ValueTask Mccp2MarkerAsync()
         {
             if (TryGetEnabledPlugin<Protocols.MCCPProtocol>(out var mccp))
             {
-                return mccp.OnMccp2MarkerAsync(Context());
+                try
+                {
+                    await mccp.OnMccp2MarkerAsync(Context());
+                }
+                finally
+                {
+                    owner._generatedMachine!.RequestBatchBoundary();
+                }
             }
-
-            return default;
         }
 
-        public override ValueTask Mccp3MarkerAsync()
+        public override async ValueTask Mccp3MarkerAsync()
         {
             if (TryGetEnabledPlugin<Protocols.MCCPProtocol>(out var mccp))
             {
-                return mccp.OnMccp3MarkerAsync(Context());
+                try
+                {
+                    await mccp.OnMccp3MarkerAsync(Context());
+                }
+                finally
+                {
+                    owner._generatedMachine!.RequestBatchBoundary();
+                }
             }
-
-            return default;
         }
 
-        public override ValueTask Mccp1MarkerAsync()
+        public override async ValueTask Mccp1MarkerAsync()
         {
             if (TryGetEnabledPlugin<Protocols.MCCPProtocol>(out var mccp))
             {
-                return mccp.OnMccp1MarkerAsync(Context());
+                try
+                {
+                    await mccp.OnMccp1MarkerAsync(Context());
+                }
+                finally
+                {
+                    owner._generatedMachine!.RequestBatchBoundary();
+                }
             }
-
-            return default;
         }
         public override ValueTask EnvironStartedAsync(byte command)
         {

@@ -117,7 +117,7 @@ public class MsdpWireEscapingTests : BaseTest
 		var frame = await FrameFor(t => t.SendMSDPPayloadAsync(payload));
 
 		var recorder = new RecordingTelnetContext();
-		await using var machine = new TelnetCoreMachine(recorder);
+		await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 		await machine.StartAsync();
 		await machine.FireAsync(frame);
 

@@ -22,7 +22,6 @@ public class GeneratedMachineSuppressGaAndEorTests : BaseTest
         ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -44,7 +43,6 @@ public class GeneratedMachineSuppressGaAndEorTests : BaseTest
         ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -65,7 +63,6 @@ public class GeneratedMachineSuppressGaAndEorTests : BaseTest
         ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -87,7 +84,6 @@ public class GeneratedMachineSuppressGaAndEorTests : BaseTest
         ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -108,7 +104,6 @@ public class GeneratedMachineSuppressGaAndEorTests : BaseTest
     {
         var promptReceived = false;
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -129,7 +124,6 @@ public class GeneratedMachineSuppressGaAndEorTests : BaseTest
     {
         var promptReceived = false;
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)

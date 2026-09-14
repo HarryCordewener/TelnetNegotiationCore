@@ -24,7 +24,6 @@ public class GeneratedMachineMxpTests : BaseTest
         ValueTask CaptureNegotiation(System.ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -55,7 +54,6 @@ public class GeneratedMachineMxpTests : BaseTest
         ValueTask CaptureNegotiation(System.ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -89,7 +87,6 @@ public class GeneratedMachineMxpTests : BaseTest
         }
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -129,7 +126,6 @@ public class GeneratedMachineMxpTests : BaseTest
         var callbackCount = 0;
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -152,7 +148,6 @@ public class GeneratedMachineMxpTests : BaseTest
     public async Task ServerDisabledOnClientDont()
     {
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -172,7 +167,6 @@ public class GeneratedMachineMxpTests : BaseTest
     public async Task ClientDisabledOnServerWont()
     {
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)

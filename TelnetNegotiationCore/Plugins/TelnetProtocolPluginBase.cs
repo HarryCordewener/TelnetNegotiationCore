@@ -46,7 +46,7 @@ public abstract class TelnetProtocolPluginBase : ITelnetProtocolPlugin, IAsyncDi
     /// does not depend on which machine drives byte processing -- most commonly a server's initial
     /// negotiation offer via <see cref="IProtocolContext.RegisterInitialNegotiation"/>. No longer
     /// part of <see cref="ITelnetProtocolPlugin"/>: a leftover from when this method also wired a
-    /// protocol's Stateless state machine, empty by default for a plugin with nothing to register here.
+    /// protocol's initial negotiation setup, empty by default for a plugin with nothing to register here.
     /// </summary>
     public virtual void ConfigureStateMachine(IProtocolContext context)
     {

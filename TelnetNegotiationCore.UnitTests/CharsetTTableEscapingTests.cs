@@ -103,7 +103,7 @@ public class CharsetTTableEscapingTests : BaseTest
 
 		// Feed exactly those bytes into the machine and collect what the table handler receives.
 		var recorder = new RecordingTelnetContext();
-		await using var machine = new TelnetCoreMachine(recorder);
+		await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 		await machine.StartAsync();
 		await machine.FireAsync(frame);
 

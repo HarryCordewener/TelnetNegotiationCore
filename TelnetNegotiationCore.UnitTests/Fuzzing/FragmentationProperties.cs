@@ -40,7 +40,7 @@ public class FragmentationProperties
 	private static async Task<string> Whole(byte[] bytes)
 	{
 		var recorder = new RecordingTelnetContext();
-		await using var machine = new TelnetCoreMachine(recorder);
+		await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 		await machine.StartAsync();
 		await machine.FireAsync(bytes);
 		return recorder.Snapshot();
@@ -49,7 +49,7 @@ public class FragmentationProperties
 	private static async Task<string> InChunks(byte[] bytes, IReadOnlyList<int> boundaries)
 	{
 		var recorder = new RecordingTelnetContext();
-		await using var machine = new TelnetCoreMachine(recorder);
+		await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 		await machine.StartAsync();
 
 		var start = 0;
@@ -136,7 +136,7 @@ public class FragmentationProperties
 			var whole = await Whole(bytes);
 
 			var recorder = new RecordingTelnetContext();
-			await using var machine = new TelnetCoreMachine(recorder);
+			await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 			await machine.StartAsync();
 
 			byte[] nothing = [];

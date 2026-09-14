@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- The StateAlchemist-generated parser is now the only interpreter path. It consumes bounded 4 KiB channel
+  batches, returns at MCCP activation boundaries before compressed suffix bytes are decoded, and retains
+  byte-at-a-time inflater input. Parsing uses immutable configuration with strict-purity enforcement; transition
+  failures carry phase and state details; `Connected` owns NAWS dimensions; and checked-in Mermaid and Graphviz
+  diagrams are verified against the generated definition.
+
 - **A peer may no longer authenticate or encrypt with a mechanism it was never offered.** When
   `WithAuthenticationTypes` or `WithEncryptionTypes` is configured, the plugin remembers what it put
   in its `SEND` / `SUPPORT`, and an `IS` naming anything else is logged at `Warning` and dropped

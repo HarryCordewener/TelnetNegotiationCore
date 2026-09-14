@@ -22,7 +22,7 @@ public class RecorderSnapshotTests
     private static async Task<RecordingTelnetContext> Run(params byte[] bytes)
     {
         var recorder = new RecordingTelnetContext();
-        await using var machine = new TelnetCoreMachine(recorder);
+        await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
         await machine.StartAsync();
         await machine.FireAsync(bytes);
         return recorder;
@@ -74,14 +74,14 @@ public class RecorderSnapshotTests
     public async Task SnapshotIsBlindToHowWriteCallsWereBatched()
     {
         var whole = new RecordingTelnetContext();
-        await using (var machine = new TelnetCoreMachine(whole))
+        await using (var machine = new TelnetCoreMachine(whole, TelnetMachineConfig.Default))
         {
             await machine.StartAsync();
             await machine.FireAsync(Encoding.ASCII.GetBytes("hello\r\n"));
         }
 
         var split = new RecordingTelnetContext();
-        await using (var machine = new TelnetCoreMachine(split))
+        await using (var machine = new TelnetCoreMachine(split, TelnetMachineConfig.Default))
         {
             await machine.StartAsync();
             foreach (var b in Encoding.ASCII.GetBytes("hello\r\n"))

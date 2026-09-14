@@ -19,7 +19,6 @@ namespace TelnetNegotiationCore.Builders;
 public class TelnetInterpreterBuilder
 {
     private TelnetInterpreter.TelnetMode _mode = TelnetInterpreter.TelnetMode.Error;
-    private bool _useGeneratedMachine = true;
     private ILogger? _logger;
     private Func<byte[], System.Text.Encoding, TelnetInterpreter, ValueTask>? _onSubmit;
     private Func<ReadOnlyMemory<byte>, ValueTask>? _onNegotiation;
@@ -41,19 +40,6 @@ public class TelnetInterpreterBuilder
     /// </summary>
     /// <param name="mode">The telnet mode</param>
     /// <returns>This builder for chaining</returns>
-    /// <summary>
-    /// Drives the connection with the generated machine instead of Stateless. All 18 protocols this
-    /// library negotiates now have their acceptance and subnegotiation wired to real behaviour on this
-    /// path, and it is the default (see <see cref="_useGeneratedMachine"/>'s initializer) -- this method
-    /// is now a no-op kept for the call sites that still say so explicitly, and for the day Stateless's
-    /// own configuration is deleted and this flag along with it.
-    /// </summary>
-    internal TelnetInterpreterBuilder UseGeneratedMachine()
-    {
-        _useGeneratedMachine = true;
-        return this;
-    }
-
     public TelnetInterpreterBuilder UseMode(TelnetInterpreter.TelnetMode mode)
     {
         _mode = mode;
@@ -482,8 +468,7 @@ public class TelnetInterpreterBuilder
             KeepAliveInterval = _keepAliveInterval,
             KeepAliveAsync = _keepAliveAsync,
             MaxBufferSize = _maxBufferSize ?? TelnetInterpreter.DefaultMaxBufferSize,
-            CarriageReturnMode = _carriageReturnMode ?? TelnetInterpreter.DefaultCarriageReturnMode,
-            UseGeneratedMachine = _useGeneratedMachine
+            CarriageReturnMode = _carriageReturnMode ?? TelnetInterpreter.DefaultCarriageReturnMode
         };
 
         // Create protocol context. The generated machine reuses this exact instance (see
@@ -507,10 +492,7 @@ public class TelnetInterpreterBuilder
         // Initialize plugins in dependency order
         await _pluginManager.InitializePluginsAsync(context);
 
-        if (_useGeneratedMachine)
-        {
-            await interpreter.StartGeneratedMachineAsync();
-        }
+        await interpreter.StartGeneratedMachineAsync();
 
         // Build the interpreter (call existing BuildAsync if needed)
         await interpreter.BuildAsync();

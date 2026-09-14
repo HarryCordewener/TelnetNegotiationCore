@@ -20,6 +20,13 @@ public struct Connected : IRootState
 
     /// <summary>The client's last reported window height.</summary>
     public int Height;
+
+    /// <summary>Restores RFC 1073's conventional dimensions for a peer that has not reported NAWS.</summary>
+    public void Reset()
+    {
+        Width = 78;
+        Height = 24;
+    }
 }
 
 /// <summary>

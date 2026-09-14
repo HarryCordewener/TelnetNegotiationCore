@@ -32,7 +32,6 @@ public class GeneratedMachineNawsTests : BaseTest
         ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
         var server = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(WriteBackToOutput)
@@ -72,7 +71,6 @@ public class GeneratedMachineNawsTests : BaseTest
         ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
         var client = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(WriteBackToOutput)
@@ -104,7 +102,6 @@ public class GeneratedMachineNawsTests : BaseTest
         ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
         var server = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(WriteBackToOutput)
@@ -129,7 +126,6 @@ public class GeneratedMachineNawsTests : BaseTest
         ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
         var server = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(WriteBackToOutput)
@@ -155,7 +151,6 @@ public class GeneratedMachineNawsTests : BaseTest
         ValueTask OnSubmit(byte[] a, Encoding e, TelnetInterpreter t) { submitted = a; return ValueTask.CompletedTask; }
 
         var server = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(OnSubmit)
@@ -181,7 +176,6 @@ public class GeneratedMachineNawsTests : BaseTest
         ValueTask WriteBackToOutput(byte[] arg1, Encoding arg2, TelnetInterpreter t) => ValueTask.CompletedTask;
 
         var client = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(WriteBackToOutput)

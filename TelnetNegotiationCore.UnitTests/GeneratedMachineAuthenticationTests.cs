@@ -19,7 +19,6 @@ public class GeneratedMachineAuthenticationTests : BaseTest
         ValueTask CaptureNegotiation(System.ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -46,7 +45,6 @@ public class GeneratedMachineAuthenticationTests : BaseTest
         ValueTask CaptureNegotiation(System.ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -83,7 +81,6 @@ public class GeneratedMachineAuthenticationTests : BaseTest
         byte[] negotiationOutput = null;
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -126,7 +123,6 @@ public class GeneratedMachineAuthenticationTests : BaseTest
         byte[] receivedAuthData = null;
 
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -153,7 +149,6 @@ public class GeneratedMachineAuthenticationTests : BaseTest
     public async Task ServerRejectsClientWontAuthentication()
     {
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -169,7 +164,6 @@ public class GeneratedMachineAuthenticationTests : BaseTest
     public async Task ClientRejectsServerDontAuthentication()
     {
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)

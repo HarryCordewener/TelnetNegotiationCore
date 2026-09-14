@@ -20,7 +20,6 @@ public class GeneratedMachineEchoAndPacketPatchTests : BaseTest
         ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -42,7 +41,6 @@ public class GeneratedMachineEchoAndPacketPatchTests : BaseTest
         ValueTask CaptureNegotiation(ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -67,7 +65,6 @@ public class GeneratedMachineEchoAndPacketPatchTests : BaseTest
         var prompts = 0;
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit((data, _, _) => { lines.Add(Encoding.ASCII.GetString(data)); return ValueTask.CompletedTask; })

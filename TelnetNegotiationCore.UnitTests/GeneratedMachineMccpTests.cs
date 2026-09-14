@@ -20,7 +20,6 @@ public class GeneratedMachineMccpTests : BaseTest
         byte[] negotiationOutput = null;
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -47,7 +46,6 @@ public class GeneratedMachineMccpTests : BaseTest
         ValueTask CaptureNegotiation(System.ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -73,7 +71,6 @@ public class GeneratedMachineMccpTests : BaseTest
         ValueTask OnCompressionEnabled(int version, bool enabled) { compressionVersion = version; compressionEnabled = enabled; return ValueTask.CompletedTask; }
 
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -106,7 +103,6 @@ public class GeneratedMachineMccpTests : BaseTest
         byte[] negotiationOutput = null;
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -131,7 +127,6 @@ public class GeneratedMachineMccpTests : BaseTest
     public async Task ServerInflatesOnMccp3MarkerAfterDo()
     {
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -156,7 +151,6 @@ public class GeneratedMachineMccpTests : BaseTest
     public async Task ServerHandlesDontMccp3AfterDo()
     {
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -179,7 +173,6 @@ public class GeneratedMachineMccpTests : BaseTest
     {
         var compressionVersion = 0;
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -206,7 +199,6 @@ public class GeneratedMachineMccpTests : BaseTest
     public async Task ServerIgnoresMccp1Marker()
     {
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)

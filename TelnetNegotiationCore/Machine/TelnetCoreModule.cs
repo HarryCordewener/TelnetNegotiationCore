@@ -31,17 +31,9 @@ public abstract partial class TelnetCoreContext
     /// <summary>A bare IAC EOR arrived. RFC 885: a NOP unless END-OF-RECORD is in effect, which is a protocol's business.</summary>
     public abstract ValueTask EorAsync();
 
-    /// <summary>
-    /// What to do with a carriage return that is not part of a <c>CR LF</c> pair.
-    /// </summary>
-    /// <remarks>
-    /// Virtual rather than abstract so that an existing implementation of this context keeps
-    /// compiling and keeps the behaviour it had. <see cref="CarriageReturnMode.Drop"/> is what this
-    /// machine has always done.
-    /// </remarks>
-    public virtual CarriageReturnMode CarriageReturnMode => CarriageReturnMode.Drop;
-
 }
+
+public readonly struct InitializeConnection : IEvent;
 
 /// <summary>
 /// Telnet framing: text, IAC, the four negotiation verbs and subnegotiation. Every transition a protocol does not
@@ -62,19 +54,30 @@ public static class TelnetCoreModule
     private const byte Newline = 10;
     private const byte CarriageReturn = 13;
 
+    [Transition(From = typeof(Connected)), OnEvent(typeof(InitializeConnection))]
+    public static void Initialize(ref Connected connection) => connection.Reset();
+
     /// <summary>
     /// The first byte of a line, wherever text can start. A run has to be a stay — the bytes after the first are
     /// only the same trigger if the state has not changed — so starting the line is its own transition.
     /// </summary>
     [Transition(From = typeof(Accepting), To = typeof(ReadingCharacters)), OnAny]
-    public static void BeginLine(TelnetCoreContext context, byte value) => context.Write(Single(value));
+    public static class BeginLine
+    {
+        public static void Transform(byte value) { }
+        public static void Completed(TelnetCoreContext context, byte value) => context.Write(Single(value));
+    }
 
     /// <summary>
     /// The rest of it, a stretch at a time. The stop set is worked out from the other transitions out of this
     /// state, so it cannot drift from them the way the hand-written fast path could.
     /// </summary>
     [Transition(From = typeof(ReadingCharacters)), OnAny, Run]
-    public static void MoreText(ref ReadingCharacters self, ReadOnlySpan<byte> run, TelnetCoreContext context) => context.Write(run);
+    public static class MoreText
+    {
+        public static void Transform(ref ReadingCharacters self, ReadOnlySpan<byte> run) { }
+        public static void Completed(TelnetCoreContext context, ReadOnlyMemory<byte> run) => context.Write(run.Span);
+    }
 
     private const byte Nul = 0;
 
@@ -119,7 +122,7 @@ public static class TelnetCoreModule
         {
         }
 
-        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.CarriageReturnMode switch
+        public static ValueTask CompletedAsync(TelnetCoreContext context, in TelnetMachineConfig config) => config.CarriageReturnMode switch
         {
             // RFC 1123 §3.3.1: the same effect as CR LF on a server reading user input.
             CarriageReturnMode.EndOfLine => context.SubmitAsync(),
@@ -138,11 +141,16 @@ public static class TelnetCoreModule
     /// in its turn, which is why this is a stay.
     /// </summary>
     [Transition(From = typeof(AfterCarriageReturn)), On(CarriageReturn)]
-    public static void RepeatedReturn(TelnetCoreContext context)
+    public static class RepeatedReturn
     {
-        if (context.CarriageReturnMode == CarriageReturnMode.Preserve)
+        public static void Transform() { }
+
+        public static void Completed(TelnetCoreContext context, in TelnetMachineConfig config)
         {
-            context.Write(Single(CarriageReturn));
+            if (config.CarriageReturnMode == CarriageReturnMode.Preserve)
+            {
+                context.Write(Single(CarriageReturn));
+            }
         }
     }
 
@@ -151,11 +159,16 @@ public static class TelnetCoreModule
     /// <see cref="CarriageReturnMode.Preserve"/> it is data and is written before the command begins.
     /// </summary>
     [Transition(From = typeof(AfterCarriageReturn), To = typeof(StartNegotiation)), On(IAC)]
-    public static void ReturnThenCommand(TelnetCoreContext context)
+    public static class ReturnThenCommand
     {
-        if (context.CarriageReturnMode == CarriageReturnMode.Preserve)
+        public static void Transform() { }
+
+        public static void Completed(TelnetCoreContext context, in TelnetMachineConfig config)
         {
-            context.Write(Single(CarriageReturn));
+            if (config.CarriageReturnMode == CarriageReturnMode.Preserve)
+            {
+                context.Write(Single(CarriageReturn));
+            }
         }
     }
 
@@ -170,14 +183,19 @@ public static class TelnetCoreModule
     /// batch would make the same bytes parse differently depending on where the peer stopped sending.
     /// </remarks>
     [Transition(From = typeof(AfterCarriageReturn), To = typeof(ReadingCharacters)), OnAny]
-    public static void ReturnThenText(TelnetCoreContext context, byte value)
+    public static class ReturnThenText
     {
-        if (context.CarriageReturnMode == CarriageReturnMode.Preserve)
-        {
-            context.Write(Single(CarriageReturn));
-        }
+        public static void Transform(byte value) { }
 
-        context.Write(Single(value));
+        public static void Completed(TelnetCoreContext context, in TelnetMachineConfig config, byte value)
+        {
+            if (config.CarriageReturnMode == CarriageReturnMode.Preserve)
+            {
+                context.Write(Single(CarriageReturn));
+            }
+
+            context.Write(Single(value));
+        }
     }
 
     /// <summary>The line ends. Back to waiting for the next one.</summary>
@@ -216,7 +234,11 @@ public static class TelnetCoreModule
 
     /// <summary>IAC IAC is a literal 255 in the text.</summary>
     [Transition(From = typeof(StartNegotiation), To = typeof(ReadingCharacters)), On(IAC)]
-    public static void EscapedIac(TelnetCoreContext context) => context.Write(Single(IAC));
+    public static class EscapedIac
+    {
+        public static void Transform() { }
+        public static void Completed(TelnetCoreContext context) => context.Write(Single(IAC));
+    }
 
     [Transition(From = typeof(StartNegotiation), To = typeof(Willing)), On(WILL)]
     public static void Will()
@@ -410,6 +432,6 @@ public static class TelnetCoreModule
 }
 
 /// <summary>The core machine, with no protocols in it: what TNC's own interpreter drives.</summary>
-[Machine(Root = typeof(Connected), Value = typeof(byte), Context = typeof(TelnetCoreContext))]
+[Machine(Root = typeof(Connected), Value = typeof(byte), Context = typeof(TelnetCoreContext), Config = typeof(TelnetMachineConfig), Purity = Purity.Strict)]
 [Include(typeof(TelnetCoreModule)), Include(typeof(NawsModule)), Include(typeof(FlowControlModule)), Include(typeof(TerminalSpeedModule)), Include(typeof(XDisplayModule)), Include(typeof(GmcpModule)), Include(typeof(MsdpModule)), Include(typeof(MsspModule)), Include(typeof(TerminalTypeModule)), Include(typeof(CharsetModule)), Include(typeof(NewEnvironModule)), Include(typeof(EnvironModule)), Include(typeof(MxpModule)), Include(typeof(MccpMarkerModule)), Include(typeof(LineModeModule)), Include(typeof(AuthenticationModule)), Include(typeof(EncryptionModule))]
 public sealed partial class TelnetCoreMachine;
