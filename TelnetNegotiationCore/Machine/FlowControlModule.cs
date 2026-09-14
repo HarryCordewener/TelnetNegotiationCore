@@ -45,8 +45,31 @@ public static class FlowControlModule
         self.Received = true;
     }
 
+    /// <summary>
+    /// An <c>IAC</c>: either the terminator is starting, or this is the second of a doubled pair and
+    /// so a literal 255 command byte.
+    /// </summary>
+    /// <remarks>
+    /// FLOWCONTROL was the one payload-carrying option that did not implement RFC 855's un-doubling
+    /// at all. Its <c>Capture</c> takes a single byte rather than a run, and this was a latch rather
+    /// than a toggle, so a doubled IAC both terminated the frame early and never reached
+    /// <see cref="FlowControl.Command"/>. RFC 1372 defines only commands 0 through 3, so a 255 here
+    /// is not a command this library acts on -- but dropping it silently and ending the
+    /// subnegotiation one byte early are separate wrongs from it being meaningless.
+    /// </remarks>
     [Transition(From = typeof(FlowControl)), On(IAC)]
-    public static void Mark(ref FlowControl self) => self.Escaping = true;
+    public static void Mark(ref FlowControl self)
+    {
+        self.Escaping = !self.Escaping;
+
+        if (!self.Escaping)
+        {
+            // The second of a doubled pair: one literal 255, taken as the command byte the same way
+            // Capture takes any other.
+            self.Command = IAC;
+            self.Received = true;
+        }
+    }
 
     [Transition(From = typeof(FlowControl), To = typeof(Idle)), On(SE)]
     public static class Ended

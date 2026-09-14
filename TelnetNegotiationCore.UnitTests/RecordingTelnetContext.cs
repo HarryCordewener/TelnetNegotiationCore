@@ -58,6 +58,30 @@ public class RecordingTelnetContext : TelnetCoreContext
 
         public void Marker(string name) => _entries.Add((false, name, null));
 
+        /// <summary>
+        /// The entries with their payload bytes intact, for a test that has to prove a specific byte
+        /// reached the payload.
+        /// </summary>
+        /// <remarks>
+        /// The public event lists decode payload with <c>Encoding.ASCII</c>, which maps every byte
+        /// above 0x7F to <c>?</c> — so an assertion made against them cannot tell a literal 0xFF
+        /// that survived un-escaping from one that was dropped, which is exactly half of what an
+        /// escaping test has to prove. The bytes were always kept here; they were just not reachable.
+        /// </remarks>
+        public IReadOnlyList<(bool IsData, string Marker, byte[] Data)> Entries
+        {
+            get
+            {
+                var view = new List<(bool, string, byte[])>(_entries.Count);
+                foreach (var (isData, marker, data) in _entries)
+                {
+                    view.Add((isData, marker, data?.ToArray()));
+                }
+
+                return view;
+            }
+        }
+
         public void Data(ReadOnlySpan<byte> data)
         {
             if (_entries.Count > 0 && _entries[^1].IsData)
@@ -102,6 +126,15 @@ public class RecordingTelnetContext : TelnetCoreContext
             sb.Append(';');
         }
     }
+
+    /// <summary>MSSP's markers and payload runs, with payload bytes undecoded.</summary>
+    public IReadOnlyList<(bool IsData, string Marker, byte[] Data)> MsspTrace => _msspTrace.Entries;
+
+    /// <summary>NEW-ENVIRON's markers and payload runs, with payload bytes undecoded.</summary>
+    public IReadOnlyList<(bool IsData, string Marker, byte[] Data)> NewEnvironTrace => _newEnvironTrace.Entries;
+
+    /// <summary>ENVIRON's markers and payload runs, with payload bytes undecoded.</summary>
+    public IReadOnlyList<(bool IsData, string Marker, byte[] Data)> EnvironTrace => _environTrace.Entries;
 
     private readonly CoalescingTrace _msspTrace = new();
 

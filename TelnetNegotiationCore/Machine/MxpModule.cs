@@ -30,8 +30,19 @@ public static class MxpModule
     [Transition(From = typeof(ReadingOption), To = typeof(Mxp)), On(Option)]
     public static void Begin(ref SubNegotiation parent) => parent.Option = Option;
 
+    /// <summary>
+    /// An <c>IAC</c>: either the terminator is starting, or this is the second of a doubled pair and
+    /// so a literal 255 in the payload.
+    /// </summary>
+    /// <remarks>
+    /// A toggle, not a latch. RFC 855 requires a 255 among a subnegotiation's parameters to be sent
+    /// doubled -- "if parameters in an option 'subnegotiation' include a byte with a value of 255, it
+    /// is necessary to double this byte in accordance the general TELNET rules" -- so <c>IAC IAC</c>
+    /// is one data byte and the <c>SE</c> that follows it is data too, not the end of the frame.
+    /// Latching meant <c>IAC IAC SE</c> terminated here, one byte early.
+    /// </remarks>
     [Transition(From = typeof(Mxp)), On(IAC)]
-    public static void Mark(ref Mxp self) => self.Escaping = true;
+    public static void Mark(ref Mxp self) => self.Escaping = !self.Escaping;
 
     /// <summary>
     /// Nothing else belongs in this marker. Must clear <see cref="Mxp.Escaping"/>, not just self-loop:
