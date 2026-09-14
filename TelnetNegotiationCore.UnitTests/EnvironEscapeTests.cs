@@ -44,7 +44,7 @@ public class EnvironEscapeTests
 	private static async Task<RecordingTelnetContext> Run(byte[] wire)
 	{
 		var recorder = new RecordingTelnetContext();
-		await using var machine = new TelnetCoreMachine(recorder);
+		await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 		await machine.StartAsync();
 		await machine.FireAsync(wire);
 		return recorder;
@@ -306,7 +306,7 @@ public class EnvironEscapeTests
 		];
 
 		var recorder = new RecordingTelnetContext();
-		await using var machine = new TelnetCoreMachine(recorder);
+		await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 		await machine.StartAsync();
 		await machine.FireAsync(wire);
 		await machine.FireAsync(TelnetProbe.Resync);
@@ -327,7 +327,7 @@ public class EnvironEscapeTests
 		byte[] second = [Value, (byte)'B', IAC, SE];
 
 		var recorder = new RecordingTelnetContext();
-		await using var machine = new TelnetCoreMachine(recorder);
+		await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 		await machine.StartAsync();
 		await machine.FireAsync(first);
 		await machine.FireAsync(second);

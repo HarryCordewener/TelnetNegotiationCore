@@ -34,7 +34,7 @@ public class EngineProperties
 			try
 			{
 				var recorder = new RecordingTelnetContext();
-				await using var machine = new TelnetCoreMachine(recorder);
+				await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 				await machine.StartAsync();
 				await machine.FireAsync(bytes);
 				return null;
@@ -60,7 +60,7 @@ public class EngineProperties
 		var failure = await PropertyRunner.ForEachStream(0xB0B, Cases, MaxTokens, async bytes =>
 		{
 			var recorder = new RecordingTelnetContext();
-			await using var machine = new TelnetCoreMachine(recorder);
+			await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 			await machine.StartAsync();
 			await machine.FireAsync(bytes);
 			await machine.FireAsync(TelnetProbe.Resync);
@@ -96,7 +96,7 @@ public class EngineProperties
 			}
 
 			var recorder = new RecordingTelnetContext();
-			await using var machine = new TelnetCoreMachine(recorder);
+			await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 			await machine.StartAsync();
 			await machine.FireAsync(bytes);
 

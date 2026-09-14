@@ -243,7 +243,7 @@ public class NAWSProtocol : TelnetProtocolPluginBase
 
     /// <summary>
     /// What a window size report does, once its two numbers are known — independent of how they were
-    /// read, so the same call serves the Stateless configuration above and the generated machine.
+    /// read, so the same call serves the public plugin surface and the generated machine.
     /// </summary>
     internal async ValueTask OnWindowSizeAsync(int width, int height, IProtocolContext context)
     {
@@ -251,11 +251,6 @@ public class NAWSProtocol : TelnetProtocolPluginBase
         ClientHeight = height;
 
         context.Logger.LogDebug("Negotiated for: {clientWidth} width and {clientHeight} height", ClientWidth, ClientHeight);
-
-        // The interpreter carries the same pair for consumers reading TelnetInterpreter.ClientWidth
-        // and ClientHeight.
-        context.Interpreter.ClientWidth = ClientWidth;
-        context.Interpreter.ClientHeight = ClientHeight;
 
         // Call the user callback if registered
         if (_onNAWSNegotiated != null)

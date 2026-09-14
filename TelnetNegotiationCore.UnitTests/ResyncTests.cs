@@ -79,7 +79,7 @@ public class ResyncTests
 	private static async Task<RecordingTelnetContext> Run(byte[] prefix)
 	{
 		var recorder = new RecordingTelnetContext();
-		await using var machine = new TelnetCoreMachine(recorder);
+		await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 		await machine.StartAsync();
 		await machine.FireAsync(prefix);
 		await machine.FireAsync(TelnetProbe.Resync);
@@ -180,7 +180,7 @@ public class ResyncTests
 		byte[] onePair = [IAC, SE];
 
 		var recorder = new RecordingTelnetContext();
-		await using var machine = new TelnetCoreMachine(recorder);
+		await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 		await machine.StartAsync();
 		await machine.FireAsync(intoReadingOption);
 		await machine.FireAsync(onePair);
@@ -198,7 +198,7 @@ public class ResyncTests
 		byte[] onePair = [IAC, SE];
 
 		var recorder = new RecordingTelnetContext();
-		await using var machine = new TelnetCoreMachine(recorder);
+		await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 		await machine.StartAsync();
 		await machine.FireAsync(intoEndSubNegotiation);
 		await machine.FireAsync(onePair);

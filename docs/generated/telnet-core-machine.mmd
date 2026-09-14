@@ -1,0 +1,245 @@
+stateDiagram-v2
+    state Connected {
+        [*] --> Accepting
+        state Accepting {
+            [*] --> Idle
+            state AfterCarriageReturn
+            state DoNothing
+            state GoAhead
+            state Idle
+            state ReadingCharacters
+        }
+        state SubNegotiation {
+            [*] --> ReadingOption
+            state Authentication
+            state AuthenticationEnding
+            state AuthenticationValue
+            state Charset
+            state CharsetEnding
+            state CharsetTTable
+            state CharsetValue
+            state Encryption
+            state EncryptionEnd
+            state EncryptionEnding
+            state EncryptionStart
+            state EncryptionStartEnding
+            state EncryptionValue
+            state EndSubNegotiation
+            state Environ
+            state EnvironField
+            state FlowControl
+            state Gmcp
+            state LineMode
+            state LineModeValue
+            state Mccp1
+            state Mccp1AfterWill
+            state Mccp2
+            state Mccp3
+            state Msdp
+            state Mssp
+            state Mxp
+            state Naws
+            state NewEnviron
+            state NewEnvironField
+            state ReadingOption
+            state SubNegotiating
+            state TerminalType
+            state TerminalTypeSend
+            state TerminalTypeValue
+            state Tspeed
+            state TspeedSend
+            state TspeedValue
+            state XDisplayLocation
+            state XDisplayLocationSend
+            state XDisplayLocationValue
+        }
+        state Do
+        state Dont
+        state Refusing
+        state StartNegotiation
+        state Willing
+    }
+    Accepting --> ReadingCharacters : any
+    ReadingCharacters --> ReadingCharacters : any run
+    AfterCarriageReturn --> Idle : 10
+    AfterCarriageReturn --> Idle : 0
+    AfterCarriageReturn --> AfterCarriageReturn : 13
+    AfterCarriageReturn --> StartNegotiation : 255
+    AfterCarriageReturn --> ReadingCharacters : any
+    Accepting --> Idle : 10
+    ReadingCharacters --> Idle : 10
+    StartNegotiation --> ReadingCharacters : 255
+    StartNegotiation --> GoAhead : 249
+    StartNegotiation --> Idle : 239
+    Willing --> Idle : any
+    Refusing --> Idle : any
+    Do --> Idle : any
+    Dont --> Idle : any
+    EndSubNegotiation --> Idle : 240
+    Connected --> Connected : InitializeConnection
+    Accepting --> AfterCarriageReturn : 13
+    ReadingCharacters --> AfterCarriageReturn : 13
+    Accepting --> StartNegotiation : 255
+    ReadingCharacters --> StartNegotiation : 255
+    StartNegotiation --> Willing : 251
+    StartNegotiation --> Refusing : 252
+    StartNegotiation --> Do : 253
+    StartNegotiation --> Dont : 254
+    StartNegotiation --> SubNegotiation : 250
+    StartNegotiation --> DoNothing : 241
+    StartNegotiation --> Idle : any
+    Willing --> StartNegotiation : 255
+    Refusing --> StartNegotiation : 255
+    Do --> StartNegotiation : 255
+    Dont --> StartNegotiation : 255
+    ReadingOption --> SubNegotiating : any
+    SubNegotiating --> EndSubNegotiation : 255
+    EndSubNegotiation --> SubNegotiating : 255
+    EndSubNegotiation --> SubNegotiating : any
+    SubNegotiating --> SubNegotiating : any run
+    Naws --> Idle : 240
+    ReadingOption --> Naws : 31
+    Naws --> Naws : any run
+    Naws --> Naws : 255
+    Naws --> Naws : 240
+    FlowControl --> Idle : 240
+    ReadingOption --> FlowControl : 33
+    FlowControl --> FlowControl : any
+    FlowControl --> FlowControl : 255
+    TspeedSend --> Idle : 240
+    TspeedValue --> Idle : 240
+    ReadingOption --> Tspeed : 32
+    Tspeed --> TspeedSend : 1
+    Tspeed --> SubNegotiating : any
+    TspeedSend --> TspeedSend : 255
+    TspeedSend --> TspeedSend : any
+    Tspeed --> TspeedValue : 0
+    TspeedValue --> TspeedValue : any run
+    TspeedValue --> TspeedValue : 255
+    XDisplayLocationSend --> Idle : 240
+    XDisplayLocationValue --> Idle : 240
+    ReadingOption --> XDisplayLocation : 35
+    XDisplayLocation --> XDisplayLocationSend : 1
+    XDisplayLocation --> SubNegotiating : any
+    XDisplayLocationSend --> XDisplayLocationSend : 255
+    XDisplayLocationSend --> XDisplayLocationSend : any
+    XDisplayLocation --> XDisplayLocationValue : 0
+    XDisplayLocationValue --> XDisplayLocationValue : any run
+    XDisplayLocationValue --> XDisplayLocationValue : 255
+    ReadingOption --> Gmcp : 201
+    Gmcp --> Gmcp : any run
+    Gmcp --> Gmcp : 255
+    Gmcp --> Idle : 240
+    ReadingOption --> Msdp : 69
+    Msdp --> Msdp : any run
+    Msdp --> Msdp : 255
+    Msdp --> Idle : 240
+    ReadingOption --> Mssp : 70
+    Mssp --> Mssp : 1
+    Mssp --> Mssp : 2
+    Mssp --> Mssp : any run
+    Mssp --> Mssp : 255
+    Mssp --> Idle : 240
+    TerminalTypeSend --> Idle : 240
+    TerminalTypeValue --> Idle : 240
+    ReadingOption --> TerminalType : 24
+    TerminalType --> TerminalTypeSend : 1
+    TerminalType --> SubNegotiating : any
+    TerminalTypeSend --> TerminalTypeSend : 255
+    TerminalTypeSend --> TerminalTypeSend : any
+    TerminalType --> TerminalTypeValue : 0
+    TerminalTypeValue --> TerminalTypeValue : any run
+    TerminalTypeValue --> TerminalTypeValue : 255
+    CharsetValue --> Idle : 240
+    Charset --> CharsetTTable : 4
+    CharsetTTable --> CharsetTTable : any run
+    CharsetTTable --> CharsetTTable : 255
+    CharsetTTable --> Idle : 240
+    CharsetEnding --> Idle : 240
+    ReadingOption --> Charset : 42
+    Charset --> SubNegotiating : any
+    Charset --> CharsetValue : 1
+    Charset --> CharsetValue : 2
+    CharsetValue --> CharsetValue : any run
+    CharsetValue --> CharsetValue : 255
+    Charset --> CharsetEnding : 3
+    Charset --> CharsetEnding : 5
+    Charset --> CharsetEnding : 6
+    Charset --> CharsetEnding : 7
+    CharsetEnding --> CharsetEnding : 255
+    CharsetEnding --> CharsetEnding : any
+    NewEnviron --> NewEnvironField : 0
+    NewEnviron --> NewEnvironField : 1
+    NewEnviron --> NewEnvironField : 2
+    NewEnvironField --> NewEnvironField : 0
+    NewEnvironField --> NewEnvironField : 3
+    NewEnvironField --> NewEnvironField : 1
+    NewEnvironField --> NewEnvironField : any run
+    NewEnvironField --> NewEnvironField : 2
+    NewEnvironField --> NewEnvironField : 255
+    NewEnvironField --> Idle : 240
+    ReadingOption --> NewEnviron : 39
+    NewEnviron --> SubNegotiating : any
+    Environ --> EnvironField : 0
+    Environ --> EnvironField : 1
+    EnvironField --> EnvironField : 0
+    EnvironField --> EnvironField : 1
+    EnvironField --> EnvironField : any run
+    EnvironField --> EnvironField : 2
+    EnvironField --> EnvironField : 255
+    EnvironField --> Idle : 240
+    ReadingOption --> Environ : 36
+    Environ --> SubNegotiating : any
+    Mxp --> Idle : 240
+    ReadingOption --> Mxp : 91
+    Mxp --> Mxp : 255
+    Mxp --> Mxp : any
+    Mccp2 --> Idle : 240
+    Mccp3 --> Idle : 240
+    Mccp1AfterWill --> Idle : 240
+    ReadingOption --> Mccp2 : 86
+    Mccp2 --> Mccp2 : 255
+    Mccp2 --> Mccp2 : any
+    ReadingOption --> Mccp3 : 87
+    Mccp3 --> Mccp3 : 255
+    Mccp3 --> Mccp3 : any
+    ReadingOption --> Mccp1 : 85
+    Mccp1 --> Mccp1AfterWill : 251
+    Mccp1 --> SubNegotiating : any
+    Mccp1AfterWill --> Mccp1 : any
+    LineModeValue --> Idle : 240
+    ReadingOption --> LineMode : 34
+    LineMode --> SubNegotiating : any
+    LineMode --> LineModeValue : 1
+    LineMode --> LineModeValue : 2
+    LineMode --> LineModeValue : 3
+    LineModeValue --> LineModeValue : any run
+    LineModeValue --> LineModeValue : 255
+    AuthenticationEnding --> Idle : 240
+    ReadingOption --> Authentication : 37
+    Authentication --> SubNegotiating : any
+    Authentication --> AuthenticationValue : 1
+    Authentication --> AuthenticationValue : 0
+    AuthenticationValue --> AuthenticationValue : any run
+    AuthenticationValue --> AuthenticationEnding : 255
+    AuthenticationEnding --> AuthenticationEnding : any
+    AuthenticationEnding --> AuthenticationValue : 255
+    EncryptionEnding --> Idle : 240
+    EncryptionStartEnding --> Idle : 240
+    EncryptionEnd --> Idle : 240
+    ReadingOption --> Encryption : 38
+    Encryption --> SubNegotiating : any
+    Encryption --> EncryptionValue : 1
+    Encryption --> EncryptionValue : 0
+    EncryptionValue --> EncryptionValue : any run
+    EncryptionValue --> EncryptionEnding : 255
+    EncryptionEnding --> EncryptionEnding : any
+    EncryptionEnding --> EncryptionValue : 255
+    Encryption --> EncryptionStart : 3
+    EncryptionStart --> EncryptionStart : any run
+    EncryptionStart --> EncryptionStartEnding : 255
+    EncryptionStartEnding --> SubNegotiating : any
+    EncryptionStartEnding --> EncryptionStart : 255
+    Encryption --> EncryptionEnd : 4
+    EncryptionEnd --> EncryptionEnd : 255
+    EncryptionEnd --> EncryptionEnd : any

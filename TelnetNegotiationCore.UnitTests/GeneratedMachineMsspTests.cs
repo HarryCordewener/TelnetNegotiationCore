@@ -19,7 +19,6 @@ public class GeneratedMachineMsspTests : BaseTest
         ValueTask OnMssp(MSSPConfig config) { received = config; return ValueTask.CompletedTask; }
 
         var client = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit((a, e, t) => ValueTask.CompletedTask)
@@ -60,7 +59,6 @@ public class GeneratedMachineMsspTests : BaseTest
         ValueTask OnMssp(MSSPConfig config) { received = config; return ValueTask.CompletedTask; }
 
         var client = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit((a, e, t) => ValueTask.CompletedTask)

@@ -29,7 +29,7 @@ public class TelnetCoreMachineTests
     private static async Task<RecordingTelnetContext> Run(params byte[] bytes)
     {
         var recorder = new RecordingTelnetContext();
-        await using var machine = new TelnetCoreMachine(recorder);
+        await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
         await machine.StartAsync();
         await machine.FireAsync(bytes);
         return recorder;

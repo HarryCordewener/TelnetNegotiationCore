@@ -44,16 +44,10 @@ public class CarriageReturnPolicyTests
 	private const byte WILL = 251;
 	private const byte IAC = 255;
 
-	/// <summary>A context that reports whichever mode the test is exercising.</summary>
-	private sealed class ModedRecorder(CarriageReturnMode mode) : RecordingTelnetContext
+	private static async Task<RecordingTelnetContext> Run(CarriageReturnMode mode, byte[] bytes)
 	{
-		public override CarriageReturnMode CarriageReturnMode { get; } = mode;
-	}
-
-	private static async Task<ModedRecorder> Run(CarriageReturnMode mode, byte[] bytes)
-	{
-		var recorder = new ModedRecorder(mode);
-		await using var machine = new TelnetCoreMachine(recorder);
+		var recorder = new RecordingTelnetContext();
+		await using var machine = new TelnetCoreMachine(recorder, new TelnetMachineConfig(mode));
 		await machine.StartAsync();
 		await machine.FireAsync(bytes);
 		return recorder;

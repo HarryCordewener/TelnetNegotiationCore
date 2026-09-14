@@ -33,6 +33,9 @@ dotnet add package TelnetNegotiationCore
 ## Concepts
 
 - [Limits on untrusted input](concepts/limits.md) — what a peer can grow, and what happens at the ceiling.
+- [Generated telnet machine (Mermaid)](generated/telnet-core-machine.mmd) — the state tree and transitions emitted
+  from the same definition the interpreter runs. The adjacent [Graphviz source](generated/telnet-core-machine.dot)
+  is generated with it; tests reject drift in either artifact.
 
 ## Reference
 

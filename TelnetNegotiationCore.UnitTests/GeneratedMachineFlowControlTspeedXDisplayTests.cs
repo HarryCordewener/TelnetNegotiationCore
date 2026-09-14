@@ -19,7 +19,6 @@ public class GeneratedMachineFlowControlTspeedXDisplayTests : BaseTest
         ValueTask CaptureFlowControlStateChanged(bool enabled) { flowControlStateChanged = enabled; return ValueTask.CompletedTask; }
 
         var client = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
@@ -56,7 +55,6 @@ public class GeneratedMachineFlowControlTspeedXDisplayTests : BaseTest
         ValueTask CaptureNegotiation(System.ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var client = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit((data, enc, ti) => ValueTask.CompletedTask)
@@ -80,7 +78,6 @@ public class GeneratedMachineFlowControlTspeedXDisplayTests : BaseTest
         ValueTask CaptureNegotiation(System.ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -107,7 +104,6 @@ public class GeneratedMachineFlowControlTspeedXDisplayTests : BaseTest
         ValueTask CaptureNegotiation(System.ReadOnlyMemory<byte> data) { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; }
 
         var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Client)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -141,7 +137,6 @@ public class GeneratedMachineFlowControlTspeedXDisplayTests : BaseTest
         ValueTask HandleTerminalSpeed(int t, int r) { transmit = t; receive = r; speedReceived = true; return ValueTask.CompletedTask; }
 
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)
@@ -171,7 +166,6 @@ public class GeneratedMachineFlowControlTspeedXDisplayTests : BaseTest
         ValueTask HandleXDisplay(string display) { displayReceived = display; return ValueTask.CompletedTask; }
 
         var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit(NoOpSubmitCallback)

@@ -57,7 +57,7 @@ public class EscapingProperties
 			byte[] wire = [IAC, SB, GMCP, .. escaped, IAC, SE];
 
 			var recorder = new RecordingTelnetContext();
-			await using var machine = new TelnetCoreMachine(recorder);
+			await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 			await machine.StartAsync();
 			await machine.FireAsync(wire);
 
@@ -136,7 +136,7 @@ public class EscapingProperties
 			byte[] wire = [IAC, SB, GMCP, .. payload, IAC];
 
 			var recorder = new RecordingTelnetContext();
-			await using var machine = new TelnetCoreMachine(recorder);
+			await using var machine = new TelnetCoreMachine(recorder, TelnetMachineConfig.Default);
 			await machine.StartAsync();
 			await machine.FireAsync(wire);
 			await machine.FireAsync(TelnetProbe.Resync);

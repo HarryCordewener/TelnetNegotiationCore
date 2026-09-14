@@ -108,6 +108,55 @@ public class MCCPCompressedStreamTests : BaseTest
 	}
 
 	[Test]
+	public async Task Mccp2MarkerSwitchesDecoderWithinOneDrainedBatch()
+	{
+		var gateEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var submitted = new List<string>();
+
+		async ValueTask Submit(byte[] data, Encoding encoding, TelnetInterpreter _)
+		{
+			var line = encoding.GetString(data);
+			if (line == "hold")
+			{
+				gateEntered.TrySetResult();
+				await releaseGate.Task;
+				return;
+			}
+
+			submitted.Add(line);
+		}
+
+		var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(Submit)
+			.OnNegotiation(_ => ValueTask.CompletedTask)
+			.AddPlugin<MCCPProtocol>());
+		try
+		{
+			await InterpretAndWaitAsync(client, s_willMccp2);
+
+			// Hold the sole consumer inside a callback, then queue the marker and compressed suffix in
+			// full. When released, its next channel drain must take both as one raw machine batch.
+			await client.InterpretByteArrayAsync("hold\n"u8.ToArray());
+			await gateEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+			using var server = new MccpStreamWriter();
+			await client.InterpretByteArrayAsync(Concat(s_startMccp2, server.Send("decoded after the marker\n")));
+			releaseGate.TrySetResult();
+
+			await client.WaitForProcessingAsync(maxWaitMs: 5000, additionalDelayMs: 0);
+			await Assert.That(submitted).IsEquivalentTo(new[] { "decoded after the marker" });
+		}
+		finally
+		{
+			releaseGate.TrySetResult();
+			await client.DisposeAsync();
+		}
+	}
+
+	[Test]
 	public async Task ClientInflatesAPayloadSplitAcrossReads()
 	{
 		// MCCP is one continuous zlib stream for the life of the connection, not one per message:

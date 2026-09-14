@@ -19,7 +19,6 @@ public class GeneratedMachineGmcpMsdpTests : BaseTest
         ValueTask WriteBackToGMCP((string Package, string Info) tuple) { receivedGMCP = tuple; return ValueTask.CompletedTask; }
 
         var server = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit((a, e, t) => ValueTask.CompletedTask)
@@ -63,7 +62,6 @@ public class GeneratedMachineGmcpMsdpTests : BaseTest
         ValueTask WriteBackToGMCP((string Package, string Info) tuple) { receivedGMCP = tuple; return ValueTask.CompletedTask; }
 
         var server = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit((a, e, t) => ValueTask.CompletedTask)
@@ -102,7 +100,6 @@ public class GeneratedMachineGmcpMsdpTests : BaseTest
         (string Package, string Info)? receivedGMCP = null;
 
         var server = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit((a, e, t) => ValueTask.CompletedTask)
@@ -137,7 +134,6 @@ public class GeneratedMachineGmcpMsdpTests : BaseTest
         ValueTask OnMsdp(TelnetInterpreter t, string json) { receivedJson = json; return ValueTask.CompletedTask; }
 
         var server = await new TelnetInterpreterBuilder()
-            .UseGeneratedMachine()
             .UseMode(TelnetInterpreter.TelnetMode.Server)
             .UseLogger(logger)
             .OnSubmit((a, e, t) => ValueTask.CompletedTask)
