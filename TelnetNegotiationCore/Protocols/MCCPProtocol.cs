@@ -364,9 +364,9 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// MCCP2 and MCCP3 are two option numbers on one protocol class, each mode-gated the opposite way
-    /// -- a server only ever configured DO/DONT for either, a client only ever configured WILL/WONT --
-    /// so both the option and the verb decide which of the eight original handlers this is.
+    /// MCCP2 and MCCP3 are two option numbers on one protocol class, each normally negotiated in the
+    /// opposite direction. A client cannot honour a request to compress through MCCP2 or MCCP3, so a
+    /// wrong-direction DO is explicitly refused with WONT rather than silently discarded.
     /// </summary>
     internal async ValueTask OnPeerNegotiatedAsync(byte verb, byte option, IProtocolContext context)
     {
@@ -386,6 +386,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
             {
                 switch (verb)
                 {
+                    case (byte)Trigger.DO: await Helpers.OptionNegotiation.AnswerAsync(false, verb, option, context); break;
                     case (byte)Trigger.WILL: await OnWillMCCP2Async(context); break;
                     case (byte)Trigger.WONT: await OnWontMCCP2Async(context); break;
                 }
@@ -405,6 +406,7 @@ public class MCCPProtocol : TelnetProtocolPluginBase
             {
                 switch (verb)
                 {
+                    case (byte)Trigger.DO: await Helpers.OptionNegotiation.AnswerAsync(false, verb, option, context); break;
                     case (byte)Trigger.WILL: await OnWillMCCP3Async(context); break;
                     case (byte)Trigger.WONT: await OnWontMCCP3Async(context); break;
                 }
