@@ -23,6 +23,14 @@ public struct CharsetValue : IState<SubNegotiation>
     public List<byte>? Text;
 
     public bool Escaping;
+
+    /// <summary>
+    /// True once the peer has sent more than <see cref="CharsetModule.MaxTextBytes"/> bytes. A
+    /// CHARSET request or acceptance is a semicolon-separated list of IANA charset names, which is a
+    /// few dozen characters even when a peer offers everything it has, so this is far above any
+    /// legitimate value and exists only to bound a peer that never sends IAC SE.
+    /// </summary>
+    public bool Overflowed;
 }
 
 /// <summary>
@@ -89,6 +97,9 @@ public static class CharsetModule
     private const byte TTableNak = 7;
     private const byte Option = 42;
 
+    /// <summary>See <see cref="CharsetValue.Overflowed"/>.</summary>
+    public const int MaxTextBytes = 8192;
+
     [Transition(From = typeof(ReadingOption), To = typeof(Charset)), On(Option)]
     public static void Begin(ref SubNegotiation parent) => parent.Option = Option;
 
@@ -113,7 +124,18 @@ public static class CharsetModule
     public static void Capture(ref CharsetValue self, System.ReadOnlySpan<byte> run)
     {
         self.Escaping = false;
+        if (self.Overflowed)
+        {
+            return;
+        }
+
         self.Text ??= [];
+        if (self.Text.Count + run.Length > MaxTextBytes)
+        {
+            self.Overflowed = true;
+            return;
+        }
+
         self.Text.AddRange(run.ToArray());
     }
 
@@ -123,7 +145,18 @@ public static class CharsetModule
         if (self.Escaping)
         {
             self.Escaping = false;
+            if (self.Overflowed)
+            {
+                return;
+            }
+
             self.Text ??= [];
+            if (self.Text.Count + 1 > MaxTextBytes)
+            {
+                self.Overflowed = true;
+                return;
+            }
+
             self.Text.Add(IAC);
             return;
         }
@@ -142,6 +175,13 @@ public static class CharsetModule
 
         public static ValueTask CompletedAsync(TelnetCoreContext context, in CharsetValue from)
         {
+            if (from.Overflowed)
+            {
+                // Dropped rather than reported truncated: a cut-short charset list names a different
+                // set of charsets than the peer offered, not fewer of them.
+                return default;
+            }
+
             var text = from.Text?.ToArray() ?? [];
             return from.Kind == Request ? context.CharsetRequestAsync(text) : context.CharsetAcceptedAsync(text);
         }
@@ -201,7 +241,18 @@ public static class CharsetModule
     public static void NakingTTable(ref CharsetEnding to) => to.Kind = TTableNak;
 
     [Transition(From = typeof(CharsetEnding)), On(IAC)]
-    public static void MarkEnding(ref CharsetEnding self) => self.Escaping = true;
+    /// <summary>
+    /// An <c>IAC</c>: either the terminator is starting, or this is the second of a doubled pair and
+    /// so a literal 255 in the payload.
+    /// </summary>
+    /// <remarks>
+    /// A toggle, not a latch. RFC 855 requires a 255 among a subnegotiation's parameters to be sent
+    /// doubled -- "if parameters in an option 'subnegotiation' include a byte with a value of 255, it
+    /// is necessary to double this byte in accordance the general TELNET rules" -- so <c>IAC IAC</c>
+    /// is one data byte and the <c>SE</c> that follows it is data too, not the end of the frame.
+    /// Latching meant <c>IAC IAC SE</c> terminated here, one byte early.
+    /// </remarks>
+    public static void MarkEnding(ref CharsetEnding self) => self.Escaping = !self.Escaping;
 
     /// <summary>
     /// Anything but IAC here is malformed. Must clear <see cref="CharsetEnding.Escaping"/>, not just

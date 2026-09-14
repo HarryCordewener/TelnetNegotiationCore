@@ -74,7 +74,18 @@ public static class TerminalTypeModule
     }
 
     [Transition(From = typeof(TerminalTypeSend)), On(IAC)]
-    public static void MarkSend(ref TerminalTypeSend self) => self.Escaping = true;
+    /// <summary>
+    /// An <c>IAC</c>: either the terminator is starting, or this is the second of a doubled pair and
+    /// so a literal 255 in the payload.
+    /// </summary>
+    /// <remarks>
+    /// A toggle, not a latch. RFC 855 requires a 255 among a subnegotiation's parameters to be sent
+    /// doubled -- "if parameters in an option 'subnegotiation' include a byte with a value of 255, it
+    /// is necessary to double this byte in accordance the general TELNET rules" -- so <c>IAC IAC</c>
+    /// is one data byte and the <c>SE</c> that follows it is data too, not the end of the frame.
+    /// Latching meant <c>IAC IAC SE</c> terminated here, one byte early.
+    /// </remarks>
+    public static void MarkSend(ref TerminalTypeSend self) => self.Escaping = !self.Escaping;
 
     /// <summary>
     /// Anything but IAC here is malformed. Must clear <see cref="TerminalTypeSend.Escaping"/>, not just

@@ -26,6 +26,57 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **TERMINAL-SPEED reported a request that had no adjacent `IAC SE`.** `TerminalSpeedModule`'s
+  malformed-byte handler for the `SEND` state had an empty body, alone among the three options with
+  such a state — `TerminalTypeModule` and `XDisplayModule` both clear the escape flag there and both
+  carry a comment explaining that they must. So a stray byte between a genuine `IAC` and an unrelated
+  later `SE` still satisfied the terminator guard, and `IAC SB TSPEED SEND IAC 0x01 SE` reported a
+  terminal-speed request. This is the same stale-flag class as the NEW-ENVIRON defect fixed earlier,
+  and `MalformedSubnegotiationRecoveryTests` covers that class for every other such state — it missed
+  only this one.
+
+- **Nine states accepted `IAC IAC SE` as the end of a subnegotiation.** RFC 855 makes `IAC IAC` one
+  data byte 255, so the `SE` after it is data and the frame is not over. Those nine latched their
+  escape flag to true rather than toggling it, so a doubled `IAC` terminated the subnegotiation one
+  byte early. The twelve states that buffer a payload already toggled, and were correct.
+  - Observable in MXP: `IAC SB MXP IAC IAC SE 'A' IAC SE` ended early and the `'A'` leaked into the
+    ordinary text stream as data.
+  - Observable in MCCP2 and MCCP3 as the harm those modules' own comments warn about — inflation
+    starting at the wrong stream position.
+  - Also corrected in FLOWCONTROL, CHARSET's ending marker, ENCRYPT's `END`, and the `SEND` states of
+    TERMINAL-TYPE, TERMINAL-SPEED and X-DISPLAY-LOCATION.
+
+- **FLOWCONTROL discarded an escaped command byte and ended the subnegotiation early.** It was the
+  one payload-carrying option implementing no un-doubling at all: its capture took a single byte
+  rather than a run, and its `IAC` handler latched, so a doubled `IAC` never reached the command
+  byte. RFC 1372 defines only commands 0 through 3, so a 255 is not a command this library acts on —
+  but dropping it silently and ending the frame a byte early are separate wrongs from it being
+  meaningless.
+
+- **CHARSET's request text and TERMINAL-SPEED's speed text accumulated without a ceiling.** Five
+  sibling states carry an 8192-byte cap with a comment saying it "exists only to bound a peer that
+  never sends IAC SE"; these two buffered into an unbounded `List<byte>`, so a peer that opened the
+  subnegotiation and kept sending grew it until the process ran out of memory. Both are now bounded
+  the same way, and an overflowed report is dropped rather than delivered truncated — a cut-short
+  charset list names a different set of charsets than the peer offered, and a cut-short
+  `transmit,receive` parses as a different speed.
+
+### Changed
+
+- **Every option's inbound un-escaping is now covered by one sweep.** RFC 855's rule is stated once
+  for all options, but the receive side implements it separately in each option's state module, and
+  only four were covered: GMCP, MSDP, CHARSET's translation table, and ENVIRON/NEW-ENVIRON. Nothing
+  covered MSSP, NAWS, LINEMODE, TTYPE, TSPEED, XDISPLOC, CHARSET's other payloads, AUTH, ENCRYPT, or
+  any of the marker-only states — which is where all four defects above were hiding.
+  - Each case asserts both halves: the literal 255 reached the payload, *and* the byte after it was
+    still read as structure. Either alone passes a mutant that gets the other wrong.
+  - Assertions are made on undecoded payload bytes. `RecordingTelnetContext`'s public event lists
+    decode with `Encoding.ASCII`, which renders 0xFF as `?` — so an assertion made there cannot tell
+    a literal that survived un-escaping from one that was dropped. The recorder always kept the bytes
+    undecoded for this reason; it just did not expose them, and now does.
+  - The existing `ENVIRON`/`NEW-ENVIRON` escape test asserted only that a marker after a doubled
+    `IAC` survived, which a mutant dropping the literal passed. It now asserts the payload too.
+
 - **EOR tracked one negotiated state for two directions RFC 885 negotiates independently.** The RFC
   is explicit — "the use of EORs must be negotiated independently for each direction" — and the two
   verbs establish different facts: a peer's `WILL` says the peer will send markers, a peer's `DO`

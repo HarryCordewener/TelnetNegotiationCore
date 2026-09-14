@@ -183,6 +183,12 @@ public class EnvironEscapeTests
 	/// follows is structure. Without this the pending escape survived the <c>IAC</c> path — which does
 	/// not go through <c>Capture</c> — and swallowed the next real marker: the stale-flag misfire that
 	/// <see cref="MalformedSubnegotiationRecoveryTests"/> documents.
+	/// <para>
+	/// Asserts both halves. The marker count alone survived a mutant that dropped the literal 0xFF,
+	/// because the only place it would have shown up is a payload entry that
+	/// <c>NewEnvironEvents</c> renders through <c>Encoding.ASCII</c> as <c>?</c> — indistinguishable
+	/// from any other high byte, and from none at all.
+	/// </para>
 	/// </remarks>
 	[Test]
 	public async Task AnIacBetweenTheEscapeAndAMarkerSpendsTheEscape()
@@ -200,6 +206,17 @@ public class EnvironEscapeTests
 		await Assert.That(recorder.NewEnvironEvents.Count(e => e == "VAR"))
 			.IsEqualTo(2)
 			.Because($"the VAR after a doubled IAC is a marker, not data. Got: {Trace(recorder, true)}");
+
+		// And the other half: the literal 0xFF has to have reached the payload. Asserted on the
+		// undecoded trace because NewEnvironEvents decodes with Encoding.ASCII, which renders 0xFF
+		// as '?' -- so a mutant that dropped the literal entirely passed the assertion above.
+		var payload = recorder.NewEnvironTrace
+			.Where(e => e.IsData)
+			.SelectMany(e => e.Data)
+			.ToArray();
+
+		await Assert.That(payload).IsEquivalentTo(new byte[] { (byte)'A', 255, (byte)'B' })
+			.Because("spending the escape must not also spend the byte that spent it");
 	}
 
 	/// <summary>The same, in ENVIRON.</summary>
