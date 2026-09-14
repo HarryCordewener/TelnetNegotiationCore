@@ -13,6 +13,34 @@ namespace TelnetNegotiationCore.UnitTests;
 public class GeneratedMachineMccpTests : BaseTest
 {
     [Test]
+    [Arguments((byte)Trigger.MCCP2)]
+    [Arguments((byte)Trigger.MCCP3)]
+    public async Task ClientRefusesWrongDirectionDoWithWont(byte option)
+    {
+        byte[] negotiationOutput = null;
+
+        var client = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseGeneratedMachine()
+            .UseMode(TelnetInterpreter.TelnetMode.Client)
+            .UseLogger(logger)
+            .OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(data => { negotiationOutput = data.ToArray(); return ValueTask.CompletedTask; })
+            .AddPlugin<MCCPProtocol>());
+
+        var mccpPlugin = client.PluginManager!.GetPlugin<MCCPProtocol>()!;
+        await InterpretAndWaitAsync(client,
+            [(byte)Trigger.IAC, (byte)Trigger.DO, option]);
+
+        await Assert.That(negotiationOutput).IsNotNull();
+        await AssertByteArraysEqual(negotiationOutput,
+            [(byte)Trigger.IAC, (byte)Trigger.WONT, option]);
+        await Assert.That(mccpPlugin.IsMCCP2Enabled).IsFalse();
+        await Assert.That(mccpPlugin.IsMCCP3Enabled).IsFalse();
+
+        await client.DisposeAsync();
+    }
+
+    [Test]
     public async Task ClientRespondsWithDoOnServerWillMccp2()
     {
         byte[] negotiationOutput = null;
