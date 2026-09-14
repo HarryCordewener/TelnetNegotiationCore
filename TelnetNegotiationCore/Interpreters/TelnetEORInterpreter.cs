@@ -34,12 +34,17 @@ public partial class TelnetInterpreter
 	/// The bytes that mark the end of a prompt, given what this end has negotiated.
 	/// </summary>
 	/// <remarks>
-	/// RFC 885 End of Record is the precise marker, so it wins wherever it was negotiated. Failing
-	/// that, RFC 854's Go-Ahead marks the turn, unless <em>this end's own outbound</em> Go-Ahead is
-	/// suppressed -- a promise not to send it. With neither marker available a prompt cannot be
-	/// distinguished from a line, so it ends as a line does, with CR LF.
+	/// RFC 885 End of Record is the precise marker, so it wins wherever <em>this end</em> has agreed
+	/// to send it. Failing that, RFC 854's Go-Ahead marks the turn, unless <em>this end's own
+	/// outbound</em> Go-Ahead is suppressed -- a promise not to send it. With neither marker
+	/// available a prompt cannot be distinguished from a line, so it ends as a line does, with CR LF.
 	///
-	/// This reads <see cref="Protocols.SuppressGoAheadProtocol.SuppressesOutboundGoAhead"/>, not
+	/// Both readings are this end's own direction, and for the same reason. This reads
+	/// <see cref="Protocols.EORProtocol.MarksOutboundRecords"/>, not
+	/// <see cref="Protocols.EORProtocol.PeerMarksRecords"/>, because RFC 885 negotiates EOR
+	/// "independently for each direction" and a peer's <c>WILL EOR</c> says only that the peer will
+	/// send the marker -- it grants no permission to send one back. It likewise reads
+	/// <see cref="Protocols.SuppressGoAheadProtocol.SuppressesOutboundGoAhead"/>, not
 	/// <see cref="Protocols.SuppressGoAheadProtocol.IsGoAheadSuppressed"/>, which is the peer's
 	/// direction -- the one that decides whether an <em>inbound</em> GA still means a prompt, not
 	/// this one, and independent of it per RFC 858 §5.
@@ -49,7 +54,7 @@ public partial class TelnetInterpreter
 	/// </remarks>
 	private ReadOnlySpan<byte> PromptTerminator()
 	{
-		if (PluginManager?.GetPlugin<Protocols.EORProtocol>() is { IsEnabled: true, IsEOREnabled: true })
+		if (PluginManager?.GetPlugin<Protocols.EORProtocol>() is { IsEnabled: true, MarksOutboundRecords: true })
 			return s_endOfRecord;
 
 		if (PluginManager?.GetPlugin<Protocols.SuppressGoAheadProtocol>() is { IsEnabled: true, SuppressesOutboundGoAhead: true })

@@ -26,6 +26,44 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **EOR tracked one negotiated state for two directions RFC 885 negotiates independently.** The RFC
+  is explicit — "the use of EORs must be negotiated independently for each direction" — and the two
+  verbs establish different facts: a peer's `WILL` says the peer will send markers, a peer's `DO`
+  asks *this* end to send them. One flag held both, and the library's two readers disagreed about
+  which it meant, so each single-verb case was wrong in one of the two places.
+  - **A server's ordinary handshake was one of the wrong cases.** A server offers `WILL EOR`, the
+    client answers `DO`, and the server then treated any inbound `IAC EOR` as a prompt although the
+    client never said it would send one — against RFC 885's "when the END-OF-RECORD option is not in
+    effect, the IAC EOR command should be treated as a NOP if received". The mirror case, a client
+    receiving only `WILL`, had the client marking its own prompts with a marker the peer never
+    agreed to receive.
+  - **A refusal in one direction no longer withdraws the other.** `DO` then `WONT` used to stop this
+    end marking prompts the peer had explicitly asked for; `WILL` then `DONT` used to turn an
+    inbound marker back into a NOP while the peer's `WILL` still stood, dropping real prompts.
+  - New `PeerMarksRecords` (the peer's direction, set by its `WILL`) and `MarksOutboundRecords`
+    (this end's own, set by the peer's `DO`), following the naming and documentation of
+    `SuppressGoAheadProtocol`'s `IsGoAheadSuppressed` / `SuppressesOutboundGoAhead`, which splits the
+    same way per RFC 858 §5. `PromptTerminator` reads the outbound one; the inbound bare-`IAC EOR`
+    handler reads the peer's.
+  - **`IsEOREnabled` is unchanged for consumers.** It now reports whether *either* direction is on,
+    which is bit-for-bit what the single flag behind it always returned, so nothing reading it sees a
+    different value. Prefer one of the two new properties where the direction matters.
+  - `IsNegotiated` reports the aggregate rather than whichever direction resolved last. It is
+    transition-only, so handing it one direction's own outcome let the second to resolve stomp the
+    first; `MCCPProtocol` already does this for the same reason.
+  - Enabling the plugin no longer fabricates an agreement. `OnProtocolEnabledAsync` used to write
+    "EOR is on", so disabling and re-enabling the plugin through the manager turned the marker on
+    with no peer having agreed to anything. `SuppressGoAheadProtocol`'s equivalents write nothing.
+
+- **`SuppressGoAheadProtocol.ShouldUseEORFallback()` was wrong on both of its terms.** It asks
+  whether an outbound prompt must fall back to `IAC EOR` because this end promised not to send
+  `IAC GA` — a question that is this end's own direction twice over. It read `IsGoAheadSuppressed`,
+  the *peer's* Go-Ahead direction, which says nothing about whether this end may still send one; and
+  it read `EORProtocol.IsEnabled`, which is plugin lifetime rather than negotiated state, so it
+  answered "use EOR" on any connection that merely had the plugin registered. It is public, and had
+  no test coverage at all, which is how both errors survived. Now reads the two outbound directions,
+  and is pinned against what a prompt actually sends across all sixteen negotiation combinations.
+
 - **LINEMODE sent its `MODE` byte without escaping a literal 255, so the subnegotiation never
   terminated.** RFC 1184 builds its subnegotiations out of ordinary bytes and adds no exemption from
   RFC 854's rule that a 255 in data is doubled. Sent raw, the peer reads that byte as the `IAC`

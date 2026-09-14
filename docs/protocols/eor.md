@@ -15,8 +15,25 @@ there is, when a server offers it.
     .OnPrompt(HandlePromptAsync)
 ```
 
-`IsEOREnabled` reports whether the negotiation took. `EnableEORAsync()` and `DisableEORAsync()` drive
-it by hand for a server that wants to turn the marker on or off mid-session.
+RFC 885 negotiates EOR "independently for each direction", so there are two answers, not one:
+
+- `PeerMarksRecords` — the peer has agreed to send `IAC EOR`. Set by its `WILL`. This is the
+  direction that decides whether an inbound marker is a prompt or, per RFC 885, a NOP.
+- `MarksOutboundRecords` — this end has agreed to mark its own records. Set by the peer's `DO`,
+  which asks *this* end to send the marker. This is the direction that decides whether an outbound
+  prompt ends with `IAC EOR`.
+
+A server's usual handshake (`WILL` out, `DO` back) turns on only the second; a client's usual
+handshake (`WILL` in, `DO` out) turns on only the first. Neither implies the other, and a refusal of
+one leaves the other standing.
+
+`IsEOREnabled` reports whether either is on. It is the older, vaguer question, kept because that is
+what it always answered; prefer whichever of the two above matches the direction you mean.
+`EnableEORAsync()` and `DisableEORAsync()` drive `MarksOutboundRecords` by hand, for a server that
+wants to turn its own marker on or off mid-session.
+
+`SuppressGoAheadProtocol` splits the same way and for the same reason — see `IsGoAheadSuppressed`
+(the peer's direction) against `SuppressesOutboundGoAhead` (this end's), independent per RFC 858 §5.
 
 ## `SuppressGoAheadProtocol` (RFC 858)
 

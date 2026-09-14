@@ -22,7 +22,15 @@ public class EORProtocol : TelnetProtocolPluginBase
     private static readonly byte[] s_willEor = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TELOPT_EOR };
     private static readonly byte[] s_doEor = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR };
 
-    private bool? _doEOR = null;
+    // The peer's END-OF-RECORD state: whether the peer has agreed to send EOR when it transmits.
+    // Established by the peer's WILL/WONT, per RFC 885's "IAC WILL END-OF-RECORD: The sender of this
+    // command requests permission to begin transmission of the Telnet END-OF-RECORD (EOR) code".
+    private bool _peerMarksRecords;
+
+    // This end's own END-OF-RECORD state: whether this end has agreed to mark its own records.
+    // Established by the peer's DO/DONT, per RFC 885's "IAC DO END-OF-RECORD: The sender of this
+    // command requests that the sender of data start transmitting the EOR code".
+    private bool _marksOutboundRecords;
 
     private Func<ValueTask>? _onPromptReceived;
 
@@ -46,9 +54,54 @@ public class EORProtocol : TelnetProtocolPluginBase
 
 
     /// <summary>
-    /// Indicates whether EOR is enabled
+    /// Whether the peer has agreed to send <c>IAC EOR</c> when it transmits -- the direction that
+    /// decides whether an inbound <c>IAC EOR</c> still means a prompt.
     /// </summary>
-    public bool IsEOREnabled => _doEOR == true;
+    /// <remarks>
+    /// Set by the peer's <c>WILL</c> and cleared by its <c>WONT</c>. Independent of
+    /// <see cref="MarksOutboundRecords"/>, this end's own direction, because RFC 885 is explicit
+    /// that "the use of EORs must be negotiated independently for each direction".
+    /// </remarks>
+    public bool PeerMarksRecords => _peerMarksRecords;
+
+    /// <summary>
+    /// Whether <em>this</em> end has agreed to mark its own records with <c>IAC EOR</c> -- the
+    /// direction <c>TelnetInterpreter.PromptTerminator</c> needs when deciding whether an outbound
+    /// prompt may end with <c>IAC EOR</c>. Independent of <see cref="PeerMarksRecords"/>, the peer's
+    /// direction.
+    /// </summary>
+    /// <remarks>
+    /// Set by the peer's <c>DO</c> -- which asks this end to send the marker, not the other way
+    /// round: "IAC DO END-OF-RECORD: The sender of this command requests that the sender of data
+    /// start transmitting the EOR code when transmitting data" -- and cleared by its <c>DONT</c>.
+    /// </remarks>
+    public bool MarksOutboundRecords => _marksOutboundRecords;
+
+    /// <summary>
+    /// Whether EOR is in effect in either direction.
+    /// </summary>
+    /// <remarks>
+    /// The aggregate, and deliberately so: this is what the single flag behind it reported before the
+    /// two directions were separated, so a consumer reading it sees exactly the value it saw before.
+    /// It is the wrong question for either of the two decisions the library itself makes -- an
+    /// outbound prompt's terminator needs <see cref="MarksOutboundRecords"/>, and an inbound bare
+    /// <c>IAC EOR</c> needs <see cref="PeerMarksRecords"/> -- so prefer whichever of those matches
+    /// the direction you mean.
+    /// </remarks>
+    public bool IsEOREnabled => _peerMarksRecords || _marksOutboundRecords;
+
+    /// <summary>
+    /// Reports the aggregate to <see cref="TelnetProtocolPluginBase.OnNegotiatedAsync"/>, so that a
+    /// refusal in one direction does not clear <c>IsNegotiated</c> while the other is still live.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="MCCPProtocol"/> does the same for the same reason, and for the same reason it
+    /// cannot be skipped: <c>OnNegotiatedAsync</c> is transition-only, so handing it one direction's
+    /// own outcome would let the second direction to resolve stomp the first. A <c>WONT</c> arriving
+    /// after a <c>DO</c> would report "not negotiated" while this end is still, correctly, marking
+    /// every prompt it sends.
+    /// </remarks>
+    private ValueTask ReportNegotiatedAsync() => OnNegotiatedAsync(IsEOREnabled);
 
     /// <inheritdoc />
     public override Type ProtocolType => typeof(EORProtocol);
@@ -85,8 +138,11 @@ public class EORProtocol : TelnetProtocolPluginBase
     /// <inheritdoc />
     protected override ValueTask OnProtocolEnabledAsync()
     {
+        // No negotiated state written here. Enabling the plugin is not a negotiation, and writing
+        // "EOR is on" from a lifecycle hook fabricated an agreement no peer had made -- reachable by
+        // disabling and re-enabling the plugin through the manager. SuppressGoAheadProtocol's
+        // equivalents write nothing for the same reason.
         Context.Logger.LogInformation("EOR Protocol enabled");
-        _doEOR = true;
         return default(ValueTask);
     }
 
@@ -94,7 +150,6 @@ public class EORProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnProtocolDisabledAsync()
     {
         Context.Logger.LogInformation("EOR Protocol disabled");
-        _doEOR = false;
         return default(ValueTask);
     }
 
@@ -106,8 +161,8 @@ public class EORProtocol : TelnetProtocolPluginBase
         if (!IsEnabled)
             return default(ValueTask);
 
-        _doEOR = true;
-        Context.Logger.LogInformation("EOR enabled for connection");
+        _marksOutboundRecords = true;
+        Context.Logger.LogInformation("EOR enabled for this end's outbound records");
         return default(ValueTask);
     }
 
@@ -119,15 +174,16 @@ public class EORProtocol : TelnetProtocolPluginBase
         if (!IsEnabled)
             return default(ValueTask);
 
-        _doEOR = false;
-        Context.Logger.LogInformation("EOR disabled for connection");
+        _marksOutboundRecords = false;
+        Context.Logger.LogInformation("EOR disabled for this end's outbound records");
         return default(ValueTask);
     }
 
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
-        _doEOR = null;
+        _peerMarksRecords = false;
+        _marksOutboundRecords = false;
         return default(ValueTask);
     }
 
@@ -218,10 +274,10 @@ public class EORProtocol : TelnetProtocolPluginBase
     /// </remarks>
     private async ValueTask OnEORPromptAsync()
     {
-        if (!IsEOREnabled)
+        if (!PeerMarksRecords)
         {
             Context.Logger.LogTrace(
-                "EOR received while the END-OF-RECORD option is not in effect. Treating it as a NOP (RFC 885).");
+                "EOR received while the peer has not agreed to send it. Treating it as a NOP (RFC 885).");
             return;
         }
 
@@ -231,16 +287,16 @@ public class EORProtocol : TelnetProtocolPluginBase
 
     private async ValueTask OnDontEORAsync(IProtocolContext context)
     {
-        context.Logger.LogDebug("Client won't do EOR - do nothing");
-        _doEOR = false;
-        await OnNegotiatedAsync(false);
+        context.Logger.LogDebug("Peer does not want this end to mark records - leaving its own direction alone");
+        _marksOutboundRecords = false;
+        await ReportNegotiatedAsync();
     }
 
     private async ValueTask WontEORAsync(IProtocolContext context)
     {
-        context.Logger.LogDebug("Server won't do EOR - do nothing");
-        _doEOR = false;
-        await OnNegotiatedAsync(false);
+        context.Logger.LogDebug("Peer will not send EOR - leaving this end's own direction alone");
+        _peerMarksRecords = false;
+        await ReportNegotiatedAsync();
     }
 
     private async ValueTask WillingEORAsync(IProtocolContext context)
@@ -251,9 +307,9 @@ public class EORProtocol : TelnetProtocolPluginBase
 
     private async ValueTask OnDoEORAsync(IProtocolContext context)
     {
-        context.Logger.LogDebug("Peer agreed to End of Record.");
-        _doEOR = true;
-        await OnNegotiatedAsync(true);
+        context.Logger.LogDebug("Peer agreed to this end marking its records with End of Record.");
+        _marksOutboundRecords = true;
+        await ReportNegotiatedAsync();
     }
 
     /// <summary>
@@ -264,17 +320,17 @@ public class EORProtocol : TelnetProtocolPluginBase
     private async ValueTask OnAskedToSendEORAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Peer asked this end to mark records with End of Record. Agreeing.");
-        _doEOR = true;
-        await OnNegotiatedAsync(true);
+        _marksOutboundRecords = true;
+        await ReportNegotiatedAsync();
         await Helpers.OptionNegotiation.AnswerAsync(
             honour: true, (byte)Trigger.DO, (byte)Trigger.TELOPT_EOR, context);
     }
 
     private async ValueTask OnWillEORAsync(IProtocolContext context)
     {
-        context.Logger.LogDebug("Server supports End of Record.");
-        _doEOR = true;
-        await OnNegotiatedAsync(true);
+        context.Logger.LogDebug("Peer will send End of Record.");
+        _peerMarksRecords = true;
+        await ReportNegotiatedAsync();
         await context.SendNegotiationAsync(s_doEor);
     }
 
