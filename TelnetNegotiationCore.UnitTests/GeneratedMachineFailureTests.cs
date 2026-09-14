@@ -1,6 +1,11 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using StateAlchemist;
+using TelnetNegotiationCore.Builders;
+using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Machine;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -54,5 +59,40 @@ public class GeneratedMachineFailureTests
         await machine.StartAsync();
 
         await Assert.That(async () => await machine.FireAsync((byte)'a')).Throws<OperationCanceledException>();
+    }
+
+    [Test]
+    public async Task InterpreterLogsStructuredCompletedFailureAndContinues()
+    {
+        var logger = new CapturingLogger(NullLogger.Instance);
+        var fail = true;
+        var completed = 0;
+        await using var interpreter = await new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .OnSubmit((_, _, _) =>
+            {
+                if (fail)
+                {
+                    fail = false;
+                    throw new InvalidOperationException("submit failed");
+                }
+
+                completed++;
+                return ValueTask.CompletedTask;
+            })
+            .BuildAsync();
+
+        await interpreter.InterpretByteArrayAsync("first\nsecond\n"u8.ToArray());
+        await interpreter.WaitForProcessingAsync();
+
+        var errors = logger.Entries(LogLevel.Error);
+        await Assert.That(errors.Any(message =>
+            message.Contains("Completed failure", StringComparison.Ordinal) &&
+            message.Contains("TelnetCoreModule.EndOfLineInLine", StringComparison.Ordinal) &&
+            message.Contains("ReadingCharacters", StringComparison.Ordinal) &&
+            message.Contains("Idle", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(completed).IsEqualTo(1);
     }
 }
