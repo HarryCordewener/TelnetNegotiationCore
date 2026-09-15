@@ -32,9 +32,29 @@ itself. The library never invents a terminal, and never introduces your applicat
     .WithTerminalTypes("MUINDEX-CRAWLER", "MUINDEX", "MTTS 9")   // sent in this order
 ```
 
-**As a server**, registering the plugin is enough: it asks, and the answers arrive over the usual
-plugin state. `TerminalTypeProtocol.ObservedCapabilities(context)` reports the MTTS bits this library
-can see for itself on a connection.
+**As a server**, registering the plugin is enough: it asks, and the answers are exposed through
+`TerminalTypeProtocol.TerminalTypes` and `TelnetInterpreter.TerminalTypes`. To react as each answer
+arrives, register a callback:
+
+```csharp
+.AddPlugin<TerminalTypeProtocol>()
+    .OnTerminalTypes(types => HandleTerminalTypesAsync(types))
+```
+
+The default bundle has the same fluent configuration shape:
+
+```csharp
+.AddDefaultMUDProtocols()
+.OnTerminalTypes(types => HandleTerminalTypesAsync(types))
+```
+
+The callback receives the same read-only snapshot shape as those properties. It runs after every
+new answer and once more when the repeated final answer completes the cycle and expands an
+`MTTS <bitvector>` into capability names. The next `SEND` request is written before the callback is
+awaited, so callback latency cannot stall the negotiation round trip.
+
+`TerminalTypeProtocol.ObservedCapabilities(context)` reports the MTTS bits this library can see for
+itself on a connection.
 
 ## The 40-character limit
 

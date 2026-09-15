@@ -411,10 +411,13 @@ public class TelnetInterpreterBuilder
     {
         if (plugin == null)
             throw new ArgumentNullException(nameof(plugin));
-        
+
         _plugins.Add(plugin);
         return this;
     }
+
+    internal T? GetConfiguredPlugin<T>() where T : class, ITelnetProtocolPlugin =>
+        _plugins.OfType<T>().LastOrDefault();
 
     /// <summary>
     /// Builds the TelnetInterpreter instance with all configured plugins.
@@ -425,13 +428,13 @@ public class TelnetInterpreterBuilder
         // Validate required parameters
         if (_mode == TelnetInterpreter.TelnetMode.Error)
             throw new InvalidOperationException("Telnet mode must be set using UseMode()");
-        
+
         if (_logger == null)
             throw new InvalidOperationException("Logger must be set using UseLogger()");
-        
+
         if (_onSubmit == null)
             throw new InvalidOperationException("Submit callback must be set using OnSubmit()");
-        
+
         if (_onNegotiation == null)
             throw new InvalidOperationException("Negotiation callback must be set using OnNegotiation()");
 
