@@ -13,6 +13,82 @@ namespace TelnetNegotiationCore.UnitTests;
 public class GeneratedMachineTerminalTypeTests : BaseTest
 {
     [Test]
+    public async Task DefaultMudProtocolsRetainNullableNawsCallbackCall()
+    {
+        var builder = new TelnetInterpreterBuilder().AddDefaultMUDProtocols(null);
+
+        await Assert.That(builder).IsNotNull();
+    }
+
+    [Test]
+    public async Task ServerPublishesEachTerminalTypeSnapshotAndExpandedMttsCompletion()
+    {
+        var snapshots = new System.Collections.Generic.List<string[]>();
+        ValueTask CaptureTerminalTypes(System.Collections.Generic.IReadOnlyList<string> terminalTypes)
+        {
+            snapshots.Add([.. terminalTypes]);
+            return ValueTask.CompletedTask;
+        }
+
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddPlugin<TerminalTypeProtocol>()
+                .OnTerminalTypes(CaptureTerminalTypes));
+
+        await InterpretAndWaitAsync(server, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE });
+
+        foreach (var reported in new[] { "Mudlet", "MTTS 8", "Mudlet" })
+        {
+            await InterpretAndWaitAsync(server,
+            [
+                (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS,
+                .. Encoding.ASCII.GetBytes(reported),
+                (byte)Trigger.IAC, (byte)Trigger.SE
+            ]);
+        }
+
+        await Assert.That(snapshots.Count).IsEqualTo(3);
+        await Assert.That(snapshots[0]).IsEquivalentTo(["Mudlet"]);
+        await Assert.That(snapshots[1]).IsEquivalentTo(["Mudlet", "MTTS 8"]);
+        await Assert.That(snapshots[2]).IsEquivalentTo(["Mudlet", "256 COLORS"]);
+
+        await server.DisposeAsync();
+    }
+
+    [Test]
+    public async Task DefaultMudProtocolsExposeTerminalTypeSnapshots()
+    {
+        string[] snapshot = null;
+
+        var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server)
+            .UseLogger(logger)
+            .OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(_ => ValueTask.CompletedTask)
+            .AddDefaultMUDProtocols()
+            .OnTerminalTypes(terminalTypes =>
+            {
+                snapshot = [.. terminalTypes];
+                return ValueTask.CompletedTask;
+            }));
+
+        await InterpretAndWaitAsync(server, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE });
+        await InterpretAndWaitAsync(server,
+        [
+            (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.TTYPE, (byte)Trigger.IS,
+            .. Encoding.ASCII.GetBytes("Mudlet"),
+            (byte)Trigger.IAC, (byte)Trigger.SE
+        ]);
+
+        await Assert.That(snapshot).IsEquivalentTo(["Mudlet"]);
+
+        await server.DisposeAsync();
+    }
+
+    [Test]
     public async Task ServerRequestsTerminalTypeOnWill()
     {
         byte[] negotiationOutput = null;

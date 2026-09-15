@@ -23,7 +23,7 @@ if something is missing here it is a bug in this page.
 | `.UsePipe(IDuplexPipe)` / `.UseStream(Stream)` | Wire `OnNegotiation` to a transport and leave the read loop to you. See [Managing the read loop yourself](../guides/connection-management.md). |
 | `.AddPlugin<T>()` | Register a protocol plugin and open its configuration chain. |
 | `.AddPlugin(ITelnetProtocolPlugin)` | Register an instance you constructed yourself. |
-| `.AddDefaultMUDProtocols(…)` | NAWS, GMCP, MSDP, MSSP, TTYPE, CHARSET, EOR, SUPPRESS-GO-AHEAD and MXP in one call — plus Packet Patch when given an `onPrompt`. |
+| `.AddDefaultMUDProtocols(…)` | NAWS, GMCP, MSDP, MSSP, TTYPE, CHARSET, EOR, SUPPRESS-GO-AHEAD and MXP in one call — plus Packet Patch when given an `onPrompt`. Follow with `.OnTerminalTypes(types => …)` to configure TTYPE. |
 | `.BuildAsync()` | The interpreter, with no read loop started. |
 | `.BuildAndStartAsync(IDuplexPipe \| Stream \| TcpClient, ct)` | The interpreter and a `Task` that completes when the peer closes. |
 | `TelnetInterpreterBuilder.ReadFromPipeAsync(telnet, reader, ct)` | The read loop on its own, for a connection built with `BuildAsync`. |
@@ -39,7 +39,7 @@ Grouped by the plugin they configure.
 | `MSDPProtocol` | `.OnMSDPMessage((telnet, data) => …)`, `.OnMSDPMessageTooLarge(x => …)`, `.WithMaxMessageSize(bytes)` — see [MSDP](../protocols/msdp.md) |
 | `MSSPProtocol` | `.OnMSSP(config => …)`, `.OnMSSPMessageTooLarge(x => …)`, `.WithMSSPConfig(() => new MSSPConfig { … })`, `.WithMaxMessageSize(bytes)` — see [MSSP](../protocols/mssp.md) |
 | `MSSPPlaintextProtocol` | `.WithReplyTimeout(TimeSpan)` — see [Plaintext MSSP](../protocols/mssp.md#plaintext-mssp-mssp-request) |
-| `TerminalTypeProtocol` | `.WithTerminalTypes(params string[])` — see [TTYPE and MTTS](../protocols/terminal-type.md) |
+| `TerminalTypeProtocol` | `.WithTerminalTypes(params string[])`, `.OnTerminalTypes(types => …)` — see [TTYPE and MTTS](../protocols/terminal-type.md) |
 | `CharsetProtocol` | `.WithCharsetOrder(params Encoding[])`, `.OnCharsetChange(encoding => …)`, `.WithTTableSupport(bool)`, `.OnTTableReceived(data => …)`, `.OnTTableRequested(() => …)`, `.WithMaxTTableSize(bytes)` — see [CHARSET](../protocols/charset.md) |
 | `EORProtocol` | `.OnPrompt(() => …)` — see [Detecting prompts](../guides/prompts.md) |
 | `SuppressGoAheadProtocol` | `.OnPrompt(() => …)` |

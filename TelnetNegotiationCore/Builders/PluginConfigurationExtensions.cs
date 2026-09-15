@@ -62,6 +62,37 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets the Terminal Type callback in a fluent manner (RFC 1091 and MTTS).
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle the latest terminal type snapshot</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<TerminalTypeProtocol> OnTerminalTypes(
+        this PluginConfigurationContext<TerminalTypeProtocol> context,
+        Func<IReadOnlyList<string>, ValueTask>? callback)
+    {
+        context.Plugin.OnTerminalTypes(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the Terminal Type callback after a builder helper has registered the protocol.
+    /// </summary>
+    /// <param name="builder">The builder containing the Terminal Type protocol</param>
+    /// <param name="callback">The callback to handle the latest terminal type snapshot</param>
+    /// <returns>The builder for continued chaining</returns>
+    /// <exception cref="InvalidOperationException">The Terminal Type protocol is not registered.</exception>
+    public static TelnetInterpreterBuilder OnTerminalTypes(
+        this TelnetInterpreterBuilder builder,
+        Func<IReadOnlyList<string>, ValueTask>? callback)
+    {
+        var plugin = builder.GetConfiguredPlugin<TerminalTypeProtocol>()
+            ?? throw new InvalidOperationException("Terminal Type protocol must be registered before configuring it");
+        plugin.OnTerminalTypes(callback);
+        return builder;
+    }
+
+    /// <summary>
     /// Sets the variables this client sends when a server asks for them (RFC 1572, client mode), in
     /// a fluent manner. See <see cref="NewEnvironProtocol.WithClientEnvironmentVariables"/>.
     /// </summary>

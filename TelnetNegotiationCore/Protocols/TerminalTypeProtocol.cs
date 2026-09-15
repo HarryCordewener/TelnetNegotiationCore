@@ -31,11 +31,23 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     private ImmutableList<string> _configuredTerminalTypes = [];
     private MttsCapabilities _clientCapabilities = MttsCapabilities.None;
     private int _currentTerminalType = -1;
+    private Func<IReadOnlyList<string>, ValueTask>? _onTerminalTypes;
 
     /// <summary>
     /// A list of terminal types for this connection
     /// </summary>
     public ImmutableList<string> TerminalTypes => _terminalTypes;
+
+    /// <summary>
+    /// Sets the callback that is invoked when terminal type information is received.
+    /// </summary>
+    /// <param name="callback">The callback to handle the latest terminal type snapshot</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public TerminalTypeProtocol OnTerminalTypes(Func<IReadOnlyList<string>, ValueTask>? callback)
+    {
+        _onTerminalTypes = callback;
+        return this;
+    }
 
     /// <summary>
     /// The MTTS bitvector this client reports, in client mode: what the application claimed through
@@ -279,7 +291,7 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
         if (_terminalTypes.Contains(TType))
         {
             _currentTerminalType = (_currentTerminalType + 1) % _terminalTypes.Count;
-            
+
             var MTTS = _terminalTypes.FirstOrDefault(x => x.StartsWith("MTTS ", StringComparison.OrdinalIgnoreCase));
             if (MTTS != null)
             {
@@ -291,8 +303,10 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
 
             context.Logger.LogDebug("Connection: {ConnectionState}: {@TerminalTypes}",
                 "Completing Terminal Type negotiation. List as follows", _terminalTypes);
-                
+
             UpdateInterpreterProperties(context);
+
+            await NotifyTerminalTypesAsync();
         }
         else
         {
@@ -300,12 +314,16 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
                 "Registering Terminal Type. Requesting the next", TType);
             _terminalTypes = _terminalTypes.Add(TType);
             _currentTerminalType++;
-            
+
             UpdateInterpreterProperties(context);
-            
+
             await RequestTerminalTypeAsync(context);
+            await NotifyTerminalTypesAsync();
         }
     }
+
+    private ValueTask NotifyTerminalTypesAsync() =>
+        _onTerminalTypes?.Invoke(_terminalTypes) ?? default(ValueTask);
 
     private async ValueTask WillDoTerminalTypeAsync(IProtocolContext context)
     {
@@ -387,7 +405,7 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
 
         UpdateInterpreterProperties(context);
     }
-    
+
     /// <summary>
     /// The interpreter carries the same list and selection for consumers reading
     /// <see cref="Interpreters.TelnetInterpreter.TerminalTypes"/> and
