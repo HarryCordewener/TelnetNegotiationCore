@@ -2,6 +2,7 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Channels;
@@ -184,16 +185,14 @@ public partial class TelnetInterpreter : IAsyncDisposable
     private readonly CancellationTokenSource _processingCts = new();
 
     /// <summary>
-    /// Non-zero once a caller has claimed the shutdown in <see cref="DisposeAsync"/>.
+    /// The one shutdown task shared by every caller of <see cref="DisposeAsync"/>.
     /// </summary>
     /// <remarks>
-    /// An <see cref="Interlocked"/>-guarded <see cref="int"/> rather than a plain <c>bool</c>,
-    /// because the two callers most likely to race here run on different threads: the owner of the
-    /// connection, and the read loop that has just noticed the connection went away and is tearing
-    /// down what it was reading into. A check-then-set on a <c>bool</c> would let both of them
-    /// through and both would then try to complete the same channel.
+    /// Published before cleanup begins, so a concurrent caller joins the same work and observes the
+    /// same result instead of returning while resources are still live.
     /// </remarks>
-    private int _disposed;
+    private readonly object _disposeGate = new();
+    private Task? _disposeTask;
 
     /// <summary>
     /// Cancelled when the interpreter is disposed. Protocols that run their own background timers
@@ -262,6 +261,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// The Logger
     /// </summary>
     private readonly ILogger _logger;
+    private readonly IDisposable? _loggerScope;
 
     public enum TelnetMode
     {
@@ -300,7 +300,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
     {
         Mode = mode;
         _logger = logger;
-        logger.BeginScope(new Dictionary<string, object> { { "TelnetMode", mode } });
+        _loggerScope = logger.BeginScope(new Dictionary<string, object> { { "TelnetMode", mode } });
 
         _initialCall = [];
 
@@ -639,6 +639,25 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
             previous = _outboundTransform;
             _outboundTransform = transform;
+        }
+        catch (Exception installationFailure)
+        {
+            try
+            {
+                if (!ReferenceEquals(_outboundTransform, transform))
+                {
+                    transform?.Dispose();
+                }
+            }
+            catch (Exception disposalFailure)
+            {
+                throw new AggregateException(
+                    "Installing the outbound transform failed, and releasing it also failed.",
+                    installationFailure, disposalFailure);
+            }
+
+            ExceptionDispatchInfo.Capture(installationFailure).Throw();
+            throw;
         }
         finally
         {
@@ -1030,27 +1049,76 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// early by hand. Without the guard the second call did not merely repeat the work, it threw —
     /// <see cref="System.Threading.Channels.ChannelWriter{T}.Complete"/> on an already-completed
     /// channel, and then cancellation on an already-disposed
-    /// <see cref="CancellationTokenSource"/>. The first caller performs the whole shutdown; anyone
-    /// arriving after it returns having done nothing.
+    /// <see cref="CancellationTokenSource"/>. The first caller starts the shutdown; anyone arriving
+    /// later joins the same task and observes the same result.
+    /// All owned resources are given an opportunity to dispose when one cleanup step fails. A
+    /// single failure is rethrown unchanged; multiple failures are reported together in an
+    /// <see cref="AggregateException"/> after cleanup finishes.
     /// </remarks>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        lock (_disposeGate)
         {
-            return;
-        }
+            if (_disposeTask is not null)
+            {
+                return new ValueTask(_disposeTask);
+            }
 
-        _byteChannel.Writer.Complete();  // Signal no more data
-        
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _disposeTask = completion.Task;
+            _ = DisposeAndSignalAsync(completion);
+            return new ValueTask(_disposeTask);
+        }
+    }
+
+    private async Task DisposeAndSignalAsync(TaskCompletionSource<bool> completion)
+    {
+        try
+        {
+            await DisposeCoreAsync();
+            completion.SetResult(true);
+        }
+        catch (Exception ex)
+        {
+            completion.SetException(ex);
+        }
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        List<Exception>? failures = null;
+        _byteChannel.Writer.TryComplete();  // Signal no more data
+
 #if NET6_0_OR_GREATER
-        await _processingCts.CancelAsync();  // Cancel processing
+        try
+        {
+            await _processingCts.CancelAsync();  // Cancel processing
+        }
+        catch (Exception ex)
+        {
+            (failures ??= []).Add(ex);
+        }
 #else
-        _processingCts.Cancel();
+        try
+        {
+            _processingCts.Cancel();
+        }
+        catch (Exception ex)
+        {
+            (failures ??= []).Add(ex);
+        }
 #endif
 
         // Let the keep-alive loop observe the cancellation and finish any write it already started,
         // BEFORE the write lock and the token source it uses are disposed.
-        await StopKeepAliveAsync();
+        try
+        {
+            await StopKeepAliveAsync();
+        }
+        catch (Exception ex)
+        {
+            (failures ??= []).Add(ex);
+        }
 
         if (_processingTask != null)
         {
@@ -1062,22 +1130,85 @@ public partial class TelnetInterpreter : IAsyncDisposable
             {
                 // Expected
             }
+            catch (Exception ex)
+            {
+                (failures ??= []).Add(ex);
+            }
         }
-        
+
         // Plugins own unmanaged-ish state (MCCP's zlib streams, for one) and were never disposed.
         if (PluginManager is not null)
         {
-            await PluginManager.DisposeAllAsync();
+            try
+            {
+                await PluginManager.DisposeAllAsync();
+            }
+            catch (Exception ex)
+            {
+                (failures ??= []).Add(ex);
+            }
         }
 
         // The processing loop has stopped, so nothing can be inside a decoder any more, and
         // whatever it never got round to retiring is disposed here instead.
         SetInboundByteTransform(null);
-        DisposeRetiredInboundTransforms();
+        _hasRetiredInboundTransforms = false;
+        while (_retiredInboundTransforms.TryDequeue(out var retired))
+        {
+            try
+            {
+                retired.Dispose();
+            }
+            catch (Exception ex)
+            {
+                (failures ??= []).Add(ex);
+            }
+        }
 
-        await SetOutboundByteTransformAsync(null);
+        try
+        {
+            await SetOutboundByteTransformAsync(null);
+        }
+        catch (Exception ex)
+        {
+            (failures ??= []).Add(ex);
+        }
 
-        _processingCts.Dispose();
-        _writeLock.Dispose();
+        try
+        {
+            _processingCts.Dispose();
+        }
+        catch (Exception ex)
+        {
+            (failures ??= []).Add(ex);
+        }
+
+        try
+        {
+            _writeLock.Dispose();
+        }
+        catch (Exception ex)
+        {
+            (failures ??= []).Add(ex);
+        }
+
+        try
+        {
+            _loggerScope?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            (failures ??= []).Add(ex);
+        }
+
+        if (failures is [var failure])
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+
+        if (failures is { Count: > 1 })
+        {
+            throw new AggregateException("Multiple failures occurred while disposing the interpreter.", failures);
+        }
     }
 }

@@ -176,7 +176,13 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
-    protected override async ValueTask OnDisposeAsync() => await DisableCompressionAsync();
+    protected override async ValueTask OnDisposeAsync()
+    {
+        if (IsInitialized)
+        {
+            await DisableCompressionAsync();
+        }
+    }
 
     /// <summary>
     /// Starts inflating everything the peer sends from here on, using one zlib stream for the rest
