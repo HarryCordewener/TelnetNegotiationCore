@@ -624,12 +624,15 @@ public partial class TelnetInterpreter : IAsyncDisposable
         ReadOnlyMemory<byte> sendFirst = default,
         CancellationToken cancellationToken = default)
     {
-        IOutboundByteTransform? previous;
+        IOutboundByteTransform? previous = null;
         var wrote = false;
+        var acquired = false;
 
-        await _writeLock.WaitAsync(cancellationToken);
         try
         {
+            await _writeLock.WaitAsync(cancellationToken);
+            acquired = true;
+
             if (!sendFirst.IsEmpty && CallbackNegotiationAsync is not null)
             {
                 var current = _outboundTransform;
@@ -661,7 +664,10 @@ public partial class TelnetInterpreter : IAsyncDisposable
         }
         finally
         {
-            _writeLock.Release();
+            if (acquired)
+            {
+                _writeLock.Release();
+            }
 
             if (wrote)
             {

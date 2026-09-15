@@ -337,9 +337,9 @@ public class TelnetInterpreterBuilder
             var readTask = ReadFromOwnedPipeAsync(interpreter, reader, cancellationToken);
             return (interpreter, readTask);
         }
-        catch
+        catch (Exception buildFailure)
         {
-            await reader.CompleteAsync();
+            await CompleteOwnedReaderAsync(reader, buildFailure);
             throw;
         }
     }
@@ -361,13 +361,35 @@ public class TelnetInterpreterBuilder
         PipeReader reader,
         CancellationToken cancellationToken)
     {
+        Exception? readFailure = null;
         try
         {
             await ReadFromPipeAsync(interpreter, reader, cancellationToken);
         }
-        finally
+        catch (Exception ex)
         {
-            await reader.CompleteAsync();
+            readFailure = ex;
+        }
+
+        await CompleteOwnedReaderAsync(reader, readFailure);
+    }
+
+    private static async ValueTask CompleteOwnedReaderAsync(PipeReader reader, Exception? primaryFailure = null)
+    {
+        try
+        {
+            await reader.CompleteAsync(primaryFailure);
+        }
+        catch (Exception cleanupFailure) when (primaryFailure is not null)
+        {
+            throw new AggregateException(
+                "Reading the transport failed, and releasing its pipe adapter also failed.",
+                primaryFailure, cleanupFailure);
+        }
+
+        if (primaryFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
         }
     }
 

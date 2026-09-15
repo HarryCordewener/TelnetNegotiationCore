@@ -18,6 +18,8 @@ public class ProtocolPluginManager : IAsyncDisposable
     private readonly object _disposeGate = new();
     private Task? _disposeTask;
     private bool _isInitialized;
+    private bool _isConfiguring;
+    private bool _isInitializing;
 
     public ProtocolPluginManager(ILogger logger)
     {
@@ -38,6 +40,8 @@ public class ProtocolPluginManager : IAsyncDisposable
 
             if (_isInitialized)
                 throw new InvalidOperationException("Cannot register plugins after initialization");
+            if (_isConfiguring || _isInitializing)
+                throw new InvalidOperationException("Cannot register plugins while plugin setup is running");
 
             var type = plugin.ProtocolType;
             if (_plugins.ContainsKey(type))
@@ -107,23 +111,42 @@ public class ProtocolPluginManager : IAsyncDisposable
     /// <param name="context">The protocol context</param>
     public async ValueTask InitializePluginsAsync(IProtocolContext context)
     {
-        if (_isInitialized)
-            throw new InvalidOperationException("Plugins already initialized");
-
-        _logger.LogInformation("Initializing {PluginCount} plugins with dependency resolution", _plugins.Count);
-
-        EnsureInitializationOrder();
-
-        // Initialize plugins in dependency order
-        foreach (var pluginType in _initializationOrder)
+        lock (_disposeGate)
         {
-            var plugin = _plugins[pluginType];
-            _logger.LogDebug("Initializing plugin: {PluginName}", plugin.ProtocolName);
-            await plugin.InitializeAsync(context);
+            if (_disposeTask is not null)
+                throw new ObjectDisposedException(nameof(ProtocolPluginManager));
+            if (_isInitialized)
+                throw new InvalidOperationException("Plugins already initialized");
+            if (_isConfiguring || _isInitializing)
+                throw new InvalidOperationException("Plugin setup is already running");
+
+            _isInitializing = true;
         }
 
-        _isInitialized = true;
-        _logger.LogInformation("All plugins initialized successfully");
+        try
+        {
+            _logger.LogInformation("Initializing {PluginCount} plugins with dependency resolution", _plugins.Count);
+
+            EnsureInitializationOrder();
+
+            // Initialize plugins in dependency order
+            foreach (var pluginType in _initializationOrder)
+            {
+                var plugin = _plugins[pluginType];
+                _logger.LogDebug("Initializing plugin: {PluginName}", plugin.ProtocolName);
+                await plugin.InitializeAsync(context);
+            }
+
+            _isInitialized = true;
+            _logger.LogInformation("All plugins initialized successfully");
+        }
+        finally
+        {
+            lock (_disposeGate)
+            {
+                _isInitializing = false;
+            }
+        }
     }
 
     /// <summary>
@@ -133,21 +156,41 @@ public class ProtocolPluginManager : IAsyncDisposable
     /// <param name="context">The protocol context</param>
     public void ConfigureStateMachines(IProtocolContext context)
     {
-        _logger.LogInformation("Configuring state machines for {PluginCount} plugins", _plugins.Count);
-
-        // Computed here rather than left to whichever of this method or InitializePluginsAsync runs
-        // first: both need the same dependency order, and the builder calls this one first, so relying
-        // on InitializePluginsAsync to have computed it already would silently fall back to
-        // registration order every time, contradicting this method's own contract.
-        EnsureInitializationOrder();
-
-        foreach (var pluginType in _initializationOrder)
+        lock (_disposeGate)
         {
-            var plugin = _plugins[pluginType];
-            _logger.LogDebug("Configuring state machine for: {PluginName}", plugin.ProtocolName);
+            if (_disposeTask is not null)
+                throw new ObjectDisposedException(nameof(ProtocolPluginManager));
+            if (_isConfiguring || _isInitializing)
+                throw new InvalidOperationException("Plugin setup is already running");
 
-            // Every real plugin extends TelnetProtocolPluginBase, which is where this hook lives.
-            (plugin as TelnetProtocolPluginBase)?.ConfigureStateMachine(context);
+            _isConfiguring = true;
+        }
+
+        try
+        {
+            _logger.LogInformation("Configuring state machines for {PluginCount} plugins", _plugins.Count);
+
+            // Computed here rather than left to whichever of this method or InitializePluginsAsync runs
+            // first: both need the same dependency order, and the builder calls this one first, so relying
+            // on InitializePluginsAsync to have computed it already would silently fall back to
+            // registration order every time, contradicting this method's own contract.
+            EnsureInitializationOrder();
+
+            foreach (var pluginType in _initializationOrder)
+            {
+                var plugin = _plugins[pluginType];
+                _logger.LogDebug("Configuring state machine for: {PluginName}", plugin.ProtocolName);
+
+                // Every real plugin extends TelnetProtocolPluginBase, which is where this hook lives.
+                (plugin as TelnetProtocolPluginBase)?.ConfigureStateMachine(context);
+            }
+        }
+        finally
+        {
+            lock (_disposeGate)
+            {
+                _isConfiguring = false;
+            }
         }
     }
 
@@ -236,6 +279,9 @@ public class ProtocolPluginManager : IAsyncDisposable
     {
         lock (_disposeGate)
         {
+            if (_isConfiguring || _isInitializing)
+                throw new InvalidOperationException("Cannot dispose plugins while plugin setup is running");
+
             if (_disposeTask is not null)
             {
                 return new ValueTask(_disposeTask);

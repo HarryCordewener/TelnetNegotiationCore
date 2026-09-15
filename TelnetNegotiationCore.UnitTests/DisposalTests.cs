@@ -156,6 +156,30 @@ public class DisposalTests : BaseTest
 		}
 	}
 
+	private sealed class BlockingInitializationProtocol(TaskCompletionSource entered, TaskCompletionSource release)
+		: TelnetProtocolPluginBase
+	{
+		public override Type ProtocolType => typeof(BlockingInitializationProtocol);
+		public override string ProtocolName => "Blocking initialization probe";
+		protected override async ValueTask OnInitializeAsync()
+		{
+			entered.SetResult();
+			await release.Task;
+		}
+	}
+
+	private sealed class BlockingConfigurationProtocol(TaskCompletionSource entered, ManualResetEventSlim release)
+		: TelnetProtocolPluginBase
+	{
+		public override Type ProtocolType => typeof(BlockingConfigurationProtocol);
+		public override string ProtocolName => "Blocking configuration probe";
+		public override void ConfigureStateMachine(IProtocolContext context)
+		{
+			entered.SetResult();
+			release.Wait();
+		}
+	}
+
 	private sealed class CountingOutboundTransform : IOutboundByteTransform
 	{
 		public int Disposals { get; private set; }
@@ -469,6 +493,65 @@ public class DisposalTests : BaseTest
 				await interpreter.SetOutboundByteTransformAsync(transform, new byte[] { 1 }))
 			.Throws<IOException>();
 		await Assert.That(transform.Disposals).IsEqualTo(1);
+		await interpreter.DisposeAsync();
+	}
+
+	[Test]
+	public async Task CancelledTransformInstallationDisposesTheUnacceptedTransform()
+	{
+		var transform = new CountingOutboundTransform();
+		var interpreter = await BuildInterpreterAsync();
+		using var cancellation = new CancellationTokenSource();
+		cancellation.Cancel();
+
+		await Assert.That(async () =>
+				await interpreter.SetOutboundByteTransformAsync(transform, cancellationToken: cancellation.Token))
+			.Throws<OperationCanceledException>();
+		await Assert.That(transform.Disposals).IsEqualTo(1);
+		await interpreter.DisposeAsync();
+	}
+
+	[Test]
+	public async Task RegistrationAndDisposalAreRejectedDuringInitialization()
+	{
+		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var manager = new ProtocolPluginManager(logger);
+		manager.RegisterPlugin(new BlockingInitializationProtocol(entered, release));
+		var interpreter = await BuildInterpreterAsync();
+		var context = new ProtocolContext(interpreter, manager, logger);
+		var initialization = manager.InitializePluginsAsync(context).AsTask();
+		await entered.Task;
+
+		await Assert.That(() => manager.RegisterPlugin(new DisposalProbeProtocol()))
+			.Throws<InvalidOperationException>();
+		await Assert.That(async () => await manager.DisposeAsync()).Throws<InvalidOperationException>();
+
+		release.SetResult();
+		await initialization;
+		await manager.DisposeAsync();
+		await interpreter.DisposeAsync();
+	}
+
+	[Test]
+	public async Task RegistrationAndDisposalAreRejectedDuringConfiguration()
+	{
+		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var release = new ManualResetEventSlim();
+		var manager = new ProtocolPluginManager(logger);
+		manager.RegisterPlugin(new BlockingConfigurationProtocol(entered, release));
+		var interpreter = await BuildInterpreterAsync();
+		var context = new ProtocolContext(interpreter, manager, logger);
+		var configuration = Task.Run(() => manager.ConfigureStateMachines(context));
+		await entered.Task;
+
+		await Assert.That(() => manager.RegisterPlugin(new DisposalProbeProtocol()))
+			.Throws<InvalidOperationException>();
+		await Assert.That(async () => await manager.DisposeAsync()).Throws<InvalidOperationException>();
+
+		release.Set();
+		await configuration;
+		await manager.DisposeAsync();
 		await interpreter.DisposeAsync();
 	}
 }
