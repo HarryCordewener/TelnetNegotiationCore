@@ -18,6 +18,9 @@ public abstract class TelnetProtocolPluginBase : ITelnetProtocolPlugin, IAsyncDi
     /// </summary>
     protected IProtocolContext Context => _context ?? throw new InvalidOperationException("Plugin not initialized");
 
+    /// <summary>Whether <see cref="InitializeAsync"/> has supplied this plugin's context.</summary>
+    protected bool IsInitialized => _context is not null;
+
     /// <inheritdoc />
     public abstract Type ProtocolType { get; }
 

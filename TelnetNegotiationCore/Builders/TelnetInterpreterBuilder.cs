@@ -4,6 +4,8 @@ using System.IO;
 using System.IO.Pipelines;
 using System.Linq;
 using System.Net.Sockets;
+using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -267,8 +269,7 @@ public class TelnetInterpreterBuilder
 
     /// <summary>
     /// Configures the interpreter to use a <see cref="Stream"/> for network I/O,
-    /// automatically wiring up the negotiation write callback to a <see cref="PipeWriter"/>
-    /// created from the stream. After calling <see cref="BuildAsync"/>, use
+    /// automatically wiring up the negotiation write callback to the stream. After calling <see cref="BuildAsync"/>, use
     /// <see cref="ReadFromPipeAsync"/> with a <see cref="PipeReader"/> created from the
     /// same stream, or use <see cref="BuildAndStartAsync(Stream, CancellationToken)"/>
     /// which does both in one step.
@@ -279,8 +280,7 @@ public class TelnetInterpreterBuilder
     {
         if (stream == null)
             throw new ArgumentNullException(nameof(stream));
-        var writer = PipeWriter.Create(stream);
-        _onNegotiation = async data => await writer.WriteAsync(data);
+        _onNegotiation = data => WriteToStreamAsync(stream, data);
         return this;
     }
 
@@ -311,9 +311,9 @@ public class TelnetInterpreterBuilder
 
     /// <summary>
     /// Builds the interpreter and starts the network read loop from the given
-    /// <see cref="Stream"/>. <see cref="PipeReader"/> and <see cref="PipeWriter"/> are
-    /// created directly from the stream, and the negotiation write callback is automatically
-    /// wired to the writer. You do not need to call <see cref="UseStream"/> or
+    /// <see cref="Stream"/>. A <see cref="PipeReader"/> is created for input, and the negotiation
+    /// write callback is wired directly to the stream. The adapter is released when reading ends,
+    /// while the caller-owned stream remains open. You do not need to call <see cref="UseStream"/> or
     /// <see cref="OnNegotiation"/> separately.
     /// </summary>
     /// <param name="stream">The stream to use for network I/O (e.g. <see cref="NetworkStream"/>)</param>
@@ -329,12 +329,68 @@ public class TelnetInterpreterBuilder
         if (stream == null)
             throw new ArgumentNullException(nameof(stream));
 
-        var reader = PipeReader.Create(stream);
-        var writer = PipeWriter.Create(stream);
-        _onNegotiation = async data => await writer.WriteAsync(data);
-        var interpreter = await BuildAsync();
-        var readTask = ReadFromPipeAsync(interpreter, reader, cancellationToken);
-        return (interpreter, readTask);
+        var reader = PipeReader.Create(stream, new StreamPipeReaderOptions(leaveOpen: true));
+        _onNegotiation = data => WriteToStreamAsync(stream, data);
+        try
+        {
+            var interpreter = await BuildAsync();
+            var readTask = ReadFromOwnedPipeAsync(interpreter, reader, cancellationToken);
+            return (interpreter, readTask);
+        }
+        catch (Exception buildFailure)
+        {
+            await CompleteOwnedReaderAsync(reader, buildFailure);
+            throw;
+        }
+    }
+
+    private static async ValueTask WriteToStreamAsync(Stream stream, ReadOnlyMemory<byte> data)
+    {
+        if (MemoryMarshal.TryGetArray(data, out var segment) && segment.Array is not null)
+        {
+            await stream.WriteAsync(segment.Array, segment.Offset, segment.Count);
+            return;
+        }
+
+        var copy = data.ToArray();
+        await stream.WriteAsync(copy, 0, copy.Length);
+    }
+
+    private static async Task ReadFromOwnedPipeAsync(
+        TelnetInterpreter interpreter,
+        PipeReader reader,
+        CancellationToken cancellationToken)
+    {
+        Exception? readFailure = null;
+        try
+        {
+            await ReadFromPipeAsync(interpreter, reader, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            readFailure = ex;
+        }
+
+        await CompleteOwnedReaderAsync(reader, readFailure);
+    }
+
+    private static async ValueTask CompleteOwnedReaderAsync(PipeReader reader, Exception? primaryFailure = null)
+    {
+        try
+        {
+            await reader.CompleteAsync(primaryFailure);
+        }
+        catch (Exception cleanupFailure) when (primaryFailure is not null)
+        {
+            throw new AggregateException(
+                "Reading the transport failed, and releasing its pipe adapter also failed.",
+                primaryFailure, cleanupFailure);
+        }
+
+        if (primaryFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
+        }
     }
 
     /// <summary>
@@ -488,19 +544,38 @@ public class TelnetInterpreterBuilder
             context.SetSharedState(Models.ClientIdentity.SharedStateKey, _clientIdentity);
         }
 
-        // Run each plugin's ConfigureStateMachine hook BEFORE initialization, so any cross-cutting
-        // setup it registers (e.g. a server's initial negotiation offer) is in place first.
-        _pluginManager.ConfigureStateMachines(context);
+        try
+        {
+            // Run each plugin's ConfigureStateMachine hook BEFORE initialization, so any cross-cutting
+            // setup it registers (e.g. a server's initial negotiation offer) is in place first.
+            _pluginManager.ConfigureStateMachines(context);
 
-        // Initialize plugins in dependency order
-        await _pluginManager.InitializePluginsAsync(context);
+            // Initialize plugins in dependency order
+            await _pluginManager.InitializePluginsAsync(context);
 
-        await interpreter.StartGeneratedMachineAsync();
+            await interpreter.StartGeneratedMachineAsync();
 
-        // Build the interpreter (call existing BuildAsync if needed)
-        await interpreter.BuildAsync();
+            // Build the interpreter (call existing BuildAsync if needed)
+            await interpreter.BuildAsync();
 
-        return interpreter;
+            return interpreter;
+        }
+        catch (Exception buildFailure)
+        {
+            try
+            {
+                await interpreter.DisposeAsync();
+            }
+            catch (Exception disposalFailure)
+            {
+                throw new AggregateException(
+                    "Building the interpreter failed, and cleanup also reported a failure.",
+                    buildFailure, disposalFailure);
+            }
+
+            ExceptionDispatchInfo.Capture(buildFailure).Throw();
+            throw;
+        }
     }
 
     /// <summary>

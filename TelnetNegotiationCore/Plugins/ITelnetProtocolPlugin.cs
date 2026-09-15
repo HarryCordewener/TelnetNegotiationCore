@@ -8,7 +8,7 @@ namespace TelnetNegotiationCore.Plugins;
 /// Interface for telnet protocol plugins.
 /// Each plugin represents a complete protocol implementation identified by its class type.
 /// </summary>
-public interface ITelnetProtocolPlugin
+public interface ITelnetProtocolPlugin : IAsyncDisposable
 {
     /// <summary>
     /// Gets the unique type identifier for this protocol plugin.
@@ -73,8 +73,4 @@ public interface ITelnetProtocolPlugin
     /// <param name="isNegotiated">True if the peer just agreed, false if it just refused or withdrew.</param>
     ValueTask OnNegotiatedAsync(bool isNegotiated);
 
-    /// <summary>
-    /// Disposes resources used by the protocol.
-    /// </summary>
-    ValueTask DisposeAsync();
 }

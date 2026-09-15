@@ -70,7 +70,7 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	/// Fires <see cref="OnTimerElapsed"/> once <see cref="HoldTime"/> has elapsed with no intervening
 	/// activity. Armed, disarmed and re-armed by <see cref="OnByteProcessedAsync"/>.
 	/// </summary>
-	private readonly Timer _timer;
+	private Timer? _timer;
 
 	/// <summary>
 	/// Tolerance for <see cref="OnTimerElapsed"/>'s staleness check, absorbing clock skew between an
@@ -99,12 +99,6 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 	private bool _initialized;
 
 	private Func<ValueTask>? _onPromptReceived;
-
-	/// <summary>Creates the plugin with <see cref="DefaultHoldTime"/>.</summary>
-	public PacketPatchProtocol()
-	{
-		_timer = new Timer(OnTimerElapsed, null, Timeout.Infinite, Timeout.Infinite);
-	}
 
 	/// <summary>
 	/// How long an unterminated fragment is held before it is called a prompt.
@@ -180,6 +174,8 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 			return;
 		}
 
+		_timer = new Timer(OnTimerElapsed, null, Timeout.Infinite, Timeout.Infinite);
+
 		Context.Logger.LogInformation(
 			"Packet Patch initialized: an unterminated fragment becomes a prompt after {HoldTime}.", HoldTime);
 
@@ -197,7 +193,7 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 
 		// Parameterless Dispose is safe to call more than once; OnTimerElapsed does no
 		// asynchronous work to wait for.
-		_timer.Dispose();
+		_timer?.Dispose();
 
 		// Server mode never registered anything in OnInitializeAsync.
 		if (!_initialized || Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
@@ -228,7 +224,7 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 		if (_initialized)
 		{
 			Interlocked.Exchange(ref _armDeadline, long.MaxValue);
-			_timer.Change(Timeout.Infinite, Timeout.Infinite);
+			_timer?.Change(Timeout.Infinite, Timeout.Infinite);
 			Context.Interpreter.SetByteProcessedHandler(null);
 			Context.Interpreter.SetInferredPromptHandler(null);
 		}
@@ -267,7 +263,7 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 		if (Context.Interpreter.HasSeenMarkedPrompt)
 		{
 			Interlocked.Exchange(ref _armDeadline, long.MaxValue);
-			_timer.Change(Timeout.Infinite, Timeout.Infinite);
+			_timer?.Change(Timeout.Infinite, Timeout.Infinite);
 			Context.Interpreter.SetByteProcessedHandler(null);
 			Context.Interpreter.SetInferredPromptHandler(null);
 			return default;
@@ -279,7 +275,7 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 			if (Interlocked.Read(ref _armDeadline) != long.MaxValue)
 			{
 				Interlocked.Exchange(ref _armDeadline, long.MaxValue);
-				_timer.Change(Timeout.Infinite, Timeout.Infinite);
+				_timer?.Change(Timeout.Infinite, Timeout.Infinite);
 			}
 
 			return default;
@@ -291,7 +287,7 @@ public class PacketPatchProtocol : TelnetProtocolPluginBase
 			hasPartialLine
 				? Stopwatch.GetTimestamp() + (long)(HoldTime.TotalSeconds * Stopwatch.Frequency)
 				: long.MaxValue);
-		_timer.Change(hasPartialLine ? HoldTime : Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+		_timer?.Change(hasPartialLine ? HoldTime : Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 		return default;
 	}
 

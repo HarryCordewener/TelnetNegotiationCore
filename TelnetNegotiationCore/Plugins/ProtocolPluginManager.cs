@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -9,12 +10,16 @@ namespace TelnetNegotiationCore.Plugins;
 /// <summary>
 /// Manages telnet protocol plugins including registration, dependency resolution, and lifecycle.
 /// </summary>
-public class ProtocolPluginManager
+public class ProtocolPluginManager : IAsyncDisposable
 {
     private readonly Dictionary<Type, ITelnetProtocolPlugin> _plugins = new();
     private readonly List<Type> _initializationOrder = new();
     private readonly ILogger _logger;
+    private readonly object _disposeGate = new();
+    private Task? _disposeTask;
     private bool _isInitialized;
+    private bool _isConfiguring;
+    private bool _isInitializing;
 
     public ProtocolPluginManager(ILogger logger)
     {
@@ -28,25 +33,28 @@ public class ProtocolPluginManager
     /// <param name="plugin">The plugin instance</param>
     public void RegisterPlugin<T>(T plugin) where T : class, ITelnetProtocolPlugin
     {
-        if (_isInitialized)
-            throw new InvalidOperationException("Cannot register plugins after initialization");
+        lock (_disposeGate)
+        {
+            if (_disposeTask is not null)
+                throw new ObjectDisposedException(nameof(ProtocolPluginManager));
 
-        var type = plugin.ProtocolType;
-        if (_plugins.ContainsKey(type))
-        {
-            _logger.LogWarning("Plugin {PluginType} already registered, replacing with new instance", type.Name);
-            _plugins[type] = plugin;
-        }
-        else
-        {
+            if (_isInitialized)
+                throw new InvalidOperationException("Cannot register plugins after initialization");
+            if (_isConfiguring || _isInitializing)
+                throw new InvalidOperationException("Cannot register plugins while plugin setup is running");
+
+            var type = plugin.ProtocolType;
+            if (_plugins.ContainsKey(type))
+                throw new InvalidOperationException($"Plugin {type.Name} is already registered");
+
             _plugins[type] = plugin;
             _logger.LogInformation("Registered plugin: {PluginName} ({PluginType})", plugin.ProtocolName, type.Name);
-        }
 
-        // Registration is still allowed at this point (only initialization closes it off), so a
-        // dependency order computed by an earlier ConfigureStateMachines/InitializePluginsAsync call
-        // would otherwise go stale and silently omit this plugin from both.
-        _initializationOrder.Clear();
+            // Registration is still allowed at this point (only initialization closes it off), so a
+            // dependency order computed by an earlier ConfigureStateMachines/InitializePluginsAsync call
+            // would otherwise go stale and silently omit this plugin from both.
+            _initializationOrder.Clear();
+        }
     }
 
     /// <summary>
@@ -103,23 +111,42 @@ public class ProtocolPluginManager
     /// <param name="context">The protocol context</param>
     public async ValueTask InitializePluginsAsync(IProtocolContext context)
     {
-        if (_isInitialized)
-            throw new InvalidOperationException("Plugins already initialized");
-
-        _logger.LogInformation("Initializing {PluginCount} plugins with dependency resolution", _plugins.Count);
-
-        EnsureInitializationOrder();
-
-        // Initialize plugins in dependency order
-        foreach (var pluginType in _initializationOrder)
+        lock (_disposeGate)
         {
-            var plugin = _plugins[pluginType];
-            _logger.LogDebug("Initializing plugin: {PluginName}", plugin.ProtocolName);
-            await plugin.InitializeAsync(context);
+            if (_disposeTask is not null)
+                throw new ObjectDisposedException(nameof(ProtocolPluginManager));
+            if (_isInitialized)
+                throw new InvalidOperationException("Plugins already initialized");
+            if (_isConfiguring || _isInitializing)
+                throw new InvalidOperationException("Plugin setup is already running");
+
+            _isInitializing = true;
         }
 
-        _isInitialized = true;
-        _logger.LogInformation("All plugins initialized successfully");
+        try
+        {
+            _logger.LogInformation("Initializing {PluginCount} plugins with dependency resolution", _plugins.Count);
+
+            EnsureInitializationOrder();
+
+            // Initialize plugins in dependency order
+            foreach (var pluginType in _initializationOrder)
+            {
+                var plugin = _plugins[pluginType];
+                _logger.LogDebug("Initializing plugin: {PluginName}", plugin.ProtocolName);
+                await plugin.InitializeAsync(context);
+            }
+
+            _isInitialized = true;
+            _logger.LogInformation("All plugins initialized successfully");
+        }
+        finally
+        {
+            lock (_disposeGate)
+            {
+                _isInitializing = false;
+            }
+        }
     }
 
     /// <summary>
@@ -129,21 +156,41 @@ public class ProtocolPluginManager
     /// <param name="context">The protocol context</param>
     public void ConfigureStateMachines(IProtocolContext context)
     {
-        _logger.LogInformation("Configuring state machines for {PluginCount} plugins", _plugins.Count);
-
-        // Computed here rather than left to whichever of this method or InitializePluginsAsync runs
-        // first: both need the same dependency order, and the builder calls this one first, so relying
-        // on InitializePluginsAsync to have computed it already would silently fall back to
-        // registration order every time, contradicting this method's own contract.
-        EnsureInitializationOrder();
-
-        foreach (var pluginType in _initializationOrder)
+        lock (_disposeGate)
         {
-            var plugin = _plugins[pluginType];
-            _logger.LogDebug("Configuring state machine for: {PluginName}", plugin.ProtocolName);
+            if (_disposeTask is not null)
+                throw new ObjectDisposedException(nameof(ProtocolPluginManager));
+            if (_isConfiguring || _isInitializing)
+                throw new InvalidOperationException("Plugin setup is already running");
 
-            // Every real plugin extends TelnetProtocolPluginBase, which is where this hook lives.
-            (plugin as TelnetProtocolPluginBase)?.ConfigureStateMachine(context);
+            _isConfiguring = true;
+        }
+
+        try
+        {
+            _logger.LogInformation("Configuring state machines for {PluginCount} plugins", _plugins.Count);
+
+            // Computed here rather than left to whichever of this method or InitializePluginsAsync runs
+            // first: both need the same dependency order, and the builder calls this one first, so relying
+            // on InitializePluginsAsync to have computed it already would silently fall back to
+            // registration order every time, contradicting this method's own contract.
+            EnsureInitializationOrder();
+
+            foreach (var pluginType in _initializationOrder)
+            {
+                var plugin = _plugins[pluginType];
+                _logger.LogDebug("Configuring state machine for: {PluginName}", plugin.ProtocolName);
+
+                // Every real plugin extends TelnetProtocolPluginBase, which is where this hook lives.
+                (plugin as TelnetProtocolPluginBase)?.ConfigureStateMachine(context);
+            }
+        }
+        finally
+        {
+            lock (_disposeGate)
+            {
+                _isConfiguring = false;
+            }
         }
     }
 
@@ -223,22 +270,84 @@ public class ProtocolPluginManager
     /// <summary>
     /// Disposes all plugins.
     /// </summary>
-    public async ValueTask DisposeAllAsync()
+    /// <remarks>
+    /// Every plugin is given an opportunity to dispose, even when an earlier plugin fails. A single
+    /// failure is rethrown unchanged; multiple failures are reported together in an
+    /// <see cref="AggregateException"/> after all plugins have been visited.
+    /// </remarks>
+    public ValueTask DisposeAllAsync()
+    {
+        lock (_disposeGate)
+        {
+            if (_isConfiguring || _isInitializing)
+                throw new InvalidOperationException("Cannot dispose plugins while plugin setup is running");
+
+            if (_disposeTask is not null)
+            {
+                return new ValueTask(_disposeTask);
+            }
+
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _disposeTask = completion.Task;
+            _ = DisposeAndSignalAsync(completion);
+            return new ValueTask(_disposeTask);
+        }
+    }
+
+    private async Task DisposeAndSignalAsync(TaskCompletionSource<bool> completion)
+    {
+        try
+        {
+            await DisposeAllCoreAsync();
+            completion.SetResult(true);
+        }
+        catch (Exception ex)
+        {
+            completion.SetException(ex);
+        }
+    }
+
+    private async Task DisposeAllCoreAsync()
     {
         _logger.LogInformation("Disposing all plugins");
 
+        List<Exception>? failures = null;
+        var disposalOrder = _initializationOrder.ToList();
+        var ordered = new HashSet<Type>(disposalOrder);
+        disposalOrder.AddRange(_plugins.Keys.Where(ordered.Add));
+
         // Dispose in reverse order
-        for (int i = _initializationOrder.Count - 1; i >= 0; i--)
+        for (int i = disposalOrder.Count - 1; i >= 0; i--)
         {
-            var pluginType = _initializationOrder[i];
+            var pluginType = disposalOrder[i];
             var plugin = _plugins[pluginType];
-            await plugin.DisposeAsync();
+            try
+            {
+                await plugin.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                (failures ??= []).Add(ex);
+            }
         }
 
         _plugins.Clear();
         _initializationOrder.Clear();
         _isInitialized = false;
+
+        if (failures is [var failure])
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+
+        if (failures is { Count: > 1 })
+        {
+            throw new AggregateException("Multiple plugins failed during disposal.", failures);
+        }
     }
+
+    /// <inheritdoc />
+    public ValueTask DisposeAsync() => DisposeAllAsync();
 
     private void ResolveDependencies(Type pluginType, HashSet<Type> resolved, HashSet<Type> visiting)
     {

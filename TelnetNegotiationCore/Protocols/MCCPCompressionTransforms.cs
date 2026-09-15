@@ -291,8 +291,14 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 	public void Dispose()
 	{
 #if !NETSTANDARD2_0
-		_inflater.Dispose();
-		_input.Dispose();
+		try
+		{
+			_inflater.Dispose();
+		}
+		finally
+		{
+			_input.Dispose();
+		}
 #endif
 	}
 
@@ -458,7 +464,13 @@ internal sealed class MCCPDeflateTransform : IOutboundByteTransform
 	/// <inheritdoc />
 	public void Dispose()
 	{
-		_deflater.Dispose();
-		_sink.Dispose();
+		try
+		{
+			_deflater.Dispose();
+		}
+		finally
+		{
+			_sink.Dispose();
+		}
 	}
 }
