@@ -18,8 +18,14 @@ All notable changes to this project will be documented in this file.
     Matched as PennMUSH matches it: the exact, case-sensitive `PUEBLOCLIENT ` with its trailing space.
   - `OnPuebloEnabled(PuebloClient)` fires once, carrying the announced version and the `md5="…"`
     checksum. `IsPuebloActive` and `Client` expose the same facts.
-  - **Adding the plugin is the opt-in**, since the hello is unsolicited text on every connection.
-    Server mode only.
+  - **The client half is there too, and is never automatic.** A client consumes the server's hello and
+    its start sequence and reports the offer through `OnPuebloOffered`, but sends nothing until the
+    consumer calls `AnnounceAsync(version, checksum)` — `PUEBLOCLIENT` is real text at a login prompt,
+    where a server without Pueblo reads it as a character name, so when to send it is a decision about
+    the connection. `OnPuebloEnabled` then fires when the server answers, and `ServerOffered` says
+    whether the offer arrived.
+  - **Adding the plugin is the opt-in**, since on a server the hello is unsolicited text on every
+    connection.
 
 ### Changed
 

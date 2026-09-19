@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Interpreters;
@@ -21,6 +22,7 @@ public class PuebloProtocolTests : BaseTest
 		public PuebloProtocol Pueblo => Interpreter.PluginManager!.GetPlugin<PuebloProtocol>()!;
 		public List<string> Submitted { get; } = [];
 		public List<PuebloClient> Enabled { get; } = [];
+		public int Offered;
 		private readonly StringBuilder _wired = new();
 
 		public void Write(ReadOnlyMemory<byte> data)
@@ -62,13 +64,19 @@ public class PuebloProtocolTests : BaseTest
 
 		if (withPueblo)
 		{
-			builder = builder.AddPlugin<PuebloProtocol>().OnPuebloEnabled(client =>
-			{
-				lock (peer.Enabled) peer.Enabled.Add(client);
-				return callbackThrows
-					? ValueTask.FromException(new InvalidOperationException("host failure"))
-					: ValueTask.CompletedTask;
-			});
+			builder = builder.AddPlugin<PuebloProtocol>()
+				.OnPuebloEnabled(client =>
+				{
+					lock (peer.Enabled) peer.Enabled.Add(client);
+					return callbackThrows
+						? ValueTask.FromException(new InvalidOperationException("host failure"))
+						: ValueTask.CompletedTask;
+				})
+				.OnPuebloOffered(() =>
+				{
+					Interlocked.Increment(ref peer.Offered);
+					return ValueTask.CompletedTask;
+				});
 		}
 
 		peer.Interpreter = await builder.BuildAsync();
@@ -161,6 +169,91 @@ public class PuebloProtocolTests : BaseTest
 
 		await Assert.That(peer.Wired).DoesNotContain(PuebloProtocol.Hello);
 	}
+
+	// ── The client half ─────────────────────────────────────────────────────────
+
+	/// <summary>
+	/// A client is told the server offers Pueblo and answers only when the consumer decides to:
+	/// <c>PUEBLOCLIENT</c> is real text at a login prompt, where a server without Pueblo reads it as a
+	/// character name.
+	/// </summary>
+	[Test]
+	public async Task AClient_IsToldOfTheOffer_AndSendsNothingOnItsOwn()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		await peer.FeedAsync(PuebloProtocol.Hello);
+
+		await Assert.That(peer.Pueblo.ServerOffered).IsTrue();
+		await Assert.That(peer.Offered).IsEqualTo(1);
+		await Assert.That(peer.Submitted).IsEmpty().Because("the hello is protocol, not content");
+		await Assert.That(peer.Wired).DoesNotContain("PUEBLOCLIENT");
+	}
+
+	[Test]
+	public async Task AClient_AnnouncesWhenAsked_AndReadsTheServersStartSequence()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		await peer.FeedAsync(PuebloProtocol.Hello);
+
+		await peer.Pueblo.AnnounceAsync("2.50", "0123456789abcdef");
+
+		await Assert.That(peer.Wired).Contains("PUEBLOCLIENT 2.50 md5=\"0123456789abcdef\"\r\n");
+
+		await peer.FeedAsync(PuebloProtocol.Start);
+
+		await Assert.That(peer.Pueblo.IsPuebloActive).IsTrue();
+		await Assert.That(peer.Submitted).IsEmpty().Because("the start sequence is protocol, not content");
+		await Assert.That(peer.Enabled).Count().IsEqualTo(1);
+		await Assert.That(peer.Enabled[0]).IsEqualTo(new PuebloClient("2.50", "0123456789abcdef"));
+	}
+
+	[Test]
+	public async Task AClient_AcceptsTheShortStartSequence_AndEnablesOnce()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		await peer.Pueblo.AnnounceAsync();
+
+		await peer.FeedAsync(PuebloProtocol.Restart);
+		await peer.FeedAsync(PuebloProtocol.Start);
+
+		await Assert.That(peer.Pueblo.IsPuebloActive).IsTrue();
+		await Assert.That(peer.Enabled).Count().IsEqualTo(1);
+	}
+
+	[Test]
+	public async Task AServer_RefusesToAnnounce()
+	{
+		var peer = await PeerAsync();
+
+		await Assert.That(async () => await peer.Pueblo.AnnounceAsync()).Throws<InvalidOperationException>();
+	}
+
+	[Test]
+	[Arguments("2 50", null)]
+	[Arguments("", null)]
+	[Arguments("2.50", "has space")]
+	[Arguments("2.50", "quote\"inside")]
+	public async Task AnAnnouncementCannotCarryWhitespaceOrAQuote(string version, string checksum)
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		await Assert.That(async () => await peer.Pueblo.AnnounceAsync(version, checksum)).Throws<ArgumentException>();
+	}
+
+	[Test]
+	public async Task AServerIgnoresTheHello_AndAClientIgnoresTheHandshake()
+	{
+		var server = await PeerAsync();
+		await server.FeedAsync(PuebloProtocol.Hello);
+		await Assert.That(server.Submitted).Contains(PuebloProtocol.Hello.TrimEnd('\r', '\n'));
+
+		var client = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		await client.FeedAsync("PUEBLOCLIENT 2.50\r\n");
+		await Assert.That(client.Submitted).Contains("PUEBLOCLIENT 2.50");
+	}
+
+	// ── Parsing ─────────────────────────────────────────────────────────────────
 
 	[Test]
 	[Arguments("PUEBLOCLIENT 2.50 md5=\"abc\"", "2.50", "abc")]

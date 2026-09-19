@@ -33,12 +33,25 @@ public sealed record PuebloClient(string Version, string? Checksum);
 /// client that thinks it is still showing raw HTML — is answered again without the clear-screen.
 /// </para>
 /// <para>
-/// <b>Adding this plugin is the opt-in</b>, as with <see cref="MSSPPlaintextProtocol"/>. The hello is
-/// unsolicited text on every connection, which a client without Pueblo shows on its first screen, and
-/// a line beginning <c>PUEBLOCLIENT </c> is consumed wherever it arrives in the session rather than
-/// reaching the application. Registering the plugin is the consent to both. Server mode only; in
-/// client mode it does nothing.
+/// <b>Adding this plugin is the opt-in</b>, as with <see cref="MSSPPlaintextProtocol"/>, and what it
+/// means differs by mode:
 /// </para>
+/// <list type="bullet">
+/// <item><description>
+/// <b>Server:</b> automatic. The hello goes out on every connection, where a client without Pueblo
+/// shows it on its first screen, and a line beginning <c>PUEBLOCLIENT </c> is consumed wherever it
+/// arrives in the session rather than reaching the application. Registering the plugin is the consent
+/// to both.
+/// </description></item>
+/// <item><description>
+/// <b>Client:</b> the server's hello and its start sequence are recognised and consumed, and
+/// <see cref="OnPuebloOffered"/> reports the offer — but nothing is sent until
+/// <see cref="AnnounceAsync"/> is called. Unlike a telnet option, which a server that does not
+/// implement it ignores, <c>PUEBLOCLIENT</c> is real text at a login prompt, where a server without
+/// Pueblo reads it as a character name. When that is worth doing is a decision about the connection,
+/// so the consumer makes it.
+/// </description></item>
+/// </list>
 /// <para>
 /// Only the handshake is here. Which markup to send once a client is in Pueblo mode, and what to do
 /// if it has also negotiated MXP, are the application's decisions — see
@@ -60,11 +73,21 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 	/// <summary>What a client already in Pueblo mode is sent again, without the clear.</summary>
 	public const string Restart = "</xch_mudtext><img xch_mode=purehtml>\n";
 
+	/// <summary>What <see cref="Start"/> and <see cref="Restart"/> share, which is how a client recognises either.</summary>
+	private const string StartPrefix = "</xch_mudtext><img xch_mode=purehtml";
+
 	/// <summary>The longest <c>md5</c> value kept, as PennMUSH's <c>PUEBLO_CHECKSUM_LEN</c>.</summary>
 	private const int MaxChecksumLength = 32;
 
+	/// <summary>What may not appear in a version or a checksum: the line is whitespace-delimited and the checksum quoted.</summary>
+	private static readonly char[] s_lineBreakers = [' ', '\t', '\r', '\n', '"'];
+
+	private volatile PuebloClient? _announced;
+
 	private Func<PuebloClient, ValueTask>? _onPuebloEnabled;
+	private Func<ValueTask>? _onPuebloOffered;
 	private volatile PuebloClient? _client;
+	private volatile bool _serverOffered;
 
 	/// <inheritdoc />
 	public override Type ProtocolType => typeof(PuebloProtocol);
@@ -78,20 +101,92 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 	/// <summary>The client, once it has sent <c>PUEBLOCLIENT</c>; <see langword="null"/> until then.</summary>
 	public PuebloClient? Client => _client;
 
-	/// <summary>Whether the client has answered the handshake and been switched to HTML mode.</summary>
+	/// <summary>
+	/// Whether this connection is in Pueblo mode: on a server, the client has answered the handshake and
+	/// been sent the start sequence; on a client, the server has sent it.
+	/// </summary>
 	public bool IsPuebloActive => _client is not null;
 
+	/// <summary>Client mode: whether the server has announced Pueblo with its hello.</summary>
+	public bool ServerOffered => _serverOffered;
+
 	/// <summary>
-	/// Called once, after the first <c>PUEBLOCLIENT</c> line has been answered with <see cref="Start"/>.
-	/// PennMUSH shows its connect screen again at this point, now in HTML; that is the application's
-	/// to do here.
+	/// Called once, when this connection enters Pueblo mode: on a server, after the first
+	/// <c>PUEBLOCLIENT</c> line has been answered with <see cref="Start"/>; on a client, when the server
+	/// sends that sequence in answer to <see cref="AnnounceAsync"/>. PennMUSH shows its connect screen
+	/// again at this point, now in HTML; that is the application's to do here.
 	/// </summary>
-	/// <param name="callback">Receives what the client said about itself.</param>
+	/// <param name="callback">
+	/// Receives the identity in play: what the client said about itself on a server, and what this
+	/// client announced on a client.
+	/// </param>
 	/// <returns>This instance for fluent chaining</returns>
 	public PuebloProtocol OnPuebloEnabled(Func<PuebloClient, ValueTask>? callback)
 	{
 		_onPuebloEnabled = callback;
 		return this;
+	}
+
+	/// <summary>
+	/// Client mode: called when the server announces Pueblo with its hello. Nothing is sent in reply
+	/// until <see cref="AnnounceAsync"/> is called, which is the decision this callback exists to
+	/// inform.
+	/// </summary>
+	/// <param name="callback">Called once, when the hello arrives.</param>
+	/// <returns>This instance for fluent chaining</returns>
+	public PuebloProtocol OnPuebloOffered(Func<ValueTask>? callback)
+	{
+		_onPuebloOffered = callback;
+		return this;
+	}
+
+	/// <summary>
+	/// Client mode: announces this client's Pueblo support with a <c>PUEBLOCLIENT</c> line. A server that
+	/// implements Pueblo answers with <see cref="Start"/>, at which point <see cref="IsPuebloActive"/> is
+	/// true and <see cref="OnPuebloEnabled"/> has run.
+	/// </summary>
+	/// <param name="version">The version to announce; PennMUSH reads the word after the command.</param>
+	/// <param name="checksum">An optional <c>md5</c> value, at most 32 characters.</param>
+	/// <exception cref="InvalidOperationException">
+	/// This interpreter is in server mode — a server answers this line rather than sending one — or the
+	/// plugin is disabled on this connection.
+	/// </exception>
+	/// <exception cref="ArgumentException"><paramref name="version"/> is empty, or either argument holds whitespace.</exception>
+	public async ValueTask AnnounceAsync(string version = "2.50", string? checksum = null)
+	{
+		if (Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+		{
+			throw new InvalidOperationException(
+				"A server answers PUEBLOCLIENT rather than sending one. AnnounceAsync is the client half of the handshake.");
+		}
+
+		if (!IsEnabled)
+		{
+			throw new InvalidOperationException(
+				$"{nameof(PuebloProtocol)} is disabled on this connection, so it will not send {ClientCommand.Trim()}.");
+		}
+
+		// The line is whitespace-delimited and the checksum is quoted, so neither may carry either: a
+		// space in the version would put the rest of it where the md5 goes, and a quote in the checksum
+		// would end the value early.
+		if (string.IsNullOrWhiteSpace(version) || version.IndexOfAny(s_lineBreakers) >= 0)
+		{
+			throw new ArgumentException("A version is one word, with no whitespace or quote in it.", nameof(version));
+		}
+
+		if (checksum is not null && (checksum.IndexOfAny(s_lineBreakers) >= 0 || checksum.Length > MaxChecksumLength))
+		{
+			throw new ArgumentException(
+				$"A checksum is at most {MaxChecksumLength} characters, with no whitespace or quote in it.", nameof(checksum));
+		}
+
+		var line = checksum is null
+			? $"{ClientCommand}{version}\r\n"
+			: $"{ClientCommand}{version} md5=\"{checksum}\"\r\n";
+
+		_announced = new PuebloClient(version, checksum);
+		Context.Logger.LogDebug("Announcing Pueblo support (version {Version})", version);
+		await Context.SendNegotiationAsync(Context.CurrentEncoding.GetBytes(line));
 	}
 
 	/// <inheritdoc />
@@ -101,16 +196,14 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 	/// </remarks>
 	public override void ConfigureStateMachine(IProtocolContext context)
 	{
-		if (context.Mode != Interpreters.TelnetInterpreter.TelnetMode.Server)
+		if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
 		{
-			return;
+			context.RegisterInitialNegotiation(async () =>
+			{
+				if (!IsEnabled) return;
+				await context.SendNegotiationAsync(Encoding.ASCII.GetBytes(Hello));
+			});
 		}
-
-		context.RegisterInitialNegotiation(async () =>
-		{
-			if (!IsEnabled) return;
-			await context.SendNegotiationAsync(Encoding.ASCII.GetBytes(Hello));
-		});
 
 		context.Interpreter.RegisterInputLineObserver(async (line, encoding) =>
 			await OnInputLineAsync(line, encoding, context) ? null : line);
@@ -127,6 +220,8 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 	protected override async ValueTask OnProtocolDisabledAsync()
 	{
 		_client = null;
+		_announced = null;
+		_serverOffered = false;
 		await OnNegotiatedAsync(false);
 	}
 
@@ -134,6 +229,8 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 	protected override ValueTask OnDisposeAsync()
 	{
 		_client = null;
+		_announced = null;
+		_serverOffered = false;
 		return default;
 	}
 
@@ -146,6 +243,12 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 		if (!IsEnabled) return false;
 
 		var text = encoding.GetString(line).TrimEnd('\r', '\n');
+
+		if (context.Mode != Interpreters.TelnetInterpreter.TelnetMode.Server)
+		{
+			return await OnServerLineAsync(text, context);
+		}
+
 		if (!text.StartsWith(ClientCommand, StringComparison.Ordinal)) return false;
 
 		if (_client is not null)
@@ -161,23 +264,57 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 		context.Logger.LogDebug("Client switched to Pueblo mode (version {Version})", client.Version);
 		await OnNegotiatedAsync(true);
 
-		if (_onPuebloEnabled is { } callback)
-		{
-			// The host's code, run inside byte processing. Contained and logged here, as CharsetProtocol
-			// contains its change callback, rather than left to the interpreter's generic catch: the
-			// client is in Pueblo mode either way, and only the notification was lost.
-			try
-			{
-				await callback(client).ConfigureAwait(false);
-			}
-			catch (Exception ex) when (ex is not OperationCanceledException)
-			{
-				context.Logger.LogError(ex,
-					"The Pueblo-enabled callback threw. The client is in Pueblo mode; only the notification was lost.");
-			}
-		}
+		await InvokeAsync(_onPuebloEnabled is { } callback ? () => callback(client) : null, context);
 
 		return true;
+	}
+
+	/// <summary>
+	/// Client mode: the server's hello, and the start sequence that answers our own announcement. Both
+	/// are protocol rather than content, so both are consumed.
+	/// </summary>
+	private async ValueTask<bool> OnServerLineAsync(string text, IProtocolContext context)
+	{
+		if (text.StartsWith(Hello.TrimEnd('\r', '\n'), StringComparison.Ordinal))
+		{
+			_serverOffered = true;
+			context.Logger.LogDebug("Server announced Pueblo");
+			await InvokeAsync(_onPuebloOffered is { } offered ? () => offered() : null, context);
+			return true;
+		}
+
+		// PennMUSH sends the long form on the first PUEBLOCLIENT and the short one on a repeat; both
+		// begin the same way, and both mean the same thing here.
+		if (!text.StartsWith(StartPrefix, StringComparison.Ordinal)) return false;
+
+		context.Logger.LogDebug("Server switched this connection to Pueblo mode");
+		if (_client is not null) return true;
+
+		var announced = _announced ?? new PuebloClient(string.Empty, null);
+		_client = announced;
+		await OnNegotiatedAsync(true);
+		await InvokeAsync(_onPuebloEnabled is { } enabled ? () => enabled(announced) : null, context);
+		return true;
+	}
+
+	/// <summary>
+	/// Runs a host callback where a throw would otherwise reach byte processing. Contained and logged
+	/// here, as <c>CharsetProtocol</c> contains its change callback: the connection is in Pueblo mode
+	/// either way, and only the notification was lost.
+	/// </summary>
+	private static async ValueTask InvokeAsync(Func<ValueTask>? callback, IProtocolContext context)
+	{
+		if (callback is null) return;
+
+		try
+		{
+			await callback().ConfigureAwait(false);
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException)
+		{
+			context.Logger.LogError(ex,
+				"A Pueblo callback threw. The connection is in Pueblo mode; only the notification was lost.");
+		}
 	}
 
 	/// <summary>
