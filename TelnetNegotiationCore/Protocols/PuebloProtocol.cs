@@ -163,7 +163,18 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 
 		if (_onPuebloEnabled is { } callback)
 		{
-			await callback(client).ConfigureAwait(false);
+			// The host's code, run inside byte processing. Contained and logged here, as CharsetProtocol
+			// contains its change callback, rather than left to the interpreter's generic catch: the
+			// client is in Pueblo mode either way, and only the notification was lost.
+			try
+			{
+				await callback(client).ConfigureAwait(false);
+			}
+			catch (Exception ex) when (ex is not OperationCanceledException)
+			{
+				context.Logger.LogError(ex,
+					"The Pueblo-enabled callback threw. The client is in Pueblo mode; only the notification was lost.");
+			}
 		}
 
 		return true;

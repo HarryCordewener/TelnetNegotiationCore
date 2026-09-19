@@ -33,7 +33,7 @@ MSDP, MSSP, TTYPE, CHARSET, EOR, SUPPRESS-GO-AHEAD and MXP — in one call.
 ## What is not here
 
 Being a telnet negotiation library, this one does not implement the **content** layers that ride on
-top of a negotiated option: ANSI, Pueblo, and MXP's own tags and entities are the host application's
+top of telnet: ANSI, Pueblo, and MXP's own tags and entities are the host application's
 to render. MXP is negotiated (option 91 and its start marker), and Pueblo is handshaken (the hello,
 `PUEBLOCLIENT` and the start sequence); neither's markup is parsed or written.
 

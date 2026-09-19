@@ -40,7 +40,10 @@ public class PuebloProtocolTests : BaseTest
 		}
 	}
 
-	private static async Task<Peer> PeerAsync(TelnetInterpreter.TelnetMode mode = TelnetInterpreter.TelnetMode.Server, bool withPueblo = true)
+	private static async Task<Peer> PeerAsync(
+		TelnetInterpreter.TelnetMode mode = TelnetInterpreter.TelnetMode.Server,
+		bool withPueblo = true,
+		bool callbackThrows = false)
 	{
 		var peer = new Peer();
 		TelnetInterpreterBuilder builder = new TelnetInterpreterBuilder()
@@ -62,7 +65,9 @@ public class PuebloProtocolTests : BaseTest
 			builder = builder.AddPlugin<PuebloProtocol>().OnPuebloEnabled(client =>
 			{
 				lock (peer.Enabled) peer.Enabled.Add(client);
-				return ValueTask.CompletedTask;
+				return callbackThrows
+					? ValueTask.FromException(new InvalidOperationException("host failure"))
+					: ValueTask.CompletedTask;
 			});
 		}
 
@@ -105,6 +110,21 @@ public class PuebloProtocolTests : BaseTest
 		await Assert.That(peer.Wired).Contains(PuebloProtocol.Restart);
 		await Assert.That(peer.Enabled).Count().IsEqualTo(1);
 		await Assert.That(peer.Submitted).IsEmpty();
+	}
+
+	/// <summary>
+	/// The callback is the host's code, run inside byte processing. A throw from it leaves the client
+	/// in Pueblo mode, the handshake consumed, and the input after it flowing.
+	/// </summary>
+	[Test]
+	public async Task AThrowingCallback_LeavesTheConnectionWorking()
+	{
+		var peer = await PeerAsync(callbackThrows: true);
+
+		await peer.FeedAsync("PUEBLOCLIENT 2.50\r\nlook\r\n");
+
+		await Assert.That(peer.Pueblo.IsPuebloActive).IsTrue();
+		await Assert.That(peer.Submitted).Contains("look");
 	}
 
 	[Test]
