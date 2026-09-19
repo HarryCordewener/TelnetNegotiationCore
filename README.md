@@ -72,10 +72,11 @@ Each row is a plugin you register, and one page in
 | [RFC 1408](http://www.faqs.org/rfcs/rfc1408.html) | Environment | [RFC 2066](http://www.faqs.org/rfcs/rfc2066.html) | Charset, including TTABLE |
 | [RFC 1572](http://www.faqs.org/rfcs/rfc1572.html) | New Environment | [RFC 2941](http://www.faqs.org/rfcs/rfc2941.html) | Authentication |
 | | | [RFC 2946](http://www.faqs.org/rfcs/rfc2946.html) | Encryption |
+| | | [Pueblo](https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/docs/protocols/pueblo.md) | Pueblo handshake (in-band, no option) |
 
 Being a telnet *negotiation* library, it does not render the content layers that ride on top: ANSI,
-Pueblo, and MXP's own tags are the host application's to draw. MXP is negotiated; its markup is not
-parsed.
+Pueblo, and MXP's own tags are the host application's to draw. MXP is negotiated and Pueblo is
+handshaken; neither's markup is parsed.
 
 ## State
 
