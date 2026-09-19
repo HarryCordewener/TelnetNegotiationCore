@@ -26,6 +26,7 @@ MSDP, MSSP, TTYPE, CHARSET, EOR, SUPPRESS-GO-AHEAD and MXP — in one call.
 | [RFC 2941](http://www.faqs.org/rfcs/rfc2941.html) Authentication | `AuthenticationProtocol` | [Authentication](authentication.md) |
 | [RFC 2946](http://www.faqs.org/rfcs/rfc2946.html) Encryption | `EncryptionProtocol` | [Encryption](encryption.md) |
 | [MXP](https://www.zuggsoft.com/zmud/mxp.htm) (telnet option 91) | `MXPProtocol` | [MXP](mxp.md) |
+| [Pueblo](https://github.com/pennmush/pennmush/blob/master/game/txt/hlp/pennpueb.hlp) *(no option — an in-band handshake)* | `PuebloProtocol` | [Pueblo](pueblo.md) |
 | [MCP 2.1](https://www.moo.mud.org/mcp/mcp2.html) | `MudClientProtocol`, `McpCordProtocol` | [MCP](mcp.md) |
 | *(no option — silence-inferred prompts)* | `PacketPatchProtocol` | [Detecting prompts](../guides/prompts.md) |
 
@@ -33,7 +34,8 @@ MSDP, MSSP, TTYPE, CHARSET, EOR, SUPPRESS-GO-AHEAD and MXP — in one call.
 
 Being a telnet negotiation library, this one does not implement the **content** layers that ride on
 top of a negotiated option: ANSI, Pueblo, and MXP's own tags and entities are the host application's
-to render. MXP is negotiated (option 91 and its start marker); its markup is not parsed.
+to render. MXP is negotiated (option 91 and its start marker), and Pueblo is handshaken (the hello,
+`PUEBLOCLIENT` and the start sequence); neither's markup is parsed or written.
 
 RFC 1184's SLC (Set Local Characters) and FORWARDMASK subnegotiations are not implemented — the
 plugin covers MODE, which is the part in common use.

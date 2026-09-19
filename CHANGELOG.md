@@ -3,6 +3,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **The Pueblo handshake, as the new `PuebloProtocol` plugin.** Pueblo has no telnet option; a server
+  announces itself with `This world is Pueblo 1.10 Enhanced.`, a client answers with a
+  `PUEBLOCLIENT` line, and the server switches it to HTML mode with
+  `</xch_mudtext><img xch_mode=purehtml><xch_page clear=text>`. Framed as PennMUSH frames it
+  (`hdrs/conf.h`, `src/bsd.c`).
+  - **The start sequence is sent for you.** It is what moves the client out of text mode, and a
+    server that recognises `PUEBLOCLIENT` but never answers it leaves the client showing tags as
+    text. A repeated `PUEBLOCLIENT` is answered again without the clear-screen.
+  - **The handshake line is consumed** wherever it arrives in the session, through the same
+    assembled-line path as `MSSPPlaintextProtocol`, so it never reaches `OnSubmit` as a command.
+    Matched as PennMUSH matches it: the exact, case-sensitive `PUEBLOCLIENT ` with its trailing space.
+  - `OnPuebloEnabled(PuebloClient)` fires once, carrying the announced version and the `md5="…"`
+    checksum. `IsPuebloActive` and `Client` expose the same facts.
+  - **Adding the plugin is the opt-in**, since the hello is unsolicited text on every connection.
+    Server mode only.
+
 ### Changed
 
 - The StateAlchemist-generated parser is now the only interpreter path. It consumes bounded 4 KiB channel

@@ -728,6 +728,21 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets the callback run when a client answers the Pueblo handshake. See
+    /// <see cref="PuebloProtocol.OnPuebloEnabled"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">Receives what the client said about itself</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<PuebloProtocol> OnPuebloEnabled(
+        this PluginConfigurationContext<PuebloProtocol> context,
+        Func<PuebloClient, ValueTask>? callback)
+    {
+        context.Plugin.OnPuebloEnabled(callback);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the MXP enabled callback in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
