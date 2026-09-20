@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **MXP's capability exchange, both halves, in `MXPProtocol`.** A server asks with
+  `RequestSupportAsync(...)` and `RequestVersionAsync()`, or with `QuerySupportOnStart(...)` as soon as
+  MXP mode begins; the client's `<SUPPORTS +image -frame>` and `<VERSION MXP=0.4 CLIENT=zmud …>` replies
+  arrive as ordinary lines and are consumed rather than handed to the application as input. `Support`
+  accumulates what the peer answered (`Supports`, `Refuses`, later replies revising earlier ones) and
+  `PeerVersion` holds what it called itself; `OnMxpSupports` and `OnMxpVersion` report each reply.
+  - A client is told what was asked (`OnMxpSupportRequested`, `OnMxpVersionRequested`) and answers with
+    `SendSupportsAsync` / `SendVersionAsync` when its host decides to. Nothing is sent for it: what a
+    client admits to is not this library's call.
+  - Queries and replies go out on a secure line, which is the only mode a tag is read in, and sending
+    one before MXP mode has started throws instead of putting a tag on the wire as text.
+
+### Added
+
 - **The Pueblo handshake, as the new `PuebloProtocol` plugin.** Pueblo has no telnet option; a server
   announces itself with `This world is Pueblo 1.10 Enhanced.`, a client answers with a
   `PUEBLOCLIENT` line, and the server switches it to HTML mode with
