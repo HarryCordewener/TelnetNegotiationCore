@@ -76,8 +76,8 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 	/// <summary>What <see cref="Start"/> and <see cref="Restart"/> share, which is how a client recognises either.</summary>
 	private const string StartPrefix = "</xch_mudtext><img xch_mode=purehtml";
 
-	/// <summary>The longest <c>md5</c> value kept, as PennMUSH's <c>PUEBLO_CHECKSUM_LEN</c>.</summary>
-	private const int MaxChecksumLength = 32;
+	/// <summary>The longest <c>md5</c> value kept: PennMUSH's <c>PUEBLO_CHECKSUM_LEN</c> (<c>hdrs/mushtype.h</c>).</summary>
+	private const int MaxChecksumLength = 40;
 
 	/// <summary>What may not appear in a version or a checksum: the line is whitespace-delimited and the checksum quoted.</summary>
 	private static readonly char[] s_lineBreakers = [' ', '\t', '\r', '\n', '"'];
@@ -88,6 +88,7 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 	private Func<ValueTask>? _onPuebloOffered;
 	private volatile PuebloClient? _client;
 	private volatile bool _serverOffered;
+	private volatile bool _disposed;
 
 	/// <inheritdoc />
 	public override Type ProtocolType => typeof(PuebloProtocol);
@@ -228,9 +229,10 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 	/// <inheritdoc />
 	protected override ValueTask OnDisposeAsync()
 	{
-		_client = null;
-		_announced = null;
-		_serverOffered = false;
+		// The state is left as it is: a disposed plugin takes no further part (see OnInputLineAsync), and
+		// clearing _client would arm the handshake to run a second time on a connection already in
+		// Pueblo mode.
+		_disposed = true;
 		return default;
 	}
 
@@ -240,7 +242,7 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 	/// </summary>
 	private async ValueTask<bool> OnInputLineAsync(byte[] line, Encoding encoding, IProtocolContext context)
 	{
-		if (!IsEnabled) return false;
+		if (!IsEnabled || _disposed) return false;
 
 		var text = encoding.GetString(line).TrimEnd('\r', '\n');
 
@@ -251,14 +253,18 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 
 		if (!text.StartsWith(ClientCommand, StringComparison.Ordinal)) return false;
 
+		var client = Parse(text);
+
 		if (_client is not null)
 		{
+			// PennMUSH parses every PUEBLOCLIENT line before deciding what to answer (src/bsd.c), so a
+			// client correcting its checksum on a resend is taken at its word.
+			_client = client;
 			context.Logger.LogDebug("Repeated PUEBLOCLIENT; resending the Pueblo start without the clear");
 			await context.SendNegotiationAsync(Encoding.ASCII.GetBytes(Restart));
 			return true;
 		}
 
-		var client = Parse(text);
 		await context.SendNegotiationAsync(Encoding.ASCII.GetBytes(Start));
 		_client = client;
 		context.Logger.LogDebug("Client switched to Pueblo mode (version {Version})", client.Version);
@@ -275,8 +281,10 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 	/// </summary>
 	private async ValueTask<bool> OnServerLineAsync(string text, IProtocolContext context)
 	{
-		if (text.StartsWith(Hello.TrimEnd('\r', '\n'), StringComparison.Ordinal))
+		if (string.Equals(text, Hello.TrimEnd('\r', '\n'), StringComparison.Ordinal))
 		{
+			if (_serverOffered) return true;
+
 			_serverOffered = true;
 			context.Logger.LogDebug("Server announced Pueblo");
 			await InvokeAsync(_onPuebloOffered is { } offered ? () => offered() : null, context);
@@ -328,15 +336,29 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 		var version = (space < 0 ? rest : rest[..space]).ToString();
 		if (version.StartsWith("md5=", StringComparison.OrdinalIgnoreCase)) version = string.Empty;
 
-		string? checksum = null;
-		var md5 = line.IndexOf("md5=\"", StringComparison.OrdinalIgnoreCase);
-		if (md5 >= 0)
+		return new PuebloClient(version, Checksum(line));
+	}
+
+	/// <summary>
+	/// The <c>md5="…"</c> value, or <see langword="null"/>. PennMUSH finds it with <c>string_match</c>
+	/// (<c>src/strutil.c</c>), which matches at the start of a word, so <c>xmd5="…"</c> is not one.
+	/// </summary>
+	private static string? Checksum(string line)
+	{
+		const string marker = "md5=\"";
+		for (var at = line.IndexOf(marker, StringComparison.OrdinalIgnoreCase); at >= 0;
+			at = line.IndexOf(marker, at + 1, StringComparison.OrdinalIgnoreCase))
 		{
-			var value = line.AsSpan(md5 + "md5=\"".Length);
+			if (at > 0 && IsWordCharacter(line[at - 1])) continue;
+
+			var value = line.AsSpan(at + marker.Length);
 			var end = value.IndexOf('"');
-			if (end is > 0 and <= MaxChecksumLength) checksum = value[..end].ToString();
+			return end is > 0 and <= MaxChecksumLength ? value[..end].ToString() : null;
 		}
 
-		return new PuebloClient(version, checksum);
+		return null;
 	}
+
+	/// <summary>What <c>string_match</c> counts as inside a word, so a marker after one is not a match.</summary>
+	private static bool IsWordCharacter(char c) => (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
 }

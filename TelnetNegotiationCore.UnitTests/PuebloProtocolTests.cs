@@ -253,13 +253,84 @@ public class PuebloProtocolTests : BaseTest
 		await Assert.That(client.Submitted).Contains("PUEBLOCLIENT 2.50");
 	}
 
+	/// <summary>
+	/// PennMUSH parses every PUEBLOCLIENT line before deciding what to answer (<c>src/bsd.c</c>), so a
+	/// client correcting its checksum on a resend is taken at its word.
+	/// </summary>
+	[Test]
+	public async Task ARepeatedHandshakeRefreshesWhatTheClientSaid()
+	{
+		var peer = await PeerAsync();
+
+		await peer.FeedAsync("PUEBLOCLIENT 2.50 md5=\"first\"\r\n");
+		await peer.FeedAsync("PUEBLOCLIENT 2.51 md5=\"second\"\r\n");
+
+		await Assert.That(peer.Pueblo.Client).IsEqualTo(new PuebloClient("2.51", "second"));
+		await Assert.That(peer.Enabled).Count().IsEqualTo(1).Because("the connection entered Pueblo mode once");
+	}
+
+	/// <summary>
+	/// PennMUSH re-runs its connect screen, and each pass that takes the non-telnet branch queues the
+	/// hello again (<c>src/bsd.c</c>), so a client can see it more than once. The offer is still one offer.
+	/// </summary>
+	[Test]
+	public async Task TheOfferIsReportedOnce()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		await peer.FeedAsync(PuebloProtocol.Hello);
+		await peer.FeedAsync(PuebloProtocol.Hello);
+
+		await Assert.That(peer.Offered).IsEqualTo(1);
+		await Assert.That(peer.Submitted).IsEmpty();
+	}
+
+	/// <summary>
+	/// A line that merely starts like the hello is the server's own text, not the handshake: PennMUSH's
+	/// hello is a whole line.
+	/// </summary>
+	[Test]
+	public async Task ALineThatOnlyBeginsLikeTheHelloIsOrdinaryText()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		var line = PuebloProtocol.Hello.TrimEnd('\r', '\n') + " Type 'help' to begin.";
+
+		await peer.FeedAsync(line + "\r\n");
+
+		await Assert.That(peer.Submitted).Contains(line);
+		await Assert.That(peer.Pueblo.ServerOffered).IsFalse();
+	}
+
+	/// <summary>
+	/// A disposed plugin takes no further part. Without that, the handshake ran again on a connection
+	/// already in Pueblo mode and the callback fired a second time.
+	/// </summary>
+	[Test]
+	public async Task ADisposedPluginNoLongerAnswersTheHandshake()
+	{
+		var peer = await PeerAsync();
+		await peer.FeedAsync("PUEBLOCLIENT 2.50\r\n");
+
+		await peer.Pueblo.DisposeAsync();
+		await peer.FeedAsync("PUEBLOCLIENT 2.50\r\n");
+
+		await Assert.That(peer.Enabled).Count().IsEqualTo(1);
+		await Assert.That(peer.Submitted).Contains("PUEBLOCLIENT 2.50")
+			.Because("a plugin that is no longer taking part does not consume the line either");
+	}
+
 	// ── Parsing ─────────────────────────────────────────────────────────────────
 
 	[Test]
 	[Arguments("PUEBLOCLIENT 2.50 md5=\"abc\"", "2.50", "abc")]
 	[Arguments("PUEBLOCLIENT md5=\"abc\"", "", "abc")]
 	[Arguments("PUEBLOCLIENT 2.01", "2.01", null)]
-	[Arguments("PUEBLOCLIENT 2.50 md5=\"0123456789abcdef0123456789abcdef0\"", "2.50", null)]
+	// PUEBLO_CHECKSUM_LEN is 40 (hdrs/mushtype.h), so 40 is kept and 41 is not.
+	[Arguments("PUEBLOCLIENT 2.50 md5=\"0123456789abcdef0123456789abcdef01234567\"", "2.50", "0123456789abcdef0123456789abcdef01234567")]
+	[Arguments("PUEBLOCLIENT 2.50 md5=\"0123456789abcdef0123456789abcdef012345678\"", "2.50", null)]
+	// string_match finds a marker at the start of a word, so this one is not a checksum.
+	[Arguments("PUEBLOCLIENT 2.50 xmd5=\"abc\"", "2.50", null)]
+	[Arguments("PUEBLOCLIENT 2.50 hint=x md5=\"abc\"", "2.50", "abc")]
 	public async Task TheClientLine_IsReadAsPennMUSHReadsIt(string line, string version, string checksum)
 	{
 		await Assert.That(PuebloProtocol.Parse(line)).IsEqualTo(new PuebloClient(version, checksum));
