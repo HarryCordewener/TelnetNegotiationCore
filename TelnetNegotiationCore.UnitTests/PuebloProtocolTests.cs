@@ -319,6 +319,18 @@ public class PuebloProtocolTests : BaseTest
 			.Because("a plugin that is no longer taking part does not consume the line either");
 	}
 
+	[Test]
+	public async Task ADisposedClientDoesNotAnnounce()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		var pueblo = peer.Pueblo;
+
+		await pueblo.DisposeAsync();
+
+		await Assert.That(async () => await pueblo.AnnounceAsync()).Throws<ObjectDisposedException>();
+		await Assert.That(peer.Wired).DoesNotContain("PUEBLOCLIENT");
+	}
+
 	// ── Parsing ─────────────────────────────────────────────────────────────────
 
 	[Test]

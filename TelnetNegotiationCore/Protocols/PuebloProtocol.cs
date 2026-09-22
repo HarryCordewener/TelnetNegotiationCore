@@ -147,14 +147,17 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 	/// true and <see cref="OnPuebloEnabled"/> has run.
 	/// </summary>
 	/// <param name="version">The version to announce; PennMUSH reads the word after the command.</param>
-	/// <param name="checksum">An optional <c>md5</c> value, at most 32 characters.</param>
+	/// <param name="checksum">An optional <c>md5</c> value, at most 40 characters.</param>
 	/// <exception cref="InvalidOperationException">
 	/// This interpreter is in server mode — a server answers this line rather than sending one — or the
 	/// plugin is disabled on this connection.
 	/// </exception>
 	/// <exception cref="ArgumentException"><paramref name="version"/> is empty, or either argument holds whitespace.</exception>
+	/// <exception cref="ObjectDisposedException">The plugin has been disposed.</exception>
 	public async ValueTask AnnounceAsync(string version = "2.50", string? checksum = null)
 	{
+		if (_disposed) throw new ObjectDisposedException(nameof(PuebloProtocol));
+
 		if (Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
 		{
 			throw new InvalidOperationException(
@@ -327,7 +330,7 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 
 	/// <summary>
 	/// PennMUSH's <c>parse_puebloclient</c>: the word after the command is the version, and a
-	/// <c>md5="…"</c> of at most 32 characters is the checksum.
+	/// <c>md5="…"</c> of at most 40 characters is the checksum.
 	/// </summary>
 	internal static PuebloClient Parse(string line)
 	{
