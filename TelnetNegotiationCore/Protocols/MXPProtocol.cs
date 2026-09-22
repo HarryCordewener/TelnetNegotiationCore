@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Attributes;
@@ -49,7 +51,19 @@ public class MXPProtocol : TelnetProtocolPluginBase
     private static readonly byte[] s_sbMxp =
         [(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MXP, (byte)Trigger.IAC, (byte)Trigger.SE];
 
+    /// <summary>The mode a tag has to be on to be read: <c>ESC[1z</c>, secure.</summary>
+    private const string SecureLine = "\u001b[1z";
+
     private bool? _mxpEnabled = null;
+
+    private Func<MxpSupport, ValueTask>? _onSupports;
+    private Func<MxpVersion, ValueTask>? _onVersion;
+    private Func<IReadOnlyList<string>, ValueTask>? _onSupportRequested;
+    private Func<ValueTask>? _onVersionRequested;
+    private string[]? _queryOnStart;
+    private volatile bool _disposed;
+    private MxpSupport _support = MxpSupport.None;
+    private volatile MxpVersion? _peerVersion;
 
     // Written on the byte-processing loop, read by whatever thread asks IsMxpModeStarted -- the same
     // treatment IsNegotiated gets in the base class, and for the same reason.
@@ -96,12 +110,155 @@ public class MXPProtocol : TelnetProtocolPluginBase
     /// <c>TelnetGeneratedMachineInterpreter</c>); this hook survives only to register the server's
     /// initial offer, a cross-cutting mechanism independent of which machine drives byte processing.
     /// </remarks>
+    /// <summary>
+    /// What the peer said it can render, from every <c>&lt;SUPPORTS&gt;</c> reply so far. Empty until one
+    /// arrives: a reply answers what was asked, and nothing is assumed about what was not.
+    /// </summary>
+    public MxpSupport Support => _support;
+
+    /// <summary>What the peer said about itself in a <c>&lt;VERSION&gt;</c> reply, or null if it has not.</summary>
+    public MxpVersion? PeerVersion => _peerVersion;
+
+    /// <summary>Sets the callback run when a <c>&lt;SUPPORTS&gt;</c> reply arrives, carrying that reply alone.</summary>
+    /// <returns>This instance for fluent chaining</returns>
+    public MXPProtocol OnMxpSupports(Func<MxpSupport, ValueTask>? callback)
+    {
+        _onSupports = callback;
+        return this;
+    }
+
+    /// <summary>Sets the callback run when a <c>&lt;VERSION&gt;</c> reply arrives.</summary>
+    /// <returns>This instance for fluent chaining</returns>
+    public MXPProtocol OnMxpVersion(Func<MxpVersion, ValueTask>? callback)
+    {
+        _onVersion = callback;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the callback run when the peer asks what this side supports, carrying what it asked about —
+    /// empty for a bare <c>&lt;SUPPORT&gt;</c>, which asks for everything. Answer with
+    /// <see cref="SendSupportsAsync"/>; nothing is sent for you, because what a client admits to is the
+    /// host's to decide.
+    /// </summary>
+    /// <returns>This instance for fluent chaining</returns>
+    public MXPProtocol OnMxpSupportRequested(Func<IReadOnlyList<string>, ValueTask>? callback)
+    {
+        _onSupportRequested = callback;
+        return this;
+    }
+
+    /// <summary>Sets the callback run when the peer asks for a version. Answer with <see cref="SendVersionAsync"/>.</summary>
+    /// <returns>This instance for fluent chaining</returns>
+    public MXPProtocol OnMxpVersionRequested(Func<ValueTask>? callback)
+    {
+        _onVersionRequested = callback;
+        return this;
+    }
+
+    /// <summary>
+    /// Asks the peer what it supports as soon as MXP mode starts, instead of waiting for a
+    /// <see cref="RequestSupportAsync"/> of your own. <paramref name="queries"/> are the entries to ask
+    /// about; none asks for everything.
+    /// </summary>
+    /// <returns>This instance for fluent chaining</returns>
+    public MXPProtocol QuerySupportOnStart(params string[] queries)
+    {
+        _queryOnStart = queries ?? [];
+        return this;
+    }
+
+    /// <summary>
+    /// Sends <c>&lt;SUPPORT&gt;</c>, asking the peer which tags and arguments it can render. With no
+    /// <paramref name="queries"/> it asks for everything; otherwise each is a tag (<c>image</c>), one of
+    /// a tag's arguments (<c>send.expire</c>), or a pattern the specification allows (<c>"color.*"</c>).
+    /// The answer arrives as a <c>&lt;SUPPORTS&gt;</c> reply — <see cref="OnMxpSupports"/>, and
+    /// <see cref="Support"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">MXP mode has not started on this connection.</exception>
+    public ValueTask RequestSupportAsync(params string[] queries) =>
+        SendTagAsync(queries is { Length: > 0 } asked ? "<SUPPORT " + string.Join(" ", asked) + ">" : "<SUPPORT>");
+
+    /// <summary>
+    /// Sends <c>&lt;VERSION&gt;</c>, asking the peer to name itself. The answer arrives as a
+    /// <c>&lt;VERSION …&gt;</c> reply — <see cref="OnMxpVersion"/>, and <see cref="PeerVersion"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">MXP mode has not started on this connection.</exception>
+    public ValueTask RequestVersionAsync() => SendTagAsync("<VERSION>");
+
+    /// <summary>
+    /// Answers a <c>&lt;SUPPORT&gt;</c> with what this side renders. Each entry goes out as <c>+entry</c>
+    /// or <c>-entry</c>, in the shape the specification gives: a tag, or one of a tag's arguments.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">MXP mode has not started on this connection.</exception>
+    public ValueTask SendSupportsAsync(IEnumerable<string> supported, IEnumerable<string>? unsupported = null) =>
+        SendTagAsync(new MxpSupport(supported ?? [], unsupported ?? []).ToString());
+
+    /// <summary>Answers a <c>&lt;VERSION&gt;</c> with what this side is.</summary>
+    /// <exception cref="InvalidOperationException">MXP mode has not started on this connection.</exception>
+    public ValueTask SendVersionAsync(MxpVersion version) =>
+        SendTagAsync((version ?? throw new ArgumentNullException(nameof(version))).ToString());
+
+    /// <inheritdoc />
     public override void ConfigureStateMachine(IProtocolContext context)
     {
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
             context.RegisterInitialNegotiation(async () => await WillingMXPAsync(context));
         }
+
+        // <SUPPORTS> and <VERSION> come back as ordinary lines, the way a Pueblo handshake does, so they
+        // are read off the assembled-line path and consumed: they are the peer answering a question this
+        // plugin asked, not something the application typed or printed.
+        context.Interpreter.RegisterInputLineObserver(async (line, encoding) =>
+            await OnInputLineAsync(line, encoding, context) ? null : line);
+    }
+
+    /// <summary>
+    /// One assembled line. True when it belongs to this exchange and must not reach the application.
+    /// </summary>
+    private async ValueTask<bool> OnInputLineAsync(byte[] line, Encoding encoding, IProtocolContext context)
+    {
+        if (!IsEnabled || _disposed || !_mxpModeStarted) return false;
+
+        var text = StripLineMode(encoding.GetString(line).Trim());
+        if (text.Length < 2 || text[0] != '<' || text[text.Length - 1] != '>') return false;
+
+        var inside = text.Substring(1, text.Length - 2).Trim();
+
+        if (StartsWithWord(inside, "SUPPORTS"))
+        {
+            var report = ParseSupports(inside);
+            _support = _support.With(report);
+            context.Logger.LogDebug("MXP peer supports: {Supports}", report);
+            await InvokeAsync(_onSupports is { } supports ? () => supports(report) : null, context);
+            return true;
+        }
+
+        if (StartsWithWord(inside, "VERSION") && context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            var version = ParseVersion(inside);
+            _peerVersion = version;
+            context.Logger.LogDebug("MXP peer version: {Version}", version);
+            await InvokeAsync(_onVersion is { } onVersion ? () => onVersion(version) : null, context);
+            return true;
+        }
+
+        // The other half of each exchange: a client reads the questions, and answers only if its host
+        // decides to.
+        if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server) return false;
+
+        if (StartsWithWord(inside, "SUPPORT"))
+        {
+            var asked = Arguments(inside, "SUPPORT");
+            await InvokeAsync(_onSupportRequested is { } requested ? () => requested(asked) : null, context);
+            return true;
+        }
+
+        if (!StartsWithWord(inside, "VERSION")) return false;
+
+        await InvokeAsync(_onVersionRequested is { } versionRequested ? () => versionRequested() : null, context);
+        return true;
     }
 
     /// <inheritdoc />
@@ -134,6 +291,7 @@ public class MXPProtocol : TelnetProtocolPluginBase
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
+        _disposed = true;
         _mxpEnabled = null;
         _mxpModeStarted = false;
         return default;
@@ -265,6 +423,125 @@ public class MXPProtocol : TelnetProtocolPluginBase
 
         if (_onMXPEnabled != null)
             await _onMXPEnabled().ConfigureAwait(false);
+
+        if (_queryOnStart is { } queries)
+        {
+            await RequestSupportAsync(queries);
+        }
+    }
+
+    #endregion
+
+    #region The capability exchange
+
+    /// <summary>Writes one MXP tag on a secure line, which is the only mode tags are read in.</summary>
+    private async ValueTask SendTagAsync(string tag)
+    {
+        if (!IsInitialized || _disposed)
+        {
+            throw new InvalidOperationException($"{nameof(MXPProtocol)} is not taking part in this connection.");
+        }
+
+        if (!_mxpModeStarted)
+        {
+            throw new InvalidOperationException(
+                "MXP mode has not started on this connection, so a tag sent now would reach the peer as text.");
+        }
+
+        await Context.SendNegotiationAsync(Context.CurrentEncoding.GetBytes(SecureLine + tag + "\r\n"));
+    }
+
+    /// <summary>Drops a leading line-mode sequence (<c>ESC[1z</c>), which a peer may put before its reply.</summary>
+    private static string StripLineMode(string text)
+    {
+        while (text.Length > 3 && text[0] == '\u001b' && text[1] == '[')
+        {
+            var z = text.IndexOf('z');
+            if (z < 2 || z > 4) break;
+            text = text.Substring(z + 1).TrimStart();
+        }
+
+        return text;
+    }
+
+    /// <summary>Whether <paramref name="inside"/> begins with <paramref name="word"/> as a whole word.</summary>
+    private static bool StartsWithWord(string inside, string word) =>
+        inside.StartsWith(word, StringComparison.OrdinalIgnoreCase)
+        && (inside.Length == word.Length || char.IsWhiteSpace(inside[word.Length]));
+
+    /// <summary>What a tag was given, whitespace-separated, with the tag name itself removed.</summary>
+    private static string[] Arguments(string inside, string word) =>
+        inside.Length == word.Length
+            ? []
+            : inside.Substring(word.Length).Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
+
+    /// <summary>
+    /// Reads a <c>&lt;SUPPORTS +b -image +color.fore&gt;</c> reply. An entry without a sign is ignored:
+    /// the specification writes every one with <c>+</c> or <c>-</c>, and a bare word says nothing about
+    /// which it meant.
+    /// </summary>
+    internal static MxpSupport ParseSupports(string inside)
+    {
+        var supported = new List<string>();
+        var unsupported = new List<string>();
+
+        foreach (var entry in Arguments(inside, "SUPPORTS"))
+        {
+            var name = entry.Substring(1).Trim('"');
+            if (name.Length == 0) continue;
+
+            if (entry[0] == '+') supported.Add(name);
+            else if (entry[0] == '-') unsupported.Add(name);
+        }
+
+        return new MxpSupport(supported, unsupported);
+    }
+
+    /// <summary>
+    /// Reads a <c>&lt;VERSION MXP=0.4 CLIENT=zmud VERSION=6.07 REGISTERED=yes&gt;</c> reply. Values may be
+    /// quoted; an attribute that is not one of the five is ignored.
+    /// </summary>
+    internal static MxpVersion ParseVersion(string inside)
+    {
+        string? mxp = null, style = null, client = null, version = null;
+        bool? registered = null;
+
+        foreach (var field in Arguments(inside, "VERSION"))
+        {
+            var equals = field.IndexOf('=');
+            if (equals <= 0) continue;
+
+            var name = field.Substring(0, equals);
+            var value = field.Substring(equals + 1).Trim('"');
+
+            if (name.Equals("MXP", StringComparison.OrdinalIgnoreCase)) mxp = value;
+            else if (name.Equals("STYLE", StringComparison.OrdinalIgnoreCase)) style = value;
+            else if (name.Equals("CLIENT", StringComparison.OrdinalIgnoreCase)) client = value;
+            else if (name.Equals("VERSION", StringComparison.OrdinalIgnoreCase)) version = value;
+            else if (name.Equals("REGISTERED", StringComparison.OrdinalIgnoreCase))
+                registered = value.Equals("yes", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return new MxpVersion(mxp, style, client, version, registered);
+    }
+
+    /// <summary>
+    /// Runs a host callback where a throw would otherwise reach byte processing. Contained and logged
+    /// here, as CharsetProtocol contains its change callback: the exchange stands either way, and only
+    /// the notification was lost.
+    /// </summary>
+    private static async ValueTask InvokeAsync(Func<ValueTask>? callback, IProtocolContext context)
+    {
+        if (callback is null) return;
+
+        try
+        {
+            await callback().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            context.Logger.LogError(ex, "An MXP callback threw. The exchange stands; only the notification was lost.");
+        }
     }
 
     #endregion

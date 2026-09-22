@@ -758,6 +758,81 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets the callback run when the peer answers a <c>&lt;SUPPORT&gt;</c> query. See
+    /// <see cref="MXPProtocol.OnMxpSupports"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">Receives that reply</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MXPProtocol> OnMxpSupports(
+        this PluginConfigurationContext<MXPProtocol> context,
+        Func<MxpSupport, ValueTask>? callback)
+    {
+        context.Plugin.OnMxpSupports(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback run when the peer answers a <c>&lt;VERSION&gt;</c> query. See
+    /// <see cref="MXPProtocol.OnMxpVersion"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">Receives what the peer said about itself</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MXPProtocol> OnMxpVersion(
+        this PluginConfigurationContext<MXPProtocol> context,
+        Func<MxpVersion, ValueTask>? callback)
+    {
+        context.Plugin.OnMxpVersion(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback run when the peer asks what this side supports. See
+    /// <see cref="MXPProtocol.OnMxpSupportRequested"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">Receives what was asked about; empty means everything</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MXPProtocol> OnMxpSupportRequested(
+        this PluginConfigurationContext<MXPProtocol> context,
+        Func<IReadOnlyList<string>, ValueTask>? callback)
+    {
+        context.Plugin.OnMxpSupportRequested(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback run when the peer asks for a version. See
+    /// <see cref="MXPProtocol.OnMxpVersionRequested"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">Answers with <see cref="MXPProtocol.SendVersionAsync"/></param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MXPProtocol> OnMxpVersionRequested(
+        this PluginConfigurationContext<MXPProtocol> context,
+        Func<ValueTask>? callback)
+    {
+        context.Plugin.OnMxpVersionRequested(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Asks the peer what it supports as soon as MXP mode starts. See
+    /// <see cref="MXPProtocol.QuerySupportOnStart"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="queries">What to ask about; none asks for everything</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MXPProtocol> QuerySupportOnStart(
+        this PluginConfigurationContext<MXPProtocol> context,
+        params string[] queries)
+    {
+        context.Plugin.QuerySupportOnStart(queries);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the MXP enabled callback in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
