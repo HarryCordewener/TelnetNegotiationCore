@@ -3,6 +3,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`PuebloProtocol` parity and lifecycle**, from a post-merge review of 4.2.0:
+  - The `md5` ceiling was 32; PennMUSH's `PUEBLO_CHECKSUM_LEN` is 40 (`hdrs/mushtype.h`), so a
+    33-to-40-character checksum was dropped and `AnnounceAsync` refused one PennMUSH accepts.
+  - The `md5=` marker is now found the way PennMUSH's `string_match` finds it, at the start of a word,
+    so `xmd5="…"` is no longer read as a checksum.
+  - A repeated `PUEBLOCLIENT` refreshes what the client said, as PennMUSH re-parses every such line
+    before deciding what to answer; a client correcting its checksum on a resend was ignored.
+  - `OnPuebloOffered` fires once per connection. PennMUSH can queue its hello more than once, and each
+    one fired the callback again.
+  - A line that merely begins with the hello is ordinary text; only the whole line is the offer.
+  - A disposed plugin takes no further part: it neither answers nor consumes a handshake. It had kept
+    its input-line observer and cleared its state, so a `PUEBLOCLIENT` after disposal ran the whole
+    exchange again on a connection already in Pueblo mode.
+
 ### Added
 
 - **MXP's capability exchange, both halves, in `MXPProtocol`.** A server asks with
