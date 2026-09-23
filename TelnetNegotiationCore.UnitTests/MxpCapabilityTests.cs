@@ -230,6 +230,63 @@ public class MxpCapabilityTests : BaseTest
 		await Assert.That(peer.Mxp.SupportAnswered).IsFalse();
 	}
 
+	/// <summary>
+	/// A second question while the first is still unanswered keeps the first waiter: the next reply
+	/// answers every question outstanding. Arming a fresh one would leave the first caller waiting for a
+	/// reply that could no longer reach it.
+	/// </summary>
+	[Test]
+	public async Task AQuestionAskedWhileAnotherIsWaitingDoesNotStrandIt()
+	{
+		var peer = await PeerAsync();
+
+		await peer.Mxp.RequestSupportAsync("image");
+		var waiting = peer.Mxp.WaitForSupportAsync(System.Threading.Timeout.InfiniteTimeSpan).AsTask();
+
+		await peer.Mxp.RequestSupportAsync("frame");
+		await peer.FeedAsync($"{Secure}<SUPPORTS +image -frame>\r\n");
+
+		var support = await waiting;
+
+		await Assert.That(support.Supports("image")).IsTrue();
+		await Assert.That(support.Refuses("frame")).IsTrue();
+	}
+
+	[Test]
+	public async Task DisposalReleasesEveryWait_HoweverManyQuestionsWereAsked()
+	{
+		var peer = await PeerAsync();
+
+		await peer.Mxp.RequestSupportAsync("image");
+		var waiting = peer.Mxp.WaitForSupportAsync(System.Threading.Timeout.InfiniteTimeSpan).AsTask();
+		await peer.Mxp.RequestSupportAsync("frame");
+
+		await peer.Mxp.DisposeAsync();
+
+		await Assert.That((await waiting).Supported).IsEmpty();
+	}
+
+	/// <summary>
+	/// The waiter does not outlive the connection it belongs to: a released one is dropped, not left
+	/// completed, or the next caller would be told its question was answered when it had not been asked.
+	/// </summary>
+	[Test]
+	public async Task AWaitAfterTheConnectionStoppedNegotiatingStillWaits()
+	{
+		var peer = await PeerAsync();
+
+		await peer.Mxp.RequestSupportAsync("image");
+		await peer.Mxp.OnDisabledAsync();
+
+		var started = System.Diagnostics.Stopwatch.StartNew();
+		await peer.Mxp.WaitForSupportAsync(TimeSpan.FromMilliseconds(200));
+		started.Stop();
+
+		await Assert.That(started.ElapsedMilliseconds).IsGreaterThanOrEqualTo(150)
+			.Because("nothing has been answered, so the wait runs its course rather than returning at once");
+		await Assert.That(peer.Mxp.SupportAnswered).IsFalse();
+	}
+
 	// ── Asking ──────────────────────────────────────────────────────────────────
 
 	[Test]

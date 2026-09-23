@@ -360,7 +360,7 @@ public class MXPProtocol : TelnetProtocolPluginBase
 
         // A question on a connection that is no longer negotiating will not be answered, so anything
         // waiting is released with what was known rather than left until its timeout.
-        CompleteSupportAnswer(_support);
+        ReleaseSupportAnswer();
         return default;
     }
 
@@ -370,7 +370,7 @@ public class MXPProtocol : TelnetProtocolPluginBase
         _disposed = true;
         _mxpEnabled = null;
         _mxpModeStarted = false;
-        CompleteSupportAnswer(_support);
+        ReleaseSupportAnswer();
         return default;
     }
 
@@ -524,12 +524,19 @@ public class MXPProtocol : TelnetProtocolPluginBase
 
     /// <summary>
     /// Arms the waiter for a question about to be asked, so an answer that arrives before the caller
-    /// waits is still the answer it gets, and an answer to an earlier question is not.
+    /// waits is still the answer it gets, and an answer to an earlier, already-answered question is not.
     /// </summary>
+    /// <remarks>
+    /// A question still waiting for its answer keeps its waiter: the next reply answers every question
+    /// outstanding at once. Replacing it would leave whoever was already waiting on the old one waiting
+    /// for a reply that can no longer complete it.
+    /// </remarks>
     private Task<MxpSupport> ArmSupportAnswer()
     {
         lock (_answerGate)
         {
+            if (_supportAnswer is { } outstanding && !outstanding.Task.IsCompleted) return outstanding.Task;
+
             _supportAnswer = new TaskCompletionSource<MxpSupport>(TaskCreationOptions.RunContinuationsAsynchronously);
             return _supportAnswer.Task;
         }
@@ -551,6 +558,20 @@ public class MXPProtocol : TelnetProtocolPluginBase
         {
             _supportAnswer ??= new TaskCompletionSource<MxpSupport>(TaskCreationOptions.RunContinuationsAsynchronously);
             _supportAnswer.TrySetResult(support);
+        }
+    }
+
+    /// <summary>
+    /// Releases whatever is waiting and leaves nothing behind: a connection that has stopped
+    /// negotiating answers nothing, and a completed waiter left in place would tell the next caller that
+    /// its question had been answered when nothing had been asked.
+    /// </summary>
+    private void ReleaseSupportAnswer()
+    {
+        lock (_answerGate)
+        {
+            _supportAnswer?.TrySetResult(_support);
+            _supportAnswer = null;
         }
     }
 

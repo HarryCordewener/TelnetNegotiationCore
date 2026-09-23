@@ -39,7 +39,8 @@ All notable changes to this project will be documented in this file.
     total silence from a reply that did not mention an entry, so a caller that must treat silence as a
     refusal can. `TimeSpan.Zero` polls, `Timeout.InfiniteTimeSpan` waits as long as the connection does,
     and a wait is released rather than left running when the connection stops negotiating or the plugin
-    is disposed.
+    is disposed. A second question asked while the first is still unanswered keeps the first waiter, so
+    the next reply answers every question outstanding.
 
 ### Added
 
