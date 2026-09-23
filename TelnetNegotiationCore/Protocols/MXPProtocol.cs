@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Attributes;
@@ -62,8 +63,15 @@ public class MXPProtocol : TelnetProtocolPluginBase
     private Func<ValueTask>? _onVersionRequested;
     private string[]? _queryOnStart;
     private volatile bool _disposed;
-    private MxpSupport _support = MxpSupport.None;
+    private volatile MxpSupport _support = MxpSupport.None;
     private volatile MxpVersion? _peerVersion;
+
+    // The outstanding question, so a caller can wait for the answer to it rather than poll Support and
+    // guess. Replaced on each ask and completed by the reply; the lock only orders those two against
+    // each other, and nothing is awaited while it is held.
+    private readonly object _answerGate = new();
+    private TaskCompletionSource<MxpSupport>? _supportAnswer;
+    private volatile bool _supportAnswered;
 
     // Written on the byte-processing loop, read by whatever thread asks IsMxpModeStarted -- the same
     // treatment IsNegotiated gets in the base class, and for the same reason.
@@ -115,6 +123,14 @@ public class MXPProtocol : TelnetProtocolPluginBase
     /// arrives: a reply answers what was asked, and nothing is assumed about what was not.
     /// </summary>
     public MxpSupport Support => _support;
+
+    /// <summary>
+    /// Whether the peer has answered a <c>&lt;SUPPORT&gt;</c> on this connection. This is what tells an
+    /// unanswered question from an answered one: an entry nobody answered about is in neither
+    /// <see cref="MxpSupport.Supported"/> nor <see cref="MxpSupport.Unsupported"/>, exactly as an entry
+    /// the peer refused is in neither.
+    /// </summary>
+    public bool SupportAnswered => _supportAnswered;
 
     /// <summary>What the peer said about itself in a <c>&lt;VERSION&gt;</c> reply, or null if it has not.</summary>
     public MxpVersion? PeerVersion => _peerVersion;
@@ -176,8 +192,60 @@ public class MXPProtocol : TelnetProtocolPluginBase
     /// <see cref="Support"/>.
     /// </summary>
     /// <exception cref="InvalidOperationException">MXP mode has not started on this connection.</exception>
-    public ValueTask RequestSupportAsync(params string[] queries) =>
-        SendTagAsync(queries is { Length: > 0 } asked ? "<SUPPORT " + string.Join(" ", asked) + ">" : "<SUPPORT>");
+    public ValueTask RequestSupportAsync(params string[] queries)
+    {
+        ArmSupportAnswer();
+        return SendTagAsync(Query(queries));
+    }
+
+    /// <summary>
+    /// Asks as <see cref="RequestSupportAsync(string[])"/> does, and waits for the answer to that
+    /// question — up to <paramref name="timeout"/>, after which what the peer has said so far is
+    /// returned as it stands.
+    /// </summary>
+    /// <remarks>
+    /// This is the shape a server wants when it has to decide something from the answer: an MXP client
+    /// is under no obligation to reply, and without a deadline "has not answered yet" and "will never
+    /// answer" are the same silence. A caller that must treat silence as a refusal can, because an entry
+    /// that was never answered about is in neither set — and <see cref="SupportAnswered"/> says whether
+    /// the silence was total.
+    /// </remarks>
+    /// <param name="timeout">
+    /// How long to wait. <see cref="TimeSpan.Zero"/> returns immediately with what is already known, and
+    /// <see cref="Timeout.InfiniteTimeSpan"/> waits for as long as the connection lasts.
+    /// </param>
+    /// <param name="queries">The entries to ask about; none asks for everything.</param>
+    /// <returns>What the peer has said it supports, answered or not.</returns>
+    /// <exception cref="InvalidOperationException">MXP mode has not started on this connection.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout"/> is negative and not infinite.</exception>
+    public async ValueTask<MxpSupport> RequestSupportAsync(TimeSpan timeout, params string[] queries)
+    {
+        CheckTimeout(timeout);
+
+        var answer = ArmSupportAnswer();
+        await SendTagAsync(Query(queries)).ConfigureAwait(false);
+        return await AwaitAnswerAsync(answer, timeout, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Waits for the answer to the question already asked — by <see cref="RequestSupportAsync(string[])"/>
+    /// or <see cref="QuerySupportOnStart"/> — up to <paramref name="timeout"/>, after which what the peer
+    /// has said so far is returned as it stands. With no question outstanding and an answer already in,
+    /// it returns that; with no question outstanding and no answer, it waits for one.
+    /// </summary>
+    /// <param name="timeout">
+    /// How long to wait. <see cref="TimeSpan.Zero"/> returns immediately with what is already known, and
+    /// <see cref="Timeout.InfiniteTimeSpan"/> waits for as long as the connection lasts.
+    /// </param>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>What the peer has said it supports, answered or not.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout"/> is negative and not infinite.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    public ValueTask<MxpSupport> WaitForSupportAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        CheckTimeout(timeout);
+        return AwaitAnswerAsync(Outstanding(), timeout, cancellationToken);
+    }
 
     /// <summary>
     /// Sends <c>&lt;VERSION&gt;</c>, asking the peer to name itself. The answer arrives as a
@@ -230,6 +298,8 @@ public class MXPProtocol : TelnetProtocolPluginBase
         {
             var report = ParseSupports(inside);
             _support = _support.With(report);
+            _supportAnswered = true;
+            CompleteSupportAnswer(_support);
             context.Logger.LogDebug("MXP peer supports: {Supports}", report);
             await InvokeAsync(_onSupports is { } supports ? () => supports(report) : null, context);
             return true;
@@ -285,6 +355,12 @@ public class MXPProtocol : TelnetProtocolPluginBase
         Context.Logger.LogInformation("MXP Protocol disabled");
         _mxpEnabled = false;
         _mxpModeStarted = false;
+        _supportAnswered = false;
+        _support = MxpSupport.None;
+
+        // A question on a connection that is no longer negotiating will not be answered, so anything
+        // waiting is released with what was known rather than left until its timeout.
+        ReleaseSupportAnswer();
         return default;
     }
 
@@ -294,6 +370,7 @@ public class MXPProtocol : TelnetProtocolPluginBase
         _disposed = true;
         _mxpEnabled = null;
         _mxpModeStarted = false;
+        ReleaseSupportAnswer();
         return default;
     }
 
@@ -433,6 +510,93 @@ public class MXPProtocol : TelnetProtocolPluginBase
     #endregion
 
     #region The capability exchange
+
+    private static string Query(string[]? queries) =>
+        queries is { Length: > 0 } asked ? "<SUPPORT " + string.Join(" ", asked) + ">" : "<SUPPORT>";
+
+    private static void CheckTimeout(TimeSpan timeout)
+    {
+        if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "A timeout is not negative, unless it is Timeout.InfiniteTimeSpan.");
+        }
+    }
+
+    /// <summary>
+    /// Arms the waiter for a question about to be asked, so an answer that arrives before the caller
+    /// waits is still the answer it gets, and an answer to an earlier, already-answered question is not.
+    /// </summary>
+    /// <remarks>
+    /// A question still waiting for its answer keeps its waiter: the next reply answers every question
+    /// outstanding at once. Replacing it would leave whoever was already waiting on the old one waiting
+    /// for a reply that can no longer complete it.
+    /// </remarks>
+    private Task<MxpSupport> ArmSupportAnswer()
+    {
+        lock (_answerGate)
+        {
+            if (_supportAnswer is { } outstanding && !outstanding.Task.IsCompleted) return outstanding.Task;
+
+            _supportAnswer = new TaskCompletionSource<MxpSupport>(TaskCreationOptions.RunContinuationsAsynchronously);
+            return _supportAnswer.Task;
+        }
+    }
+
+    /// <summary>The waiter for the outstanding question, arming one if nothing has been asked yet.</summary>
+    private Task<MxpSupport> Outstanding()
+    {
+        lock (_answerGate)
+        {
+            return (_supportAnswer ??= new TaskCompletionSource<MxpSupport>(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+        }
+    }
+
+    /// <summary>Completes whatever is waiting, with <paramref name="support"/> as the answer.</summary>
+    private void CompleteSupportAnswer(MxpSupport support)
+    {
+        lock (_answerGate)
+        {
+            _supportAnswer ??= new TaskCompletionSource<MxpSupport>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _supportAnswer.TrySetResult(support);
+        }
+    }
+
+    /// <summary>
+    /// Releases whatever is waiting and leaves nothing behind: a connection that has stopped
+    /// negotiating answers nothing, and a completed waiter left in place would tell the next caller that
+    /// its question had been answered when nothing had been asked.
+    /// </summary>
+    private void ReleaseSupportAnswer()
+    {
+        lock (_answerGate)
+        {
+            _supportAnswer?.TrySetResult(_support);
+            _supportAnswer = null;
+        }
+    }
+
+    /// <summary>
+    /// Waits on <paramref name="answer"/> for <paramref name="timeout"/>. A timeout is not a failure —
+    /// silence is an answer of a kind here — so what the peer has said so far is returned instead.
+    /// </summary>
+    private async ValueTask<MxpSupport> AwaitAnswerAsync(Task<MxpSupport> answer, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        if (answer.IsCompleted) return await answer.ConfigureAwait(false);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (timeout == TimeSpan.Zero) return _support;
+
+        // Task.WaitAsync would do this in one call, but netstandard2.0 does not have it.
+        using var stopTimer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var timer = Task.Delay(timeout, stopTimer.Token);
+        var finished = await Task.WhenAny(answer, timer).ConfigureAwait(false);
+        stopTimer.Cancel();
+
+        if (finished == answer) return await answer.ConfigureAwait(false);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return _support;
+    }
 
     /// <summary>Writes one MXP tag on a secure line, which is the only mode tags are read in.</summary>
     private async ValueTask SendTagAsync(string tag)

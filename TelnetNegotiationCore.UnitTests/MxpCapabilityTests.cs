@@ -114,6 +114,179 @@ public class MxpCapabilityTests : BaseTest
 		return peer;
 	}
 
+	// ── Waiting for the answer ──────────────────────────────────────────────────
+
+	[Test]
+	public async Task AWaitEndsWhenTheAnswerArrives()
+	{
+		var peer = await PeerAsync();
+
+		var asking = peer.Mxp.RequestSupportAsync(TimeSpan.FromSeconds(10), "image", "frame").AsTask();
+		await peer.FeedAsync($"{Secure}<SUPPORTS +image -frame>\r\n");
+
+		var support = await asking;
+
+		await Assert.That(support.Supports("image")).IsTrue();
+		await Assert.That(support.Refuses("frame")).IsTrue();
+		await Assert.That(peer.Mxp.SupportAnswered).IsTrue();
+	}
+
+	/// <summary>
+	/// The point of the deadline: a client is under no obligation to answer, and without one "has not
+	/// answered yet" and "will never answer" are the same silence. An entry nobody answered about is in
+	/// neither set, so a caller that treats silence as a refusal can.
+	/// </summary>
+	[Test]
+	public async Task AWaitEndsOnItsOwnWhenNothingAnswers()
+	{
+		var peer = await PeerAsync();
+
+		var support = await peer.Mxp.RequestSupportAsync(TimeSpan.FromMilliseconds(150), "image");
+
+		await Assert.That(support.Supports("image")).IsFalse();
+		await Assert.That(support.Refuses("image")).IsFalse();
+		await Assert.That(peer.Mxp.SupportAnswered).IsFalse()
+			.Because("nothing came back, which is not the same as a refusal");
+	}
+
+	[Test]
+	public async Task AnAnswerThatBeatsTheWaitIsStillTheAnswer()
+	{
+		var peer = await PeerAsync(queryOnStart: ["image"]);
+
+		await peer.FeedAsync($"{Secure}<SUPPORTS +image>\r\n");
+
+		var support = await peer.Mxp.WaitForSupportAsync(TimeSpan.FromMilliseconds(150));
+
+		await Assert.That(support.Supports("image")).IsTrue()
+			.Because("the question was armed when it was asked, so the answer to it is not missed");
+	}
+
+	[Test]
+	public async Task AWaitIsForTheQuestionJustAsked_NotTheOneBefore()
+	{
+		var peer = await PeerAsync();
+
+		await peer.Mxp.RequestSupportAsync("image");
+		await peer.FeedAsync($"{Secure}<SUPPORTS +image>\r\n");
+
+		var second = peer.Mxp.RequestSupportAsync(TimeSpan.FromMilliseconds(150), "frame").AsTask();
+
+		await Assert.That((await second).Refuses("frame")).IsFalse()
+			.Because("the earlier reply answered the earlier question, and does not stand in for this one");
+
+		var third = peer.Mxp.RequestSupportAsync(TimeSpan.FromSeconds(10), "frame").AsTask();
+		await peer.FeedAsync($"{Secure}<SUPPORTS -frame>\r\n");
+
+		var support = await third;
+		await Assert.That(support.Supports("image")).IsTrue().Because("Support accumulates across questions");
+		await Assert.That(support.Refuses("frame")).IsTrue();
+	}
+
+	[Test]
+	public async Task AZeroWaitAnswersWithWhatIsAlreadyKnown()
+	{
+		var peer = await PeerAsync();
+
+		await Assert.That((await peer.Mxp.WaitForSupportAsync(TimeSpan.Zero)).Supported).IsEmpty();
+
+		await peer.Mxp.RequestSupportAsync("image");
+		await peer.FeedAsync($"{Secure}<SUPPORTS +image>\r\n");
+
+		await Assert.That((await peer.Mxp.WaitForSupportAsync(TimeSpan.Zero)).Supports("image")).IsTrue();
+	}
+
+	[Test]
+	public async Task ANegativeWaitIsRefused()
+	{
+		var peer = await PeerAsync();
+
+		await Assert.That(async () => await peer.Mxp.WaitForSupportAsync(TimeSpan.FromSeconds(-2)))
+			.Throws<ArgumentOutOfRangeException>();
+	}
+
+	[Test]
+	public async Task ACancelledWaitStopsWaiting()
+	{
+		var peer = await PeerAsync();
+		using var cancellation = new System.Threading.CancellationTokenSource();
+
+		var waiting = peer.Mxp.WaitForSupportAsync(System.Threading.Timeout.InfiniteTimeSpan, cancellation.Token).AsTask();
+		cancellation.Cancel();
+
+		await Assert.That(async () => await waiting).Throws<OperationCanceledException>();
+	}
+
+	/// <summary>A question on a connection that has stopped will not be answered, so nothing waits for it.</summary>
+	[Test]
+	public async Task DisposalReleasesAWaitRatherThanLeavingItToTimeOut()
+	{
+		var peer = await PeerAsync();
+
+		var waiting = peer.Mxp.WaitForSupportAsync(System.Threading.Timeout.InfiniteTimeSpan).AsTask();
+		await peer.Mxp.DisposeAsync();
+
+		await Assert.That((await waiting).Supported).IsEmpty();
+		await Assert.That(peer.Mxp.SupportAnswered).IsFalse();
+	}
+
+	/// <summary>
+	/// A second question while the first is still unanswered keeps the first waiter: the next reply
+	/// answers every question outstanding. Arming a fresh one would leave the first caller waiting for a
+	/// reply that could no longer reach it.
+	/// </summary>
+	[Test]
+	public async Task AQuestionAskedWhileAnotherIsWaitingDoesNotStrandIt()
+	{
+		var peer = await PeerAsync();
+
+		await peer.Mxp.RequestSupportAsync("image");
+		var waiting = peer.Mxp.WaitForSupportAsync(System.Threading.Timeout.InfiniteTimeSpan).AsTask();
+
+		await peer.Mxp.RequestSupportAsync("frame");
+		await peer.FeedAsync($"{Secure}<SUPPORTS +image -frame>\r\n");
+
+		var support = await waiting;
+
+		await Assert.That(support.Supports("image")).IsTrue();
+		await Assert.That(support.Refuses("frame")).IsTrue();
+	}
+
+	[Test]
+	public async Task DisposalReleasesEveryWait_HoweverManyQuestionsWereAsked()
+	{
+		var peer = await PeerAsync();
+
+		await peer.Mxp.RequestSupportAsync("image");
+		var waiting = peer.Mxp.WaitForSupportAsync(System.Threading.Timeout.InfiniteTimeSpan).AsTask();
+		await peer.Mxp.RequestSupportAsync("frame");
+
+		await peer.Mxp.DisposeAsync();
+
+		await Assert.That((await waiting).Supported).IsEmpty();
+	}
+
+	/// <summary>
+	/// The waiter does not outlive the connection it belongs to: a released one is dropped, not left
+	/// completed, or the next caller would be told its question was answered when it had not been asked.
+	/// </summary>
+	[Test]
+	public async Task AWaitAfterTheConnectionStoppedNegotiatingStillWaits()
+	{
+		var peer = await PeerAsync();
+
+		await peer.Mxp.RequestSupportAsync("image");
+		await peer.Mxp.OnDisabledAsync();
+
+		var started = System.Diagnostics.Stopwatch.StartNew();
+		await peer.Mxp.WaitForSupportAsync(TimeSpan.FromMilliseconds(200));
+		started.Stop();
+
+		await Assert.That(started.ElapsedMilliseconds).IsGreaterThanOrEqualTo(150)
+			.Because("nothing has been answered, so the wait runs its course rather than returning at once");
+		await Assert.That(peer.Mxp.SupportAnswered).IsFalse();
+	}
+
 	// ── Asking ──────────────────────────────────────────────────────────────────
 
 	[Test]
