@@ -39,6 +39,22 @@ peer answering a question, not something a player typed. `Support` accumulates t
 `Supports("image")`, `Refuses("frame")` — and a later reply revises an earlier one. An entry nobody asked
 about is in neither set, so "not supported" and "never asked" stay apart.
 
+A client is under no obligation to answer, so a server that has to *decide* something from the reply
+asks with a deadline:
+
+```csharp
+var support = await mxp.RequestSupportAsync(TimeSpan.FromSeconds(2), "image", "frame");
+var canFrame = support.Supports("frame");   // silence counts as no
+```
+
+`RequestSupportAsync(timeout, …)` sends the question and waits for the answer to *that* question,
+returning what the peer has said so far once the deadline passes — a timeout is not an error, because
+silence is an answer of a kind here. `WaitForSupportAsync(timeout)` waits on a question already asked,
+including one from `QuerySupportOnStart`, and `TimeSpan.Zero` makes either of them a poll.
+`SupportAnswered` tells total silence from a reply that simply did not mention an entry. A wait is also
+released when the connection stops negotiating or the plugin is disposed, rather than being left to run
+out its clock.
+
 `RequestVersionAsync()` asks the client to name itself; the `<VERSION MXP=0.4 CLIENT=zmud …>` reply
 becomes `PeerVersion`.
 

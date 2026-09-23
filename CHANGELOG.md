@@ -32,6 +32,14 @@ All notable changes to this project will be documented in this file.
     client admits to is not this library's call.
   - Queries and replies go out on a secure line, which is the only mode a tag is read in, and sending
     one before MXP mode has started throws instead of putting a tag on the wire as text.
+  - **A question can be waited on.** `RequestSupportAsync(timeout, …)` asks and waits for the answer to
+    that question; `WaitForSupportAsync(timeout)` waits on one already asked, including
+    `QuerySupportOnStart`'s. Both return what the peer has said so far when the deadline passes, since a
+    client is under no obligation to reply and a timeout is not a failure — and `SupportAnswered` tells
+    total silence from a reply that did not mention an entry, so a caller that must treat silence as a
+    refusal can. `TimeSpan.Zero` polls, `Timeout.InfiniteTimeSpan` waits as long as the connection does,
+    and a wait is released rather than left running when the connection stops negotiating or the plugin
+    is disposed.
 
 ### Added
 
