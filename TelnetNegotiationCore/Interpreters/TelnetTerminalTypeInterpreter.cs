@@ -11,7 +11,6 @@ namespace TelnetNegotiationCore.Interpreters;
 /// https://datatracker.ietf.org/doc/html/rfc1091
 /// https://tintin.mudhalla.net/protocols/mtts/
 /// 
-/// TODO: Allow the end-user to set TerminalTypes in Client Mode.
 /// TODO: Optimize byte array allocations that get commonly used.
 /// </summary>
 public partial class TelnetInterpreter
