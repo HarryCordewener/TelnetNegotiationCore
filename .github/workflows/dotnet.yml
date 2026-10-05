@@ -32,7 +32,7 @@ jobs:
           8.0.x
           10.0.x
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore --locked-mode
     - name: Build
       run: dotnet build --no-restore
     - name: Test with TUnit (${{ matrix.framework }})

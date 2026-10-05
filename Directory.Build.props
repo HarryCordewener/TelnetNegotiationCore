@@ -1,0 +1,14 @@
+<Project>
+
+  <!--
+    Every project restores against a committed packages.lock.json, which records the exact version
+    and content hash of every package, transitive ones included. CI restores in locked mode, so a
+    package that resolves differently from its lock file fails the restore rather than building
+    quietly. A local restore rewrites the lock file when a reference changes; commit it with the
+    change. CONTRIBUTING.md has the rest.
+  -->
+  <PropertyGroup>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+
+</Project>
