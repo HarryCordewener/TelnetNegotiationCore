@@ -14,6 +14,12 @@ dotnet restore
 dotnet build
 ```
 
+Each project commits a `packages.lock.json`, and CI restores with `--locked-mode`, so a restore that
+would resolve a different package than the lock file records fails instead of building. When you add
+or change a package reference, commit the lock file your local restore rewrites. When you change the
+SDK in `global.json`, run `dotnet restore --force-evaluate` and commit the result too: the SDK adds
+`Microsoft.NET.ILLink.Tasks` to the trimmable targets at its own version, so the lock files follow it.
+
 ## Testing
 
 Tests use [TUnit](https://github.com/thomhurst/TUnit), which runs as an executable rather than through
