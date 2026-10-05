@@ -13,8 +13,8 @@ using Microsoft.Extensions.Logging;
 namespace TelnetNegotiationCore.Interpreters;
 
 /// <summary>
-/// TODO: Telnet Interpreter should take in a simple Interface object that can Read & Write from / to a Stream!
-/// Read Byte, Write Byte, and a Buffer Size. That way we can test it.
+/// Interprets the bytes passed to <see cref="InterpretByteArrayAsync"/> and writes what it sends through
+/// <see cref="CallbackNegotiationAsync"/>, so it runs, and is tested, without a socket.
 /// </summary>
 /// <remarks>
 /// The <see cref="IAsyncDisposable"/> here is load-bearing, however redundant it looks next to a

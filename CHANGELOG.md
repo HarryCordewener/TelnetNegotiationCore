@@ -1,7 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [4.3.0]
 
 ### Fixed
 
@@ -42,6 +42,8 @@ All notable changes to this project will be documented in this file.
     is disposed. A second question asked while the first is still unanswered keeps the first waiter, so
     the next reply answers every question outstanding.
 
+## [4.2.0]
+
 ### Added
 
 - **The Pueblo handshake, as the new `PuebloProtocol` plugin.** Pueblo has no telnet option; a server
@@ -65,6 +67,41 @@ All notable changes to this project will be documented in this file.
     whether the offer arrived.
   - **Adding the plugin is the opt-in**, since on a server the hello is unsolicited text on every
     connection.
+
+## [4.1.1]
+
+### Fixed
+
+- **Disposal is single-flight and finishes what it starts.** Disposing an interpreter, or its plugin
+  manager, more than once or from several threads at once runs the cleanup once. A plugin or transform
+  that throws while being disposed no longer stops the rest from being disposed: the first failure is
+  rethrown, and several are reported together in an `AggregateException`.
+- **A failed build or start no longer leaks.** When building or starting an interpreter fails partway,
+  the plugins already registered, the logger scope, a transform that was refused, and the stream
+  adapters are cleaned up before the exception reaches the caller.
+- `BuildAndStartAsync(Stream)` leaves the stream open, since the caller owns it, and completes the
+  reader it created when the read loop ends.
+- MCCP cleans up every compression transform even when one fails, and Packet Patch creates its timer
+  when it is initialized rather than when it is constructed, so a plugin that is never used holds none.
+
+### Changed
+
+- **Registering a second plugin for the same protocol throws `InvalidOperationException`.** It used to
+  log a warning and replace the first, which then belonged to nobody and was never disposed.
+- `ITelnetProtocolPlugin` extends `IAsyncDisposable`, which states the `DisposeAsync` it already
+  required.
+
+## [4.1.0]
+
+### Added
+
+- **`OnTerminalTypes(types => …)` reports TTYPE answers as they arrive.** It is set on
+  `AddPlugin<TerminalTypeProtocol>()`'s chain, or straight after `AddDefaultMUDProtocols()`. The
+  callback gets the same read-only list as `TerminalTypes`, after each new answer and once more when the
+  repeated last answer ends the cycle and expands `MTTS <bitvector>`. The next `SEND` goes out before the
+  callback is awaited, so a slow callback does not hold up the negotiation.
+
+## [4.0.0]
 
 ### Changed
 
@@ -92,45 +129,6 @@ All notable changes to this project will be documented in this file.
     nothing — and is enforced as one.
   - An offer whose write threw is not recorded, and does not displace the one that did reach the
     peer.
-
-### Fixed
-
-- **TERMINAL-SPEED reported a request that had no adjacent `IAC SE`.** `TerminalSpeedModule`'s
-  malformed-byte handler for the `SEND` state had an empty body, alone among the three options with
-  such a state — `TerminalTypeModule` and `XDisplayModule` both clear the escape flag there and both
-  carry a comment explaining that they must. So a stray byte between a genuine `IAC` and an unrelated
-  later `SE` still satisfied the terminator guard, and `IAC SB TSPEED SEND IAC 0x01 SE` reported a
-  terminal-speed request. This is the same stale-flag class as the NEW-ENVIRON defect fixed earlier,
-  and `MalformedSubnegotiationRecoveryTests` covers that class for every other such state — it missed
-  only this one.
-
-- **Nine states accepted `IAC IAC SE` as the end of a subnegotiation.** RFC 855 makes `IAC IAC` one
-  data byte 255, so the `SE` after it is data and the frame is not over. Those nine latched their
-  escape flag to true rather than toggling it, so a doubled `IAC` terminated the subnegotiation one
-  byte early. The twelve states that buffer a payload already toggled, and were correct.
-  - Observable in MXP: `IAC SB MXP IAC IAC SE 'A' IAC SE` ended early and the `'A'` leaked into the
-    ordinary text stream as data.
-  - Observable in MCCP2 and MCCP3 as the harm those modules' own comments warn about — inflation
-    starting at the wrong stream position.
-  - Also corrected in FLOWCONTROL, CHARSET's ending marker, ENCRYPT's `END`, and the `SEND` states of
-    TERMINAL-TYPE, TERMINAL-SPEED and X-DISPLAY-LOCATION.
-
-- **FLOWCONTROL discarded an escaped command byte and ended the subnegotiation early.** It was the
-  one payload-carrying option implementing no un-doubling at all: its capture took a single byte
-  rather than a run, and its `IAC` handler latched, so a doubled `IAC` never reached the command
-  byte. RFC 1372 defines only commands 0 through 3, so a 255 is not a command this library acts on —
-  but dropping it silently and ending the frame a byte early are separate wrongs from it being
-  meaningless.
-
-- **CHARSET's request text and TERMINAL-SPEED's speed text accumulated without a ceiling.** Five
-  sibling states carry an 8192-byte cap with a comment saying it "exists only to bound a peer that
-  never sends IAC SE"; these two buffered into an unbounded `List<byte>`, so a peer that opened the
-  subnegotiation and kept sending grew it until the process ran out of memory. Both are now bounded
-  the same way, and an overflowed report is dropped rather than delivered truncated — a cut-short
-  charset list names a different set of charsets than the peer offered, and a cut-short
-  `transmit,receive` parses as a different speed.
-
-### Changed
 
 - **Every option's inbound un-escaping is now covered by one sweep.** RFC 855's rule is stated once
   for all options, but the receive side implements it separately in each option's state module, and
@@ -201,8 +199,6 @@ All notable changes to this project will be documented in this file.
   - Also reachable without a peer: `SetModeAsync` is public and takes any byte.
   - All three places that send a `MODE` frame now share one builder, so the escaping cannot be
     present in one and missing in the next.
-
-### Changed
 
 - **RFC 854's escaping now has exactly one implementation.** The rule that a literal 255 on the wire
   is doubled had been written out four separate times — in `Helpers.SubnegotiationEscaping`, in
@@ -352,6 +348,43 @@ All notable changes to this project will be documented in this file.
   ignores them with a `Warning`, rather than reporting to its consumer that a stream nobody is
   encrypting has started. One arriving before the option is negotiated is ignored too.
 
+### Fixed
+
+- **TERMINAL-SPEED reported a request that had no adjacent `IAC SE`.** `TerminalSpeedModule`'s
+  malformed-byte handler for the `SEND` state had an empty body, alone among the three options with
+  such a state — `TerminalTypeModule` and `XDisplayModule` both clear the escape flag there and both
+  carry a comment explaining that they must. So a stray byte between a genuine `IAC` and an unrelated
+  later `SE` still satisfied the terminator guard, and `IAC SB TSPEED SEND IAC 0x01 SE` reported a
+  terminal-speed request. This is the same stale-flag class as the NEW-ENVIRON defect fixed earlier,
+  and `MalformedSubnegotiationRecoveryTests` covers that class for every other such state — it missed
+  only this one.
+
+- **Nine states accepted `IAC IAC SE` as the end of a subnegotiation.** RFC 855 makes `IAC IAC` one
+  data byte 255, so the `SE` after it is data and the frame is not over. Those nine latched their
+  escape flag to true rather than toggling it, so a doubled `IAC` terminated the subnegotiation one
+  byte early. The twelve states that buffer a payload already toggled, and were correct.
+  - Observable in MXP: `IAC SB MXP IAC IAC SE 'A' IAC SE` ended early and the `'A'` leaked into the
+    ordinary text stream as data.
+  - Observable in MCCP2 and MCCP3 as the harm those modules' own comments warn about — inflation
+    starting at the wrong stream position.
+  - Also corrected in FLOWCONTROL, CHARSET's ending marker, ENCRYPT's `END`, and the `SEND` states of
+    TERMINAL-TYPE, TERMINAL-SPEED and X-DISPLAY-LOCATION.
+
+- **FLOWCONTROL discarded an escaped command byte and ended the subnegotiation early.** It was the
+  one payload-carrying option implementing no un-doubling at all: its capture took a single byte
+  rather than a run, and its `IAC` handler latched, so a doubled `IAC` never reached the command
+  byte. RFC 1372 defines only commands 0 through 3, so a 255 is not a command this library acts on —
+  but dropping it silently and ending the frame a byte early are separate wrongs from it being
+  meaningless.
+
+- **CHARSET's request text and TERMINAL-SPEED's speed text accumulated without a ceiling.** Five
+  sibling states carry an 8192-byte cap with a comment saying it "exists only to bound a peer that
+  never sends IAC SE"; these two buffered into an unbounded `List<byte>`, so a peer that opened the
+  subnegotiation and kept sending grew it until the process ran out of memory. Both are now bounded
+  the same way, and an overflowed report is dropped rather than delivered truncated — a cut-short
+  charset list names a different set of charsets than the peer offered, and a cut-short
+  `transmit,receive` parses as a different speed.
+
 ### Added
 
 - **`MsdpWireEscapingTests`**, covering what MSDP puts on the wire. `SendMSDPPayloadAsync` and
@@ -430,7 +463,6 @@ All notable changes to this project will be documented in this file.
   those settings could only be applied through `GetPlugin<T>()` after `BuildAsync()`, by which point
   the plugin's initial negotiation has already gone out. Every other plugin's settings were
   reachable from the chain; these now are too.
-
 
 ## [3.0.0]
 
