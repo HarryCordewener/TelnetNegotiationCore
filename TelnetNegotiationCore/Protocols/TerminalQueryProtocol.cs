@@ -235,6 +235,17 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 				continue;
 			}
 
+			// Any other control string (DCS, SOS, OSC, PM, APC) is kept whole, through its terminator or the
+			// end of the line: nothing inside it is an answer, and scanning it once keeps a line of unclosed
+			// strings from being read again from every escape in it.
+			if (text[position] == Escape && position + 1 < text.Length && text[position + 1] is 'P' or 'X' or ']' or '^' or '_')
+			{
+				var end = TryFindStringEnd(text, position + 2, out var stringEnd) ? stringEnd : text.Length;
+				kept.Append(text, position, end - position);
+				position = end;
+				continue;
+			}
+
 			kept.Append(text[position]);
 			position++;
 		}
@@ -250,7 +261,8 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 
 		Context.Logger.LogDebug("The terminal answered {Count} question(s)", answers.Count);
 
-		if (_onTerminalReport is not null) await _onTerminalReport(report);
+		var callback = _onTerminalReport;
+		if (callback is not null) await callback(report);
 
 		var rest = kept.ToString();
 		return rest.Trim('\r', '\n').Length == 0 ? null : encoding.GetBytes(rest);

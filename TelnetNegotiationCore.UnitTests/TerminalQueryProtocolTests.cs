@@ -169,6 +169,32 @@ public class TerminalQueryProtocolTests : BaseTest
 		await Assert.That(peer.Submitted.Count).IsEqualTo(1);
 	}
 
+	/// <summary>An answer-shaped sequence inside another control string is part of that string, not an answer.</summary>
+	[Test]
+	public async Task AnAnswerInsideAnotherControlStringIsTheUsers()
+	{
+		var peer = await PeerAsync();
+		var line = $"say {Esc}]0;{Esc}[?62;4c{Esc}\\ hi";
+
+		await peer.FeedAsync(line + "\r\n");
+
+		await Assert.That(peer.Reports).IsEmpty();
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { line });
+	}
+
+	/// <summary>A line of unclosed control strings is read once, not again from every escape in it.</summary>
+	[Test]
+	public async Task UnclosedControlStringsAreKeptWhole()
+	{
+		var peer = await PeerAsync();
+		var line = string.Concat(System.Linq.Enumerable.Repeat($"{Esc}P>|", 50_000));
+
+		await peer.FeedAsync(line + "\r\n");
+
+		await Assert.That(peer.Reports).IsEmpty();
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { line });
+	}
+
 	/// <summary>A version string a terminal ends with BEL instead of ST is read the same way.</summary>
 	[Test]
 	public async Task AVersionEndedWithBellIsRead()
