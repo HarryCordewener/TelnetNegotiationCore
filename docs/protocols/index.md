@@ -27,6 +27,7 @@ MSDP, MSSP, TTYPE, CHARSET, EOR, SUPPRESS-GO-AHEAD and MXP — in one call.
 | [RFC 2946](http://www.faqs.org/rfcs/rfc2946.html) Encryption | `EncryptionProtocol` | [Encryption](encryption.md) |
 | [MXP](https://www.zuggsoft.com/zmud/mxp.htm) (telnet option 91) | `MXPProtocol` | [MXP](mxp.md) |
 | [Pueblo](https://github.com/pennmush/pennmush/blob/master/game/txt/hlp/pennpueb.hlp) *(no option — an in-band handshake)* | `PuebloProtocol` | [Pueblo](pueblo.md) |
+| Terminal queries *(no option — escape sequences in the data stream)* | `TerminalQueryProtocol` | [Terminal queries](terminal-queries.md) |
 | [MCP 2.1](https://www.moo.mud.org/mcp/mcp2.html) | `MudClientProtocol`, `McpCordProtocol` | [MCP](mcp.md) |
 | *(no option — silence-inferred prompts)* | `PacketPatchProtocol` | [Detecting prompts](../guides/prompts.md) |
 

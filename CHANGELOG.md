@@ -1,6 +1,20 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **`TerminalQueryProtocol`: ask the terminal behind a connection what it can draw.** `ProbeAsync`
+  writes the Kitty graphics query (`a=q`), `CSI 16 t` (cell size in pixels), XTVERSION and, always last,
+  primary device attributes. A terminal answers in its own input, which over telnet is the user's next
+  line; the answers are taken out of that line wherever they sit in it, and a line that held nothing
+  else is consumed. `OnTerminalReport` and `Report` give what was said: `KittyGraphics` (decided when
+  the device attributes arrive, since terminals answer in order), `Sixel` (attribute 4), `Version`,
+  `CellWidth` and `CellHeight`. Nothing is asked unless the application calls `ProbeAsync`: a MUD client
+  that is not a terminal emulator may print the questions, and a telnet client in line mode echoes the
+  answers before the user presses Enter.
+
 ## [4.3.0]
 
 ### Fixed
