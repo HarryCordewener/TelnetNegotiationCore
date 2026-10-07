@@ -758,6 +758,21 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets the callback run when the terminal answers a probe. See
+    /// <see cref="TerminalQueryProtocol.OnTerminalReport"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">Receives everything the terminal has reported so far</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<TerminalQueryProtocol> OnTerminalReport(
+        this PluginConfigurationContext<TerminalQueryProtocol> context,
+        Func<TerminalReport, ValueTask>? callback)
+    {
+        context.Plugin.OnTerminalReport(callback);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the callback run when the peer answers a <c>&lt;SUPPORT&gt;</c> query. See
     /// <see cref="MXPProtocol.OnMxpSupports"/>.
     /// </summary>
