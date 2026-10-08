@@ -53,6 +53,10 @@ All notable changes to this project will be documented in this file.
   Also `Char.Vitals`, `Room.Info` (the IRE shape Mudlet's mapper reads) and `Comm.Channel.Text`, and
   `GmcpPackages` constants for the other common package names. Sessions send them with
   `SendAsync(IGmcpMessage)`; `GmcpClientSession.SendAsync` sends any package.
+- **The GMCP packages Mudlet handles beyond the specifications.** `MediaPause` (`Client.Media.Pause`),
+  `ClientGui.BaseUi` and the plain `Client.GUI` form, `Char.Login` version 2 (`LoginUrl`, `LoginToken`,
+  `LoginReconnect`, `LoginAuthCode`, and the version 2 fields of `LoginDefault` and
+  `LoginCredentials`), and `IRE.Composer.Edit`/`SetBuffer` (`ComposerEdit`, `ComposerSetBuffer`).
 - **Reported MSDP variables can be sent once per tick.** `MSDPServerModel.MarkChanged` records a
   change and `FlushChangesAsync` sends every marked variable in one message, leaving out any whose
   value matches the one last sent. `NotifyChangeAsync` still sends at once.

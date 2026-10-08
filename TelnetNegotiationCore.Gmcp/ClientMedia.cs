@@ -203,6 +203,52 @@ public sealed record MediaStop : IGmcpMessage
 	}
 }
 
+/// <summary>
+/// <c>Client.Media.Pause</c>: pause media matching every field that is set. A Mudlet extension to
+/// the specification. A later <see cref="MediaPlay"/> that matches the paused media resumes it.
+/// </summary>
+/// <remarks>Mudlet ignores a pause with no field set, so set at least one.</remarks>
+public sealed record MediaPause : IGmcpMessage
+{
+	/// <summary>Pauses media with this file name.</summary>
+	public string? Name { get; init; }
+
+	/// <summary>Pauses media of this type.</summary>
+	public MediaType? Type { get; init; }
+
+	/// <summary>Pauses media with this tag.</summary>
+	public string? Tag { get; init; }
+
+	/// <summary>Pauses media of this priority or lower.</summary>
+	public int? Priority { get; init; }
+
+	/// <summary>Pauses media with this key.</summary>
+	public string? Key { get; init; }
+
+	/// <inheritdoc />
+	public string Package => GmcpPackages.ClientMediaPause;
+
+	/// <inheritdoc />
+	public string ToJson() => new JsonFieldWriter()
+		.Add("name", Name)
+		.Add("type", MediaTypes.Write(Type))
+		.Add("tag", Tag)
+		.Add("priority", Priority)
+		.Add("key", Key)
+		.ToString();
+
+	/// <summary>Reads a <c>Client.Media.Pause</c> body.</summary>
+	public static bool TryParse(string? data, out MediaPause message) =>
+		JsonFieldReader.TryRead(data, fields => new MediaPause
+		{
+			Name = fields.String("name"),
+			Type = MediaTypes.Read(fields.String("type")),
+			Tag = fields.String("tag"),
+			Priority = (int?)fields.Number("priority"),
+			Key = fields.String("key")
+		}, out message);
+}
+
 internal static class MediaTypes
 {
 	public static string? Write(MediaType? type) => type switch

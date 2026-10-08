@@ -105,10 +105,11 @@ the casing clients expect, and a `TryParse` for the receiving side. `SendAsync(m
 
 | Package | Types |
 | --- | --- |
-| `Client.Media` | `MediaDefault`, `MediaLoad`, `MediaPlay`, `MediaStop` |
+| `Client.Media` | `MediaDefault`, `MediaLoad`, `MediaPlay`, `MediaStop`, `MediaPause` |
 | `Client.GUI`, `Client.Map` | `ClientGui`, `ClientMap` |
-| `Char.Login` | `LoginDefault`, `LoginCredentials`, `LoginResult` |
+| `Char.Login` | `LoginDefault`, `LoginCredentials`, `LoginResult`, and for version 2 `LoginUrl`, `LoginToken`, `LoginReconnect`, `LoginAuthCode` |
 | `External.Discord` | `DiscordHello`, `DiscordInfo`, `DiscordStatus` |
+| `IRE.Composer` | `ComposerEdit`, `ComposerSetBuffer` |
 | `Char.Vitals` | `CharVitals` (`hp`, `maxhp`, `mp`, `maxmp`, `mv`, `maxmv`, `xp`, `maxxp`, `nl`, as Mudlet's base UI reads them) |
 | `Room.Info` | `RoomInfo` (the IRE shape Mudlet's mapper reads) |
 | `Comm.Channel.Text` | `CommChannelText` |
@@ -117,6 +118,22 @@ the casing clients expect, and a `TryParse` for the receiving side. `SendAsync(m
 await gmcp.SendIfSupportedAsync(new MediaPlay("rain.mp3") { Type = MediaType.Sound, Loops = -1 });
 await gmcp.SendAsync(new RoomInfo(6008, "Market Square") { Area = "Midgaard", Exits = new Dictionary<string, long> { ["n"] = 6011 } });
 ```
+
+Some of these go past the published specifications and follow what Mudlet sends and reads:
+
+- `Client.Media.Pause` pauses matching media; a later `MediaPlay` that matches resumes it.
+  `GmcpPackages.ClientMediaObsoleteDefault` is the old `Client.Media` name for `Client.Media.Default`.
+- `ClientGui.BaseUi = false` (or `ClientGui.DeclineBaseUi`) tells Mudlet the game brings its own
+  interface. `ClientGui.TryParse` also reads the plain form, a version line and a URL line.
+- `Char.Login` version 2, which Mudlet announces as `Char.Login 2`: `LoginDefault` carries `Version`
+  and the client-driven OAuth fields (`ClientId`, `Scopes`, `NonceRequired`); client messages carry
+  `Version` and `TokenStorage`; `LoginUrl` sends a sign-in page; `LoginToken` hands the client a token
+  it replays in `LoginReconnect`; `LoginAuthCode` completes a browser sign-in with PKCE. A version 2
+  hand-off to the game's own sign-in screen is a `LoginCredentials` with no account
+  (`IsEmpty`), and one with an account and `Provider` but no password asks to resume that
+  provider's sign-in. The `ToString` of each message leaves out passwords, tokens and codes.
+- `IRE.Composer.Edit` opens Mudlet's editor on some text, and `IRE.Composer.SetBuffer` brings it back.
+  Its data section is a JSON string, not an object.
 
 Servers disagree on the keys of most other `Char.*` packages, so `GmcpPackages` only names them
 (`GmcpPackages.CharStatus`, `GmcpPackages.CharItemsList`, ...) and the game sends its own JSON with
