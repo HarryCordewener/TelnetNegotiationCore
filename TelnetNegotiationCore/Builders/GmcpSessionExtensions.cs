@@ -118,7 +118,17 @@ public static class GmcpSessionExtensions
         if (session == null)
             throw new ArgumentNullException(nameof(session));
 
-        context.Plugin.AttachSession(session.HandleAsync, null);
+        context.Plugin.AttachSession(
+            session.HandleAsync,
+            agreed =>
+            {
+                // A client that withdraws GMCP and agrees again starts over: its old Core.Hello
+                // and module list no longer hold.
+                if (!agreed)
+                    session.Reset();
+
+                return default;
+            });
         return context;
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace TelnetNegotiationCore.Gmcp;
@@ -24,6 +25,7 @@ namespace TelnetNegotiationCore.Gmcp;
 public sealed class GmcpBatch(GmcpSend send)
 {
 	private readonly object _lock = new();
+	private readonly SemaphoreSlim _flushing = new(1, 1);
 	private readonly List<string> _order = [];
 	private readonly Dictionary<string, string> _pending = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Dictionary<string, string> _lastSent = new(StringComparer.OrdinalIgnoreCase);
@@ -53,41 +55,80 @@ public sealed class GmcpBatch(GmcpSend send)
 
 	/// <summary>
 	/// Sends each package set since the last flush, in the order first set, leaving out any whose
-	/// data is the same as the data last sent for it.
+	/// data is the same as the data last sent for it. One flush runs at a time, so a later flush
+	/// never sends ahead of an earlier one.
 	/// </summary>
+	/// <remarks>
+	/// When a send throws, that package and the ones after it stay pending, unless a newer
+	/// <see cref="Set(string, string)"/> replaced them, and the next flush tries them again.
+	/// </remarks>
 	public async ValueTask FlushAsync()
 	{
-		List<KeyValuePair<string, string>> changed;
+		await _flushing.WaitAsync().ConfigureAwait(false);
 
-		lock (_lock)
+		try
 		{
-			if (_order.Count == 0)
+			List<KeyValuePair<string, string>> changed;
+
+			lock (_lock)
 			{
-				return;
-			}
-
-			changed = new(_order.Count);
-
-			foreach (var package in _order)
-			{
-				var data = _pending[package];
-
-				if (_lastSent.TryGetValue(package, out var last) && last == data)
+				if (_order.Count == 0)
 				{
-					continue;
+					return;
 				}
 
-				_lastSent[package] = data;
-				changed.Add(new(package, data));
+				changed = new(_order.Count);
+
+				foreach (var package in _order)
+				{
+					var data = _pending[package];
+
+					if (!_lastSent.TryGetValue(package, out var last) || last != data)
+					{
+						changed.Add(new(package, data));
+					}
+				}
+
+				_order.Clear();
+				_pending.Clear();
 			}
 
-			_order.Clear();
-			_pending.Clear();
-		}
+			for (var i = 0; i < changed.Count; i++)
+			{
+				try
+				{
+					await send(changed[i].Key, changed[i].Value).ConfigureAwait(false);
+				}
+				catch
+				{
+					Requeue(changed, i);
+					throw;
+				}
 
-		foreach (var message in changed)
+				lock (_lock)
+				{
+					_lastSent[changed[i].Key] = changed[i].Value;
+				}
+			}
+		}
+		finally
 		{
-			await send(message.Key, message.Value);
+			_flushing.Release();
+		}
+	}
+
+	private void Requeue(List<KeyValuePair<string, string>> unsent, int from)
+	{
+		lock (_lock)
+		{
+			for (var i = from; i < unsent.Count; i++)
+			{
+				if (!_pending.ContainsKey(unsent[i].Key))
+				{
+					_order.Add(unsent[i].Key);
+					_pending[unsent[i].Key] = unsent[i].Value;
+				}
+			}
 		}
 	}
 

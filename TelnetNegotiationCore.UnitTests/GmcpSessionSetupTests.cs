@@ -198,6 +198,37 @@ public class GmcpSessionSetupTests : BaseTest
 		await server.DisposeAsync();
 	}
 
+	/// <summary>
+	/// A client that withdraws GMCP takes its Core.Hello and module list with it.
+	/// </summary>
+	[Test]
+	public async Task WithdrawingGmcpResetsTheServerSession()
+	{
+		var server = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(_ => default)
+			.AddPlugin<GMCPProtocol>().UseGmcpServerSession(out var serverGmcp)
+			.BuildAsync();
+
+		await server.InterpretByteArrayAsync(DoGmcp);
+		await server.InterpretByteArrayAsync(Gmcp("""Core.Hello {"client":"MyClient","version":"2.5"}"""));
+		await server.InterpretByteArrayAsync(Gmcp("""Core.Supports.Set ["Char 1"]"""));
+		await server.WaitForProcessingAsync();
+
+		await Assert.That(await PollUntilAsync(() => serverGmcp.SupportedModules.Count > 0)).IsTrue();
+		await Assert.That(serverGmcp.ClientName).IsEqualTo("MyClient");
+
+		await server.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.GMCP });
+		await server.WaitForProcessingAsync();
+
+		await Assert.That(await PollUntilAsync(() => serverGmcp.ClientName is null)).IsTrue();
+		await Assert.That(serverGmcp.SupportedModules.Count).IsEqualTo(0);
+
+		await server.DisposeAsync();
+	}
+
 	private static TelnetInterpreterBuilder ClientBuilder(List<byte[]> sent) =>
 		new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)

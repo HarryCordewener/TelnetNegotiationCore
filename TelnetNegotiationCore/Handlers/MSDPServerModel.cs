@@ -254,12 +254,12 @@ public class MSDPServerModel
         return changed.Count == 0 ? default : sendChanged(changed);
     }
 
+    internal bool IsReported(string variable) => _reportedVariables.ContainsKey(variable);
+
     /// <summary>
     /// Sets how <see cref="FlushChangesAsync"/> sends. Called by <see cref="MSDPServerHandler"/>
     /// on the first <c>REPORT</c>.
     /// </summary>
-    internal bool IsReported(string variable) => _reportedVariables.ContainsKey(variable);
-
     internal void OnFlush(Func<IReadOnlyList<string>, ValueTask> sendChanged) =>
         _sendChanged = sendChanged;
 }

@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -44,6 +45,7 @@ public class MSDPServerHandler(MSDPServerModel model, ILogger? logger = null)
 
     // The JSON last sent for each reported variable, so a flush can leave out what did not change.
     private readonly ConcurrentDictionary<string, string> _lastReported = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _sending = new(1, 1);
 
     /// <summary>
     /// Current Data.
@@ -253,27 +255,57 @@ public class MSDPServerHandler(MSDPServerModel model, ILogger? logger = null)
     /// Sends the variables <see cref="MSDPServerModel.FlushChangesAsync"/> collected, leaving out
     /// each one whose value is what was last sent for it.
     /// </summary>
-    private ValueTask SendChangedAsync(TelnetInterpreter telnet, IReadOnlyList<string> changed)
+    private async ValueTask SendChangedAsync(TelnetInterpreter telnet, IReadOnlyList<string> changed)
     {
-        var variables = new List<KeyValuePair<string, object?>>(changed.Count);
+        // The values are read inside the gate, so a flush that waits on an earlier one sends the
+        // values current when it runs, not older ones read before it waited.
+        await _sending.WaitAsync().ConfigureAwait(false);
 
-        foreach (var name in changed)
+        try
         {
-            if (Data.Reportable_Variables.TryGetValue(name, out var current))
-            {
-                variables.Add(new(name, current()));
-            }
-        }
+            var variables = new List<KeyValuePair<string, object?>>(changed.Count);
 
-        return SendVariablesAsync(telnet, variables, skipUnchanged: true);
+            foreach (var name in changed)
+            {
+                if (Data.Reportable_Variables.TryGetValue(name, out var current))
+                {
+                    variables.Add(new(name, current()));
+                }
+            }
+
+            await WriteVariablesAsync(telnet, variables, skipUnchanged: true).ConfigureAwait(false);
+        }
+        finally
+        {
+            _sending.Release();
+        }
     }
 
     /// <summary>
     /// Writes one subnegotiation carrying the given variables and their values. Sends nothing when
-    /// there is nothing to say.
+    /// there is nothing to say. One send runs at a time.
     /// </summary>
     private async ValueTask SendVariablesAsync(
-        TelnetInterpreter telnet, IReadOnlyList<KeyValuePair<string, object?>> variables, bool skipUnchanged = false)
+        TelnetInterpreter telnet, IReadOnlyList<KeyValuePair<string, object?>> variables)
+    {
+        await _sending.WaitAsync().ConfigureAwait(false);
+
+        try
+        {
+            await WriteVariablesAsync(telnet, variables, skipUnchanged: false).ConfigureAwait(false);
+        }
+        finally
+        {
+            _sending.Release();
+        }
+    }
+
+    /// <summary>
+    /// Writes the variables. A reported variable's value is recorded as sent only once the send
+    /// succeeds, so a failed send does not hide the value from the next flush.
+    /// </summary>
+    private async ValueTask WriteVariablesAsync(
+        TelnetInterpreter telnet, IReadOnlyList<KeyValuePair<string, object?>> variables, bool skipUnchanged)
     {
         if (variables.Count == 0)
         {
@@ -281,6 +313,7 @@ public class MSDPServerHandler(MSDPServerModel model, ILogger? logger = null)
         }
 
         var payload = new JsonObject();
+        var reported = new List<KeyValuePair<string, string>>();
 
         foreach (var variable in variables)
         {
@@ -300,7 +333,7 @@ public class MSDPServerHandler(MSDPServerModel model, ILogger? logger = null)
                     continue;
                 }
 
-                _lastReported[variable.Key] = json;
+                reported.Add(new(variable.Key, json));
             }
 
             payload[variable.Key] = value;
@@ -311,7 +344,12 @@ public class MSDPServerHandler(MSDPServerModel model, ILogger? logger = null)
             return;
         }
 
-        await telnet.SendMSDPVariablesAsync(payload);
+        await telnet.SendMSDPVariablesAsync(payload).ConfigureAwait(false);
+
+        foreach (var sent in reported)
+        {
+            _lastReported[sent.Key] = sent.Value;
+        }
     }
 
     /// <summary>
