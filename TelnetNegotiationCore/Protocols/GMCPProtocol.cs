@@ -45,6 +45,39 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 
     private Func<(string Package, long ReceivedBytes, int MaxMessageSize), ValueTask>? _onGMCPMessageTooLarge;
 
+    private Func<bool, ValueTask>? _onGMCPNegotiated;
+
+    // Set by UseGmcpClientSession/UseGmcpServerSession. Kept apart from the application's own
+    // callbacks so that neither replaces the other, and so the session's Core.Hello goes out ahead
+    // of anything the application sends when GMCP is agreed.
+    private Func<(string Package, string Info), ValueTask>? _sessionMessage;
+
+    private Func<bool, ValueTask>? _sessionNegotiated;
+
+    /// <summary>
+    /// Attaches a GMCP session. Its handlers run before the application's callbacks. A second call
+    /// replaces the first session.
+    /// </summary>
+    internal void AttachSession(
+        Func<(string Package, string Info), ValueTask> onMessage,
+        Func<bool, ValueTask>? onNegotiated)
+    {
+        _sessionMessage = onMessage;
+        _sessionNegotiated = onNegotiated;
+    }
+
+    /// <summary>
+    /// Sends a GMCP message on this connection.
+    /// </summary>
+    internal ValueTask SendAsync(string package, string data) =>
+        Context.Interpreter.SendGMCPCommand(package, data);
+
+    /// <summary>
+    /// The identity set with <c>WithClientIdentity</c>, or null.
+    /// </summary>
+    internal ClientIdentity? ClientIdentity =>
+        Context.TryGetSharedState<ClientIdentity>(ClientIdentity.SharedStateKey, out var identity) ? identity : null;
+
     /// <summary>
     /// Sets the callback that is invoked when a GMCP message is received.
     /// </summary>
@@ -101,6 +134,38 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     }
 
 
+
+    /// <summary>
+    /// Sets the callback that is invoked when the peer agrees to GMCP (<c>true</c>), or refuses or
+    /// withdraws it (<c>false</c>).
+    /// </summary>
+    /// <remarks>
+    /// This is where a client sends <c>Core.Hello</c>, which "needs to be the first message that the
+    /// client sends", followed by <c>Core.Supports.Set</c>, as Mudlet does. It fires again with
+    /// <c>true</c> after a copyover renegotiates GMCP, when the client is expected to introduce
+    /// itself again.
+    /// </remarks>
+    /// <param name="callback">The callback, given whether GMCP is now agreed.</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public GMCPProtocol OnGMCPNegotiated(Func<bool, ValueTask>? callback)
+    {
+        _onGMCPNegotiated = callback;
+        return this;
+    }
+
+    /// <inheritdoc />
+    protected override async ValueTask OnNegotiationChangedAsync(bool isNegotiated)
+    {
+        if (_sessionNegotiated != null)
+        {
+            await _sessionNegotiated(isNegotiated).ConfigureAwait(false);
+        }
+
+        if (_onGMCPNegotiated != null)
+        {
+            await _onGMCPNegotiated(isNegotiated).ConfigureAwait(false);
+        }
+    }
 
     /// <inheritdoc />
     public override Type ProtocolType => typeof(GMCPProtocol);
@@ -160,7 +225,10 @@ public class GMCPProtocol : TelnetProtocolPluginBase
             return;
 
         Context.Logger.LogDebug("Received GMCP message: Package={Package}", message.Package);
-        
+
+        if (_sessionMessage != null)
+            await _sessionMessage(message).ConfigureAwait(false);
+
         if (_onGMCPReceived != null)
             await _onGMCPReceived(message).ConfigureAwait(false);
     }
@@ -261,7 +329,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         var hasMsdpPlugin = msdpPlugin != null && msdpPlugin.IsEnabled;
 
         // Decode the data section once, for whichever destination is going to receive it.
-        var info = hasMsdpPlugin || _onGMCPReceived != null
+        var info = hasMsdpPlugin || _onGMCPReceived != null || _sessionMessage != null
 #if NET5_0_OR_GREATER
             ? context.CurrentEncoding.GetString(gmcpSpan[dataStart..])
 #else
@@ -293,6 +361,11 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 
         // Call GMCP plugin callback. A bodyless message delivers an empty Info rather than a
         // fabricated "{}": the tuple reports what was on the wire, and the consumer decides.
+        if (_sessionMessage != null)
+        {
+            await _sessionMessage((Package: package, Info: info));
+        }
+
         if (_onGMCPReceived != null)
         {
             await _onGMCPReceived((Package: package, Info: info));
@@ -512,9 +585,12 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnAskedToEnableGMCPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Peer asked this end to enable GMCP. Agreeing.");
-        await OnNegotiatedAsync(true);
+
+        // The answer goes out before OnGMCPNegotiated fires, so that anything the callback sends
+        // reaches the peer after the agreement rather than ahead of it.
         await Helpers.OptionNegotiation.AnswerAsync(
             honour: true, (byte)Trigger.DO, (byte)Trigger.GMCP, context);
+        await OnNegotiatedAsync(true);
     }
 
     private async ValueTask WillGMCPAsync(IProtocolContext context)
@@ -527,9 +603,10 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     private async ValueTask DoGMCPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing the client can do GMCP");
-        await OnNegotiatedAsync(true);
 
+        // DO first: a client's OnGMCPNegotiated sends Core.Hello, which must follow the DO on the wire.
         await context.SendNegotiationAsync(s_doGmcp);
+        await OnNegotiatedAsync(true);
     }
 
     #endregion

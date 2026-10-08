@@ -25,6 +25,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TelnetNegotiationCore.Analy
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TelnetNegotiationCore.SourceGenerators", "TelnetNegotiationCore.SourceGenerators\TelnetNegotiationCore.SourceGenerators.csproj", "{57862E2B-AFB8-46B7-9812-E428801BAABF}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TelnetNegotiationCore.Gmcp", "TelnetNegotiationCore.Gmcp\TelnetNegotiationCore.Gmcp.csproj", "{599C435E-F172-4AB2-A54D-E1D11AEF405A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -107,6 +109,18 @@ Global
 		{57862E2B-AFB8-46B7-9812-E428801BAABF}.Release|x64.Build.0 = Release|Any CPU
 		{57862E2B-AFB8-46B7-9812-E428801BAABF}.Release|x86.ActiveCfg = Release|Any CPU
 		{57862E2B-AFB8-46B7-9812-E428801BAABF}.Release|x86.Build.0 = Release|Any CPU
+		{599C435E-F172-4AB2-A54D-E1D11AEF405A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{599C435E-F172-4AB2-A54D-E1D11AEF405A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{599C435E-F172-4AB2-A54D-E1D11AEF405A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{599C435E-F172-4AB2-A54D-E1D11AEF405A}.Debug|x64.Build.0 = Debug|Any CPU
+		{599C435E-F172-4AB2-A54D-E1D11AEF405A}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{599C435E-F172-4AB2-A54D-E1D11AEF405A}.Debug|x86.Build.0 = Debug|Any CPU
+		{599C435E-F172-4AB2-A54D-E1D11AEF405A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{599C435E-F172-4AB2-A54D-E1D11AEF405A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{599C435E-F172-4AB2-A54D-E1D11AEF405A}.Release|x64.ActiveCfg = Release|Any CPU
+		{599C435E-F172-4AB2-A54D-E1D11AEF405A}.Release|x64.Build.0 = Release|Any CPU
+		{599C435E-F172-4AB2-A54D-E1D11AEF405A}.Release|x86.ActiveCfg = Release|Any CPU
+		{599C435E-F172-4AB2-A54D-E1D11AEF405A}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -33,6 +33,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TelnetNegotiationCore\TelnetNegotiationCore.csproj" />
+    <ProjectReference Include="..\TelnetNegotiationCore.Gmcp\TelnetNegotiationCore.Gmcp.csproj" />
   </ItemGroup>
 
 </Project>

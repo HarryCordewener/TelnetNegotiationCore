@@ -20,9 +20,53 @@ All notable changes to this project will be documented in this file.
   without its final block and checksum, which the peer cannot tell apart from a cut-off.
 - **`DONT TTYPE` resets a client's terminal-type cycle**, as MTTS asks, so the next `SEND` gets the
   first name again.
+- **MSDP over GMCP requests were answered over native MSDP.** `MSDPServerHandler` wrote `IAC SB MSDP`
+  even to a client that had refused MSDP and asked over GMCP, so the answer never arrived. It now
+  answers `IAC SB GMCP 'MSDP {...}'` when GMCP is the only one of the two agreed, as the specification's
+  example does. Reported variables follow the same rule.
+- **`SendGMCPCommand` with no data wrote a trailing space** (`Core.Ping `). "When sending a command
+  without a data section the space should be omitted."
 
 ### Added
 
+- **`MsdpNames`**, in TelnetNegotiationCore.Gmcp: the MSDP commands, lists, reportable and configurable
+  variables and the `MSDP` GMCP package name, spelled as the specification spells them. `CLIENT_ID`, which
+  KaVir's snippet sends instead of `CLIENT_NAME`, is there too and marked nonstandard.
+- **`TelnetNegotiationCore.Gmcp`, a new package for the GMCP `Core` package.** `GmcpServerSession` reads
+  `Core.Hello`, keeps the `Core.Supports.Set`/`Add`/`Remove` module list (`Supports("Char.Vitals")` is true
+  when `Char` was listed), answers `Core.Ping`, reports `Core.KeepAlive` and sends `Core.Goodbye`.
+  `GmcpClientSession` sends `Core.Hello` and `Core.Supports`, and times `Core.Ping`. It does not depend on
+  TelnetNegotiationCore: a session sends through a delegate, which `SendGMCPCommand` fits.
+- **`UseGmcpClientSession` and `UseGmcpServerSession`** wire a Core session to `GMCPProtocol` in one
+  call: `.AddPlugin<GMCPProtocol>().UseGmcpClientSession(out var gmcp, new("Char", 1))`. The client
+  session sends `Core.Hello` with the name and version from `WithClientIdentity` once GMCP is agreed,
+  then `Core.Supports.Set` with the modules given. No identity, no `Core.Hello`. `OnGMCPMessage` and
+  `OnGMCPNegotiated` still run alongside the session. TelnetNegotiationCore now references
+  TelnetNegotiationCore.Gmcp.
+- **`GMCPProtocol.OnGMCPNegotiated`**, called when the peer agrees to, refuses or withdraws GMCP. It runs
+  after this side's own `DO`/`WILL`, so a client's `Core.Hello` sent from it follows the agreement.
+- **`MSDPClientHandler` is implemented.** It threw `NotImplementedException`. It now sends `LIST`, `SEND`,
+  `REPORT`, `UNREPORT`, `RESET` and configurable variables, and keeps the latest value of every variable
+  the server sends in `Variables`.
+- **Standard GMCP packages in `TelnetNegotiationCore.Gmcp`.** Typed messages for what Mudlet handles
+  without a script: `Client.Media.*`, `Client.GUI`, `Client.Map`, `Char.Login.*` and `External.Discord.*`.
+  Also `Char.Vitals`, `Room.Info` (the IRE shape Mudlet's mapper reads) and `Comm.Channel.Text`, and
+  `GmcpPackages` constants for the other common package names. Sessions send them with
+  `SendAsync(IGmcpMessage)`; `GmcpClientSession.SendAsync` sends any package.
+- **The GMCP packages Mudlet handles beyond the specifications.** `MediaPause` (`Client.Media.Pause`),
+  `ClientGui.BaseUi` and the plain `Client.GUI` form, `Char.Login` version 2 (`LoginUrl`, `LoginToken`,
+  `LoginReconnect`, `LoginAuthCode`, and the version 2 fields of `LoginDefault` and
+  `LoginCredentials`), and `IRE.Composer.Edit`/`SetBuffer` (`ComposerEdit`, `ComposerSetBuffer`).
+- **Typed `Char.Items`, `Char.Skills`, `Char.Afflictions` and `Char.Defences` messages** in the Iron
+  Realms shapes, and the MUD Standards `mudstd.*` proposals: resources and attributes, channels, rooms,
+  frames and tile maps. `mudstd.*` lists written in braces, as the pages write them, are read too.
+- **Reported MSDP variables can be sent once per tick.** `MSDPServerModel.MarkChanged` records a
+  change and `FlushChangesAsync` sends every marked variable in one message, leaving out any whose
+  value matches the one last sent. `NotifyChangeAsync` still sends at once.
+- **`GmcpBatch`** does the same for GMCP: `Set` keeps each package's latest data and `FlushAsync`
+  sends what changed since the last send.
+- **`TelnetInterpreter.SendMSDPVariablesAsync`** sends MSDP variables over native MSDP, or over GMCP as
+  MSDP over GMCP when the peer agreed only to GMCP.
 - **`TelnetInterpreter.UnannounceSupportAsync` and `AnnounceSupportAsync`, for copyovers.** The first
   ends compression and withdraws every `WILL` and `DO` this side offered at connection start; the second
   makes the offers again. `InitialOffers` lists them. This is the procedure GMCP, MSDP, MCCP3, MTTS and

@@ -351,6 +351,103 @@ public class MSDPServerHandlerTests : BaseTest
 	}
 
 	/// <summary>
+	/// Changes marked between flushes go out once, together, with the latest values: five HP changes
+	/// in a tick are one message, not five.
+	/// </summary>
+	[Test]
+	public async Task AFlushSendsEveryMarkedChangeInOneMessage()
+	{
+		var health = 100;
+		var mana = 50;
+		var model = new MSDPServerModel(NoResetAsync)
+		{
+			Reportable_Variables = new() { ["HEALTH"] = () => health, ["MANA"] = () => mana }
+		};
+		var (telnet, sent, handler) = await ServerAsync(model);
+
+		await handler.HandleAsync(telnet, """{"REPORT":["HEALTH","MANA"]}""");
+		sent.Clear();
+
+		for (var i = 0; i < 5; i++)
+		{
+			health -= 10;
+			model.MarkChanged("HEALTH");
+		}
+
+		mana = 40;
+		model.MarkChanged("MANA");
+
+		await Assert.That(Messages(sent).Count).IsEqualTo(0);
+
+		await model.FlushChangesAsync();
+
+		await AssertByteArraysEqual(OnlyMessage(sent), Frame(
+			Trigger.MSDP_VAR, "HEALTH", Trigger.MSDP_VAL, "50",
+			Trigger.MSDP_VAR, "MANA", Trigger.MSDP_VAL, "40"));
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A variable marked but back at the value last sent is left out, and a flush with nothing new
+	/// sends nothing. A second flush with no marks in between sends nothing either.
+	/// </summary>
+	[Test]
+	public async Task AFlushLeavesOutWhatDidNotChange()
+	{
+		var health = 100;
+		var mana = 50;
+		var model = new MSDPServerModel(NoResetAsync)
+		{
+			Reportable_Variables = new() { ["HEALTH"] = () => health, ["MANA"] = () => mana }
+		};
+		var (telnet, sent, handler) = await ServerAsync(model);
+
+		await handler.HandleAsync(telnet, """{"REPORT":["HEALTH","MANA"]}""");
+		sent.Clear();
+
+		model.MarkChanged("HEALTH");
+		await model.FlushChangesAsync();
+		await Assert.That(Messages(sent).Count).IsEqualTo(0);
+
+		health = 90;
+		model.MarkChanged("HEALTH");
+		model.MarkChanged("MANA");
+		await model.FlushChangesAsync();
+		await model.FlushChangesAsync();
+
+		await AssertByteArraysEqual(OnlyMessage(sent), Frame(Trigger.MSDP_VAR, "HEALTH", Trigger.MSDP_VAL, "90"));
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// Marking a variable the client stopped, or never started, having reported sends nothing.
+	/// </summary>
+	[Test]
+	public async Task AFlushSendsOnlyReportedVariables()
+	{
+		var model = new MSDPServerModel(NoResetAsync)
+		{
+			Reportable_Variables = new() { ["HEALTH"] = () => 100, ["MANA"] = () => 50 }
+		};
+		var (telnet, sent, handler) = await ServerAsync(model);
+
+		await handler.HandleAsync(telnet, """{"REPORT":"HEALTH"}""");
+		model.MarkChanged("HEALTH");
+		await handler.HandleAsync(telnet, """{"UNREPORT":"HEALTH"}""");
+		sent.Clear();
+
+		model.MarkChanged("HEALTH");
+		model.MarkChanged("MANA");
+		await model.FlushChangesAsync();
+
+		await Assert.That(Messages(sent).Count).IsEqualTo(0);
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
 	/// A reported variable appears in the REPORTED_VARIABLES list while it is being reported, which is
 	/// what makes that list answerable at all.
 	/// </summary>
@@ -527,6 +624,99 @@ public class MSDPServerHandlerTests : BaseTest
 		await telnet.DisposeAsync();
 	}
 
+	/// <summary>
+	/// MSDP over GMCP, from the GMCP specification's handshake:
+	/// "client - IAC SB GMCP 'MSDP {"LIST" : "COMMANDS"}' IAC SE"
+	/// "server - IAC SB GMCP 'MSDP {"COMMANDS" : ["LIST", ...]}' IAC SE"
+	/// A client that accepted GMCP and refused MSDP is answered over GMCP. An <c>IAC SB MSDP</c>
+	/// answer is for an option it turned down, and it never sees it.
+	/// </summary>
+	[Test]
+	public async Task AnMSDPOverGMCPRequestFromAGMCPOnlyClientIsAnsweredOverGMCP()
+	{
+		var (telnet, sent, _) = await ServerWithGmcpAsync(new MSDPServerModel(NoResetAsync)
+		{
+			Commands = () => ["LIST"]
+		});
+
+		await telnet.InterpretByteArrayAsync(new byte[] {
+			(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP,
+			(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MSDP });
+		await telnet.WaitForProcessingAsync();
+		sent.Clear();
+
+		await telnet.InterpretByteArrayAsync(GmcpFrame("""MSDP {"LIST" : "COMMANDS"}"""));
+		await telnet.WaitForProcessingAsync();
+		await PollUntilAsync(() => sent.Count > 0);
+
+		await Assert.That(Messages(sent)).IsEmpty();
+		await AssertByteArraysEqual(sent.Single(), GmcpFrame("""MSDP {"COMMANDS":["LIST"]}"""));
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A client that accepted both is answered with native MSDP, MSDP over GMCP or not: the
+	/// specification expects it "to be able to process both MSDP and GMCP data interchangably".
+	/// </summary>
+	[Test]
+	public async Task AnMSDPOverGMCPRequestFromAClientWithBothIsAnsweredWithMSDP()
+	{
+		var (telnet, sent, _) = await ServerWithGmcpAsync(new MSDPServerModel(NoResetAsync)
+		{
+			Commands = () => ["LIST"]
+		});
+
+		await telnet.InterpretByteArrayAsync(new byte[] {
+			(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP,
+			(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP });
+		await telnet.WaitForProcessingAsync();
+		sent.Clear();
+
+		await telnet.InterpretByteArrayAsync(GmcpFrame("""MSDP {"LIST" : "COMMANDS"}"""));
+		await telnet.WaitForProcessingAsync();
+		await PollUntilAsync(() => Messages(sent).Count > 0);
+
+		await AssertByteArraysEqual(OnlyMessage(sent), Frame(
+			Trigger.MSDP_VAR, "COMMANDS",
+			Trigger.MSDP_VAL, Trigger.MSDP_ARRAY_OPEN,
+			Trigger.MSDP_VAL, "LIST",
+			Trigger.MSDP_ARRAY_CLOSE));
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A REPORTed variable that changes later goes out the same way the request was answered.
+	/// </summary>
+	[Test]
+	public async Task AReportedVariableReachesAGMCPOnlyClientOverGMCP()
+	{
+		var health = "10";
+		var model = new MSDPServerModel(NoResetAsync)
+		{
+			Reportable_Variables = new() { ["HEALTH"] = () => health }
+		};
+		var (telnet, sent, _) = await ServerWithGmcpAsync(model);
+
+		await telnet.InterpretByteArrayAsync(new byte[] {
+			(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP,
+			(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MSDP });
+		await telnet.WaitForProcessingAsync();
+
+		await telnet.InterpretByteArrayAsync(GmcpFrame("""MSDP {"REPORT":"HEALTH"}"""));
+		await telnet.WaitForProcessingAsync();
+		await PollUntilAsync(() => sent.Count > 0);
+		sent.Clear();
+
+		health = "9";
+		await model.NotifyChangeAsync("HEALTH");
+
+		await AssertByteArraysEqual(sent.Single(), GmcpFrame("""MSDP {"HEALTH":"9"}"""));
+
+		await telnet.DisposeAsync();
+	}
+
 	private static ValueTask NoResetAsync(string group) => default;
 
 	private static async Task<(TelnetInterpreter Telnet, List<byte[]> Sent, MSDPServerHandler Handler)> ServerAsync(MSDPServerModel model)
@@ -550,6 +740,35 @@ public class MSDPServerHandlerTests : BaseTest
 		sent.Clear();
 		return (telnet, sent, handler);
 	}
+
+	private static async Task<(TelnetInterpreter Telnet, List<byte[]> Sent, MSDPServerHandler Handler)> ServerWithGmcpAsync(MSDPServerModel model)
+	{
+		var sent = new List<byte[]>();
+		var handler = new MSDPServerHandler(model);
+
+		var telnet = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(data =>
+			{
+				sent.Add(data.ToArray());
+				return ValueTask.CompletedTask;
+			})
+			.AddPlugin<Protocols.GMCPProtocol>()
+			.AddPlugin<Protocols.MSDPProtocol>()
+				.OnMSDPMessage(handler.HandleAsync)
+			.BuildAsync();
+
+		sent.Clear();
+		return (telnet, sent, handler);
+	}
+
+	/// <summary>
+	/// <c>IAC SB GMCP &lt;text&gt; IAC SE</c>.
+	/// </summary>
+	private static byte[] GmcpFrame(string text) =>
+		[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.GMCP, .. Encoding.GetBytes(text), (byte)Trigger.IAC, (byte)Trigger.SE];
 
 	/// <summary>
 	/// The MSDP subnegotiations among everything written to the network.
