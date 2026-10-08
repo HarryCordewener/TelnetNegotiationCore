@@ -105,6 +105,21 @@ Servers disagree on the keys of most other `Char.*` packages, so `GmcpPackages` 
 `SendAsync(string, string)`. `GmcpPackages.Is(received, GmcpPackages.RoomInfo)` compares names without
 regard to case.
 
+## Sending once per tick
+
+`GmcpBatch` holds the latest data for each package until `FlushAsync`, then sends each package once,
+and only if its data changed since the last send. `Forget()` makes the next flush send everything,
+for a copyover.
+
+```csharp
+var batch = new GmcpBatch((package, data) => telnet.SendGMCPCommand(package, data));
+
+batch.Set(new CharVitals { Hp = player.Hp, MaxHp = player.MaxHp });
+
+// In the game loop, once per tick:
+await batch.FlushAsync();
+```
+
 ## Messages without a data section
 
 The GMCP specification says the data field "is optional and should be separated from the package
