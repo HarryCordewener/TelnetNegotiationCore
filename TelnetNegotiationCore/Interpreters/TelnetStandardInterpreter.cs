@@ -327,10 +327,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
         // Start the idle keep-alive loop, if one was configured.
         StartKeepAlive();
 
-        foreach (var t in _initialCall)
-        {
-            await t();
-        }
+        await RunInitialNegotiationAsync();
 
         return validatedInterpreter;
     }
@@ -619,10 +616,17 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// <param name="transform">The transform to install, or null to go back to raw telnet.</param>
     /// <param name="sendFirst">A final write to make in the clear, before the transform takes over.</param>
     /// <param name="cancellationToken">Token to cancel the wait for the write lock.</param>
+    /// <param name="finishPrevious">
+    /// Whether to end the stream of the transform being replaced, when it has an orderly end
+    /// (<see cref="IFinishableOutboundTransform"/>), and send that end before the new transform takes
+    /// over. Only right when this side chose to stop: a peer that already stopped decoding would read
+    /// the ending as text.
+    /// </param>
     internal async ValueTask SetOutboundByteTransformAsync(
         IOutboundByteTransform? transform,
         ReadOnlyMemory<byte> sendFirst = default,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool finishPrevious = false)
     {
         IOutboundByteTransform? previous = null;
         var wrote = false;
@@ -638,6 +642,17 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 var current = _outboundTransform;
                 await CallbackNegotiationAsync(current is null ? sendFirst : current.Encode(sendFirst));
                 wrote = true;
+            }
+
+            if (finishPrevious && _outboundTransform is IFinishableOutboundTransform finishing
+                && CallbackNegotiationAsync is not null)
+            {
+                var ending = finishing.Finish();
+                if (!ending.IsEmpty)
+                {
+                    await CallbackNegotiationAsync(ending);
+                    wrote = true;
+                }
             }
 
             previous = _outboundTransform;
@@ -690,6 +705,8 @@ public partial class TelnetInterpreter : IAsyncDisposable
     public async ValueTask WriteToNetworkAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
         if (CallbackNegotiationAsync is null) return;
+
+        NoteOffers(data.Span);
 
         await _writeLock.WaitAsync(cancellationToken);
         try

@@ -53,6 +53,10 @@ new answer and once more when the repeated final answer completes the cycle and 
 `MTTS <bitvector>` into capability names. The next `SEND` request is written before the callback is
 awaited, so callback latency cannot stall the negotiation round trip.
 
+A client that receives `DONT TTYPE` goes back to the start of its list, as MTTS asks ("the client's
+cycling state should be reset to the initial state"), so a server that asks again after a
+copyover reads the cycle from the beginning.
+
 `TerminalTypeProtocol.ObservedCapabilities(context)` reports the MTTS bits this library can see for
 itself on a connection.
 

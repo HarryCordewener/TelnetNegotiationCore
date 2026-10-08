@@ -36,6 +36,10 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 {
     private static readonly byte[] s_willNewEnviron = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NEWENVIRON };
     private static readonly byte[] s_doNewEnviron = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NEWENVIRON };
+    private static readonly byte[] s_sendAll = new byte[]
+    {
+        (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.NEWENVIRON, (byte)Trigger.SEND, (byte)Trigger.IAC, (byte)Trigger.SE
+    };
 
     private readonly List<byte> _currentVar = [];
     private readonly List<byte> _currentValue = [];
@@ -47,6 +51,8 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     private bool _collectingVar = false;
     private bool _collectingValue = false;
     private byte _commandType = 0; // IS, INFO, or SEND
+    private bool _offeredDo;
+    private bool _agreedWill;
 
     private Func<Dictionary<string, string>, Dictionary<string, string>, ValueTask>? _onEnvironmentVariables;
 
@@ -128,7 +134,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
     {
         if (context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
-            context.RegisterInitialNegotiation(async () => await WillingNewEnvironAsync(context));
+            context.RegisterInitialNegotiation(async () => await OfferNewEnvironAsync(context));
         }
     }
 
@@ -172,6 +178,8 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         _collectingValue = false;
         _isUserVar = false;
         _commandType = 0;
+        _offeredDo = false;
+        _agreedWill = false;
     }
 
     #region State Machine Handlers
@@ -272,6 +280,7 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
     private ValueTask OnWontNewEnvironAsync(IProtocolContext context)
     {
+        _offeredDo = false;
         context.Logger.LogDebug(context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
             ? "Client won't do NEW-ENVIRON - do nothing"
             : "Server won't do NEW-ENVIRON - do nothing");
@@ -280,15 +289,30 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
 
     private ValueTask OnDontNewEnvironAsync(IProtocolContext context)
     {
+        _agreedWill = false;
         context.Logger.LogDebug(context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
             ? "Client won't do NEW-ENVIRON - do nothing"
             : "Server telling client not to send NEW-ENVIRON");
         return OnNegotiatedAsync(false);
     }
 
-    /// <summary>DO is answered the same way regardless of which side receives it -- by asking for
-    /// variables -- unlike WILL, whose answer differs by mode (see <see cref="ServerOnWillNewEnvironAsync"/>
-    /// and <see cref="ClientOnWillNewEnvironAsync"/>).</summary>
+    /// <summary>What arriving at DO/DONT or WILL/WONT for NEW-ENVIRON does, by role.</summary>
+    /// <remarks>
+    /// <para>
+    /// RFC 1572 and MNES put the variables on the client: "the server should send IAC DO
+    /// NEW-ENVIRON. The client should respond with either IAC WILL NEW-ENVIRON or IAC WONT
+    /// NEW-ENVIRON. Once the server receives IAC WILL NEW-ENVIRON the server can send NEW-ENVIRON
+    /// sub-negotiations". So a server offers <c>DO</c>, a client answers <c>DO</c> with <c>WILL</c>, and
+    /// the server's <c>SEND</c> follows the client's <c>WILL</c>.
+    /// </para>
+    /// <para>
+    /// Versions before this one had it the other way round: the server announced <c>WILL</c> and
+    /// a client answered <c>DO</c> with a <c>SEND</c>. A client still answers a server's <c>WILL</c>
+    /// with <c>DO</c>, as Mudlet and TinTin++ do, so a server built on an older version keeps
+    /// receiving variables. A <c>DO</c> asks a server to send variables of its own, which it has none
+    /// of, so a server refuses it.
+    /// </para>
+    /// </remarks>
     internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
     {
         var server = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server;
@@ -303,8 +327,11 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
             case (byte)Trigger.WONT:
                 await OnWontNewEnvironAsync(context);
                 break;
+            case (byte)Trigger.DO when server:
+                await Helpers.OptionNegotiation.AnswerAsync(false, verb, (byte)Trigger.NEWENVIRON, context);
+                break;
             case (byte)Trigger.DO:
-                await OnDoNewEnvironAsync(context);
+                await ClientOnDoNewEnvironAsync(context);
                 break;
             case (byte)Trigger.DONT:
                 await OnDontNewEnvironAsync(context);
@@ -400,47 +427,49 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
             ? CompleteNewEnvironFromServerAsync(context)
             : SendEnvironmentVariablesFromClientAsync(context);
 
-    private async ValueTask WillingNewEnvironAsync(IProtocolContext context)
+    private async ValueTask OfferNewEnvironAsync(IProtocolContext context)
     {
-        context.Logger.LogDebug("Announcing willingness to NEW-ENVIRON!");
+        context.Logger.LogDebug("Asking the client to DO NEW-ENVIRON");
+        _offeredDo = true;
+        await context.SendNegotiationAsync(s_doNewEnviron);
+    }
+
+    /// <summary>
+    /// The server asked for variables. Agree with <c>WILL</c> and wait for its <c>SEND</c>; a repeat
+    /// <c>DO</c> after agreeing is not answered again, since RFC 1143 has an agreement noted rather
+    /// than answered.
+    /// </summary>
+    private async ValueTask ClientOnDoNewEnvironAsync(IProtocolContext context)
+    {
+        await OnNegotiatedAsync(true);
+
+        if (_agreedWill)
+        {
+            return;
+        }
+
+        context.Logger.LogDebug("Server asked for NEW-ENVIRON - agreeing to send variables");
+        _agreedWill = true;
         await context.SendNegotiationAsync(s_willNewEnviron);
     }
 
-    private async ValueTask OnDoNewEnvironAsync(IProtocolContext context)
-    {
-        context.Logger.LogDebug("Client will do NEW-ENVIRON. Requesting environment variables...");
-        await OnNegotiatedAsync(true);
-
-        // Send NEWENVIRON SEND (request all variables)
-        await context.SendNegotiationAsync(new byte[]
-        {
-            (byte)Trigger.IAC,
-            (byte)Trigger.SB,
-            (byte)Trigger.NEWENVIRON,
-            (byte)Trigger.SEND,
-            (byte)Trigger.IAC,
-            (byte)Trigger.SE
-        });
-    }
-
+    /// <summary>
+    /// The client will send variables, so ask for all of them. The <c>WILL</c> normally answers this
+    /// side's own <c>DO</c>, and an answer is not answered again; only an unsolicited <c>WILL</c> is
+    /// owed a <c>DO</c>.
+    /// </summary>
     private async ValueTask ServerOnWillNewEnvironAsync(IProtocolContext context)
     {
-        context.Logger.LogDebug("Client will do NEW-ENVIRON - accepting and requesting variables");
+        context.Logger.LogDebug("Client will do NEW-ENVIRON - requesting variables");
         await OnNegotiatedAsync(true);
 
-        // Send DO to accept the capability
-        await context.SendNegotiationAsync(s_doNewEnviron);
-        
-        // Immediately send SEND to request all variables
-        await context.SendNegotiationAsync(new byte[]
+        if (!_offeredDo)
         {
-            (byte)Trigger.IAC,
-            (byte)Trigger.SB,
-            (byte)Trigger.NEWENVIRON,
-            (byte)Trigger.SEND,
-            (byte)Trigger.IAC,
-            (byte)Trigger.SE
-        });
+            _offeredDo = true;
+            await context.SendNegotiationAsync(s_doNewEnviron);
+        }
+
+        await context.SendNegotiationAsync(s_sendAll);
     }
 
     private async ValueTask ClientOnWillNewEnvironAsync(IProtocolContext context)
