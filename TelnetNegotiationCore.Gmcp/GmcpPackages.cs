@@ -7,7 +7,7 @@ namespace TelnetNegotiationCore.Gmcp;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The <c>Client.*</c>, <c>Char.Login.*</c> and <c>External.Discord.*</c> messages have fixed
+/// The <c>Client.*</c>, <c>Char.Login.*</c>, <c>External.Discord.*</c> and <c>IRE.Composer.*</c> messages have fixed
 /// shapes and a client that acts on them (Mudlet), so they have typed messages in this package.
 /// </para>
 /// <para>
@@ -43,6 +43,15 @@ public static class GmcpPackages
 	/// <summary>Server to client: stop media. <see cref="MediaStop"/>.</summary>
 	public const string ClientMediaStop = "Client.Media.Stop";
 
+	/// <summary>Server to client: pause media. A Mudlet extension. <see cref="MediaPause"/>.</summary>
+	public const string ClientMediaPause = "Client.Media.Pause";
+
+	/// <summary>
+	/// The obsolete name for <see cref="ClientMediaDefault"/>, which Mudlet still reads the same way.
+	/// Receive it; send <see cref="ClientMediaDefault"/>.
+	/// </summary>
+	public const string ClientMediaObsoleteDefault = "Client.Media";
+
 	/// <summary>Server to client: the sign-in methods the server accepts. <see cref="LoginDefault"/>.</summary>
 	public const string CharLoginDefault = "Char.Login.Default";
 
@@ -51,6 +60,18 @@ public static class GmcpPackages
 
 	/// <summary>Server to client: whether the sign-in worked. <see cref="LoginResult"/>.</summary>
 	public const string CharLoginResult = "Char.Login.Result";
+
+	/// <summary>Server to client: a web page to sign in on. Version 2. <see cref="LoginUrl"/>.</summary>
+	public const string CharLoginUrl = "Char.Login.URL";
+
+	/// <summary>Server to client: a token the client keeps to sign in again. Version 2. <see cref="LoginToken"/>.</summary>
+	public const string CharLoginToken = "Char.Login.Token";
+
+	/// <summary>Client to server: signs in with a kept token. Version 2. <see cref="LoginReconnect"/>.</summary>
+	public const string CharLoginReconnect = "Char.Login.Reconnect";
+
+	/// <summary>Client to server: completes a client-driven OAuth sign-in. Version 2. <see cref="LoginAuthCode"/>.</summary>
+	public const string CharLoginAuthCode = "Char.Login.AuthCode";
 
 	/// <summary>Client to server: the player's Discord user. <see cref="DiscordHello"/>.</summary>
 	public const string ExternalDiscordHello = "External.Discord.Hello";
@@ -63,6 +84,12 @@ public static class GmcpPackages
 
 	/// <summary>Server to client: the Discord rich presence to show. <see cref="DiscordStatus"/>.</summary>
 	public const string ExternalDiscordStatus = "External.Discord.Status";
+
+	/// <summary>Server to client: open Mudlet's composer on some text. <see cref="ComposerEdit"/>.</summary>
+	public const string IreComposerEdit = "IRE.Composer.Edit";
+
+	/// <summary>Client to server: the text the player wrote in the composer. <see cref="ComposerSetBuffer"/>.</summary>
+	public const string IreComposerSetBuffer = "IRE.Composer.SetBuffer";
 
 	/// <summary>Server to client: rarely changing character facts such as name, class and race.</summary>
 	public const string CharBase = "Char.Base";

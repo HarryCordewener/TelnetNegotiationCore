@@ -8,16 +8,43 @@ namespace TelnetNegotiationCore.Gmcp;
 /// <param name="Url">Where the package can be downloaded.</param>
 public sealed record ClientGui(string Version, string Url) : IGmcpMessage
 {
+	/// <summary>
+	/// False tells Mudlet the game brings its own interface, so Mudlet does not offer its starter UI.
+	/// Left out when null.
+	/// </summary>
+	public bool? BaseUi { get; init; }
+
+	/// <summary>Declines Mudlet's starter UI without offering a package: <c>{"baseui":false}</c>.</summary>
+	public static ClientGui DeclineBaseUi { get; } = new("", "") { BaseUi = false };
+
 	/// <inheritdoc />
 	public string Package => GmcpPackages.ClientGui;
 
 	/// <inheritdoc />
-	public string ToJson() => new JsonFieldWriter().Add("version", Version).Add("url", Url).ToString();
+	public string ToJson() => new JsonFieldWriter()
+		.Add("version", Version.Length > 0 ? Version : null)
+		.Add("url", Url.Length > 0 ? Url : null)
+		.Add("baseui", BaseUi)
+		.ToString();
 
-	/// <summary>Reads a <c>Client.GUI</c> body.</summary>
-	public static bool TryParse(string? data, out ClientGui message) =>
-		JsonFieldReader.TryRead(data, fields => new ClientGui(fields.String("version") ?? "", fields.String("url") ?? ""), out message)
-		&& message.Url.Length > 0;
+	/// <summary>
+	/// Reads a <c>Client.GUI</c> body: JSON, or the older plain form Mudlet also reads, the version
+	/// on one line and the URL on the next.
+	/// </summary>
+	public static bool TryParse(string? data, out ClientGui message)
+	{
+		if (JsonFieldReader.TryRead(data, fields => new ClientGui(fields.String("version") ?? "", fields.String("url") ?? "")
+		{
+			BaseUi = fields.Boolean("baseui")
+		}, out message))
+		{
+			return message.Url.Length > 0 || message.BaseUi.HasValue;
+		}
+
+		var lines = (data ?? "").Split('\n');
+		message = lines.Length >= 2 ? new ClientGui(lines[0].Trim(), lines[1].Trim()) : new ClientGui("", "");
+		return message.Version.Length > 0 && message.Url.Length > 0;
+	}
 }
 
 /// <summary>
