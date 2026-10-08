@@ -29,11 +29,20 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **`MsdpNames`**, in TelnetNegotiationCore.Gmcp: the MSDP commands, lists, reportable and configurable
+  variables and the `MSDP` GMCP package name, spelled as the specification spells them. `CLIENT_ID`, which
+  KaVir's snippet sends instead of `CLIENT_NAME`, is there too and marked nonstandard.
 - **`TelnetNegotiationCore.Gmcp`, a new package for the GMCP `Core` package.** `GmcpServerSession` reads
   `Core.Hello`, keeps the `Core.Supports.Set`/`Add`/`Remove` module list (`Supports("Char.Vitals")` is true
   when `Char` was listed), answers `Core.Ping`, reports `Core.KeepAlive` and sends `Core.Goodbye`.
   `GmcpClientSession` sends `Core.Hello` and `Core.Supports`, and times `Core.Ping`. It does not depend on
   TelnetNegotiationCore: a session sends through a delegate, which `SendGMCPCommand` fits.
+- **`UseGmcpClientSession` and `UseGmcpServerSession`** wire a Core session to `GMCPProtocol` in one
+  call: `.AddPlugin<GMCPProtocol>().UseGmcpClientSession(out var gmcp, new("Char", 1))`. The client
+  session sends `Core.Hello` with the name and version from `WithClientIdentity` once GMCP is agreed,
+  then `Core.Supports.Set` with the modules given. No identity, no `Core.Hello`. `OnGMCPMessage` and
+  `OnGMCPNegotiated` still run alongside the session. TelnetNegotiationCore now references
+  TelnetNegotiationCore.Gmcp.
 - **`GMCPProtocol.OnGMCPNegotiated`**, called when the peer agrees to, refuses or withdraws GMCP. It runs
   after this side's own `DO`/`WILL`, so a client's `Core.Hello` sent from it follows the agreement.
 - **`MSDPClientHandler` is implemented.** It threw `NotImplementedException`. It now sends `LIST`, `SEND`,
@@ -51,6 +60,11 @@ All notable changes to this project will be documented in this file.
 - **Typed `Char.Items`, `Char.Skills`, `Char.Afflictions` and `Char.Defences` messages** in the Iron
   Realms shapes, and the MUD Standards `mudstd.*` proposals: resources and attributes, channels, rooms,
   frames and tile maps. `mudstd.*` lists written in braces, as the pages write them, are read too.
+- **Reported MSDP variables can be sent once per tick.** `MSDPServerModel.MarkChanged` records a
+  change and `FlushChangesAsync` sends every marked variable in one message, leaving out any whose
+  value matches the one last sent. `NotifyChangeAsync` still sends at once.
+- **`GmcpBatch`** does the same for GMCP: `Set` keeps each package's latest data and `FlushAsync`
+  sends what changed since the last send.
 - **`TelnetInterpreter.SendMSDPVariablesAsync`** sends MSDP variables over native MSDP, or over GMCP as
   MSDP over GMCP when the peer agreed only to GMCP.
 - **`TelnetInterpreter.UnannounceSupportAsync` and `AnnounceSupportAsync`, for copyovers.** The first
