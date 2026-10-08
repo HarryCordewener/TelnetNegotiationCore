@@ -271,12 +271,14 @@ public class MCCPProtocol : TelnetProtocolPluginBase
             return;
         }
 
+        // Cleared first: once the swap below has started, compression is over whether or not the
+        // write carrying the stream's end succeeds.
+        SetEnabled(version, false);
+
         if (inbound)
             context.SetInboundByteTransform(null);
         else
             await context.Interpreter.SetOutboundByteTransformAsync(null, finishPrevious: true);
-
-        SetEnabled(version, false);
 
         if (_onCompressionEnabled != null)
             await _onCompressionEnabled(version, false);

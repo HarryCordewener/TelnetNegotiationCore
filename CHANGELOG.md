@@ -8,8 +8,9 @@ All notable changes to this project will be documented in this file.
 - **NEW-ENVIRON now negotiates in the direction RFC 1572 and MNES give.** A server sends
   `DO NEW-ENVIRON` and answers the client's `WILL` with `SEND`; it used to send `WILL` and wait for
   `DO`, which Mudlet and TinTin++ tolerate but MNES does not describe. A server now refuses a client's
-  `DO NEW-ENVIRON` with `WONT`. A client answers `DO` with `WILL` and still accepts an older TNC server
-  that announces `WILL`, so mixed versions keep working. `EnvironProtocol` (RFC 1408) is unchanged.
+  `DO NEW-ENVIRON` with `WONT`. A client answers `DO` with `WILL`, acknowledges a later `DONT` with
+  `WONT` as RFC 1143 asks, and still accepts an older TNC server that announces `WILL`, so mixed
+  versions keep working. `EnvironProtocol` (RFC 1408) is unchanged.
 
 ### Fixed
 

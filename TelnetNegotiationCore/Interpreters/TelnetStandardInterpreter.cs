@@ -644,19 +644,20 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 wrote = true;
             }
 
-            if (finishPrevious && _outboundTransform is IFinishableOutboundTransform finishing
-                && CallbackNegotiationAsync is not null)
-            {
-                var ending = finishing.Finish();
-                if (!ending.IsEmpty)
-                {
-                    await CallbackNegotiationAsync(ending);
-                    wrote = true;
-                }
-            }
+            var ending = finishPrevious && _outboundTransform is IFinishableOutboundTransform finishing
+                ? finishing.Finish()
+                : ReadOnlyMemory<byte>.Empty;
 
+            // Swapped before the ending is written: the finished encoder cannot encode again, so it
+            // must not stay installed if that write fails.
             previous = _outboundTransform;
             _outboundTransform = transform;
+
+            if (!ending.IsEmpty && CallbackNegotiationAsync is not null)
+            {
+                await CallbackNegotiationAsync(ending);
+                wrote = true;
+            }
         }
         catch (Exception installationFailure)
         {
@@ -666,6 +667,10 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 {
                     transform?.Dispose();
                 }
+
+                // Set only once the swap happened, so nothing can reach it any more; the success
+                // path below that would release it never runs.
+                previous?.Dispose();
             }
             catch (Exception disposalFailure)
             {
@@ -706,8 +711,6 @@ public partial class TelnetInterpreter : IAsyncDisposable
     {
         if (CallbackNegotiationAsync is null) return;
 
-        NoteOffers(data.Span);
-
         await _writeLock.WaitAsync(cancellationToken);
         try
         {
@@ -716,6 +719,9 @@ public partial class TelnetInterpreter : IAsyncDisposable
             // disposed while this write is inside it.
             var transform = _outboundTransform;
             await CallbackNegotiationAsync(transform is null ? data : transform.Encode(data));
+
+            // Only once it went out: an offer whose write failed was never made.
+            NoteOffers(data.Span);
         }
         finally
         {

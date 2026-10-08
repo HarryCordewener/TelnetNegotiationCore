@@ -11,14 +11,19 @@ namespace TelnetNegotiationCore.Interpreters;
 public partial class TelnetInterpreter
 {
 	/// <summary>
-	/// The offers being collected while this side's initial negotiation runs, or null outside it.
+	/// The offers being collected while an initial negotiation runs, and the interpreter running it,
+	/// or null outside one.
 	/// </summary>
 	/// <remarks>
 	/// Async-local so that only writes made by the initial negotiation itself are collected. The
 	/// byte-processing loop can be answering the peer at the same moment, and its answers are not
-	/// offers this side made.
+	/// offers this side made. The owner is kept because the value flows into whatever the
+	/// negotiation calls: a negotiation callback that writes to another interpreter, as a proxy
+	/// does, must not have that interpreter's writes taken for this one's offers.
 	/// </remarks>
-	private static readonly AsyncLocal<List<(byte Verb, byte Option)>?> s_offerCapture = new();
+	private static readonly AsyncLocal<OfferCapture?> s_offerCapture = new();
+
+	private sealed record OfferCapture(TelnetInterpreter Owner, List<(byte Verb, byte Option)> Offers);
 
 	private readonly List<(byte Verb, byte Option)> _initialOffers = [];
 
@@ -87,7 +92,7 @@ public partial class TelnetInterpreter
 	private async ValueTask RunInitialNegotiationAsync()
 	{
 		var offers = new List<(byte Verb, byte Option)>();
-		s_offerCapture.Value = offers;
+		s_offerCapture.Value = new OfferCapture(this, offers);
 		try
 		{
 			foreach (var initial in _initialCall)
@@ -98,25 +103,35 @@ public partial class TelnetInterpreter
 		finally
 		{
 			s_offerCapture.Value = null;
-		}
 
-		lock (_initialOffers)
-		{
-			_initialOffers.Clear();
-			_initialOffers.AddRange(offers);
+			// Even when one of them failed: the offers that did go out are the ones a later
+			// UnannounceSupportAsync has to withdraw.
+			lock (_initialOffers)
+			{
+				_initialOffers.Clear();
+				_initialOffers.AddRange(offers);
+			}
 		}
 	}
 
 	/// <summary>
-	/// Notes the <c>IAC WILL</c> and <c>IAC DO</c> frames in a write made by the initial negotiation.
+	/// Notes the <c>IAC WILL</c> and <c>IAC DO</c> frames in a write made by this interpreter's
+	/// initial negotiation.
 	/// </summary>
-	private static void NoteOffers(ReadOnlySpan<byte> data)
+	private void NoteOffers(ReadOnlySpan<byte> data)
 	{
-		if (s_offerCapture.Value is not { } offers)
+		if (s_offerCapture.Value is { } capture && ReferenceEquals(capture.Owner, this))
 		{
-			return;
+			CollectOffers(data, capture.Offers);
 		}
+	}
 
+	/// <summary>
+	/// Adds each <c>IAC WILL</c> and <c>IAC DO</c> frame in <paramref name="data"/> to
+	/// <paramref name="offers"/>. An escaped <c>IAC IAC</c> is data, not the start of a command.
+	/// </summary>
+	internal static void CollectOffers(ReadOnlySpan<byte> data, List<(byte Verb, byte Option)> offers)
+	{
 		for (var i = 0; i + 1 < data.Length; i++)
 		{
 			if (data[i] != (byte)Trigger.IAC)
@@ -125,15 +140,20 @@ public partial class TelnetInterpreter
 			}
 
 			var command = data[i + 1];
-			if ((command == (byte)Trigger.WILL || command == (byte)Trigger.DO) && i + 2 < data.Length)
+			switch (command)
 			{
-				offers.Add((command, data[i + 2]));
-				i += 2;
-			}
-			else
-			{
-				// IAC IAC, IAC SB, IAC SE and the rest: skip the command byte.
-				i++;
+				case (byte)Trigger.WILL or (byte)Trigger.DO when i + 2 < data.Length:
+					offers.Add((command, data[i + 2]));
+					i += 2;
+					break;
+				case (byte)Trigger.WONT or (byte)Trigger.DONT or (byte)Trigger.SB:
+					// The option byte is part of the command, even when it is 255.
+					i += 2;
+					break;
+				default:
+					// IAC IAC, IAC SE and the two-byte commands.
+					i++;
+					break;
 			}
 		}
 	}

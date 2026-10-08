@@ -35,6 +35,7 @@ namespace TelnetNegotiationCore.Protocols;
 public class NewEnvironProtocol : TelnetProtocolPluginBase
 {
     private static readonly byte[] s_willNewEnviron = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.NEWENVIRON };
+    private static readonly byte[] s_wontNewEnviron = new byte[] { (byte)Trigger.IAC, (byte)Trigger.WONT, (byte)Trigger.NEWENVIRON };
     private static readonly byte[] s_doNewEnviron = new byte[] { (byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.NEWENVIRON };
     private static readonly byte[] s_sendAll = new byte[]
     {
@@ -287,13 +288,21 @@ public class NewEnvironProtocol : TelnetProtocolPluginBase
         return OnNegotiatedAsync(false);
     }
 
-    private ValueTask OnDontNewEnvironAsync(IProtocolContext context)
+    private async ValueTask OnDontNewEnvironAsync(IProtocolContext context)
     {
-        _agreedWill = false;
         context.Logger.LogDebug(context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server
             ? "Client won't do NEW-ENVIRON - do nothing"
             : "Server telling client not to send NEW-ENVIRON");
-        return OnNegotiatedAsync(false);
+
+        // RFC 1143: a DONT for an option this side agreed to is acknowledged with WONT. A DONT for
+        // one it never agreed to needs no answer, and answering it would start a loop.
+        if (_agreedWill)
+        {
+            _agreedWill = false;
+            await context.SendNegotiationAsync(s_wontNewEnviron);
+        }
+
+        await OnNegotiatedAsync(false);
     }
 
     /// <summary>What arriving at DO/DONT or WILL/WONT for NEW-ENVIRON does, by role.</summary>
