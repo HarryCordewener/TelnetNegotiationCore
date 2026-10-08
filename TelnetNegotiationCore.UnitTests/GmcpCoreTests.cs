@@ -337,6 +337,27 @@ public class GmcpCoreTests : BaseTest
 		await server.DisposeAsync();
 	}
 
+	/// <summary>
+	/// A client that keeps adding module names stops growing the list at the limit, and can still
+	/// change the version of a module it already listed.
+	/// </summary>
+	[Test]
+	public async Task TheModuleListStopsGrowingAtTheLimit()
+	{
+		var gmcp = new GmcpServerSession((_, _) => default);
+
+		for (var i = 0; i < GmcpServerSession.MaxModules + 10; i++)
+		{
+			await gmcp.HandleAsync("Core.Supports.Add", $"[\"Module{i} 1\"]");
+		}
+
+		await Assert.That(gmcp.SupportedModules.Count).IsEqualTo(GmcpServerSession.MaxModules);
+		await Assert.That(gmcp.Supports($"Module{GmcpServerSession.MaxModules}")).IsFalse();
+
+		await gmcp.HandleAsync("Core.Supports.Add", """["Module0 3"]""");
+		await Assert.That(gmcp.SupportedModules["Module0"]).IsEqualTo(3);
+	}
+
 	[Test]
 	[Arguments("Char 1", "Char", 1)]
 	[Arguments("Char.Login 2", "Char.Login", 2)]
