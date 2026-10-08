@@ -110,6 +110,15 @@ the casing clients expect, and a `TryParse` for the receiving side. `SendAsync(m
 | `Char.Login` | `LoginDefault`, `LoginCredentials`, `LoginResult`, and for version 2 `LoginUrl`, `LoginToken`, `LoginReconnect`, `LoginAuthCode` |
 | `External.Discord` | `DiscordHello`, `DiscordInfo`, `DiscordStatus` |
 | `IRE.Composer` | `ComposerEdit`, `ComposerSetBuffer` |
+| `Char.Items` | `ItemsList`, `ItemChange` (`Add`, `Remove`, `Update`), `ItemsContents` |
+| `Char.Skills` | `SkillsGet`, `SkillGroups`, `SkillsList`, `SkillInfo` |
+| `Char.Afflictions` | `AfflictionsList`, `Affliction` (`Add`), `AfflictionsRemove` |
+| `Char.Defences` | `DefencesList` (`List`, `InfoList`), `Defence` (`Add`), `DefencesRemove` |
+| `mudstd.resources`, `mudstd.char` | `StatDefinitions`, `StatUpdate` (resources, character resources or attributes, by `StatKind`) |
+| `mudstd.channel` | `ChannelDefinitions`, `ChannelEvent` |
+| `mudstd.room` | `RoomTerrain`, `MudstdRoomInfo`, `RoomEntities` |
+| `mudstd.frame` | `FrameSupport`, `FrameOpen`, `FrameClose`, `FrameTerminal`, `FrameImage`, `FrameSized` (`opened`, `resized`), `FrameClosed` |
+| `mudstd.tilemap` | `TilemapTilesets`, `TilemapInfo`, `TilemapUpdate` |
 | `Char.Vitals` | `CharVitals` (`hp`, `maxhp`, `mp`, `maxmp`, `mv`, `maxmv`, `xp`, `maxxp`, `nl`, as Mudlet's base UI reads them) |
 | `Room.Info` | `RoomInfo` (the IRE shape Mudlet's mapper reads) |
 | `Comm.Channel.Text` | `CommChannelText` |
@@ -134,6 +143,14 @@ Some of these go past the published specifications and follow what Mudlet sends 
   provider's sign-in. The `ToString` of each message leaves out passwords, tokens and codes.
 - `IRE.Composer.Edit` opens Mudlet's editor on some text, and `IRE.Composer.SetBuffer` brings it back.
   Its data section is a JSON string, not an object.
+
+The `Char.Items`, `Char.Skills`, `Char.Afflictions` and `Char.Defences` types follow the Iron Realms
+shapes on the MUD Standards pages. `Char.Items.Inv` and `Char.Items.Room` have no fields: send them with
+`SendAsync(GmcpPackages.CharItemsInv, "\"\"")`. The skill groups go out as `Char.Skills.Groups`, the
+Iron Realms name; the page heads it `Char.Skills.Group`.
+
+The `mudstd.*` packages are MUD Standards proposals and may still change. Their pages write lists in
+braces (`{ {...}, {...} }`), which is not JSON. These types send a JSON array and read either form.
 
 Servers disagree on the keys of most other `Char.*` packages, so `GmcpPackages` only names them
 (`GmcpPackages.CharStatus`, `GmcpPackages.CharItemsList`, ...) and the game sends its own JSON with

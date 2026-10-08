@@ -3,7 +3,8 @@
 The standard GMCP packages for MUD clients and servers: the `Core` package (`Core.Hello`,
 `Core.Supports.Set`/`Add`/`Remove`, `Core.Ping`, `Core.KeepAlive`, `Core.Goodbye`), and typed messages
 for `Client.Media`, `Client.GUI`, `Client.Map`, `Char.Login` (version 2, as Mudlet speaks it),
-`External.Discord`, `IRE.Composer`, `Char.Vitals`, `Room.Info` and `Comm.Channel.Text`.
+`External.Discord`, `IRE.Composer`, `Char.Vitals`, `Char.Items`, `Char.Skills`, `Char.Afflictions`,
+`Char.Defences`, `Room.Info`, `Comm.Channel.Text`, and the MUD Standards `mudstd.*` proposals.
 
 It does not depend on TelnetNegotiationCore. A session takes a `GmcpSend` delegate to send with and
 is handed each received message, so it works over any GMCP transport. TelnetNegotiationCore wires
