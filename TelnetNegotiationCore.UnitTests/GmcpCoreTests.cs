@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Builders;
 using TelnetNegotiationCore.Gmcp;
@@ -270,6 +271,66 @@ public class GmcpCoreTests : BaseTest
 
 		await clientGmcp.PingAsync();
 
+		await Assert.That(await PollUntilAsync(() => clientGmcp.RoundTripMilliseconds is not null)).IsTrue();
+
+		await client.DisposeAsync();
+		await server.DisposeAsync();
+	}
+
+	/// <summary>
+	/// "Sent either by client or server": a ping the server starts is answered once by the client,
+	/// and the server does not answer the answer.
+	/// </summary>
+	[Test]
+	public async Task AServerPingIsAnsweredOnce()
+	{
+		TelnetInterpreter client = null;
+		TelnetInterpreter server = null;
+		var pings = 0;
+		var clientGmcp = new GmcpClientSession((package, data) =>
+		{
+			Interlocked.Increment(ref pings);
+			return client.SendGMCPCommand(package, data);
+		});
+		var serverGmcp = new GmcpServerSession((package, data) =>
+		{
+			Interlocked.Increment(ref pings);
+			return server.SendGMCPCommand(package, data);
+		});
+
+		client = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(async data => await server.InterpretByteArrayAsync(data.ToArray()))
+			.AddPlugin<GMCPProtocol>().OnGMCPMessage(clientGmcp.HandleAsync)
+			.BuildAsync();
+
+		server = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(async data => await client.InterpretByteArrayAsync(data.ToArray()))
+			.AddPlugin<GMCPProtocol>().OnGMCPMessage(serverGmcp.HandleAsync)
+			.BuildAsync();
+
+		await client.InterpretByteArrayAsync(new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.GMCP });
+		await client.WaitForProcessingAsync();
+		await server.WaitForProcessingAsync();
+
+		await serverGmcp.SendAsync("Core.Ping");
+
+		await Assert.That(await PollUntilAsync(() => Volatile.Read(ref pings) >= 2)).IsTrue();
+		for (var i = 0; i < 5; i++)
+		{
+			await client.WaitForProcessingAsync();
+			await server.WaitForProcessingAsync();
+		}
+		await Task.Delay(100);
+		await Assert.That(Volatile.Read(ref pings)).IsEqualTo(2);
+
+		// A ping the client starts afterwards is still answered.
+		await clientGmcp.PingAsync();
 		await Assert.That(await PollUntilAsync(() => clientGmcp.RoundTripMilliseconds is not null)).IsTrue();
 
 		await client.DisposeAsync();
