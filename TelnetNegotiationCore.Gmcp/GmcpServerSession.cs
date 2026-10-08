@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace TelnetNegotiationCore.Gmcp;
@@ -38,6 +39,7 @@ public sealed class GmcpServerSession(GmcpSend send)
 {
 	private readonly object _lock = new();
 	private Dictionary<string, int> _modules = new(StringComparer.OrdinalIgnoreCase);
+	private int _pingSent;
 
 	/// <summary>
 	/// The client's name from <c>Core.Hello</c>, or null before one arrives.
@@ -123,6 +125,13 @@ public sealed class GmcpServerSession(GmcpSend send)
 		}
 		else if (Is(package, CorePackages.Ping))
 		{
+			// The answer to a ping this server sent. Answering it again would start the client
+			// answering in turn, and the two would ping each other for as long as they are connected.
+			if (Interlocked.Exchange(ref _pingSent, 0) == 1)
+			{
+				return;
+			}
+
 			// "The server responds to the request by replying with Core.Ping without a body."
 			ReportedRoundTripMilliseconds = GmcpJson.ReadNumber(data) ?? ReportedRoundTripMilliseconds;
 			await send(CorePackages.Ping, string.Empty);
@@ -172,12 +181,15 @@ public sealed class GmcpServerSession(GmcpSend send)
 	/// </summary>
 	/// <param name="package">The package name, spelled as the client expects it.</param>
 	/// <param name="data">The data as JSON text, or empty for none.</param>
-	public ValueTask SendAsync(string package, string data = "") => send(package, data ?? string.Empty);
+	/// <remarks>
+	/// A <c>Core.Ping</c> sent this way expects an answer, and that answer is not answered again.
+	/// </remarks>
+	public ValueTask SendAsync(string package, string data = "") => SendAndTrackAsync(package, data);
 
 	/// <summary>
 	/// Sends a typed message, such as <see cref="MediaPlay"/> or <see cref="RoomInfo"/>.
 	/// </summary>
-	public ValueTask SendAsync(IGmcpMessage message) => send(message.Package, message.ToJson());
+	public ValueTask SendAsync(IGmcpMessage message) => SendAndTrackAsync(message.Package, message.ToJson());
 
 	/// <summary>
 	/// Sends a typed message only if <see cref="Supports"/> says the client listed its module.
@@ -188,7 +200,7 @@ public sealed class GmcpServerSession(GmcpSend send)
 
 	private async ValueTask<bool> SendSupportedAsync(IGmcpMessage message)
 	{
-		await send(message.Package, message.ToJson());
+		await SendAndTrackAsync(message.Package, message.ToJson());
 		return true;
 	}
 
@@ -203,8 +215,18 @@ public sealed class GmcpServerSession(GmcpSend send)
 			return false;
 		}
 
-		await send(package, data ?? string.Empty);
+		await SendAndTrackAsync(package, data);
 		return true;
+	}
+
+	private ValueTask SendAndTrackAsync(string package, string? data)
+	{
+		if (Is(package, CorePackages.Ping))
+		{
+			Interlocked.Exchange(ref _pingSent, 1);
+		}
+
+		return send(package, data ?? string.Empty);
 	}
 
 	/// <summary>
