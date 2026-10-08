@@ -56,7 +56,7 @@ The `TelnetNegotiationCore.Gmcp` package implements the GMCP `Core` package for 
 does not depend on this library: a session sends through a delegate and is handed each message.
 
 - `GmcpServerSession` reads `Core.Hello` (name and version) and keeps the `Core.Supports.Set`/`Add`/`Remove`
-  list. `Supports("Char.Vitals")` is true when the client listed `Char.Vitals` or `Char`. It also
+  list, up to `MaxModules` (256) names. `Supports("Char.Vitals")` is true when the client listed `Char.Vitals` or `Char`. It also
   answers `Core.Ping`, reports `Core.KeepAlive`, sends `Core.Goodbye`, and passes every other
   message to `OnMessageAsync`.
 - `GmcpClientSession` sends `Core.Hello` and the `Core.Supports` messages, times `Core.Ping` round

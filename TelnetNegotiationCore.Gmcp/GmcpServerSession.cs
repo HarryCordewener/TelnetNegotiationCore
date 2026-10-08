@@ -42,6 +42,12 @@ public sealed class GmcpServerSession(GmcpSend send)
 	private int _pingSent;
 
 	/// <summary>
+	/// The most modules a client may list. Mudlet lists eight; the limit only stops a client that
+	/// keeps adding names from growing the list, and the copy made on each change, without end.
+	/// </summary>
+	public const int MaxModules = 256;
+
+	/// <summary>
 	/// The client's name from <c>Core.Hello</c>, or null before one arrives.
 	/// </summary>
 	public string? ClientName { get; private set; }
@@ -301,7 +307,7 @@ public sealed class GmcpServerSession(GmcpSend send)
 					// "No version numbers included", though Blightmud includes one; the name is what counts.
 					modules.Remove(module.Name);
 				}
-				else
+				else if (modules.Count < MaxModules || modules.ContainsKey(module.Name))
 				{
 					// "the new version number takes precedence over the previously sent one, even if
 					// the newly sent number is lower."
