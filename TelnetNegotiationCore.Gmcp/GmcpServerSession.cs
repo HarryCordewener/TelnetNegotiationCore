@@ -31,7 +31,7 @@ namespace TelnetNegotiationCore.Gmcp;
 /// Blightmud sends <c>Core.Hello</c> and only <c>Core.Supports.Add</c>, one module at a time, when a
 /// script registers one. TinTin++ and MUSHclient send neither unless a script does. So an empty
 /// <see cref="SupportedModules"/> usually means "never said", not "supports nothing", which is why
-/// <see cref="SendAsync"/> does not consult it and <see cref="SendIfSupportedAsync"/> is opt-in.
+/// <see cref="SendAsync(string, string)"/> does not consult it and <see cref="SendIfSupportedAsync(string, string)"/> is opt-in.
 /// </para>
 /// </remarks>
 /// <param name="send">How to send a GMCP message on this connection.</param>
@@ -193,6 +193,24 @@ public sealed class GmcpServerSession(GmcpSend send)
 	/// A <c>Core.Ping</c> sent this way expects an answer, and that answer is not answered again.
 	/// </remarks>
 	public ValueTask SendAsync(string package, string data = "") => SendAndTrackAsync(package, data);
+
+	/// <summary>
+	/// Sends a typed message, such as <see cref="MediaPlay"/> or <see cref="RoomInfo"/>.
+	/// </summary>
+	public ValueTask SendAsync(IGmcpMessage message) => SendAndTrackAsync(message.Package, message.ToJson());
+
+	/// <summary>
+	/// Sends a typed message only if <see cref="Supports"/> says the client listed its module.
+	/// </summary>
+	/// <returns>True if the message was sent.</returns>
+	public ValueTask<bool> SendIfSupportedAsync(IGmcpMessage message) =>
+		Supports(message.Package) ? SendSupportedAsync(message) : new ValueTask<bool>(false);
+
+	private async ValueTask<bool> SendSupportedAsync(IGmcpMessage message)
+	{
+		await SendAndTrackAsync(message.Package, message.ToJson());
+		return true;
+	}
 
 	/// <summary>
 	/// Sends a message only if <see cref="Supports"/> says the client listed its module.

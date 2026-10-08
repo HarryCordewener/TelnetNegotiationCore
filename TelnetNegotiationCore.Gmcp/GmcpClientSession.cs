@@ -20,7 +20,8 @@ namespace TelnetNegotiationCore.Gmcp;
 /// sends."
 /// </para>
 /// <para>
-/// With TelnetNegotiationCore:
+/// With TelnetNegotiationCore, <c>.AddPlugin&lt;GMCPProtocol&gt;().UseGmcpClientSession(out var gmcp, modules)</c>
+/// does this with the name and version from <c>WithClientIdentity</c>. By hand:
 /// <code>
 /// TelnetInterpreter? telnet = null;
 /// var gmcp = new GmcpClientSession((package, data) => telnet!.SendGMCPCommand(package, data));
@@ -118,12 +119,19 @@ public sealed class GmcpClientSession(GmcpSend send)
 	/// <summary>
 	/// Sends <c>Core.Hello {"client": ..., "version": ...}</c>, the first message a client sends.
 	/// </summary>
-	public ValueTask HelloAsync(string client, string version) =>
-		send(CorePackages.Hello, new JsonObject
+	/// <param name="client">The client's name.</param>
+	/// <param name="version">The client's version. Left out of the message when null.</param>
+	public ValueTask HelloAsync(string client, string? version)
+	{
+		var hello = new JsonObject { ["client"] = client };
+
+		if (version is not null)
 		{
-			["client"] = client,
-			["version"] = version
-		}.ToJsonString());
+			hello["version"] = version;
+		}
+
+		return send(CorePackages.Hello, hello.ToJsonString());
+	}
 
 	/// <summary>
 	/// Sends <c>Core.Supports.Set</c>: the full list of modules this client supports, replacing any
@@ -143,6 +151,18 @@ public sealed class GmcpClientSession(GmcpSend send)
 	/// </summary>
 	public ValueTask RemoveSupportsAsync(IEnumerable<string> moduleNames) =>
 		send(CorePackages.SupportsRemove, GmcpJson.Strings(moduleNames));
+
+	/// <summary>
+	/// Sends a message.
+	/// </summary>
+	/// <param name="package">The package name.</param>
+	/// <param name="data">The data as JSON text, or empty for none.</param>
+	public ValueTask SendAsync(string package, string data = "") => send(package, data ?? string.Empty);
+
+	/// <summary>
+	/// Sends a typed message, such as <see cref="LoginCredentials"/> or <see cref="DiscordHello"/>.
+	/// </summary>
+	public ValueTask SendAsync(IGmcpMessage message) => send(message.Package, message.ToJson());
 
 	/// <summary>
 	/// Sends <c>Core.KeepAlive</c>, which resets the server's idle timeout for the character.
