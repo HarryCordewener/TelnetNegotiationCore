@@ -145,6 +145,18 @@ public sealed class GmcpClientSession(GmcpSend send)
 		send(CorePackages.SupportsRemove, GmcpJson.Strings(moduleNames));
 
 	/// <summary>
+	/// Sends a message.
+	/// </summary>
+	/// <param name="package">The package name.</param>
+	/// <param name="data">The data as JSON text, or empty for none.</param>
+	public ValueTask SendAsync(string package, string data = "") => send(package, data ?? string.Empty);
+
+	/// <summary>
+	/// Sends a typed message, such as <see cref="LoginCredentials"/> or <see cref="DiscordHello"/>.
+	/// </summary>
+	public ValueTask SendAsync(IGmcpMessage message) => send(message.Package, message.ToJson());
+
+	/// <summary>
 	/// Sends <c>Core.KeepAlive</c>, which resets the server's idle timeout for the character.
 	/// </summary>
 	public ValueTask KeepAliveAsync() => send(CorePackages.KeepAlive, string.Empty);

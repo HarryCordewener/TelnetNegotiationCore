@@ -78,6 +78,33 @@ neither unless a script does. An empty module list therefore usually means the c
 
 To receive GMCP messages, use the `OnGMCPMessage` callback as shown in the initialization example above.
 
+## Standard packages
+
+The same package has typed messages for the packages Mudlet acts on without a script, and for the
+few content packages whose keys a client script depends on. Each has `ToJson()`, a `Package` name in
+the casing clients expect, and a `TryParse` for the receiving side. `SendAsync(message)` and
+`SendIfSupportedAsync(message)` send one.
+
+| Package | Types |
+| --- | --- |
+| `Client.Media` | `MediaDefault`, `MediaLoad`, `MediaPlay`, `MediaStop` |
+| `Client.GUI`, `Client.Map` | `ClientGui`, `ClientMap` |
+| `Char.Login` | `LoginDefault`, `LoginCredentials`, `LoginResult` |
+| `External.Discord` | `DiscordHello`, `DiscordInfo`, `DiscordStatus` |
+| `Char.Vitals` | `CharVitals` (`hp`, `maxhp`, `mp`, `maxmp`, `mv`, `maxmv`, `xp`, `maxxp`, `nl`, as Mudlet's base UI reads them) |
+| `Room.Info` | `RoomInfo` (the IRE shape Mudlet's mapper reads) |
+| `Comm.Channel.Text` | `CommChannelText` |
+
+```csharp
+await gmcp.SendIfSupportedAsync(new MediaPlay("rain.mp3") { Type = MediaType.Sound, Loops = -1 });
+await gmcp.SendAsync(new RoomInfo(6008, "Market Square") { Area = "Midgaard", Exits = new Dictionary<string, long> { ["n"] = 6011 } });
+```
+
+Servers disagree on the keys of most other `Char.*` packages, so `GmcpPackages` only names them
+(`GmcpPackages.CharStatus`, `GmcpPackages.CharItemsList`, ...) and the game sends its own JSON with
+`SendAsync(string, string)`. `GmcpPackages.Is(received, GmcpPackages.RoomInfo)` compares names without
+regard to case.
+
 ## Messages without a data section
 
 The GMCP specification says the data field "is optional and should be separated from the package

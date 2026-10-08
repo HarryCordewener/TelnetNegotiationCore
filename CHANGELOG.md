@@ -39,6 +39,11 @@ All notable changes to this project will be documented in this file.
 - **`MSDPClientHandler` is implemented.** It threw `NotImplementedException`. It now sends `LIST`, `SEND`,
   `REPORT`, `UNREPORT`, `RESET` and configurable variables, and keeps the latest value of every variable
   the server sends in `Variables`.
+- **Standard GMCP packages in `TelnetNegotiationCore.Gmcp`.** Typed messages for what Mudlet handles
+  without a script: `Client.Media.*`, `Client.GUI`, `Client.Map`, `Char.Login.*` and `External.Discord.*`.
+  Also `Char.Vitals`, `Room.Info` (the IRE shape Mudlet's mapper reads) and `Comm.Channel.Text`, and
+  `GmcpPackages` constants for the other common package names. Sessions send them with
+  `SendAsync(IGmcpMessage)`; `GmcpClientSession.SendAsync` sends any package.
 - **`TelnetInterpreter.SendMSDPVariablesAsync`** sends MSDP variables over native MSDP, or over GMCP as
   MSDP over GMCP when the peer agreed only to GMCP.
 - **`TelnetInterpreter.UnannounceSupportAsync` and `AnnounceSupportAsync`, for copyovers.** The first
