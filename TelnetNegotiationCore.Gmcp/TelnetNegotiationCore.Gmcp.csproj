@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFrameworks>netstandard2.0;net8.0;net10.0;net11.0</TargetFrameworks>
+		<LangVersion>latest</LangVersion>
+		<Version>0.1.0</Version>
+		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+		<Title>Telnet Negotiation Core: GMCP packages</Title>
+		<PackageId>$(AssemblyName)</PackageId>
+		<Authors>harrycordewener</Authors>
+		<Description>The standard GMCP packages for MUD clients and servers, starting with Core: Core.Hello, Core.Supports, Core.Ping, Core.KeepAlive and Core.Goodbye. Works over any GMCP transport, including TelnetNegotiationCore's.</Description>
+		<PackageProjectUrl>https://github.com/HarryCordewener/TelnetNegotiationCore</PackageProjectUrl>
+		<PackageIcon>Telnet.png</PackageIcon>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<RepositoryUrl>https://github.com/HarryCordewener/TelnetNegotiationCore</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageTags>telnet;mud;gmcp;mudlet</PackageTags>
+		<PackageLicenseFile>LICENSE</PackageLicenseFile>
+		<PackageReleaseNotes>https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/CHANGELOG.md</PackageReleaseNotes>
+		<Copyright>Copyright © TelnetNegotiationCore Contributors 2026-$([System.DateTime]::Now.ToString(yyyy))</Copyright>
+		<Nullable>enable</Nullable>
+		<IsAotCompatible Condition="'$(TargetFramework)' != 'netstandard2.0'">true</IsAotCompatible>
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="README.md">
+			<Pack>True</Pack>
+			<PackagePath>\</PackagePath>
+		</None>
+		<None Include="..\Telnet.png">
+			<Pack>True</Pack>
+			<PackagePath>\</PackagePath>
+		</None>
+		<None Include="..\LICENSE">
+			<Pack>True</Pack>
+			<PackagePath>\</PackagePath>
+		</None>
+	</ItemGroup>
+
+	<!-- Packages needed for netstandard2.0 -->
+	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+		<PackageReference Include="System.Text.Json" Version="10.0.12" />
+		<PackageReference Include="PolySharp" Version="1.16.0">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+		</PackageReference>
+	</ItemGroup>
+
+</Project>

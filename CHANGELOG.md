@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **`TelnetNegotiationCore.Gmcp`, a new package for the GMCP `Core` package.** `GmcpServerSession` reads
+  `Core.Hello`, keeps the `Core.Supports.Set`/`Add`/`Remove` module list (`Supports("Char.Vitals")` is true
+  when `Char` was listed), answers `Core.Ping`, reports `Core.KeepAlive` and sends `Core.Goodbye`.
+  `GmcpClientSession` sends `Core.Hello` and `Core.Supports`, and times `Core.Ping`. It does not depend on
+  TelnetNegotiationCore: a session sends through a delegate, which `SendGMCPCommand` fits.
+- **`GMCPProtocol.OnGMCPNegotiated`**, called when the peer agrees to, refuses or withdraws GMCP. It runs
+  after this side's own `DO`/`WILL`, so a client's `Core.Hello` sent from it follows the agreement.
+- **`MSDPClientHandler` is implemented.** It threw `NotImplementedException`. It now sends `LIST`, `SEND`,
+  `REPORT`, `UNREPORT`, `RESET` and configurable variables, and keeps the latest value of every variable
+  the server sends in `Variables`.
+- **`TelnetInterpreter.SendMSDPVariablesAsync`** sends MSDP variables over native MSDP, or over GMCP as
+  MSDP over GMCP when the peer agreed only to GMCP.
+
+### Fixed
+
+- **MSDP over GMCP requests were answered over native MSDP.** `MSDPServerHandler` wrote `IAC SB MSDP`
+  even to a client that had refused MSDP and asked over GMCP, so the answer never arrived. It now
+  answers `IAC SB GMCP 'MSDP {...}'` when GMCP is the only one of the two agreed, as the specification's
+  example does. Reported variables follow the same rule.
+- **`SendGMCPCommand` with no data wrote a trailing space** (`Core.Ping `). "When sending a command
+  without a data section the space should be omitted."
+
 - **`TerminalQueryProtocol`: ask the terminal behind a connection what it can draw.** `ProbeAsync`
   writes the Kitty graphics query (`a=q`), `CSI 16 t` (cell size in pixels), XTVERSION and, always last,
   primary device attributes. A terminal answers in its own input, which over telnet is the user's next

@@ -31,6 +31,51 @@ await telnet.SendGMCPCommand("Room.Info", "{\"num\":12345,\"name\":\"A dark room
 // Messages will only be sent if the remote party supports GMCP
 ```
 
+An empty data string sends the package name alone, with no trailing space: `SendGMCPCommand("Core.Ping", "")`
+writes `IAC SB GMCP Core.Ping IAC SE`.
+
+`OnGMCPNegotiated` runs when the peer agrees to GMCP (`true`) or refuses or withdraws it (`false`).
+A client introduces itself there, because `Core.Hello` "needs to be the first message that the client
+sends". The callback runs after this side's own `DO` or `WILL` has gone out, so whatever it sends
+follows the agreement on the wire.
+
+```csharp
+.AddPlugin<GMCPProtocol>()
+    .OnGMCPNegotiated(async agreed =>
+    {
+        if (agreed)
+        {
+            await telnet.SendGMCPCommand("Core.Hello", "{\"client\":\"MyClient\",\"version\":\"1.0\"}");
+        }
+    })
+```
+
+## The Core package
+
+The `TelnetNegotiationCore.Gmcp` package implements the GMCP `Core` package for both sides. It
+does not depend on this library: a session sends through a delegate and is handed each message.
+
+- `GmcpServerSession` reads `Core.Hello` (name and version) and keeps the `Core.Supports.Set`/`Add`/`Remove`
+  list. `Supports("Char.Vitals")` is true when the client listed `Char.Vitals` or `Char`. It also
+  answers `Core.Ping`, reports `Core.KeepAlive`, sends `Core.Goodbye`, and passes every other
+  message to `OnMessageAsync`.
+- `GmcpClientSession` sends `Core.Hello` and the `Core.Supports` messages, times `Core.Ping` round
+  trips, and reports `Core.Goodbye`.
+
+```csharp
+TelnetInterpreter? telnet = null;
+var gmcp = new GmcpServerSession((package, data) => telnet!.SendGMCPCommand(package, data));
+
+telnet = await builder
+    .AddPlugin<GMCPProtocol>().OnGMCPMessage(gmcp.HandleAsync)
+    .BuildAsync();
+```
+
+Mudlet sends `Core.Hello` and then `Core.Supports.Set` as soon as GMCP is agreed. Blightmud sends
+`Core.Hello` and adds modules one at a time with `Core.Supports.Add`. TinTin++ and MUSHclient send
+neither unless a script does. An empty module list therefore usually means the client never said, so
+`SendAsync` sends regardless and `SendIfSupportedAsync` is the opt-in check.
+
 To receive GMCP messages, use the `OnGMCPMessage` callback as shown in the initialization example above.
 
 ## Messages without a data section
@@ -78,4 +123,8 @@ forwarded verbatim, which is the same JSON shape a native `IAC SB MSDP` subnegot
   on with the next message.
 - If no `MSDPProtocol` plugin is registered, a MoG message is delivered to `OnGMCPMessage` with
   `Package = "MSDP"` instead of being dropped.
+- `MSDPServerHandler` answers over GMCP, as `MSDP {...}`, when the client agreed to GMCP and not to
+  MSDP. A client that agreed to both is answered with native MSDP, which the specification expects
+  it to read "interchangably". `TelnetInterpreter.SendMSDPVariablesAsync` makes the same choice for
+  anything else you send.
 

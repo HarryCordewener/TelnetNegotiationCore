@@ -182,6 +182,9 @@
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.12, )",
           "StateAlchemist": "[1.3.0, )"
         }
+      },
+      "telnetnegotiationcore.gmcp": {
+        "type": "Project"
       }
     },
     "net11.0": {
@@ -331,6 +334,9 @@
         "dependencies": {
           "StateAlchemist": "[1.3.0, )"
         }
+      },
+      "telnetnegotiationcore.gmcp": {
+        "type": "Project"
       }
     },
     "net8.0": {
@@ -553,6 +559,9 @@
           "StateAlchemist": "[1.3.0, )",
           "System.IO.Pipelines": "[10.0.12, )"
         }
+      },
+      "telnetnegotiationcore.gmcp": {
+        "type": "Project"
       }
     }
   }

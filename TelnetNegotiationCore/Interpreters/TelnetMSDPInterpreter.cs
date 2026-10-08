@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Models;
 
@@ -87,4 +88,51 @@ public partial class TelnetInterpreter
 		output[output.Length - 1] = (byte)Trigger.SE;
 		await WriteToNetworkAsync(output);
 	}
+
+	/// <summary>
+	/// The GMCP package that carries MSDP over GMCP. Case sensitive: "the package name is
+	/// considered case sensitive and MSDP must be fully capitalized".
+	/// </summary>
+	private const string MSDPOverGMCPPackage = "MSDP";
+
+	/// <summary>
+	/// Sends MSDP variables and their values to the remote party, over whichever option the peer
+	/// accepted: native MSDP, or MSDP over GMCP when GMCP is the only one of the two it agreed to.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// MSDP over GMCP exists for "clients that only support GMCP": such a client sends
+	/// <c>IAC SB GMCP 'MSDP {"LIST" : "COMMANDS"}' IAC SE</c> and is answered the same way,
+	/// <c>IAC SB GMCP 'MSDP {"COMMANDS" : [...]}' IAC SE</c>. Answering it with
+	/// <c>IAC SB MSDP</c> instead writes a subnegotiation for an option the peer refused, which
+	/// it drops.
+	/// </para>
+	/// <para>
+	/// When the peer accepted both, native MSDP is used: the specification expects such a client
+	/// "to be able to process both MSDP and GMCP data interchangably". Native MSDP is also the
+	/// answer when neither option has finished negotiating, which is what this sent before MSDP
+	/// over GMCP was answered at all.
+	/// </para>
+	/// </remarks>
+	/// <param name="variables">
+	/// The variables, as a JSON object: each property is a variable, and its value is text, an
+	/// array or a table.
+	/// </param>
+	public ValueTask SendMSDPVariablesAsync(JsonObject variables) =>
+		MSDPGoesOverGMCP
+			? SendMSDPOverGMCPAsync(variables)
+			: SendMSDPPayloadAsync(Functional.MSDPLibrary.ReportVariables(variables, CurrentEncoding));
+
+	/// <summary>
+	/// True when MSDP has to travel as MSDP over GMCP: the peer agreed to GMCP and not to MSDP.
+	/// </summary>
+	internal bool MSDPGoesOverGMCP =>
+		PluginManager?.GetPlugin<Protocols.GMCPProtocol>() is { IsEnabled: true, IsNegotiated: true }
+		&& PluginManager.GetPlugin<Protocols.MSDPProtocol>() is not { IsEnabled: true, IsNegotiated: true };
+
+	/// <summary>
+	/// Sends variables as <c>IAC SB GMCP 'MSDP {...}' IAC SE</c>.
+	/// </summary>
+	internal ValueTask SendMSDPOverGMCPAsync(JsonObject variables) =>
+		SendGMCPCommand(MSDPOverGMCPPackage, variables.ToJsonString());
 }

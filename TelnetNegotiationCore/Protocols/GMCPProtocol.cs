@@ -45,6 +45,8 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 
     private Func<(string Package, long ReceivedBytes, int MaxMessageSize), ValueTask>? _onGMCPMessageTooLarge;
 
+    private Func<bool, ValueTask>? _onGMCPNegotiated;
+
     /// <summary>
     /// Sets the callback that is invoked when a GMCP message is received.
     /// </summary>
@@ -101,6 +103,33 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     }
 
 
+
+    /// <summary>
+    /// Sets the callback that is invoked when the peer agrees to GMCP (<c>true</c>), or refuses or
+    /// withdraws it (<c>false</c>).
+    /// </summary>
+    /// <remarks>
+    /// This is where a client sends <c>Core.Hello</c>, which "needs to be the first message that the
+    /// client sends", followed by <c>Core.Supports.Set</c>, as Mudlet does. It fires again with
+    /// <c>true</c> after a copyover renegotiates GMCP, when the client is expected to introduce
+    /// itself again.
+    /// </remarks>
+    /// <param name="callback">The callback, given whether GMCP is now agreed.</param>
+    /// <returns>This instance for fluent chaining</returns>
+    public GMCPProtocol OnGMCPNegotiated(Func<bool, ValueTask>? callback)
+    {
+        _onGMCPNegotiated = callback;
+        return this;
+    }
+
+    /// <inheritdoc />
+    protected override async ValueTask OnNegotiationChangedAsync(bool isNegotiated)
+    {
+        if (_onGMCPNegotiated != null)
+        {
+            await _onGMCPNegotiated(isNegotiated).ConfigureAwait(false);
+        }
+    }
 
     /// <inheritdoc />
     public override Type ProtocolType => typeof(GMCPProtocol);
@@ -512,9 +541,12 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     private async ValueTask OnAskedToEnableGMCPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Peer asked this end to enable GMCP. Agreeing.");
-        await OnNegotiatedAsync(true);
+
+        // The answer goes out before OnGMCPNegotiated fires, so that anything the callback sends
+        // reaches the peer after the agreement rather than ahead of it.
         await Helpers.OptionNegotiation.AnswerAsync(
             honour: true, (byte)Trigger.DO, (byte)Trigger.GMCP, context);
+        await OnNegotiatedAsync(true);
     }
 
     private async ValueTask WillGMCPAsync(IProtocolContext context)
@@ -527,9 +559,10 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     private async ValueTask DoGMCPAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Announcing the client can do GMCP");
-        await OnNegotiatedAsync(true);
 
+        // DO first: a client's OnGMCPNegotiated sends Core.Hello, which must follow the DO on the wire.
         await context.SendNegotiationAsync(s_doGmcp);
+        await OnNegotiatedAsync(true);
     }
 
     #endregion

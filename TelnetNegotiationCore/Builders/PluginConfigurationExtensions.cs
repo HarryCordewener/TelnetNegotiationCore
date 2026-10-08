@@ -166,6 +166,21 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets the callback that runs when the peer agrees to, refuses or withdraws GMCP, in a fluent
+    /// manner. A client sends <c>Core.Hello</c> from here.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback, given whether GMCP is now agreed</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<GMCPProtocol> OnGMCPNegotiated(
+        this PluginConfigurationContext<GMCPProtocol> context,
+        Func<bool, ValueTask>? callback)
+    {
+        context.Plugin.OnGMCPNegotiated(callback);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the MSDP message callback in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>

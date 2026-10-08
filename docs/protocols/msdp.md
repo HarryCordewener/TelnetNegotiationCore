@@ -34,3 +34,23 @@ var received = MSDPLibrary.Scan(payload, encoding, MsdpJsonContext.Default.Room)
 // Or as JSON, which is what OnMSDPMessage hands you.
 var json = MSDPLibrary.ScanToJson(payload, encoding);
 ```
+
+## The client side
+
+`MSDPClientHandler` asks a server for variables and keeps the latest value of each one the server
+sends. Several arguments are sent as repeated values, the form the specification shows:
+`MSDP_VAR "REPORT" MSDP_VAL "HEALTH" MSDP_VAL "HEALTH_MAX"`.
+
+```csharp
+var msdp = new MSDPClientHandler { OnVariableAsync = (name, value) => ShowAsync(name, value) };
+
+.AddPlugin<MSDPProtocol>().OnMSDPMessage(msdp.HandleAsync)
+
+await msdp.ListAsync(telnet, "REPORTABLE_VARIABLES");
+await msdp.ReportAsync(telnet, "HEALTH", "HEALTH_MAX");
+await msdp.SetAsync(telnet, "CLIENT_NAME", "MyClient");
+
+var health = msdp.Variables["HEALTH"];
+```
+
+Requests go over GMCP as MSDP over GMCP when the server agreed to GMCP and not to MSDP.

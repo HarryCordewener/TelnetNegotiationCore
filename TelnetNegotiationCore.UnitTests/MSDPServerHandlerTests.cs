@@ -527,6 +527,99 @@ public class MSDPServerHandlerTests : BaseTest
 		await telnet.DisposeAsync();
 	}
 
+	/// <summary>
+	/// MSDP over GMCP, from the GMCP specification's handshake:
+	/// "client - IAC SB GMCP 'MSDP {"LIST" : "COMMANDS"}' IAC SE"
+	/// "server - IAC SB GMCP 'MSDP {"COMMANDS" : ["LIST", ...]}' IAC SE"
+	/// A client that accepted GMCP and refused MSDP is answered over GMCP. An <c>IAC SB MSDP</c>
+	/// answer is for an option it turned down, and it never sees it.
+	/// </summary>
+	[Test]
+	public async Task AnMSDPOverGMCPRequestFromAGMCPOnlyClientIsAnsweredOverGMCP()
+	{
+		var (telnet, sent, _) = await ServerWithGmcpAsync(new MSDPServerModel(NoResetAsync)
+		{
+			Commands = () => ["LIST"]
+		});
+
+		await telnet.InterpretByteArrayAsync(new byte[] {
+			(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP,
+			(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MSDP });
+		await telnet.WaitForProcessingAsync();
+		sent.Clear();
+
+		await telnet.InterpretByteArrayAsync(GmcpFrame("""MSDP {"LIST" : "COMMANDS"}"""));
+		await telnet.WaitForProcessingAsync();
+		await PollUntilAsync(() => sent.Count > 0);
+
+		await Assert.That(Messages(sent)).IsEmpty();
+		await AssertByteArraysEqual(sent.Single(), GmcpFrame("""MSDP {"COMMANDS":["LIST"]}"""));
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A client that accepted both is answered with native MSDP, MSDP over GMCP or not: the
+	/// specification expects it "to be able to process both MSDP and GMCP data interchangably".
+	/// </summary>
+	[Test]
+	public async Task AnMSDPOverGMCPRequestFromAClientWithBothIsAnsweredWithMSDP()
+	{
+		var (telnet, sent, _) = await ServerWithGmcpAsync(new MSDPServerModel(NoResetAsync)
+		{
+			Commands = () => ["LIST"]
+		});
+
+		await telnet.InterpretByteArrayAsync(new byte[] {
+			(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP,
+			(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MSDP });
+		await telnet.WaitForProcessingAsync();
+		sent.Clear();
+
+		await telnet.InterpretByteArrayAsync(GmcpFrame("""MSDP {"LIST" : "COMMANDS"}"""));
+		await telnet.WaitForProcessingAsync();
+		await PollUntilAsync(() => Messages(sent).Count > 0);
+
+		await AssertByteArraysEqual(OnlyMessage(sent), Frame(
+			Trigger.MSDP_VAR, "COMMANDS",
+			Trigger.MSDP_VAL, Trigger.MSDP_ARRAY_OPEN,
+			Trigger.MSDP_VAL, "LIST",
+			Trigger.MSDP_ARRAY_CLOSE));
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A REPORTed variable that changes later goes out the same way the request was answered.
+	/// </summary>
+	[Test]
+	public async Task AReportedVariableReachesAGMCPOnlyClientOverGMCP()
+	{
+		var health = "10";
+		var model = new MSDPServerModel(NoResetAsync)
+		{
+			Reportable_Variables = new() { ["HEALTH"] = () => health }
+		};
+		var (telnet, sent, _) = await ServerWithGmcpAsync(model);
+
+		await telnet.InterpretByteArrayAsync(new byte[] {
+			(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.GMCP,
+			(byte)Trigger.IAC, (byte)Trigger.DONT, (byte)Trigger.MSDP });
+		await telnet.WaitForProcessingAsync();
+
+		await telnet.InterpretByteArrayAsync(GmcpFrame("""MSDP {"REPORT":"HEALTH"}"""));
+		await telnet.WaitForProcessingAsync();
+		await PollUntilAsync(() => sent.Count > 0);
+		sent.Clear();
+
+		health = "9";
+		await model.NotifyChangeAsync("HEALTH");
+
+		await AssertByteArraysEqual(sent.Single(), GmcpFrame("""MSDP {"HEALTH":"9"}"""));
+
+		await telnet.DisposeAsync();
+	}
+
 	private static ValueTask NoResetAsync(string group) => default;
 
 	private static async Task<(TelnetInterpreter Telnet, List<byte[]> Sent, MSDPServerHandler Handler)> ServerAsync(MSDPServerModel model)
@@ -550,6 +643,35 @@ public class MSDPServerHandlerTests : BaseTest
 		sent.Clear();
 		return (telnet, sent, handler);
 	}
+
+	private static async Task<(TelnetInterpreter Telnet, List<byte[]> Sent, MSDPServerHandler Handler)> ServerWithGmcpAsync(MSDPServerModel model)
+	{
+		var sent = new List<byte[]>();
+		var handler = new MSDPServerHandler(model);
+
+		var telnet = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Server)
+			.UseLogger(logger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(data =>
+			{
+				sent.Add(data.ToArray());
+				return ValueTask.CompletedTask;
+			})
+			.AddPlugin<Protocols.GMCPProtocol>()
+			.AddPlugin<Protocols.MSDPProtocol>()
+				.OnMSDPMessage(handler.HandleAsync)
+			.BuildAsync();
+
+		sent.Clear();
+		return (telnet, sent, handler);
+	}
+
+	/// <summary>
+	/// <c>IAC SB GMCP &lt;text&gt; IAC SE</c>.
+	/// </summary>
+	private static byte[] GmcpFrame(string text) =>
+		[(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.GMCP, .. Encoding.GetBytes(text), (byte)Trigger.IAC, (byte)Trigger.SE];
 
 	/// <summary>
 	/// The MSDP subnegotiations among everything written to the network.

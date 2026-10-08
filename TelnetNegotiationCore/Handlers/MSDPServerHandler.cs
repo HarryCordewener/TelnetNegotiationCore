@@ -7,7 +7,6 @@ using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using TelnetNegotiationCore.Functional;
 using TelnetNegotiationCore.Interpreters;
 
 namespace TelnetNegotiationCore.Handlers;
@@ -271,7 +270,7 @@ public class MSDPServerHandler(MSDPServerModel model, ILogger? logger = null)
             return;
         }
 
-        await telnet.SendMSDPPayloadAsync(MSDPLibrary.ReportVariables(payload, telnet.CurrentEncoding));
+        await telnet.SendMSDPVariablesAsync(payload);
     }
 
     /// <summary>
