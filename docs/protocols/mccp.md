@@ -46,6 +46,15 @@ var telnet = await new TelnetInterpreterBuilder()
 // telnet: the compression happens on the far side of both callbacks.
 ```
 
+## Ending a stream
+
+When this side stops compressing on purpose, it ends the stream properly: the final deflate block and
+the zlib checksum go out before anything that follows is sent in the clear. MCCP2 and MCCP3 both call
+this "an orderly stream end (Z_FINISH)", and an inflater that sees the stream simply stop
+has no way to tell a deliberate end from a cut-off. This happens when a server receives
+`DONT MCCP2`, when a client sends `WONT MCCP3`, and in `UnannounceSupportAsync` (see
+[the server guide](../guides/server.md#copyover)).
+
 ## What it buys
 - **MCCP2**: Reduces server-to-client bandwidth by 75-90%
 - **MCCP3**: Reduces client-to-server bandwidth. It is compression and nothing more — zlib gives no confidentiality and no integrity, and a stream that looks unreadable to a person is not encrypted. Use [ENCRYPT](encryption.md), or TLS underneath, for anything that needs protecting

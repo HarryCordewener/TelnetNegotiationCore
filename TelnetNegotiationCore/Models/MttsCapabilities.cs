@@ -51,7 +51,13 @@ public enum MttsCapabilities
     Mnes = 512,
 
     /// <summary>Client supports MSLP (Mud Server Link Protocol).</summary>
-    Mslp = 1024
+    Mslp = 1024,
+
+    /// <summary>
+    /// Client supports SSL/TLS for encrypting the connection. Only the application knows whether its
+    /// transport can be secured, so this is never set on its behalf.
+    /// </summary>
+    Ssl = 2048
 }
 
 /// <summary>
@@ -72,7 +78,8 @@ public static class MttsCapabilityNames
         (MttsCapabilities.Proxy, "PROXY"),
         (MttsCapabilities.Truecolor, "TRUECOLOR"),
         (MttsCapabilities.Mnes, "MNES"),
-        (MttsCapabilities.Mslp, "MSLP")
+        (MttsCapabilities.Mslp, "MSLP"),
+        (MttsCapabilities.Ssl, "SSL")
     ];
 
     /// <summary>

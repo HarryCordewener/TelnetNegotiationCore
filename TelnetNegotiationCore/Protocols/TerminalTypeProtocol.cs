@@ -277,6 +277,24 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// A server forgets the list it collected, so that when it asks again the cycle is read from the
+    /// start rather than taken as already complete. A client's configured list stays; only its place
+    /// in the cycle goes back to the beginning.
+    /// </remarks>
+    protected internal override ValueTask OnUnannounceAsync()
+    {
+        if (Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        {
+            _terminalTypes = [];
+        }
+
+        _currentTerminalType = -1;
+        UpdateInterpreterProperties(Context);
+        return default(ValueTask);
+    }
+
+    /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
         _terminalTypes = [];
@@ -338,9 +356,21 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
         await context.SendNegotiationAsync(s_doTtype);
     }
 
+    /// <summary>
+    /// The server withdrew TTYPE, so the cycle starts over: the next <c>SEND</c> is answered with the
+    /// first terminal type again.
+    /// </summary>
+    /// <remarks>
+    /// MTTS: "If the server sends IAC DONT TTYPE the client's cycling state should be reset to the
+    /// initial state, as if the client just connected to the server. This behavior allows recovering
+    /// from a copyover." MTH-based servers also send it straight after their first three requests on
+    /// every connection, to leave the client ready to report its name first again.
+    /// </remarks>
     private ValueTask OnDontTerminalTypeAsClientAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Server telling us not to Terminal Type");
+        _currentTerminalType = -1;
+        UpdateInterpreterProperties(context);
         return OnNegotiatedAsync(false);
     }
 

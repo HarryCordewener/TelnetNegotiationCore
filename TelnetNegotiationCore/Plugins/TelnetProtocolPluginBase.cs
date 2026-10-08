@@ -125,6 +125,14 @@ public abstract class TelnetProtocolPluginBase : ITelnetProtocolPlugin, IAsyncDi
     protected virtual ValueTask OnNegotiationChangedAsync(bool isNegotiated) => default(ValueTask);
 
     /// <summary>
+    /// Called by <see cref="Interpreters.TelnetInterpreter.UnannounceSupportAsync"/> before the
+    /// interpreter withdraws this side's initial offers. Override to end anything that must stop
+    /// before the refusals go out, such as an outbound compression stream, or to forget what the peer
+    /// reported so that the next announcement starts fresh.
+    /// </summary>
+    protected internal virtual ValueTask OnUnannounceAsync() => default(ValueTask);
+
+    /// <summary>
     /// Called when the plugin is disposed. Override to provide custom cleanup logic.
     /// </summary>
     protected virtual ValueTask OnDisposeAsync() => default(ValueTask);

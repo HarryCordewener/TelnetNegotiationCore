@@ -59,3 +59,21 @@ public override async Task OnConnectedAsync(ConnectionContext connection)
 }
 ```
 
+## Copyover
+
+A copyover replaces the server process while keeping the sockets, so the new process does not know
+what each client agreed to. GMCP, MSDP, MCCP3, MTTS and MNES all handle this the same way: withdraw
+every offer before the copyover, then make them again afterwards as if the client had just connected.
+
+```csharp
+// Before exec: ends compression, then sends WONT/DONT for every option offered at connection start.
+await telnet.UnannounceSupportAsync();
+
+// In the new process, once the interpreter for the inherited socket is built:
+await telnet.AnnounceSupportAsync();
+```
+
+`InitialOffers` lists the `WILL` and `DO` offers this side made, which is what
+`UnannounceSupportAsync` withdraws. The client's answers arrive through the usual negotiation
+handlers, so each protocol's `IsNegotiated` drops as the client acknowledges. This is what MTH calls
+`unannounce_support` and `announce_support`.
