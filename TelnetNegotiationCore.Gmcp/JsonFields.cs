@@ -97,7 +97,62 @@ internal sealed class JsonFieldWriter
 		return this;
 	}
 
+	public JsonFieldWriter Add(string name, JsonNode? node)
+	{
+		if (node is not null)
+		{
+			_object[name] = node;
+		}
+
+		return this;
+	}
+
+	/// <summary>The object written so far, to nest in another message.</summary>
+	public JsonObject ToNode() => _object;
+
 	public override string ToString() => _object.ToJsonString();
+}
+
+/// <summary>
+/// Builds the JSON arrays and tables nested in a message. No reflection.
+/// </summary>
+internal static class JsonNodes
+{
+	public static JsonArray Array<T>(IEnumerable<T> items, Func<T, JsonNode?> write)
+	{
+		var array = new JsonArray();
+
+		foreach (var item in items)
+		{
+			array.Add(write(item));
+		}
+
+		return array;
+	}
+
+	public static JsonArray Strings(IEnumerable<string> values) => Array(values, value => JsonValue.Create(value));
+
+	public static JsonArray Numbers(IEnumerable<long> values) => Array(values, value => JsonValue.Create(value));
+
+	public static JsonObject Table<T>(IEnumerable<KeyValuePair<string, T>> entries, Func<T, JsonNode?> write)
+	{
+		var table = new JsonObject();
+
+		foreach (var entry in entries)
+		{
+			table[entry.Key] = write(entry.Value);
+		}
+
+		return table;
+	}
+
+	/// <summary>Null when <paramref name="items"/> is null, so the field is left out.</summary>
+	public static JsonArray? ArrayOrNull<T>(IEnumerable<T>? items, Func<T, JsonNode?> write) =>
+		items is null ? null : Array(items, write);
+
+	/// <summary>Null when <paramref name="entries"/> is null, so the field is left out.</summary>
+	public static JsonObject? TableOrNull<T>(IEnumerable<KeyValuePair<string, T>>? entries, Func<T, JsonNode?> write) =>
+		entries is null ? null : Table(entries, write);
 }
 
 /// <summary>
@@ -142,7 +197,209 @@ internal readonly struct JsonFieldReader
 		}
 	}
 
+	/// <summary>
+	/// Parses <paramref name="data"/> as an array and reads each object in it, skipping anything
+	/// else. False when the data is not an array.
+	/// </summary>
+	/// <param name="data">The data section.</param>
+	/// <param name="read">Reads one object.</param>
+	/// <param name="result">The objects read.</param>
+	/// <param name="single">Also read a lone object, as an array of one.</param>
+	public static bool TryReadArray<T>(string? data, Func<JsonFieldReader, T> read, out IReadOnlyList<T> result, bool single = false)
+	{
+		result = [];
+
+		if (!TryParse(data, out var document))
+		{
+			return false;
+		}
+
+		using (document)
+		{
+			var root = document.RootElement;
+
+			if (single && root.ValueKind == JsonValueKind.Object)
+			{
+				result = [read(new JsonFieldReader(root))];
+				return true;
+			}
+
+			if (root.ValueKind != JsonValueKind.Array)
+			{
+				return false;
+			}
+
+			result = ReadObjects(root, read);
+			return true;
+		}
+	}
+
+	/// <summary>Parses <paramref name="data"/> as an array of strings, or a lone string.</summary>
+	public static bool TryReadStrings(string? data, out IReadOnlyList<string> result)
+	{
+		result = [];
+
+		if (!TryParse(data, out var document))
+		{
+			return false;
+		}
+
+		using (document)
+		{
+			var strings = ReadStrings(document.RootElement);
+
+			if (strings is null)
+			{
+				return false;
+			}
+
+			result = strings;
+			return true;
+		}
+	}
+
+	/// <summary>
+	/// Parses <paramref name="data"/>, also accepting a list written in braces,
+	/// <c>{ {...}, {...} }</c>, as the <c>mudstd.*</c> pages write their examples.
+	/// </summary>
+	private static bool TryParse(string? data, out JsonDocument document)
+	{
+		document = null!;
+
+		if (string.IsNullOrWhiteSpace(data))
+		{
+			return false;
+		}
+
+		try
+		{
+			document = JsonDocument.Parse(data!);
+			return true;
+		}
+		catch (JsonException)
+		{
+		}
+
+		var text = data!.Trim();
+		var inner = text.Length >= 2 ? text.Substring(1, text.Length - 2) : "";
+
+		if (text.Length < 2 || text[0] != '{' || text[text.Length - 1] != '}' || !inner.TrimStart().StartsWith("{", StringComparison.Ordinal))
+		{
+			return false;
+		}
+
+		try
+		{
+			document = JsonDocument.Parse("[" + inner + "]");
+			return true;
+		}
+		catch (JsonException)
+		{
+			return false;
+		}
+	}
+
+	private static List<T> ReadObjects<T>(JsonElement array, Func<JsonFieldReader, T> read)
+	{
+		var items = new List<T>();
+
+		foreach (var item in array.EnumerateArray())
+		{
+			if (item.ValueKind == JsonValueKind.Object)
+			{
+				items.Add(read(new JsonFieldReader(item)));
+			}
+		}
+
+		return items;
+	}
+
+	private static List<string>? ReadStrings(JsonElement value)
+	{
+		if (value.ValueKind == JsonValueKind.String)
+		{
+			return [value.GetString()!];
+		}
+
+		if (value.ValueKind != JsonValueKind.Array)
+		{
+			return null;
+		}
+
+		var items = new List<string>();
+
+		foreach (var item in value.EnumerateArray())
+		{
+			if (item.ValueKind == JsonValueKind.String)
+			{
+				items.Add(item.GetString()!);
+			}
+			else if (item.ValueKind == JsonValueKind.Number)
+			{
+				items.Add(item.GetRawText());
+			}
+		}
+
+		return items;
+	}
+
 	public bool Has(string name) => TryGet(name, out _);
+
+	/// <summary>The object in field <paramref name="name"/>, read with <paramref name="read"/>.</summary>
+	public T? Object<T>(string name, Func<JsonFieldReader, T> read) where T : class =>
+		TryGet(name, out var value) && value.ValueKind == JsonValueKind.Object ? read(new JsonFieldReader(value)) : null;
+
+	/// <summary>The objects in the array in field <paramref name="name"/>.</summary>
+	public IReadOnlyList<T>? Objects<T>(string name, Func<JsonFieldReader, T> read) =>
+		TryGet(name, out var value) && value.ValueKind == JsonValueKind.Array ? ReadObjects(value, read) : null;
+
+	/// <summary>The object in field <paramref name="name"/> whose values are objects, keyed by field name.</summary>
+	public IReadOnlyDictionary<string, T>? ObjectTable<T>(string name, Func<JsonFieldReader, T> read) =>
+		TryGet(name, out var value) && value.ValueKind == JsonValueKind.Object ? new JsonFieldReader(value).Entries(read) : null;
+
+	/// <summary>Every field of this object whose value is an object, keyed by field name.</summary>
+	public IReadOnlyDictionary<string, T> Entries<T>(Func<JsonFieldReader, T> read)
+	{
+		var table = new Dictionary<string, T>(StringComparer.Ordinal);
+
+		foreach (var property in _object.EnumerateObject())
+		{
+			if (property.Value.ValueKind == JsonValueKind.Object)
+			{
+				table[property.Name] = read(new JsonFieldReader(property.Value));
+			}
+		}
+
+		return table;
+	}
+
+	/// <summary>The object in field <paramref name="name"/> whose values are strings or numbers, as strings.</summary>
+	public IReadOnlyDictionary<string, string>? StringTable(string name)
+	{
+		if (!TryGet(name, out var value) || value.ValueKind != JsonValueKind.Object)
+		{
+			return null;
+		}
+
+		var table = new Dictionary<string, string>(StringComparer.Ordinal);
+
+		foreach (var property in value.EnumerateObject())
+		{
+			if (property.Value.ValueKind == JsonValueKind.String)
+			{
+				table[property.Name] = property.Value.GetString()!;
+			}
+			else if (property.Value.ValueKind == JsonValueKind.Number)
+			{
+				table[property.Name] = property.Value.GetRawText();
+			}
+		}
+
+		return table;
+	}
+
+	/// <summary>The raw value of field <paramref name="name"/>, for shapes the other readers do not cover.</summary>
+	public bool TryGetElement(string name, out JsonElement value) => TryGet(name, out value);
 
 	public string? String(string name)
 	{

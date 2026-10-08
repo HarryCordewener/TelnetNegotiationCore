@@ -48,6 +48,9 @@ All notable changes to this project will be documented in this file.
   `ClientGui.BaseUi` and the plain `Client.GUI` form, `Char.Login` version 2 (`LoginUrl`, `LoginToken`,
   `LoginReconnect`, `LoginAuthCode`, and the version 2 fields of `LoginDefault` and
   `LoginCredentials`), and `IRE.Composer.Edit`/`SetBuffer` (`ComposerEdit`, `ComposerSetBuffer`).
+- **Typed `Char.Items`, `Char.Skills`, `Char.Afflictions` and `Char.Defences` messages** in the Iron
+  Realms shapes, and the MUD Standards `mudstd.*` proposals: resources and attributes, channels, rooms,
+  frames and tile maps. `mudstd.*` lists written in braces, as the pages write them, are read too.
 - **`TelnetInterpreter.SendMSDPVariablesAsync`** sends MSDP variables over native MSDP, or over GMCP as
   MSDP over GMCP when the peer agreed only to GMCP.
 - **`TelnetInterpreter.UnannounceSupportAsync` and `AnnounceSupportAsync`, for copyovers.** The first

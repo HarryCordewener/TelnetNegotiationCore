@@ -115,35 +115,122 @@ public static class GmcpPackages
 	/// <summary>Client to server: asks for the items in a location.</summary>
 	public const string CharItemsInv = "Char.Items.Inv";
 
-	/// <summary>Client to server: asks for the items in a container.</summary>
+	/// <summary>Client to server: asks for the items in a container. <see cref="ItemsContents"/>.</summary>
 	public const string CharItemsContents = "Char.Items.Contents";
 
 	/// <summary>Client to server: asks for the items in the room.</summary>
 	public const string CharItemsRoom = "Char.Items.Room";
 
-	/// <summary>Server to client: the items in a location.</summary>
+	/// <summary>Server to client: the items in a location. <see cref="ItemsList"/>.</summary>
 	public const string CharItemsList = "Char.Items.List";
 
-	/// <summary>Server to client: an item arrived in a location.</summary>
+	/// <summary>Server to client: an item arrived in a location. <see cref="ItemChange"/>.</summary>
 	public const string CharItemsAdd = "Char.Items.Add";
 
-	/// <summary>Server to client: an item left a location.</summary>
+	/// <summary>Server to client: an item left a location. <see cref="ItemChange"/>.</summary>
 	public const string CharItemsRemove = "Char.Items.Remove";
 
-	/// <summary>Server to client: an item in a location changed.</summary>
+	/// <summary>Server to client: an item in a location changed. <see cref="ItemChange"/>.</summary>
 	public const string CharItemsUpdate = "Char.Items.Update";
 
-	/// <summary>Client to server: asks for skill groups, a group's skills, or one skill.</summary>
+	/// <summary>Client to server: asks for skill groups, a group's skills, or one skill. <see cref="SkillsGet"/>.</summary>
 	public const string CharSkillsGet = "Char.Skills.Get";
 
-	/// <summary>Server to client: the skill groups.</summary>
+	/// <summary>Server to client: the skill groups. <see cref="SkillGroups"/>.</summary>
 	public const string CharSkillsGroups = "Char.Skills.Groups";
 
-	/// <summary>Server to client: the skills in a group.</summary>
+	/// <summary>Server to client: the skills in a group. <see cref="SkillsList"/>.</summary>
 	public const string CharSkillsList = "Char.Skills.List";
 
-	/// <summary>Server to client: one skill.</summary>
+	/// <summary>Server to client: one skill. <see cref="SkillInfo"/>.</summary>
 	public const string CharSkillsInfo = "Char.Skills.Info";
+
+	/// <summary>Server to client: every affliction the character has. <see cref="AfflictionsList"/>.</summary>
+	public const string CharAfflictionsList = "Char.Afflictions.List";
+
+	/// <summary>Server to client: the character gained an affliction. <see cref="Affliction"/>.</summary>
+	public const string CharAfflictionsAdd = "Char.Afflictions.Add";
+
+	/// <summary>Server to client: afflictions the character lost. <see cref="AfflictionsRemove"/>.</summary>
+	public const string CharAfflictionsRemove = "Char.Afflictions.Remove";
+
+	/// <summary>Server to client: every defence the character has. <see cref="DefencesList"/>.</summary>
+	public const string CharDefencesList = "Char.Defences.List";
+
+	/// <summary>Server to client: every defence, with category, icon and color. <see cref="DefencesList"/>.</summary>
+	public const string CharDefencesInfoList = "Char.Defences.InfoList";
+
+	/// <summary>Server to client: the character gained a defence. <see cref="Defence"/>.</summary>
+	public const string CharDefencesAdd = "Char.Defences.Add";
+
+	/// <summary>Server to client: defences the character lost. <see cref="DefencesRemove"/>.</summary>
+	public const string CharDefencesRemove = "Char.Defences.Remove";
+
+	/// <summary>Server to client: the resources the game tracks. A proposal. <see cref="StatDefinitions"/>.</summary>
+	public const string MudstdResourcesDefinitions = "mudstd.resources.definitions";
+
+	/// <summary>Server to client: the resources' values. A proposal. <see cref="StatUpdate"/>.</summary>
+	public const string MudstdResourcesUpdate = "mudstd.resources.update";
+
+	/// <summary>Server to client: the resources, under the character. A proposal. <see cref="StatDefinitions"/>.</summary>
+	public const string MudstdCharResourcesDefinitions = "mudstd.char.resources.definitions";
+
+	/// <summary>Server to client: the resources' values, under the character. A proposal. <see cref="StatUpdate"/>.</summary>
+	public const string MudstdCharResourcesUpdate = "mudstd.char.resources.update";
+
+	/// <summary>Server to client: the attributes the game tracks. A proposal. <see cref="StatDefinitions"/>.</summary>
+	public const string MudstdCharAttributesDefinitions = "mudstd.char.attributes.definitions";
+
+	/// <summary>Server to client: the attributes' values. A proposal. <see cref="StatUpdate"/>.</summary>
+	public const string MudstdCharAttributesUpdate = "mudstd.char.attributes.update";
+
+	/// <summary>Server to client: the channels the player can use. <see cref="ChannelDefinitions"/>.</summary>
+	public const string MudstdChannelDefinitions = "mudstd.channel.definitions";
+
+	/// <summary>Server to client: something said on a channel. <see cref="ChannelEvent"/>.</summary>
+	public const string MudstdChannelEvent = "mudstd.channel.event";
+
+	/// <summary>Server to client: the terrains rooms refer to. A proposal. <see cref="RoomTerrain"/>.</summary>
+	public const string MudstdRoomTerrain = "mudstd.room.terrain";
+
+	/// <summary>Server to client: the room, with ids that need not be numbers. A proposal. <see cref="MudstdRoomInfo"/>.</summary>
+	public const string MudstdRoomInfo = "mudstd.room.info";
+
+	/// <summary>Server to client: the NPCs, items and players about. A proposal. <see cref="RoomEntities"/>.</summary>
+	public const string MudstdRoomEntities = "mudstd.room.entities";
+
+	/// <summary>Client to server: the frames the client supports. A proposal. <see cref="FrameSupport"/>.</summary>
+	public const string MudstdFrameSupport = "mudstd.frame.support";
+
+	/// <summary>Server to client: opens a frame. A proposal. <see cref="FrameOpen"/>.</summary>
+	public const string MudstdFrameOpen = "mudstd.frame.open";
+
+	/// <summary>Server to client: closes a frame. A proposal. <see cref="FrameClose"/>.</summary>
+	public const string MudstdFrameClose = "mudstd.frame.close";
+
+	/// <summary>Server to client: text for a terminal frame. A proposal. <see cref="FrameTerminal"/>.</summary>
+	public const string MudstdFrameTerminal = "mudstd.frame.terminal";
+
+	/// <summary>Server to client: the image for an image frame. A proposal. <see cref="FrameImage"/>.</summary>
+	public const string MudstdFrameImage = "mudstd.frame.image";
+
+	/// <summary>Client to server: a frame opened, and its size. A proposal. <see cref="FrameSized"/>.</summary>
+	public const string MudstdFrameOpened = "mudstd.frame.opened";
+
+	/// <summary>Client to server: a frame closed. A proposal. <see cref="FrameClosed"/>.</summary>
+	public const string MudstdFrameClosed = "mudstd.frame.closed";
+
+	/// <summary>Client to server: a frame's size changed. A proposal. <see cref="FrameSized"/>.</summary>
+	public const string MudstdFrameResized = "mudstd.frame.resized";
+
+	/// <summary>Server to client: the tilesets a map draws from. A proposal. <see cref="TilemapTilesets"/>.</summary>
+	public const string MudstdTilemapTilesets = "mudstd.tilemap.tilesets";
+
+	/// <summary>Server to client: the map's size and tile ranges. A proposal. <see cref="TilemapInfo"/>.</summary>
+	public const string MudstdTilemapInfo = "mudstd.tilemap.info";
+
+	/// <summary>Server to client: the map's tiles. A proposal. <see cref="TilemapUpdate"/>.</summary>
+	public const string MudstdTilemapUpdate = "mudstd.tilemap.update";
 
 	/// <summary>Server to client: the room the character is in. <see cref="RoomInfo"/>.</summary>
 	public const string RoomInfo = "Room.Info";
