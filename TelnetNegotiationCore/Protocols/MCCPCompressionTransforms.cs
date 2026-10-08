@@ -458,6 +458,7 @@ internal sealed class MCCPDeflateTransform : IFinishableOutboundTransform
 		_deflater.Flush();
 		var produced = _sink.ToArray();
 		_sink.SetLength(0);
+		_wroteAny |= produced.Length > 0;
 		return produced;
 	}
 
@@ -471,8 +472,20 @@ internal sealed class MCCPDeflateTransform : IFinishableOutboundTransform
 		_deflater.Dispose();
 		var produced = _sink.ToArray();
 		_sink.SetLength(0);
-		return produced;
+
+		// Some runtimes' ZLibStream (net8.0 and net10.0) write nothing at all when closed before
+		// any data went through. The peer has seen the marker and is waiting for a zlib header, so
+		// an empty stream still has to be a stream.
+		return produced.Length == 0 && !_wroteAny ? s_emptyStream : produced;
 	}
+
+	/// <summary>
+	/// A complete zlib stream holding nothing: the header, one empty final block, and the Adler-32
+	/// of no bytes (RFC 1950, RFC 1951).
+	/// </summary>
+	private static readonly byte[] s_emptyStream = [0x78, 0x9C, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01];
+
+	private bool _wroteAny;
 
 	/// <inheritdoc />
 	public void Dispose()
