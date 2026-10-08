@@ -49,3 +49,7 @@ await gmcp.SendAsync(new CharVitals { Hp = 100, MaxHp = 120 });
 
 Other `Char.*` packages have no agreed keys between servers. `GmcpPackages` names them, and the game
 sends its own JSON.
+
+`MsdpNames` holds the MSDP command, list and variable names from the MSDP specification
+(`MsdpNames.Command.Report`, `MsdpNames.Character.HealthMax`, `MsdpNames.Mapping.Room`), and
+`MsdpNames.GmcpPackage`, the `MSDP` package that carries MSDP over GMCP.

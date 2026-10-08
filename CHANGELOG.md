@@ -29,6 +29,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **`MsdpNames`**, in TelnetNegotiationCore.Gmcp: the MSDP commands, lists, reportable and configurable
+  variables and the `MSDP` GMCP package name, spelled as the specification spells them. `CLIENT_ID`, which
+  KaVir's snippet sends instead of `CLIENT_NAME`, is there too and marked nonstandard.
 - **`TelnetNegotiationCore.Gmcp`, a new package for the GMCP `Core` package.** `GmcpServerSession` reads
   `Core.Hello`, keeps the `Core.Supports.Set`/`Add`/`Remove` module list (`Supports("Char.Vitals")` is true
   when `Char` was listed), answers `Core.Ping`, reports `Core.KeepAlive` and sends `Core.Goodbye`.
