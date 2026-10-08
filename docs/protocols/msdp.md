@@ -35,6 +35,21 @@ var received = MSDPLibrary.Scan(payload, encoding, MsdpJsonContext.Default.Room)
 var json = MSDPLibrary.ScanToJson(payload, encoding);
 ```
 
+## Sending reported variables once per tick
+
+`NotifyChangeAsync` sends a reported variable straight away, so a game that changes HP five times
+in a tick sends five messages. To send once per tick instead, call `MarkChanged` on each change and
+`FlushChangesAsync` on the tick. The flush sends every marked variable in one message, and leaves
+out a variable whose value is the same as the one last sent.
+
+```csharp
+player.Health -= damage;
+model.MarkChanged("HEALTH");
+
+// In the game loop, once per tick:
+await model.FlushChangesAsync();
+```
+
 ## The client side
 
 `MSDPClientHandler` asks a server for variables and keeps the latest value of each one the server
