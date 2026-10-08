@@ -37,6 +37,12 @@ All notable changes to this project will be documented in this file.
   when `Char` was listed), answers `Core.Ping`, reports `Core.KeepAlive` and sends `Core.Goodbye`.
   `GmcpClientSession` sends `Core.Hello` and `Core.Supports`, and times `Core.Ping`. It does not depend on
   TelnetNegotiationCore: a session sends through a delegate, which `SendGMCPCommand` fits.
+- **`UseGmcpClientSession` and `UseGmcpServerSession`** wire a Core session to `GMCPProtocol` in one
+  call: `.AddPlugin<GMCPProtocol>().UseGmcpClientSession(out var gmcp, new("Char", 1))`. The client
+  session sends `Core.Hello` with the name and version from `WithClientIdentity` once GMCP is agreed,
+  then `Core.Supports.Set` with the modules given. No identity, no `Core.Hello`. `OnGMCPMessage` and
+  `OnGMCPNegotiated` still run alongside the session. TelnetNegotiationCore now references
+  TelnetNegotiationCore.Gmcp.
 - **`GMCPProtocol.OnGMCPNegotiated`**, called when the peer agrees to, refuses or withdraws GMCP. It runs
   after this side's own `DO`/`WILL`, so a client's `Core.Hello` sent from it follows the agreement.
 - **`MSDPClientHandler` is implemented.** It threw `NotImplementedException`. It now sends `LIST`, `SEND`,
@@ -47,6 +53,11 @@ All notable changes to this project will be documented in this file.
   Also `Char.Vitals`, `Room.Info` (the IRE shape Mudlet's mapper reads) and `Comm.Channel.Text`, and
   `GmcpPackages` constants for the other common package names. Sessions send them with
   `SendAsync(IGmcpMessage)`; `GmcpClientSession.SendAsync` sends any package.
+- **Reported MSDP variables can be sent once per tick.** `MSDPServerModel.MarkChanged` records a
+  change and `FlushChangesAsync` sends every marked variable in one message, leaving out any whose
+  value matches the one last sent. `NotifyChangeAsync` still sends at once.
+- **`GmcpBatch`** does the same for GMCP: `Set` keeps each package's latest data and `FlushAsync`
+  sends what changed since the last send.
 - **`TelnetInterpreter.SendMSDPVariablesAsync`** sends MSDP variables over native MSDP, or over GMCP as
   MSDP over GMCP when the peer agreed only to GMCP.
 - **`TelnetInterpreter.UnannounceSupportAsync` and `AnnounceSupportAsync`, for copyovers.** The first

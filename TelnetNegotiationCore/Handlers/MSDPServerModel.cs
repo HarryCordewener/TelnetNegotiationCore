@@ -67,6 +67,8 @@ namespace TelnetNegotiationCore.Handlers;
 public class MSDPServerModel
 {
     private readonly ConcurrentDictionary<string, Func<ValueTask>> _reportedVariables = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte> _changed = new(StringComparer.Ordinal);
+    private Func<IReadOnlyList<string>, ValueTask>? _sendChanged;
 
     /// <summary>
     /// The lists a client can ask for by name with <c>LIST</c>, and what each one contains.
@@ -179,13 +181,20 @@ public class MSDPServerModel
     /// <summary>
     /// Stops reporting a variable.
     /// </summary>
-    public void UnReport(string reportableVariable) =>
+    public void UnReport(string reportableVariable)
+    {
         _reportedVariables.TryRemove(reportableVariable, out _);
+        _changed.TryRemove(reportableVariable, out _);
+    }
 
     /// <summary>
     /// Stops reporting every variable — the initial state of <c>REPORTED_VARIABLES</c>.
     /// </summary>
-    public void UnReportAll() => _reportedVariables.Clear();
+    public void UnReportAll()
+    {
+        _reportedVariables.Clear();
+        _changed.Clear();
+    }
 
     /// <summary>
     /// Tells the client that a reported variable has changed, sending its current value. Call this
@@ -200,4 +209,57 @@ public class MSDPServerModel
         _reportedVariables.TryGetValue(reportableVariable, out var onChange)
             ? onChange()
             : default;
+
+    /// <summary>
+    /// Records that a reported variable has changed, without sending anything yet.
+    /// <see cref="FlushChangesAsync"/> sends every variable marked since the last flush.
+    /// </summary>
+    /// <remarks>
+    /// For a game that changes values many times between ticks: mark on every change and flush
+    /// once per tick, and the client gets one message per tick holding the latest values instead
+    /// of one per change. A variable nobody asked to have reported is not recorded.
+    /// </remarks>
+    public void MarkChanged(string reportableVariable)
+    {
+        if (_reportedVariables.ContainsKey(reportableVariable))
+        {
+            _changed[reportableVariable] = 0;
+        }
+    }
+
+    /// <summary>
+    /// Sends every variable passed to <see cref="MarkChanged"/> since the last flush, in one
+    /// message. A variable whose value is the same as the one last sent for it is left out, and
+    /// nothing is sent when no value changed.
+    /// </summary>
+    public ValueTask FlushChangesAsync()
+    {
+        var sendChanged = _sendChanged;
+
+        if (sendChanged is null || _changed.IsEmpty)
+        {
+            return default;
+        }
+
+        var changed = new List<string>();
+
+        foreach (var variable in _changed.Keys)
+        {
+            if (_changed.TryRemove(variable, out _) && _reportedVariables.ContainsKey(variable))
+            {
+                changed.Add(variable);
+            }
+        }
+
+        return changed.Count == 0 ? default : sendChanged(changed);
+    }
+
+    /// <summary>
+    /// Sets how <see cref="FlushChangesAsync"/> sends. Called by <see cref="MSDPServerHandler"/>
+    /// on the first <c>REPORT</c>.
+    /// </summary>
+    internal bool IsReported(string variable) => _reportedVariables.ContainsKey(variable);
+
+    internal void OnFlush(Func<IReadOnlyList<string>, ValueTask> sendChanged) =>
+        _sendChanged = sendChanged;
 }
