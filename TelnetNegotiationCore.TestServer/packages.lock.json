@@ -33,8 +33,12 @@
       "telnetnegotiationcore": {
         "type": "Project",
         "dependencies": {
-          "StateAlchemist": "[1.3.0, )"
+          "StateAlchemist": "[1.3.0, )",
+          "TelnetNegotiationCore.Gmcp": "[0.1.0, )"
         }
+      },
+      "telnetnegotiationcore.gmcp": {
+        "type": "Project"
       }
     }
   }

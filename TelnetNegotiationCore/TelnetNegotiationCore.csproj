@@ -71,6 +71,8 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- UseGmcpClientSession / UseGmcpServerSession. The Gmcp package does not depend on this one. -->
+		<ProjectReference Include="..\TelnetNegotiationCore.Gmcp\TelnetNegotiationCore.Gmcp.csproj" />
 		<!-- Roslyn Analyzer for compile-time plugin validation -->
 		<ProjectReference Include="..\TelnetNegotiationCore.Analyzers\TelnetNegotiationCore.Analyzers.csproj"
 		                  OutputItemType="Analyzer"
