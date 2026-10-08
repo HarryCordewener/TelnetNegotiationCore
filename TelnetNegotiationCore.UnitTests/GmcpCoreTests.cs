@@ -115,6 +115,34 @@ public class GmcpCoreTests : BaseTest
 	/// "The server responds to the request by replying with Core.Ping without a body", and without
 	/// the space: "When sending a command without a data section the space should be omitted."
 	/// </summary>
+	/// <summary>
+	/// A client that never answers the server's ping still has its own timed pings answered:
+	/// a ping with a body is a request, not the answer the server is waiting for.
+	/// </summary>
+	[Test]
+	public async Task AClientPingIsAnsweredWhileAServerPingIsUnanswered()
+	{
+		var sent = new List<string>();
+		var gmcp = new GmcpServerSession((package, data) =>
+		{
+			sent.Add(package + " " + data);
+			return default;
+		});
+
+		await gmcp.SendAsync("Core.Ping");
+		await gmcp.HandleAsync("Core.Ping", "42");
+
+		await Assert.That(sent.Count).IsEqualTo(2);
+		await Assert.That(gmcp.ReportedRoundTripMilliseconds).IsEqualTo(42d);
+
+		gmcp.Reset();
+		await gmcp.SendAsync("Core.Ping");
+		gmcp.Reset();
+		await gmcp.HandleAsync("Core.Ping", "");
+
+		await Assert.That(sent.Count).IsEqualTo(4);
+	}
+
 	[Test]
 	public async Task PingIsAnsweredWithABareCorePing()
 	{
