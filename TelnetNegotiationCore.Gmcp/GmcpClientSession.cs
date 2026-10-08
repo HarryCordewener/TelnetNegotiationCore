@@ -20,7 +20,8 @@ namespace TelnetNegotiationCore.Gmcp;
 /// sends."
 /// </para>
 /// <para>
-/// With TelnetNegotiationCore:
+/// With TelnetNegotiationCore, <c>.AddPlugin&lt;GMCPProtocol&gt;().UseGmcpClientSession(out var gmcp, modules)</c>
+/// does this with the name and version from <c>WithClientIdentity</c>. By hand:
 /// <code>
 /// TelnetInterpreter? telnet = null;
 /// var gmcp = new GmcpClientSession((package, data) => telnet!.SendGMCPCommand(package, data));
@@ -118,12 +119,19 @@ public sealed class GmcpClientSession(GmcpSend send)
 	/// <summary>
 	/// Sends <c>Core.Hello {"client": ..., "version": ...}</c>, the first message a client sends.
 	/// </summary>
-	public ValueTask HelloAsync(string client, string version) =>
-		send(CorePackages.Hello, new JsonObject
+	/// <param name="client">The client's name.</param>
+	/// <param name="version">The client's version. Left out of the message when null.</param>
+	public ValueTask HelloAsync(string client, string? version)
+	{
+		var hello = new JsonObject { ["client"] = client };
+
+		if (version is not null)
 		{
-			["client"] = client,
-			["version"] = version
-		}.ToJsonString());
+			hello["version"] = version;
+		}
+
+		return send(CorePackages.Hello, hello.ToJsonString());
+	}
 
 	/// <summary>
 	/// Sends <c>Core.Supports.Set</c>: the full list of modules this client supports, replacing any

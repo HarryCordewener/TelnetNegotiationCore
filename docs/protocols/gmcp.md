@@ -62,14 +62,32 @@ does not depend on this library: a session sends through a delegate and is hande
 - `GmcpClientSession` sends `Core.Hello` and the `Core.Supports` messages, times `Core.Ping` round
   trips, and reports `Core.Goodbye`.
 
-```csharp
-TelnetInterpreter? telnet = null;
-var gmcp = new GmcpServerSession((package, data) => telnet!.SendGMCPCommand(package, data));
+`UseGmcpClientSession` and `UseGmcpServerSession` wire a session to the plugin in one call. The
+client session sends `Core.Hello` with the name and version from `WithClientIdentity` as soon as GMCP
+is agreed, then `Core.Supports.Set` with the modules given, and again after a renegotiation:
 
-telnet = await builder
-    .AddPlugin<GMCPProtocol>().OnGMCPMessage(gmcp.HandleAsync)
+```csharp
+var telnet = await new TelnetInterpreterBuilder()
+    .UseMode(TelnetInterpreter.TelnetMode.Client)
+    .WithClientIdentity("MyClient", "1.0")
+    .AddPlugin<GMCPProtocol>()
+        .UseGmcpClientSession(out var gmcp, new("Char", 1), new("Room", 1))
     .BuildAsync();
 ```
+
+```csharp
+var telnet = await builder
+    .AddPlugin<GMCPProtocol>().UseGmcpServerSession(out var gmcp)
+    .BuildAsync();
+```
+
+- No `WithClientIdentity`: no `Core.Hello`, since there is no name to send. `Core.Supports.Set` still
+  goes out. An identity without a version sends `{"client":"MyClient"}`.
+- No modules: no `Core.Supports.Set`.
+- `OnGMCPMessage` and `OnGMCPNegotiated` still work alongside, set before or after. The session sees
+  each message first, and sends `Core.Hello` before the `OnGMCPNegotiated` callback runs, so anything
+  that callback sends follows it.
+- To keep your own send delegate, pass a session you made instead of `out var`.
 
 Mudlet sends `Core.Hello` and then `Core.Supports.Set` as soon as GMCP is agreed. Blightmud sends
 `Core.Hello` and adds modules one at a time with `Core.Supports.Add`. TinTin++ and MUSHclient send
