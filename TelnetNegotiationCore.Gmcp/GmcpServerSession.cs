@@ -133,7 +133,9 @@ public sealed class GmcpServerSession(GmcpSend send)
 		{
 			// The answer to a ping this server sent. Answering it again would start the client
 			// answering in turn, and the two would ping each other for as long as they are connected.
-			if (Interlocked.Exchange(ref _pingSent, 0) == 1)
+			// An answer has no body; a ping carrying a round trip is the client's own request, and is
+			// answered even while this server waits on a client that never answers.
+			if (string.IsNullOrWhiteSpace(data) && Interlocked.Exchange(ref _pingSent, 0) == 1)
 			{
 				return;
 			}
@@ -255,6 +257,7 @@ public sealed class GmcpServerSession(GmcpSend send)
 		ClientName = null;
 		ClientVersion = null;
 		ReportedRoundTripMilliseconds = null;
+		Interlocked.Exchange(ref _pingSent, 0);
 	}
 
 	private async ValueTask HandleHelloAsync(string data)

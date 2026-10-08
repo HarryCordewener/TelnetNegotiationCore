@@ -351,6 +351,103 @@ public class MSDPServerHandlerTests : BaseTest
 	}
 
 	/// <summary>
+	/// Changes marked between flushes go out once, together, with the latest values: five HP changes
+	/// in a tick are one message, not five.
+	/// </summary>
+	[Test]
+	public async Task AFlushSendsEveryMarkedChangeInOneMessage()
+	{
+		var health = 100;
+		var mana = 50;
+		var model = new MSDPServerModel(NoResetAsync)
+		{
+			Reportable_Variables = new() { ["HEALTH"] = () => health, ["MANA"] = () => mana }
+		};
+		var (telnet, sent, handler) = await ServerAsync(model);
+
+		await handler.HandleAsync(telnet, """{"REPORT":["HEALTH","MANA"]}""");
+		sent.Clear();
+
+		for (var i = 0; i < 5; i++)
+		{
+			health -= 10;
+			model.MarkChanged("HEALTH");
+		}
+
+		mana = 40;
+		model.MarkChanged("MANA");
+
+		await Assert.That(Messages(sent).Count).IsEqualTo(0);
+
+		await model.FlushChangesAsync();
+
+		await AssertByteArraysEqual(OnlyMessage(sent), Frame(
+			Trigger.MSDP_VAR, "HEALTH", Trigger.MSDP_VAL, "50",
+			Trigger.MSDP_VAR, "MANA", Trigger.MSDP_VAL, "40"));
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// A variable marked but back at the value last sent is left out, and a flush with nothing new
+	/// sends nothing. A second flush with no marks in between sends nothing either.
+	/// </summary>
+	[Test]
+	public async Task AFlushLeavesOutWhatDidNotChange()
+	{
+		var health = 100;
+		var mana = 50;
+		var model = new MSDPServerModel(NoResetAsync)
+		{
+			Reportable_Variables = new() { ["HEALTH"] = () => health, ["MANA"] = () => mana }
+		};
+		var (telnet, sent, handler) = await ServerAsync(model);
+
+		await handler.HandleAsync(telnet, """{"REPORT":["HEALTH","MANA"]}""");
+		sent.Clear();
+
+		model.MarkChanged("HEALTH");
+		await model.FlushChangesAsync();
+		await Assert.That(Messages(sent).Count).IsEqualTo(0);
+
+		health = 90;
+		model.MarkChanged("HEALTH");
+		model.MarkChanged("MANA");
+		await model.FlushChangesAsync();
+		await model.FlushChangesAsync();
+
+		await AssertByteArraysEqual(OnlyMessage(sent), Frame(Trigger.MSDP_VAR, "HEALTH", Trigger.MSDP_VAL, "90"));
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
+	/// Marking a variable the client stopped, or never started, having reported sends nothing.
+	/// </summary>
+	[Test]
+	public async Task AFlushSendsOnlyReportedVariables()
+	{
+		var model = new MSDPServerModel(NoResetAsync)
+		{
+			Reportable_Variables = new() { ["HEALTH"] = () => 100, ["MANA"] = () => 50 }
+		};
+		var (telnet, sent, handler) = await ServerAsync(model);
+
+		await handler.HandleAsync(telnet, """{"REPORT":"HEALTH"}""");
+		model.MarkChanged("HEALTH");
+		await handler.HandleAsync(telnet, """{"UNREPORT":"HEALTH"}""");
+		sent.Clear();
+
+		model.MarkChanged("HEALTH");
+		model.MarkChanged("MANA");
+		await model.FlushChangesAsync();
+
+		await Assert.That(Messages(sent).Count).IsEqualTo(0);
+
+		await telnet.DisposeAsync();
+	}
+
+	/// <summary>
 	/// A reported variable appears in the REPORTED_VARIABLES list while it is being reported, which is
 	/// what makes that list answerable at all.
 	/// </summary>

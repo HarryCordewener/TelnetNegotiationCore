@@ -50,6 +50,11 @@ All notable changes to this project will be documented in this file.
   Also `Char.Vitals`, `Room.Info` (the IRE shape Mudlet's mapper reads) and `Comm.Channel.Text`, and
   `GmcpPackages` constants for the other common package names. Sessions send them with
   `SendAsync(IGmcpMessage)`; `GmcpClientSession.SendAsync` sends any package.
+- **Reported MSDP variables can be sent once per tick.** `MSDPServerModel.MarkChanged` records a
+  change and `FlushChangesAsync` sends every marked variable in one message, leaving out any whose
+  value matches the one last sent. `NotifyChangeAsync` still sends at once.
+- **`GmcpBatch`** does the same for GMCP: `Set` keeps each package's latest data and `FlushAsync`
+  sends what changed since the last send.
 - **`TelnetInterpreter.SendMSDPVariablesAsync`** sends MSDP variables over native MSDP, or over GMCP as
   MSDP over GMCP when the peer agreed only to GMCP.
 - **`TelnetInterpreter.UnannounceSupportAsync` and `AnnounceSupportAsync`, for copyovers.** The first
