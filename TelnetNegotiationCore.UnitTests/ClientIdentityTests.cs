@@ -278,11 +278,11 @@ public class ClientIdentityTests : BaseTest
 	{
 		var everything = Enum.GetValues<MttsCapabilities>().Aggregate(MttsCapabilities.None, (all, x) => all | x);
 
-		await Assert.That(Convert.ToInt32(everything)).IsEqualTo(2047);
+		await Assert.That(Convert.ToInt32(everything)).IsEqualTo(4095);
 		await Assert.That(MttsCapabilityNames.Expand(everything)).IsEquivalentTo(
 		[
 			"ANSI", "VT100", "UTF8", "256 COLORS", "MOUSE_TRACKING", "OSC_COLOR_PALETTE",
-			"SCREEN_READER", "PROXY", "TRUECOLOR", "MNES", "MSLP"
+			"SCREEN_READER", "PROXY", "TRUECOLOR", "MNES", "MSLP", "SSL"
 		]);
 		await Assert.That(MttsCapabilityNames.Expand(MttsCapabilities.Mnes | MttsCapabilities.Ansi))
 			.IsEquivalentTo(["ANSI", "MNES"]);

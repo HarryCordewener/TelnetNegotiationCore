@@ -176,6 +176,18 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The compression this side started is ended with an orderly stream end, so the <c>WONT</c> that
+    /// follows reaches the peer in the clear. MTH ends MCCP2 and MCCP3 first in its
+    /// <c>unannounce_support</c> for the same reason.
+    /// </remarks>
+    protected internal override async ValueTask OnUnannounceAsync()
+    {
+        var outbound = Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server ? 2 : 3;
+        await StopCompressionAsync(Context, outbound, inbound: false);
+    }
+
+    /// <inheritdoc />
     protected override async ValueTask OnDisposeAsync()
     {
         if (IsInitialized)
@@ -245,6 +257,12 @@ public class MCCPProtocol : TelnetProtocolPluginBase
     /// Only what is actually running is stopped. A peer is entitled to refuse an option it was
     /// never using, and to refuse it twice; announcing a state change that did not happen would
     /// have consumers tearing down a compression state they never had.
+    /// <para>
+    /// Outbound, the stream is ended rather than abandoned. The peer goes on inflating until it reads
+    /// an orderly end, so plain bytes sent without one land in the middle of its deflate stream. MCCP3
+    /// says so for the client ("the client may terminate compression at any point by sending an
+    /// orderly stream end (Z_FINISH)"), and MTH ends its MCCP2 stream the same way on <c>DONT</c>.
+    /// </para>
     /// </remarks>
     private async ValueTask StopCompressionAsync(IProtocolContext context, int version, bool inbound)
     {
@@ -253,12 +271,14 @@ public class MCCPProtocol : TelnetProtocolPluginBase
             return;
         }
 
+        // Cleared first: once the swap below has started, compression is over whether or not the
+        // write carrying the stream's end succeeds.
+        SetEnabled(version, false);
+
         if (inbound)
             context.SetInboundByteTransform(null);
         else
-            await context.SetOutboundByteTransformAsync(null);
-
-        SetEnabled(version, false);
+            await context.Interpreter.SetOutboundByteTransformAsync(null, finishPrevious: true);
 
         if (_onCompressionEnabled != null)
             await _onCompressionEnabled(version, false);

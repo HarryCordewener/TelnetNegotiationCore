@@ -20,7 +20,8 @@ a terminal that will not name itself — and NEW-ENVIRON sends no variables at a
 introduce your application as `TNC`, and it will never invent a terminal for it.
 
 **The MTTS bitvector is calculated, not stated.** `Mtts` is only for the claims this library cannot
-check: colour depth, mouse tracking, a screen reader — things it does not render and cannot see. The
+check: colour depth, mouse tracking, a screen reader, `Ssl` (2048) when the connection runs over TLS —
+things it does not render and cannot see. The
 bits it *can* see, it sets for you, and only when they are true:
 
 | Bit | Set when |

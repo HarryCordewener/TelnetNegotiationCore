@@ -23,7 +23,17 @@ var telnet = await new TelnetInterpreterBuilder()
     .BuildAsync();
 ```
 
+The server asks: it sends `DO NEW-ENVIRON` at connection start, and when the client answers
+`WILL NEW-ENVIRON` it sends `SEND` for every variable. This is the direction MNES gives: "the server
+should send IAC DO NEW-ENVIRON. The client should respond with either IAC WILL NEW-ENVIRON or IAC WONT
+NEW-ENVIRON." A client that asks the server for its variables with `DO NEW-ENVIRON` is refused
+with `WONT`.
+
 ## Client side
+The client answers `DO NEW-ENVIRON` with `WILL` and waits for `SEND`. It still accepts a server that
+announces `WILL NEW-ENVIRON` instead, which is what earlier versions of this library sent, by
+answering `DO`.
+
 The client answers a server's `SEND` with **exactly what you configured, and nothing else**. Nothing
 is read from the environment of the process: RFC 1572's `USER` means *the account to log in as*, not
 the operating-system account the client happens to run under, and a server has no business learning

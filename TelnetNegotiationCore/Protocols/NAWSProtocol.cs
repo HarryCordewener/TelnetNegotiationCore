@@ -181,6 +181,17 @@ public class NAWSProtocol : TelnetProtocolPluginBase
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The withdrawal ends NAWS on this side, so a server asks again on the next announce and a
+    /// client stops reporting until it is agreed again.
+    /// </remarks>
+    protected internal override ValueTask OnUnannounceAsync()
+    {
+        _willingToDoNAWS = false;
+        return default(ValueTask);
+    }
+
+    /// <inheritdoc />
     protected override ValueTask OnDisposeAsync() => default(ValueTask);
 
     #region State Machine Handlers

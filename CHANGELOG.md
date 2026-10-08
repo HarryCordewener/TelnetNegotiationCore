@@ -3,8 +3,31 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **NEW-ENVIRON now negotiates in the direction RFC 1572 and MNES give.** A server sends
+  `DO NEW-ENVIRON` and answers the client's `WILL` with `SEND`; it used to send `WILL` and wait for
+  `DO`, which Mudlet and TinTin++ tolerate but MNES does not describe. A server now refuses a client's
+  `DO NEW-ENVIRON` with `WONT`. A client answers `DO` with `WILL`, acknowledges a later `DONT` with
+  `WONT` as RFC 1143 asks, and still accepts an older TNC server that announces `WILL`, so mixed
+  versions keep working. `EnvironProtocol` (RFC 1408) is unchanged.
+
+### Fixed
+
+- **MCCP streams end with `Z_FINISH`.** When this side stops compressing on purpose (a server on
+  `DONT MCCP2`, a client sending `WONT MCCP3`, or `UnannounceSupportAsync`), the final deflate block and
+  the Adler-32 trailer are written before the plain-telnet bytes that follow. The stream used to end
+  without its final block and checksum, which the peer cannot tell apart from a cut-off.
+- **`DONT TTYPE` resets a client's terminal-type cycle**, as MTTS asks, so the next `SEND` gets the
+  first name again.
+
 ### Added
 
+- **`TelnetInterpreter.UnannounceSupportAsync` and `AnnounceSupportAsync`, for copyovers.** The first
+  ends compression and withdraws every `WILL` and `DO` this side offered at connection start; the second
+  makes the offers again. `InitialOffers` lists them. This is the procedure GMCP, MSDP, MCCP3, MTTS and
+  MNES describe for a copyover, and what MTH calls `unannounce_support` / `announce_support`.
+- **`MttsCapabilities.Ssl` (2048).** The application sets it when the connection runs over TLS.
 - **`TerminalQueryProtocol`: ask the terminal behind a connection what it can draw.** `ProbeAsync`
   writes the Kitty graphics query (`a=q`), `CSI 16 t` (cell size in pixels), XTVERSION and, always last,
   primary device attributes. A terminal answers in its own input, which over telnet is the user's next

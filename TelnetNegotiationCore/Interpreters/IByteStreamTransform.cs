@@ -59,3 +59,21 @@ public interface IOutboundByteTransform : IDisposable
 	/// </returns>
 	ReadOnlyMemory<byte> Encode(ReadOnlyMemory<byte> data);
 }
+
+/// <summary>
+/// An outbound encoder whose stream has an orderly end the peer is waiting to see.
+/// </summary>
+/// <remarks>
+/// Removing such an encoder without ending its stream leaves the peer decoding plain bytes as the
+/// middle of the old stream. MCCP is the case in point: "the client may terminate compression at
+/// any point by sending an orderly stream end (Z_FINISH)", and the server only switches back to
+/// plain telnet when it reads one.
+/// </remarks>
+internal interface IFinishableOutboundTransform : IOutboundByteTransform
+{
+	/// <summary>
+	/// Ends the stream and returns the bytes that end it. Called once, inside the write lock, as the
+	/// last use of the encoder before it is removed.
+	/// </summary>
+	ReadOnlyMemory<byte> Finish();
+}
