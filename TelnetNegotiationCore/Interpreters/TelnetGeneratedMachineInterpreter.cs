@@ -397,10 +397,14 @@ public partial class TelnetInterpreter
             return default;
         }
 
-        // RFC 2066's own REJECTED/TTABLE_REJECTED/TTABLE_ACK/TTABLE_NAK carry no payload of their own to
-        // process on the receiving end -- the original Stateless configuration has no handler for any of
-        // them either, only the state transition that consumes their bytes.
-        public override ValueTask CharsetRejectedAsync() => default;
+        public override ValueTask CharsetRejectedAsync()
+        {
+            if (TryGetEnabledPlugin<Protocols.CharsetProtocol>(out var charset))
+            {
+                charset.RejectOutstandingOffer();
+            }
+            return default;
+        }
 
         public override ValueTask CharsetTTableStartedAsync()
         {

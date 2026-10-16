@@ -7,7 +7,7 @@ namespace TelnetNegotiationCore.Interpreters;
 public partial class TelnetInterpreter
 {
 	/// <summary>
-	/// Sends a GMCP command to the remote party.
+	/// Sends a GMCP command to the remote party using UTF-8, independently of terminal CHARSET.
 	/// </summary>
 	/// <param name="package">The GMCP package name (e.g., "Core.Hello", "Char.Vitals").</param>
 	/// <param name="command">The JSON data to send as a string, or an empty string for a message with no data.</param>
@@ -16,7 +16,7 @@ public partial class TelnetInterpreter
 	/// await telnet.SendGMCPCommand("Char.Vitals", "{\"hp\":1000,\"maxhp\":1500}");
 	/// </example>
 	public ValueTask SendGMCPCommand(string package, string command) =>
-		SendGMCPCommand(CurrentEncoding.GetBytes(package), CurrentEncoding.GetBytes(command));
+		SendGMCPCommand(System.Text.Encoding.UTF8.GetBytes(package), System.Text.Encoding.UTF8.GetBytes(command));
 
 	/// <summary>
 	/// Sends a GMCP command to the remote party.
@@ -25,7 +25,7 @@ public partial class TelnetInterpreter
 	/// <param name="command">The JSON data to send as a byte array.</param>
 	/// <returns>A ValueTask representing the asynchronous operation.</returns>
 	public ValueTask SendGMCPCommand(string package, byte[] command) =>
-		SendGMCPCommand(CurrentEncoding.GetBytes(package), command);
+		SendGMCPCommand(System.Text.Encoding.UTF8.GetBytes(package), command);
 
 	/// <summary>
 	/// Sends a GMCP command to the remote party.
@@ -33,9 +33,8 @@ public partial class TelnetInterpreter
 	/// <remarks>
 	/// RFC 854 requires a literal <c>IAC</c> (0xFF) inside data to be doubled, or the peer's state
 	/// machine reads it as the start of a command and desyncs mid-payload. GMCP's data section is
-	/// normally UTF-8 JSON, which cannot itself produce a raw 0xFF byte - but a non-ASCII
-	/// <see cref="TelnetInterpreter.CurrentEncoding"/> can still turn one character into 0xFF
-	/// (ISO-8859-1 'ÿ'), same as <c>Protocols.MSSPProtocol.AppendEscaped</c> guards against for MSSP.
+	/// normally UTF-8 JSON, which cannot itself produce a raw 0xFF byte, but caller-supplied
+	/// bytes can still contain it, as <c>Protocols.MSSPProtocol.AppendEscaped</c> guards against for MSSP.
 	/// Escaped through the shared <see cref="TelnetSafeBytes"/> rather than a second IAC-doubling loop.
 	/// </remarks>
 	/// <param name="package">The GMCP package name as a byte array.</param>

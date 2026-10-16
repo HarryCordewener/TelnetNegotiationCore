@@ -2,7 +2,9 @@
 
 [GMCP](https://tintin.mudhalla.net/protocols/gmcp) carries structured JSON out of band, under a
 dotted package name: `Char.Vitals`, `Room.Info`, `Core.Ping`. `GMCPProtocol` negotiates telnet option
-201 and hands you each message as a `(Package, Info)` pair.
+201 and hands you each message as a `(Package, Info)` pair. GMCP names and JSON use UTF-8
+independently of terminal CHARSET negotiation, including the string send overloads. Byte-array send
+overloads take already encoded UTF-8 payloads.
 
 ```csharp
 .AddPlugin<GMCPProtocol>()

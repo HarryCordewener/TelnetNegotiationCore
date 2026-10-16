@@ -14,6 +14,12 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **CHARSET ACCEPTED is checked against the outstanding request before changing the decoder.**
+  Aliases resolve by code page. Rejected, withdrawn, consumed, empty and failed offers cannot be
+  replayed; repeated requests snapshot the current allowed set instead of a cached first request.
+- **GMCP always uses UTF-8**, including receive decoding and string send overloads, independently
+  of the ordinary terminal text charset.
+
 - **MCCP streams end with `Z_FINISH`.** When this side stops compressing on purpose (a server on
   `DONT MCCP2`, a client sending `WONT MCCP3`, or `UnannounceSupportAsync`), the final deflate block and
   the Adler-32 trailer are written before the plain-telnet bytes that follow. The stream used to end

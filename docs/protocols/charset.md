@@ -2,8 +2,23 @@
 
 `CharsetProtocol` implements RFC 2066. `WithCharsetOrder(...)` states the encodings this side prefers,
 most preferred first, and whatever the two sides settle on becomes `TelnetInterpreter.CurrentEncoding`
-— which is the encoding every other protocol on the connection reads and writes text in. Until it
-settles, that is UTF-8.
+— the encoding of ordinary terminal text. GMCP independently uses UTF-8. Until CHARSET
+settles, terminal text is UTF-8.
+
+`CharsetOrder` only ranks the available encodings. Set `AllowedEncodings` explicitly to restrict
+what the application can decode and render. Each REQUEST snapshots the actual set sent. ACCEPTED
+must resolve to a code page in that outstanding snapshot; aliases are accepted by code-page identity.
+Missing, rejected, withdrawn, consumed and failed offers cannot authorize a later acceptance.
+An invalid ACCEPTED is answered with REJECTED before either encoding changes, including when more
+text follows in the same input buffer. Repeated requests use the current allowed set.
+
+```csharp
+.AddPlugin(new CharsetProtocol
+{
+    AllowedEncodings = () => Encoding.GetEncodings().Where(e => e.CodePage is 65001 or 28591 or 20127),
+    CharsetOrder = [Encoding.UTF8, Encoding.Latin1, Encoding.ASCII]
+})
+```
 
 ```csharp
 .AddPlugin<CharsetProtocol>()
