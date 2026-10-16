@@ -28,11 +28,10 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     private static readonly byte[] s_ttableAck = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_ACK, (byte)Trigger.IAC, (byte)Trigger.SE };
     private static readonly byte[] s_ttableNak = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_NAK, (byte)Trigger.IAC, (byte)Trigger.SE };
 
-    private bool _charsetOffered = false;
+    private HashSet<int>? _offeredCodePages;
     private Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetOrder = x 
         => x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
     private Func<Encoding, ValueTask>? _signalCharsetChangeAsync;
-    private Lazy<byte[]>? _supportedCharacterSets;
 
     // TTABLE support fields
     private readonly SubnegotiationBuffer _ttableBytes = new();
@@ -158,14 +157,11 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     /// Negotiation acceptance and every subnegotiation are wired to the generated machine (see
     /// <see cref="OnPeerNegotiatedAsync"/>, <see cref="CompleteCharsetRequestFromBytesAsync"/>,
     /// <see cref="CompleteAcceptedCharsetFromBytesAsync"/> and <see cref="CompleteTTableFromBufferAsync"/>);
-    /// this hook survives for two things that are not Stateless configuration themselves: the lazy
-    /// supported-character-set list <see cref="OnDoCharsetAsync"/> sends, resolved once regardless of
-    /// which machine drives byte processing, and the server's initial offer.
+    /// this hook registers the server's initial offer. Each request snapshots the allowed set in
+    /// <see cref="OnDoCharsetAsync"/> after its write succeeds.
     /// </remarks>
     public override void ConfigureStateMachine(IProtocolContext context)
     {
-        _supportedCharacterSets = new Lazy<byte[]>(CharacterSets);
-
         // RFC 2066: the server initiates CHARSET by offering WILL CHARSET; the client responds
         // (DO CHARSET, then ACCEPTED). If the client also proactively offered WILL CHARSET, two
         // peers would collide (WILL/WILL) and the negotiation would never resolve — a stuck CHARSET
@@ -195,7 +191,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnProtocolDisabledAsync()
     {
         Context.Logger.LogInformation("Charset Protocol disabled");
-        _charsetOffered = false;
+        _offeredCodePages = null;
         _ttableBytes.Reset();
         _currentTranslationTable = null;
         return default(ValueTask);
@@ -204,6 +200,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     /// <inheritdoc />
     protected override ValueTask OnDisposeAsync()
     {
+        _offeredCodePages = null;
         _ttableBytes.Reset();
         _currentTranslationTable = null;
         return default(ValueTask);
@@ -318,7 +315,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     {
         var ascii = Encoding.ASCII;
 
-        if (_charsetOffered && context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
+        if (_offeredCodePages != null && context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Server)
         {
             await context.SendNegotiationAsync(s_charsetRejected);
             return;
@@ -371,6 +368,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         byte[] response = Helpers.SubnegotiationFrame.Build(
             (byte)Trigger.CHARSET, (byte)Trigger.ACCEPTED, ascii.GetBytes(chosenEncoding.WebName));
 
+        _offeredCodePages = null;
         CurrentEncoding = chosenEncoding;
         UpdateInterpreterEncoding(context);
 
@@ -387,6 +385,8 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     {
         var acceptedCharset = Encoding.ASCII.GetString(bytes, 0, bytes.Length).Trim();
 
+        var offered = _offeredCodePages;
+        _offeredCodePages = null;
         Encoding negotiated;
         try
         {
@@ -397,13 +397,20 @@ public class CharsetProtocol : TelnetProtocolPluginBase
             // The charset stays where it was, so there is no change to announce.
             context.Logger.LogError(ex, "Unexpected error during Accepting Charset Negotiation. Could not find charset: {charset}", acceptedCharset);
             await context.SendNegotiationAsync(s_charsetRejected);
-            _charsetOffered = false;
+            _offeredCodePages = null;
+            return;
+        }
+
+        // An invalid answer consumes the offer too: a later ACCEPTED cannot replay it.
+        if (offered == null || !offered.Contains(negotiated.CodePage))
+        {
+            context.Logger.LogWarning("CHARSET ACCEPTED named an encoding outside the outstanding offer: {charset}", acceptedCharset);
+            await context.SendNegotiationAsync(s_charsetRejected);
             return;
         }
 
         CurrentEncoding = negotiated;
         UpdateInterpreterEncoding(context);
-        _charsetOffered = false;
 
         context.Logger.LogInformation("Connection: Accepted Charset Negotiation for: {charset}", CurrentEncoding.WebName);
 
@@ -447,7 +454,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
         context.Logger.LogDebug("Connection: {ConnectionState}", "Request charset negotiation from Client");
         await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doCharset);
-        _charsetOffered = false;
+        _offeredCodePages = null;
     }
 
     private async ValueTask WillingCharsetAsync(IProtocolContext context)
@@ -458,12 +465,14 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
     private ValueTask OnWontCharsetAsync(IProtocolContext context)
     {
+        _offeredCodePages = null;
         context.Logger.LogDebug("Connection: {ConnectionState}", "Won't do Character Set - do nothing");
         return OnNegotiatedAsync(false);
     }
 
     private ValueTask OnDontCharsetAsync(IProtocolContext context)
     {
+        _offeredCodePages = null;
         context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Character Set - do nothing");
         return OnNegotiatedAsync(false);
     }
@@ -495,19 +504,20 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
     private async ValueTask OnDoCharsetAsync(IProtocolContext context)
     {
-        context.Logger.LogDebug("Charsets String: {CharsetList}", ";" + string.Join(";", GetCharsetOrder(AllowedEncodings()).Select(x => x.WebName)));
+        var offered = GetCharsetOrder(AllowedEncodings()).ToArray();
+        var request = Helpers.SubnegotiationFrame.Build(
+            (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
+            Encoding.ASCII.GetBytes($";{string.Join(";", offered.Select(x => x.WebName))}"));
         await OnNegotiatedAsync(true);
-        await context.SendNegotiationAsync(_supportedCharacterSets!.Value);
-        _charsetOffered = true;
+        // A failed replacement write must not leave the previous request usable.
+        _offeredCodePages = null;
+        await context.SendNegotiationAsync(request);
+        // Byte processing is serial: the response cannot run until this handler finishes.
+        _offeredCodePages = new HashSet<int>(offered.Select(x => x.CodePage));
     }
 
-    private byte[] CharacterSets()
-    {
-        return Helpers.SubnegotiationFrame.Build(
-            (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
-            Encoding.ASCII.GetBytes($";{string.Join(";", GetCharsetOrder(AllowedEncodings()).Select(x => x.WebName))}"));
-    }
-    
+    internal void RejectOutstandingOffer() => _offeredCodePages = null;
+
     /// <summary>
     /// The interpreter carries the negotiated encoding for consumers reading
     /// <see cref="Interpreters.TelnetInterpreter.CurrentEncoding"/>.
