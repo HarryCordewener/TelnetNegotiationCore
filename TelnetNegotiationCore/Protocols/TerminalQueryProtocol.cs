@@ -47,8 +47,35 @@ public sealed record TerminalReport
 	/// </summary>
 	public bool? KittyGraphics { get; init; }
 
-	/// <summary>Whether the terminal draws sixel graphics: attribute 4 among the device attributes.</summary>
-	public bool? Sixel => DeviceAttributes is null ? null : Contains(DeviceAttributes, 4);
+	/// <summary>
+	/// Whether DA1 advertises sixel graphics. Families 62–65 use feature lists: a trailing 4 means
+	/// supported. VT100-class families 1, 4, 6 and 7 report no sixel support. Missing, empty or
+	/// unrecognised families return null because their option parameters are not interpreted.
+	/// </summary>
+	public bool? Sixel
+	{
+		get
+		{
+			if (DeviceAttributes is null || DeviceAttributes.Count == 0) return null;
+			switch (DeviceAttributes[0])
+			{
+				case 62:
+				case 63:
+				case 64:
+				case 65:
+					for (var i = 1; i < DeviceAttributes.Count; i++)
+						if (DeviceAttributes[i] == 4) return true;
+					return false;
+				case 1: // VT100 / VT101 options, not independent feature codes.
+				case 4: // VT132: the family number itself is not a sixel feature.
+				case 6: // VT102.
+				case 7: // VT131.
+					return false;
+				default:
+					return null;
+			}
+		}
+	}
 
 	/// <summary>The name and version the terminal gave in answer to XTVERSION, such as <c>kitty(0.38.1)</c>.</summary>
 	public string? Version { get; init; }
@@ -59,12 +86,6 @@ public sealed record TerminalReport
 	/// <summary>The height of one character cell in pixels.</summary>
 	public int? CellHeight { get; init; }
 
-	private static bool Contains(IReadOnlyList<int> values, int value)
-	{
-		for (var i = 0; i < values.Count; i++)
-			if (values[i] == value) return true;
-		return false;
-	}
 }
 
 /// <summary>
@@ -442,3 +463,4 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 		return false;
 	}
 }
+
