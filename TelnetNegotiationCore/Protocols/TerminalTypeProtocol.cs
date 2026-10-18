@@ -306,7 +306,8 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     internal async ValueTask CompleteTerminalTypeFromBytesAsync(byte[] bytes, IProtocolContext context)
     {
         var TType = Encoding.ASCII.GetString(bytes);
-        if (_terminalTypes.Contains(TType))
+        // RFC 1091 terminal names are case-insensitive; retain the first spelling we received.
+        if (_terminalTypes.Contains(TType, StringComparer.OrdinalIgnoreCase))
         {
             _currentTerminalType = (_currentTerminalType + 1) % _terminalTypes.Count;
 
@@ -450,3 +451,4 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
 
     #endregion
 }
+
