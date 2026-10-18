@@ -339,7 +339,7 @@ public class TerminalQueryProtocolTests : BaseTest
 		var peer = await PeerAsync(maxBufferSize: 16);
 		await using var interpreter = peer.Interpreter;
 		interpreter.RegisterInputLineObserver((line, _) =>
-			new ValueTask<byte[]?>(Encoding.UTF8.GetString(line) == "consume" ? null : line));
+			new ValueTask<byte[]>(Encoding.UTF8.GetString(line) == "consume" ? null : line));
 		await peer.FeedAsync($"{Esc}[?1;2cconsume\r\n\r\n");
 		await peer.FeedAsync($"{Esc}[?1;2c" + new string('x', 20) + "\r\n\r\n");
 		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "", "" });
