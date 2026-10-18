@@ -14,6 +14,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Server TTYPE selection follows the reported mode.** A repeated name no longer wraps to the
+  first entry, and MTTS bitvectors and expanded capability names never become the selected terminal.
+  Plugin and interpreter selections remain consistent through enumeration and resets.
+
 - **CHARSET ACCEPTED is checked against the outstanding request before changing the decoder.**
   Aliases resolve by code page. Rejected, withdrawn, consumed, empty and failed offers cannot be
   replayed; repeated requests snapshot the current allowed set instead of a cached first request.
@@ -1482,3 +1486,4 @@ Initial version.
 - Initial support for RFC2066 (CHARSET)
 - Initial support for MSSP
 - Initial support for GMCP
+
