@@ -156,6 +156,19 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// </summary>
     private readonly List<Func<byte[], Encoding, ValueTask<byte[]?>>> _inputLineObservers = [];
 
+    // Application-data filtering runs after telnet framing, before either consumer callback.
+    private Func<byte, Encoding, ValueTask<bool>>? _inputByteFilter;
+    private Func<ValueTask<bool>>? _finishInputByteFilterLine;
+    private Func<bool>? _hasPendingInputBytes;
+
+    internal void RegisterInputByteFilter(Func<byte, Encoding, ValueTask<bool>> filter, Func<ValueTask<bool>> finishLine, Func<bool> hasPendingBytes)
+    {
+        if (_inputByteFilter is not null) throw new InvalidOperationException("An input byte filter is already registered.");
+        _inputByteFilter = filter;
+        _finishInputByteFilterLine = finishLine;
+        _hasPendingInputBytes = hasPendingBytes;
+    }
+
     /// <summary>
     /// Written to <see cref="_byteChannel"/> in place of a wire byte, so
     /// <see cref="Protocols.PacketPatchProtocol"/>'s hold-time decision runs on the byte-processing
@@ -369,17 +382,21 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// <param name="b">A useful byte for the Client/Server</param>
     private async ValueTask WriteToBufferAndAdvanceAsync(byte b)
     {
-        if (!WriteToBufferAndAdvance(b))
-        {
-            return;
-        }
+        var encoding = CurrentEncoding;
+        if (_inputByteFilter is not null && await _inputByteFilter(b, encoding)) return;
+        await WriteUnfilteredInputByteAsync(b, encoding);
+    }
 
-        await (CallbackOnByteAsync?.Invoke(b, CurrentEncoding) ?? default(ValueTask));
+    /// <summary>Releases ordinary bytes retained by the application-data filter, in their original order.</summary>
+    internal async ValueTask WriteUnfilteredInputByteAsync(byte b, Encoding encoding)
+    {
+        if (WriteToBufferAndAdvance(b, encoding) && CallbackOnByteAsync is { } callback)
+            await callback(b, encoding);
     }
 
     /// <summary>
-    /// The synchronous heart of <see cref="WriteToBufferAndAdvanceAsync"/>: everything except the optional
-    /// per-byte callback, which is the only reason that method is async. Split out for the generated
+    /// The synchronous line-buffer writer, separated from filtering and the optional
+    /// per-byte callback. Split out for the generated
     /// machine's <c>Write</c>, which is itself synchronous — text is the hot path, and stays allocation-free.
     /// </summary>
     /// <returns>True when the byte was stored, so the caller knows whether to run its per-byte callback.</returns>
@@ -392,7 +409,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// is now the only place that decides, and under the default mode it never writes one, so nothing
     /// reaches here that did not before.
     /// </remarks>
-    private bool WriteToBufferAndAdvance(byte b)
+    private bool WriteToBufferAndAdvance(byte b, Encoding? encoding = null)
     {
         if (_logger.IsEnabled(LogLevel.Trace))
         {
@@ -400,7 +417,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
         }
 
         // The first byte of a line pins the encoding the whole line is delivered with. See _lineEncoding.
-        _lineEncoding ??= CurrentEncoding;
+        _lineEncoding ??= encoding ?? CurrentEncoding;
 
         if (_bufferPosition >= MaxBufferSize)
         {
@@ -462,6 +479,9 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// </summary>
     private async ValueTask WriteToOutput()
     {
+        // Reset filter line state on every submission, even if this line is dropped or consumed.
+        var consumeEmptyLine = _finishInputByteFilterLine is not null && await _finishInputByteFilterLine();
+
         if (_bufferOverflowed)
         {
             _logger.LogError(
@@ -489,6 +509,8 @@ public partial class TelnetInterpreter : IAsyncDisposable
         var lineEncoding = _lineEncoding ?? CurrentEncoding;
         _lineEncoding = null;
         ReleaseLineBufferIfLarge();
+
+        if (consumeEmptyLine && cp.Length == 0) return;
 
         foreach (var observer in _inputLineObservers)
         {
@@ -1241,3 +1263,4 @@ public partial class TelnetInterpreter : IAsyncDisposable
         }
     }
 }
+

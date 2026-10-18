@@ -23,6 +23,7 @@ public class TerminalQueryProtocolTests : BaseTest
 		public TerminalQueryProtocol Queries => Interpreter.PluginManager!.GetPlugin<TerminalQueryProtocol>()!;
 		public List<string> Submitted { get; } = [];
 		public List<TerminalReport> Reports { get; } = [];
+		public List<byte> Bytes { get; } = [];
 		private readonly StringBuilder _wired = new();
 
 		public void Write(ReadOnlyMemory<byte> data)
@@ -42,12 +43,13 @@ public class TerminalQueryProtocolTests : BaseTest
 		}
 	}
 
-	private static async Task<Peer> PeerAsync(TelnetInterpreter.TelnetMode mode = TelnetInterpreter.TelnetMode.Server)
+	private static async Task<Peer> PeerAsync(TelnetInterpreter.TelnetMode mode = TelnetInterpreter.TelnetMode.Server, bool captureBytes = false, int maxBufferSize = TelnetInterpreter.DefaultMaxBufferSize, bool markPrompts = false)
 	{
 		var peer = new Peer();
-		peer.Interpreter = await new TelnetInterpreterBuilder()
+		var builder = new TelnetInterpreterBuilder()
 			.UseMode(mode)
 			.UseLogger(logger)
+			.WithMaxBufferSize(maxBufferSize)
 			.OnSubmit((data, encoding, _) =>
 			{
 				lock (peer.Submitted) peer.Submitted.Add(encoding.GetString(data));
@@ -63,8 +65,19 @@ public class TerminalQueryProtocolTests : BaseTest
 			{
 				lock (peer.Reports) peer.Reports.Add(report);
 				return ValueTask.CompletedTask;
-			})
-			.BuildAsync();
+			});
+		if (captureBytes)
+			builder.AddPlugin(new EchoProtocol().WithEchoHandler((b, _) =>
+			{
+				peer.Bytes.Add(b);
+				return ValueTask.CompletedTask;
+			}));
+		if (markPrompts)
+		{
+			builder.AddPlugin(new SuppressGoAheadProtocol());
+			builder.AddPlugin(new EORProtocol());
+		}
+		peer.Interpreter = await builder.BuildAsync();
 		return peer;
 	}
 
@@ -114,7 +127,7 @@ public class TerminalQueryProtocolTests : BaseTest
 		await Assert.That(report.CellHeight).IsEqualTo(20);
 		await Assert.That(report.Version).IsEqualTo("kitty(0.38.1)");
 		await Assert.That(report.Sixel).IsFalse();
-		await Assert.That(peer.Reports.Count).IsEqualTo(1);
+		await Assert.That(peer.Reports.Count).IsEqualTo(4);
 		await Assert.That(peer.Submitted).IsEmpty();
 	}
 
@@ -132,8 +145,8 @@ public class TerminalQueryProtocolTests : BaseTest
 	}
 
 	/// <summary>
-	/// A terminal answers as soon as it is asked, but over telnet the answer travels with the user's next
-	/// line. What the user typed reaches the application without it.
+	/// A line-mode client may buffer answers until Enter. What the user typed reaches the application
+	/// without any replies, just as when they arrive separately in character mode.
 	/// </summary>
 	[Test]
 	public async Task AnswersAreTakenOutOfTheLineTheUserTyped()
@@ -220,6 +233,165 @@ public class TerminalQueryProtocolTests : BaseTest
 	}
 
 	[Test]
+	public async Task DeviceAttributesArriveBeforeAnyNewlineAndNeverReachConsumerCallbacks()
+	{
+		var peer = await PeerAsync(captureBytes: true);
+		await using var interpreter = peer.Interpreter;
+		await peer.Queries.ProbeAsync(TerminalQueries.None);
+
+		await peer.FeedAsync($"{Esc}[?1;2c");
+
+		await Assert.That(peer.Queries.Report.DeviceAttributes).IsEquivalentTo(new[] { 1, 2 });
+		await Assert.That(peer.Reports.Count).IsEqualTo(1);
+		await Assert.That(peer.Submitted).IsEmpty();
+		await Assert.That(peer.Bytes).IsEmpty();
+		await peer.FeedAsync("\r\n\r\n");
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "" });
+		await Assert.That(peer.Reports.Count).IsEqualTo(1);
+	}
+
+	[Test]
+	public async Task EveryAnswerSurvivesEveryTransportSplitAndInterleavedTelnetNegotiation()
+	{
+		var answers = new[] { $"{Esc}[?1;2c", $"{Esc}[6;20;10t", $"{Esc}P>|termé{Esc}\\", $"{Esc}_Gi=31;OK{Esc}\\" };
+		foreach (var answer in answers)
+		for (var split = 1; split < Encoding.UTF8.GetByteCount(answer); split++)
+		{
+			var peer = await PeerAsync(captureBytes: true);
+			await using var interpreter = peer.Interpreter;
+			var bytes = Encoding.UTF8.GetBytes(answer);
+			await interpreter.InterpretByteArrayAsync(bytes.AsMemory(0, split));
+			await interpreter.WaitForProcessingAsync();
+			await Assert.That(peer.Reports).IsEmpty();
+			await interpreter.InterpretByteArrayAsync(new byte[] { 255, 241 }); // IAC NOP is not application data.
+			await interpreter.InterpretByteArrayAsync(bytes.AsMemory(split));
+			await interpreter.WaitForProcessingAsync();
+			await Assert.That(peer.Reports.Count).IsEqualTo(1);
+			await Assert.That(peer.Bytes).IsEmpty();
+			if (answer.Contains("termé")) await Assert.That(peer.Queries.Report.Version).IsEqualTo("termé");
+		}
+	}
+
+	[Test]
+	public async Task SurroundingTextAndUnknownEscapesReachBothCallbacksOnceInOrder()
+	{
+		var peer = await PeerAsync(captureBytes: true);
+		await using var interpreter = peer.Interpreter;
+		var before = $"say café ؛ {Esc}[31m";
+		var after = $" hi {Esc}[0m";
+		await peer.FeedAsync(before + $"{Esc}[?1;2c" + after);
+		await Assert.That(Encoding.UTF8.GetString(peer.Bytes.ToArray())).IsEqualTo(before + after);
+		await peer.FeedAsync("\r\n");
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { before + after });
+		await Assert.That(peer.Reports.Count).IsEqualTo(1);
+	}
+
+	[Test]
+	public async Task IncompleteAndCancelledRepliesArePreservedAndTheNextReplyStillWorks()
+	{
+		foreach (var cancel in new[] { "\u0018", "\u001a" })
+		{
+			var peer = await PeerAsync(captureBytes: true);
+			await using var interpreter = peer.Interpreter;
+			var text = $"{Esc}[?1;" + cancel + $"x{Esc}_Gunfinished";
+			await peer.FeedAsync(text + "\r\n");
+			await Assert.That(peer.Reports).IsEmpty();
+			await Assert.That(peer.Submitted).IsEquivalentTo(new[] { text });
+			await Assert.That(Encoding.UTF8.GetString(peer.Bytes.ToArray())).IsEqualTo(text);
+			await peer.FeedAsync($"{Esc}[?1;2c");
+			await Assert.That(peer.Reports.Count).IsEqualTo(1);
+		}
+	}
+
+	[Test]
+	public async Task AnOversizedStringPassesThroughWithoutExtractingNestedReplies()
+	{
+		var peer = await PeerAsync(captureBytes: true);
+		await using var interpreter = peer.Interpreter;
+		var text = $"{Esc}P>|" + new string('x', 70_000) + $"{Esc}[?1;2c{Esc}\\";
+		await peer.FeedAsync(text + "\r\n");
+		await Assert.That(peer.Reports).IsEmpty();
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { text });
+		await Assert.That(Encoding.UTF8.GetString(peer.Bytes.ToArray())).IsEqualTo(text);
+		await peer.FeedAsync($"{Esc}[?1;2c");
+		await Assert.That(peer.Reports.Count).IsEqualTo(1);
+	}
+
+	[Test]
+	public async Task AsyncReportCallbacksFinishBeforeFollowingInput()
+	{
+		var peer = await PeerAsync();
+		await using var interpreter = peer.Interpreter;
+		var finished = false;
+		peer.Queries.OnTerminalReport(async _ =>
+		{
+			await Task.Yield();
+			finished = true;
+		});
+		await peer.FeedAsync($"{Esc}[?1;2ccommand\r\n");
+		await Assert.That(finished).IsTrue();
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "command" });
+	}
+
+	[Test]
+	public async Task DroppedAndConsumedLinesDoNotSuppressTheNextBlankLine()
+	{
+		var peer = await PeerAsync(maxBufferSize: 16);
+		await using var interpreter = peer.Interpreter;
+		interpreter.RegisterInputLineObserver((line, _) =>
+			new ValueTask<byte[]?>(Encoding.UTF8.GetString(line) == "consume" ? null : line));
+		await peer.FeedAsync($"{Esc}[?1;2cconsume\r\n\r\n");
+		await peer.FeedAsync($"{Esc}[?1;2c" + new string('x', 20) + "\r\n\r\n");
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "", "" });
+	}
+
+	[Test]
+	public async Task DisablingReleasesPendingInputAndDoesNotConsumeBlankLines()
+	{
+		var peer = await PeerAsync(captureBytes: true);
+		await using var interpreter = peer.Interpreter;
+		await peer.FeedAsync($"{Esc}[?1;");
+		await peer.Queries.OnDisabledAsync();
+		await peer.FeedAsync("2c\r\n");
+		await Assert.That(peer.Reports).IsEmpty();
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { $"{Esc}[?1;2c" });
+		await peer.Queries.OnEnabledAsync();
+		await peer.FeedAsync($"{Esc}[?1;2c");
+		await peer.Queries.OnDisabledAsync();
+		await peer.FeedAsync("\r\n");
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { $"{Esc}[?1;2c", "" });
+		await peer.Queries.OnEnabledAsync();
+		await peer.FeedAsync($"{Esc}[?1;2c");
+		await Assert.That(peer.Reports.Count).IsEqualTo(2);
+	}
+
+	[Test]
+	public async Task PromptBoundariesFlushPendingInputAndResetReplyOnlyLines()
+	{
+		foreach (var marker in new byte[] { 249, 239 }) // GA and EOR.
+		{
+			var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client, captureBytes: true, markPrompts: true);
+			await using var interpreter = peer.Interpreter;
+			if (marker == 239)
+				await interpreter.InterpretByteArrayAsync(new byte[] { 255, 251, 25 }); // WILL EOR.
+			await peer.FeedAsync($"{Esc}[?1;2c");
+			await interpreter.InterpretByteArrayAsync(new byte[] { 255, marker });
+			await interpreter.WaitForProcessingAsync();
+			await Assert.That(interpreter.HasSeenMarkedPrompt).IsTrue();
+			await peer.FeedAsync("\r\n");
+			await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "" });
+			var unfinished = $"{Esc}[?1;";
+			await peer.FeedAsync(unfinished);
+			await interpreter.InterpretByteArrayAsync(new byte[] { 255, marker });
+			await interpreter.WaitForProcessingAsync();
+			await Assert.That(Encoding.UTF8.GetString(interpreter.LastPromptBytes.Span)).IsEqualTo(unfinished);
+			await peer.FeedAsync("2c\r\n");
+			await Assert.That(peer.Reports.Count).IsEqualTo(1);
+			await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "", "2c" });
+		}
+	}
+
+	[Test]
 	public async Task AClientDoesNotProbe()
 	{
 		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
@@ -227,3 +399,4 @@ public class TerminalQueryProtocolTests : BaseTest
 		await Assert.That(async () => await peer.Queries.ProbeAsync()).Throws<InvalidOperationException>();
 	}
 }
+

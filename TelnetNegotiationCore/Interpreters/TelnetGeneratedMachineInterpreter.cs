@@ -104,11 +104,17 @@ public partial class TelnetInterpreter
         {
             foreach (var b in text)
             {
-                if (owner.WriteToBufferAndAdvance(b) && owner.CallbackOnByteAsync is { } callback)
+                // The generated machine has a synchronous Write contract. Keep the usual no-filter,
+                // no-callback path synchronous; wait for filtering/callbacks before the next byte.
+                if (owner._inputByteFilter is null && owner.CallbackOnByteAsync is null)
                 {
-                    // Write is synchronous by design -- text is the hot path -- so a callback that
-                    // does not complete synchronously is waited for rather than reordered.
-                    callback(b, owner.CurrentEncoding).GetAwaiter().GetResult();
+                    owner.WriteToBufferAndAdvance(b);
+                }
+                else
+                {
+                    var write = owner.WriteToBufferAndAdvanceAsync(b);
+                    if (write.IsCompleted) write.GetAwaiter().GetResult();
+                    else write.AsTask().GetAwaiter().GetResult();
                 }
             }
         }
@@ -761,3 +767,4 @@ public partial class TelnetInterpreter
     /// </summary>
     internal IProtocolContext? SharedProtocolContext { get; set; }
 }
+

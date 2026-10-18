@@ -14,6 +14,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Terminal query replies are processed as soon as a complete answer arrives**, without requiring
+  CR/LF. Replies split across reads or telnet negotiation are retained, removed before byte and line
+  callbacks, and reported once per answer. Incomplete and unrelated input is preserved; pending
+  escape sequences have a bounded buffer. Line-mode client buffering still applies.
+
 - **CHARSET ACCEPTED is checked against the outstanding request before changing the decoder.**
   Aliases resolve by code page. Rejected, withdrawn, consumed, empty and failed offers cannot be
   replayed; repeated requests snapshot the current allowed set instead of a cached first request.
@@ -1482,3 +1487,4 @@ Initial version.
 - Initial support for RFC2066 (CHARSET)
 - Initial support for MSSP
 - Initial support for GMCP
+
