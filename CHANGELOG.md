@@ -14,6 +14,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **DA1 sixel detection interprets the device family first.** VT100 option numbers and the VT132
+  family identifier no longer imply sixel. Families 62–65 advertise it with trailing feature 4;
+  unsupported families remain unknown, with their raw attributes preserved.
 - **Server TTYPE selection follows the reported mode.** A repeated name no longer wraps to the
   first entry, and MTTS bitvectors and expanded capability names never become the selected terminal.
   Plugin and interpreter selections remain consistent through enumeration and resets.
