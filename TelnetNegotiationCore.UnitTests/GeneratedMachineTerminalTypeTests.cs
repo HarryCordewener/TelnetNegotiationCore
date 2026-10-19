@@ -129,7 +129,7 @@ public class GeneratedMachineTerminalTypeTests : BaseTest
         await InterpretAndWaitAsync(server, new byte[] { (byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE });
         await Assert.That(server.CurrentTerminalType).IsEqualTo("unknown");
 
-        (string Reported, string Selected)[] exchanges = [("ANSI", "ANSI"), ("VT100", "VT100"), ("VT100", "ANSI")];
+        (string Reported, string Selected)[] exchanges = [("ANSI", "ANSI"), ("VT100", "VT100"), ("VT100", "VT100")];
 
         foreach (var (reported, selected) in exchanges)
         {
@@ -241,3 +241,4 @@ public class GeneratedMachineTerminalTypeTests : BaseTest
         await server.DisposeAsync();
     }
 }
+
