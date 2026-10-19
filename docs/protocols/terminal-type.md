@@ -33,8 +33,19 @@ itself. The library never invents a terminal, and never introduces your applicat
 ```
 
 **As a server**, registering the plugin is enough: it asks, and the answers are exposed through
-`TerminalTypeProtocol.TerminalTypes` and `TelnetInterpreter.TerminalTypes`. To react as each answer
-arrives, register a callback:
+`TerminalTypeProtocol.TerminalTypes` and `TelnetInterpreter.TerminalTypes`.
+
+In server mode, `CurrentTerminalType` on both objects tracks the latest reported non-MTTS name.
+A repeat ends enumeration without wrapping: `ANSI → VT100 → VT100` leaves `VT100` selected.
+`MY-CLIENT → VT100 → MTTS 2 → MTTS 2` also leaves `VT100` selected, including after the
+bitvector expands into capability names. Before an emulation is reported, the client name may be
+returned; TTYPE alone cannot distinguish an ordinary terminal name from an MTTS client name.
+This is the peer's reported mode, not a server-supported selection: applications must decide which
+reported modes they can render. RFC 1091 allows a server to request further names with `SEND`;
+this library does not invent a preferred mode by changing an index. A reset clears the selection.
+In client mode, the property continues to expose the last response sent, including MTTS metadata.
+
+To react as each answer arrives, register a callback:
 
 ```csharp
 .AddPlugin<TerminalTypeProtocol>()
@@ -77,3 +88,4 @@ telling it.
 Receiving stays deliberately liberal: the limit is a rule for senders, and a peer that exceeds it is
 still understood. `ClientIdentity.Version` is not constrained either — it goes to MNES as
 `CLIENT_VERSION`, not into a TTYPE response, and MNES sets no such limit.
+

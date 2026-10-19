@@ -116,7 +116,7 @@ public class TTypeTests : BaseTest
 		await InterpretAndWaitAsync(server_ti, [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.TTYPE]);
 		await Assert.That(server_ti.CurrentTerminalType).IsEqualTo("unknown");
 
-		(string Reported, string Selected)[] exchanges = [("ANSI", "ANSI"), ("VT100", "VT100"), ("VT100", "ANSI")];
+		(string Reported, string Selected)[] exchanges = [("ANSI", "ANSI"), ("VT100", "VT100"), ("VT100", "VT100")];
 
 		foreach (var (reported, selected) in exchanges)
 		{

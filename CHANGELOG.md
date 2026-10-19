@@ -19,6 +19,17 @@ All notable changes to this project will be documented in this file.
   callbacks, and reported once per answer. Incomplete and unrelated input is preserved; pending
   escape sequences have a bounded buffer. Line-mode client buffering still applies.
 
+- **DA1 sixel detection interprets the device family first.** VT100 option numbers and the VT132
+  family identifier no longer imply sixel. Families 62–65 advertise it with trailing feature 4;
+  unsupported families remain unknown, with their raw attributes preserved.
+- **Server TTYPE selection follows the reported mode.** A repeated name no longer wraps to the
+  first entry, and MTTS bitvectors and expanded capability names never become the selected terminal.
+  Plugin and interpreter selections remain consistent through enumeration and resets.
+
+- **TTYPE repeat detection ignores terminal-name casing**, as RFC 1091 requires. A peer that
+  reports `VT100` followed by `vt100` now completes the cycle without adding a duplicate or
+  sending another `SEND`; the first reported spelling is preserved.
+
 - **CHARSET ACCEPTED is checked against the outstanding request before changing the decoder.**
   Aliases resolve by code page. Rejected, withdrawn, consumed, empty and failed offers cannot be
   replayed; repeated requests snapshot the current allowed set instead of a cached first request.
