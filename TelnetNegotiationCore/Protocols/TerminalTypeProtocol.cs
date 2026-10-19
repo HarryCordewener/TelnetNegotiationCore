@@ -309,7 +309,8 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     internal async ValueTask CompleteTerminalTypeFromBytesAsync(byte[] bytes, IProtocolContext context)
     {
         var TType = Encoding.ASCII.GetString(bytes);
-        if (_terminalTypes.Contains(TType))
+        // RFC 1091 terminal names are case-insensitive; retain the first spelling we received.
+        if (_terminalTypes.Contains(TType, StringComparer.OrdinalIgnoreCase))
         {
             // A repeat ends enumeration; it does not move the peer back to the first mode.
             if (!TType.StartsWith("MTTS ", StringComparison.OrdinalIgnoreCase))

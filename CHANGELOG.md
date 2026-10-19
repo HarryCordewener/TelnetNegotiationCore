@@ -18,6 +18,10 @@ All notable changes to this project will be documented in this file.
   first entry, and MTTS bitvectors and expanded capability names never become the selected terminal.
   Plugin and interpreter selections remain consistent through enumeration and resets.
 
+- **TTYPE repeat detection ignores terminal-name casing**, as RFC 1091 requires. A peer that
+  reports `VT100` followed by `vt100` now completes the cycle without adding a duplicate or
+  sending another `SEND`; the first reported spelling is preserved.
+
 - **CHARSET ACCEPTED is checked against the outstanding request before changing the decoder.**
   Aliases resolve by code page. Rejected, withdrawn, consumed, empty and failed offers cannot be
   replayed; repeated requests snapshot the current allowed set instead of a cached first request.
