@@ -14,6 +14,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Server TTYPE selection follows the reported mode.** A repeated name no longer wraps to the
+  first entry, and MTTS bitvectors and expanded capability names never become the selected terminal.
+  Plugin and interpreter selections remain consistent through enumeration and resets.
+
 - **TTYPE repeat detection ignores terminal-name casing**, as RFC 1091 requires. A peer that
   reports `VT100` followed by `vt100` now completes the cycle without adding a duplicate or
   sending another `SEND`; the first reported spelling is preserved.

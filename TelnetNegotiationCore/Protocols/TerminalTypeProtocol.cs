@@ -145,7 +145,9 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// The current selected Terminal Type
+    /// In server mode, the most recently reported non-MTTS name, or "unknown" before one arrives.
+    /// Repeated names select that same entry; MTTS metadata never selects a terminal. This reports
+    /// the peer's choice, not a claim that the server supports it. In client mode, the last response sent.
     /// </summary>
     public string CurrentTerminalType => _currentTerminalType == -1
         ? "unknown"
@@ -256,6 +258,7 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
         Context.Logger.LogInformation("Terminal Type Protocol disabled");
         _terminalTypes = [];
         _currentTerminalType = -1;
+        UpdateInterpreterProperties(Context);
         return default(ValueTask);
     }
 
@@ -309,7 +312,12 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
         // RFC 1091 terminal names are case-insensitive; retain the first spelling we received.
         if (_terminalTypes.Contains(TType, StringComparer.OrdinalIgnoreCase))
         {
-            _currentTerminalType = (_currentTerminalType + 1) % _terminalTypes.Count;
+            // A repeat ends enumeration; it does not move the peer back to the first mode.
+            if (!TType.StartsWith("MTTS ", StringComparison.OrdinalIgnoreCase))
+            {
+                _currentTerminalType = _terminalTypes.FindIndex(x => string.Equals(x, TType, StringComparison.OrdinalIgnoreCase));
+            }
+            var selectedType = _currentTerminalType == -1 ? null : CurrentTerminalType;
 
             var MTTS = _terminalTypes.FirstOrDefault(x => x.StartsWith("MTTS ", StringComparison.OrdinalIgnoreCase));
             if (MTTS != null)
@@ -318,6 +326,8 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
 
                 _terminalTypes = _terminalTypes.AddRange(MttsCapabilityNames.Expand(capabilities));
                 _terminalTypes = _terminalTypes.Remove(MTTS);
+                // Expansion changes list indices. Keep the selected name, never a capability label.
+                _currentTerminalType = selectedType == null ? -1 : _terminalTypes.IndexOf(selectedType);
             }
 
             context.Logger.LogDebug("Connection: {ConnectionState}: {@TerminalTypes}",
@@ -332,7 +342,10 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
             context.Logger.LogTrace("Connection: {ConnectionState}: {TerminalType}",
                 "Registering Terminal Type. Requesting the next", TType);
             _terminalTypes = _terminalTypes.Add(TType);
-            _currentTerminalType++;
+            if (!TType.StartsWith("MTTS ", StringComparison.OrdinalIgnoreCase))
+            {
+                _currentTerminalType = _terminalTypes.Count - 1;
+            }
 
             UpdateInterpreterProperties(context);
 
@@ -378,6 +391,9 @@ public class TerminalTypeProtocol : TelnetProtocolPluginBase
     private ValueTask OnWontTerminalTypeAsServerAsync(IProtocolContext context)
     {
         context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Terminal Type");
+        _terminalTypes = [];
+        _currentTerminalType = -1;
+        UpdateInterpreterProperties(context);
         return OnNegotiatedAsync(false);
     }
 
