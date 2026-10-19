@@ -318,7 +318,8 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 				_lineHadAnswer = true;
 				TerminalReport report;
 				lock (_gate) report = _report = Apply(_report, answer);
-				if (_onTerminalReport is { } callback) await callback(report);
+				if (_onTerminalReport is { } callback)
+					Context.Interpreter.QueueInputCallback(() => callback(report));
 			}
 			else await FlushPendingAsync();
 		}

@@ -76,13 +76,14 @@ public partial class TelnetInterpreter
             var offset = 0;
             while (offset < bytes.Length)
             {
-                var consumed = await _generatedMachine!.FireUntilBoundaryAsync(bytes.Slice(offset));
+                var consumed = await _generatedMachine!.FireUntilBoundaryAsync(bytes.Slice(offset, Math.Min(MachineBatchSize, bytes.Length - offset)));
                 if (consumed <= 0)
                 {
                     throw new InvalidOperationException("The generated machine returned a batch boundary without consuming input.");
                 }
 
                 offset += consumed;
+                await DrainPendingInputAsync();
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -102,10 +103,20 @@ public partial class TelnetInterpreter
     {
         public override void Write(ReadOnlySpan<byte> text)
         {
-            foreach (var b in text)
+            for (var position = 0; position < text.Length; position++)
             {
-                // The generated machine has a synchronous Write contract. Keep the usual no-filter,
-                // no-callback path synchronous; wait for filtering/callbacks before the next byte.
+                if (owner._pendingInputCallbacks.Count > 0 || owner._pendingInputWrites.Count > 0)
+                {
+                    // A Run transition has already consumed this whole span. Preserve only its
+                    // remaining application bytes until the report finishes at the async boundary.
+                    owner._pendingInputWrites.Enqueue((text.Slice(position).ToArray(), owner.CurrentEncoding));
+                    owner._generatedMachine!.RequestBatchBoundary();
+                    return;
+                }
+
+                var b = text[position];
+                // Preserve the existing synchronous byte-callback contract. Terminal reports are
+                // queued by the filter instead, so awaiting a report never blocks this Write.
                 if (owner._inputByteFilter is null && owner.CallbackOnByteAsync is null)
                 {
                     owner.WriteToBufferAndAdvance(b);
@@ -117,6 +128,9 @@ public partial class TelnetInterpreter
                     else write.AsTask().GetAwaiter().GetResult();
                 }
             }
+
+            if (owner._pendingInputCallbacks.Count > 0)
+                owner._generatedMachine!.RequestBatchBoundary();
         }
 
         public override ValueTask SubmitAsync() => owner.WriteToOutput();

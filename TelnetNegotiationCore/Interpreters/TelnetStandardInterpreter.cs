@@ -161,6 +161,52 @@ public partial class TelnetInterpreter : IAsyncDisposable
     private Func<ValueTask<bool>>? _finishInputByteFilterLine;
     private Func<bool>? _hasPendingInputBytes;
 
+    // A terminal-report callback completed by a synchronous machine Write is awaited after its
+    // cooperative boundary. The remaining application bytes in that run wait there too.
+    private readonly Queue<Func<ValueTask>> _pendingInputCallbacks = new();
+    private readonly Queue<(byte[] Bytes, Encoding Encoding)> _pendingInputWrites = new();
+
+    internal void QueueInputCallback(Func<ValueTask> callback) => _pendingInputCallbacks.Enqueue(callback);
+
+    private async ValueTask DrainPendingInputCallbacksAsync()
+    {
+        while (_pendingInputCallbacks.Count > 0)
+        {
+            var callback = _pendingInputCallbacks.Dequeue();
+            try
+            {
+                await callback();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex, "An input protocol callback failed. Connection continues.");
+            }
+        }
+    }
+
+    private async ValueTask DrainPendingInputAsync()
+    {
+        await DrainPendingInputCallbacksAsync();
+        while (_pendingInputWrites.Count > 0)
+        {
+            var pending = _pendingInputWrites.Dequeue();
+            try
+            {
+                foreach (var b in pending.Bytes)
+                {
+                    await WriteToBufferAndAdvanceAsync(b, pending.Encoding);
+                    await DrainPendingInputCallbacksAsync();
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Match the machine's completed-action recovery: discard the rest of this text run,
+                // then continue with later input rather than terminating the processing loop.
+                _logger.LogError(ex, "Deferred application input could not be processed. Connection continues.");
+            }
+        }
+    }
+
     internal void RegisterInputByteFilter(Func<byte, Encoding, ValueTask<bool>> filter, Func<ValueTask<bool>> finishLine, Func<bool> hasPendingBytes)
     {
         if (_inputByteFilter is not null) throw new InvalidOperationException("An input byte filter is already registered.");
@@ -380,9 +426,9 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// Write the character into a buffer.
     /// </summary>
     /// <param name="b">A useful byte for the Client/Server</param>
-    private async ValueTask WriteToBufferAndAdvanceAsync(byte b)
+    private async ValueTask WriteToBufferAndAdvanceAsync(byte b, Encoding? inputEncoding = null)
     {
-        var encoding = CurrentEncoding;
+        var encoding = inputEncoding ?? CurrentEncoding;
         if (_inputByteFilter is not null && await _inputByteFilter(b, encoding)) return;
         await WriteUnfilteredInputByteAsync(b, encoding);
     }
@@ -1013,6 +1059,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 }
 
                 offset += consumed;
+                await DrainPendingInputAsync();
                 telnetBytes += consumed;
                 for (var i = 0; i < consumed; i++)
                 {

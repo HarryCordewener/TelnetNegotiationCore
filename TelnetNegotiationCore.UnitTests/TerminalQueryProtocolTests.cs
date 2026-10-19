@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Builders;
@@ -43,7 +45,7 @@ public class TerminalQueryProtocolTests : BaseTest
 		}
 	}
 
-	private static async Task<Peer> PeerAsync(TelnetInterpreter.TelnetMode mode = TelnetInterpreter.TelnetMode.Server, bool captureBytes = false, int maxBufferSize = TelnetInterpreter.DefaultMaxBufferSize, bool markPrompts = false)
+	private static async Task<Peer> PeerAsync(TelnetInterpreter.TelnetMode mode = TelnetInterpreter.TelnetMode.Server, bool captureBytes = false, int maxBufferSize = TelnetInterpreter.DefaultMaxBufferSize, bool markPrompts = false, Action onSubmit = null)
 	{
 		var peer = new Peer();
 		var builder = new TelnetInterpreterBuilder()
@@ -52,7 +54,11 @@ public class TerminalQueryProtocolTests : BaseTest
 			.WithMaxBufferSize(maxBufferSize)
 			.OnSubmit((data, encoding, _) =>
 			{
-				lock (peer.Submitted) peer.Submitted.Add(encoding.GetString(data));
+				lock (peer.Submitted)
+				{
+					peer.Submitted.Add(encoding.GetString(data));
+					onSubmit?.Invoke();
+				}
 				return ValueTask.CompletedTask;
 			})
 			.OnNegotiation(data =>
@@ -320,9 +326,10 @@ public class TerminalQueryProtocolTests : BaseTest
 	[Test]
 	public async Task AsyncReportCallbacksFinishBeforeFollowingInput()
 	{
-		var peer = await PeerAsync();
-		await using var interpreter = peer.Interpreter;
 		var finished = false;
+		var submittedBeforeCallbackFinished = false;
+		var peer = await PeerAsync(onSubmit: () => submittedBeforeCallbackFinished |= !finished);
+		await using var interpreter = peer.Interpreter;
 		peer.Queries.OnTerminalReport(async _ =>
 		{
 			await Task.Yield();
@@ -330,7 +337,75 @@ public class TerminalQueryProtocolTests : BaseTest
 		});
 		await peer.FeedAsync($"{Esc}[?1;2ccommand\r\n");
 		await Assert.That(finished).IsTrue();
+		await Assert.That(submittedBeforeCallbackFinished).IsFalse();
 		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "command" });
+	}
+
+	[Test]
+	public async Task PendingReportAwaitsOutsideSynchronousWriteBeforeFollowingBytes()
+	{
+		var peer = await PeerAsync(captureBytes: true);
+		await using var interpreter = peer.Interpreter;
+		var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+		var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+		peer.Queries.OnTerminalReport(async _ =>
+		{
+			// Capture the invocation stack before yielding: awaiting inside Write would block its
+			// synchronous processing worker until the report callback finishes.
+			var insideWrite = new StackTrace().GetFrames().Any(frame =>
+				frame.GetMethod()?.DeclaringType?.Name == "GeneratedContext" && frame.GetMethod()?.Name == "Write");
+			entered.TrySetResult(insideWrite);
+			await release.Task;
+		});
+
+		try
+		{
+			await interpreter.InterpretByteArrayAsync(Encoding.UTF8.GetBytes($"{Esc}[?1;2ccommand\r\n"));
+			var insideWrite = await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+			await Assert.That(insideWrite).IsFalse();
+			await Assert.That(peer.Bytes).IsEmpty();
+			await Assert.That(peer.Submitted).IsEmpty();
+		}
+		finally
+		{
+			release.TrySetResult(true);
+		}
+		await interpreter.WaitForProcessingAsync();
+		await Assert.That(Encoding.UTF8.GetString(peer.Bytes.ToArray())).IsEqualTo("command");
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "command" });
+	}
+
+	[Test]
+	public async Task AdjacentReportsFinishInOrderBeforeSubmission()
+	{
+		var events = new List<string>();
+		var peer = await PeerAsync(onSubmit: () => events.Add("submit"));
+		await using var interpreter = peer.Interpreter;
+		peer.Queries.OnTerminalReport(async report =>
+		{
+			var family = report.DeviceAttributes[0];
+			events.Add("start" + family);
+			await Task.Yield();
+			events.Add("end" + family);
+		});
+
+		await peer.FeedAsync($"{Esc}[?1c{Esc}[?62ccommand\r\n");
+
+		await Assert.That(string.Join(",", events)).IsEqualTo("start1,end1,start62,end62,submit");
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "command" });
+	}
+
+	[Test]
+	public async Task AThrowingReportCallbackDoesNotStrandDeferredInput()
+	{
+		var peer = await PeerAsync(captureBytes: true);
+		await using var interpreter = peer.Interpreter;
+		peer.Queries.OnTerminalReport(_ => throw new InvalidOperationException("Callback failure"));
+
+		await peer.FeedAsync($"{Esc}[?1;2cfirst\r\n{Esc}[?1;2csecond\r\n");
+
+		await Assert.That(Encoding.UTF8.GetString(peer.Bytes.ToArray())).IsEqualTo("firstsecond");
+		await Assert.That(peer.Submitted).IsEquivalentTo(new[] { "first", "second" });
 	}
 
 	[Test]
