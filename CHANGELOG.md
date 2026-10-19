@@ -14,6 +14,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Terminal query replies are processed as soon as a complete answer arrives**, without requiring
+  CR/LF. Replies split across reads or telnet negotiation are retained, removed before byte and line
+  callbacks, and reported once per answer. Incomplete and unrelated input is preserved; pending
+  escape sequences have a bounded buffer. Line-mode client buffering still applies.
+
 - **DA1 sixel detection interprets the device family first.** VT100 option numbers and the VT132
   family identifier no longer imply sixel. Families 62–65 advertise it with trailing feature 4;
   unsupported families remain unknown, with their raw attributes preserved.

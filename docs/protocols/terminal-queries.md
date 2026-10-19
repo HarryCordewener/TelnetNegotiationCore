@@ -2,9 +2,9 @@
 
 `TerminalQueryProtocol` asks the terminal behind a telnet connection what it can draw. These are not
 telnet options: they are escape sequences written into the data stream, and the terminal answers in
-its own input. Over telnet that input is the user's, so the answers arrive with the user's next line,
-in front of whatever they typed. The plugin takes them out of the line and reports them; a line that
-held nothing else never reaches `OnSubmit`.
+its own input. The plugin recognises complete replies in application data immediately, without waiting
+for a newline. It removes them before both byte callbacks and `OnSubmit`, then invokes
+`OnTerminalReport` once per answer. A submitted line that held nothing else is consumed.
 
 ```csharp
 .AddPlugin<TerminalQueryProtocol>()
@@ -34,6 +34,18 @@ Only the answers to these questions are removed. Any other escape sequence in a 
 is delivered as it arrived. `ProbeAsync` throws in client mode: a client's peer is a server, which has
 no terminal.
 
+
+Replies can span network reads or telnet negotiations. Unfinished sequences are held until another
+byte resolves them or a line/prompt boundary arrives, when they are released unchanged. CAN/SUB cancels a
+pending answer and preserves its bytes. Pending sequences are limited to 64 KiB (or `MaxBufferSize`,
+if smaller); longer sequences pass through unchanged until their terminator. Unknown control strings
+are kept whole so answer-shaped text inside them is never extracted. The existing seven-bit `ESC`
+forms and BEL string-terminator compatibility remain supported; raw eight-bit C1 bytes are not
+interpreted as controls, which avoids mistaking UTF-8 continuation bytes for terminal replies.
+
+A line-mode client can still hold the reply locally until Enter. Incremental recognition starts when
+the client sends the bytes; it cannot bypass that client-side buffering.
+
 ## Interpreting sixel support
 
 DA1 starts with a device family, not a feature. Following
@@ -52,4 +64,3 @@ not interpreted here. Applications should send sixel only when `Sixel == true`.
 This distinction also matches real emulators: [xterm.js's default DA1 response](https://github.com/xtermjs/xterm.js/blob/master/src/common/InputHandler.ts)
 is `CSI ? 1 ; 2 c`, while [mintty's VT220–VT525 responses](https://github.com/mintty/mintty/blob/master/src/termout.c)
 use families 62–65 and include the sixel feature code.
-
