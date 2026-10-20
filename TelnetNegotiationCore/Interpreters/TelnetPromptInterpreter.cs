@@ -43,7 +43,7 @@ public partial class TelnetInterpreter
 	public bool HasSeenMarkedPrompt { get; private set; }
 
 	/// <summary>True when bytes have arrived since the last line submission or prompt boundary.</summary>
-	public bool HasPartialLine => _bufferPosition > 0;
+	public bool HasPartialLine => _bufferPosition > 0 || (_hasPendingInputBytes?.Invoke() ?? false);
 
 	/// <summary>
 	/// Hands the standing partial line to <see cref="LastPromptBytes"/> and clears it.
@@ -71,6 +71,15 @@ public partial class TelnetInterpreter
 	/// </returns>
 	public bool TakePartialLineAsPrompt(bool marked)
 	{
+		// This public boundary is synchronous, like the generated machine's Write contract.
+		// Release pending ordinary bytes and reset filter state before taking the prompt.
+		if (_finishInputByteFilterLine is { } finishLine)
+		{
+			var finish = finishLine();
+			if (finish.IsCompleted) finish.GetAwaiter().GetResult();
+			else finish.AsTask().GetAwaiter().GetResult();
+		}
+
 		if (_bufferPosition == 0 && !marked)
 		{
 			return false;
@@ -121,3 +130,4 @@ public partial class TelnetInterpreter
 	/// </remarks>
 	internal void SetInferredPromptHandler(Func<ValueTask>? handler) => _onInferredPrompt = handler;
 }
+

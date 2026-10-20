@@ -47,8 +47,35 @@ public sealed record TerminalReport
 	/// </summary>
 	public bool? KittyGraphics { get; init; }
 
-	/// <summary>Whether the terminal draws sixel graphics: attribute 4 among the device attributes.</summary>
-	public bool? Sixel => DeviceAttributes is null ? null : Contains(DeviceAttributes, 4);
+	/// <summary>
+	/// Whether DA1 advertises sixel graphics. Families 62–65 use feature lists: a trailing 4 means
+	/// supported. VT100-class families 1, 4, 6 and 7 report no sixel support. Missing, empty or
+	/// unrecognised families return null because their option parameters are not interpreted.
+	/// </summary>
+	public bool? Sixel
+	{
+		get
+		{
+			if (DeviceAttributes is null || DeviceAttributes.Count == 0) return null;
+			switch (DeviceAttributes[0])
+			{
+				case 62:
+				case 63:
+				case 64:
+				case 65:
+					for (var i = 1; i < DeviceAttributes.Count; i++)
+						if (DeviceAttributes[i] == 4) return true;
+					return false;
+				case 1: // VT100 / VT101 options, not independent feature codes.
+				case 4: // VT132: the family number itself is not a sixel feature.
+				case 6: // VT102.
+				case 7: // VT131.
+					return false;
+				default:
+					return null;
+			}
+		}
+	}
 
 	/// <summary>The name and version the terminal gave in answer to XTVERSION, such as <c>kitty(0.38.1)</c>.</summary>
 	public string? Version { get; init; }
@@ -59,12 +86,6 @@ public sealed record TerminalReport
 	/// <summary>The height of one character cell in pixels.</summary>
 	public int? CellHeight { get; init; }
 
-	private static bool Contains(IReadOnlyList<int> values, int value)
-	{
-		for (var i = 0; i < values.Count; i++)
-			if (values[i] == value) return true;
-		return false;
-	}
 }
 
 /// <summary>
@@ -75,8 +96,8 @@ public sealed record TerminalReport
 /// <para>
 /// Terminal questions are not telnet. They are escape sequences written into the data stream, and a
 /// terminal answers in its own input — which, over telnet, is the user's input: the answer arrives in
-/// the next line the user sends, in front of whatever they typed. This plugin recognises the answers
-/// to the questions it asks wherever they sit in a line, removes them, and reports them through
+/// the application-data stream. This plugin recognises complete answers immediately, even without a
+/// newline, removes them before byte and line callbacks, and reports them through
 /// <see cref="OnTerminalReport"/>. A line that held nothing else is consumed.
 /// </para>
 /// <para>
@@ -121,6 +142,17 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 	private Func<TerminalReport, ValueTask>? _onTerminalReport;
 	private volatile bool _disposed;
 
+	// Only the interpreter's serial input loop touches the streaming parser.
+	private enum InputState { Ground, Escape, Control, String }
+	private InputState _inputState;
+	private readonly List<byte> _pending = new();
+	private Encoding _pendingEncoding = Encoding.UTF8;
+	private bool _previousEscape;
+	private bool _passingThrough;
+	private bool _lineHadAnswer;
+	private Func<byte, Encoding, ValueTask> _emit = null!;
+	private const int MaximumPendingAnswerBytes = 64 * 1024;
+
 	/// <inheritdoc />
 	public override Type ProtocolType => typeof(TerminalQueryProtocol);
 
@@ -134,8 +166,8 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <summary>
-	/// Called each time a line carries at least one answer, with everything reported so far, after the
-	/// answers have been taken out of the line.
+	/// Called for each complete answer, with everything reported so far, before subsequent input is
+	/// delivered. No newline is required.
 	/// </summary>
 	/// <param name="callback">Receives the report.</param>
 	/// <returns>This instance for fluent chaining</returns>
@@ -147,7 +179,7 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 
 	/// <summary>
 	/// Asks the terminal <paramref name="queries"/>, then for its device attributes. The answers arrive
-	/// with the user's next line, if the terminal gives any.
+	/// as soon as the client sends them; line-mode clients may buffer them until Enter.
 	/// </summary>
 	/// <param name="queries">The questions to ask.</param>
 	/// <exception cref="InvalidOperationException">
@@ -192,10 +224,11 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <inheritdoc />
-	/// <remarks>No states or triggers: the answers are read from the assembled-line path, which is what lets this remove them.</remarks>
+	/// <remarks>Answers are filtered from application data after telnet framing and before consumer callbacks.</remarks>
 	public override void ConfigureStateMachine(IProtocolContext context)
 	{
-		context.Interpreter.RegisterInputLineObserver(async (line, encoding) => await OnInputLineAsync(line, encoding));
+		_emit = context.Interpreter.WriteUnfilteredInputByteAsync;
+		context.Interpreter.RegisterInputByteFilter(OnInputByteAsync, FinishInputLineAsync, () => _pending.Count > 0);
 	}
 
 	/// <inheritdoc />
@@ -216,56 +249,111 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 		return default;
 	}
 
-	/// <summary>One assembled line: the line without any answers in it, or null when nothing else was in it.</summary>
-	private async ValueTask<byte[]?> OnInputLineAsync(byte[] line, Encoding encoding)
+	/// <summary>
+	/// Retains a possible answer across transport chunks. Unknown sequences are released unchanged;
+	/// string contents are never rescanned for nested answers. Raw bytes preserve the input charset.
+	/// </summary>
+	private async ValueTask<bool> OnInputByteAsync(byte b, Encoding encoding)
 	{
-		if (!IsEnabled || _disposed || Array.IndexOf(line, (byte)Escape) < 0) return line;
-
-		var text = encoding.GetString(line);
-		var kept = new StringBuilder(text.Length);
-		var answers = new List<Answer>();
-		var position = 0;
-
-		while (position < text.Length)
+		if (!IsEnabled || _disposed)
 		{
-			if (text[position] == Escape && TryReadAnswer(text, position, out var length, out var answer))
-			{
-				answers.Add(answer);
-				position += length;
-				continue;
-			}
-
-			// Any other control string (DCS, SOS, OSC, PM, APC) is kept whole, through its terminator or the
-			// end of the line: nothing inside it is an answer, and scanning it once keeps a line of unclosed
-			// strings from being read again from every escape in it.
-			if (text[position] == Escape && position + 1 < text.Length && text[position + 1] is 'P' or 'X' or ']' or '^' or '_')
-			{
-				var end = TryFindStringEnd(text, position + 2, out var stringEnd) ? stringEnd : text.Length;
-				kept.Append(text, position, end - position);
-				position = end;
-				continue;
-			}
-
-			kept.Append(text[position]);
-			position++;
+			await FlushPendingAsync();
+			return false;
 		}
 
-		if (answers.Count == 0) return line;
-
-		TerminalReport report;
-		lock (_gate)
+		if (_inputState == InputState.Ground)
 		{
-			foreach (var answer in answers) _report = Apply(_report, answer);
-			report = _report;
+			if (b != Escape) return false;
+			_pendingEncoding = encoding;
+			_pending.Add(b);
+			_inputState = InputState.Escape;
+			return true;
 		}
 
-		Context.Logger.LogDebug("The terminal answered {Count} question(s)", answers.Count);
+		// CAN and SUB abort a sequence. Preserve cancelled input instead of reporting an answer.
+		if (b is 0x18 or 0x1a)
+		{
+			await FlushPendingAsync();
+			return false;
+		}
 
-		var callback = _onTerminalReport;
-		if (callback is not null) await callback(report);
+		// ESC restarts a CSI or an incomplete escape. Inside a control string it may be ST,
+		// or literal user data: keep the original protection against extracting nested replies.
+		if (b == Escape && _inputState != InputState.String)
+		{
+			await FlushPendingAsync();
+			return await OnInputByteAsync(b, encoding);
+		}
 
-		var rest = kept.ToString();
-		return rest.Trim('\r', '\n').Length == 0 ? null : encoding.GetBytes(rest);
+		if (_passingThrough) await _emit(b, encoding);
+		else _pending.Add(b);
+
+		var complete = false;
+		switch (_inputState)
+		{
+			case InputState.Escape:
+				_inputState = b == '[' ? InputState.Control
+					: b is (byte)'P' or (byte)'X' or (byte)']' or (byte)'^' or (byte)'_' ? InputState.String
+					: InputState.Ground;
+				complete = _inputState == InputState.Ground;
+				break;
+			case InputState.Control:
+				complete = b >= 0x40 && b <= 0x7e || b < 0x20 || b >= 0x80;
+				break;
+			case InputState.String:
+				// Retain the existing BEL compatibility for version/Kitty replies as well as ST.
+				complete = b == Bell || _previousEscape && b == '\\';
+				break;
+		}
+		_previousEscape = b == Escape;
+
+		if (complete)
+		{
+			var text = _pendingEncoding.GetString(_pending.ToArray());
+			if (!_passingThrough && TryReadAnswer(text, 0, out var length, out var answer) && length == text.Length)
+			{
+				_pending.Clear();
+				_inputState = InputState.Ground;
+				_previousEscape = false;
+				_lineHadAnswer = true;
+				TerminalReport report;
+				lock (_gate) report = _report = Apply(_report, answer);
+				if (_onTerminalReport is { } callback)
+					Context.Interpreter.QueueInputCallback(() => callback(report));
+			}
+			else await FlushPendingAsync();
+		}
+		else if (!_passingThrough && _pending.Count >= Math.Min(MaximumPendingAnswerBytes, Context.Interpreter.MaxBufferSize))
+		{
+			// A malicious unclosed string cannot grow another unbounded accumulator. Once over the
+			// ceiling, release it and pass the rest through until its terminator (without rescanning).
+			await ReleasePendingAsync();
+			_passingThrough = true;
+		}
+		return true;
+	}
+
+	private async ValueTask ReleasePendingAsync()
+	{
+		foreach (var b in _pending) await _emit(b, _pendingEncoding);
+		_pending.Clear();
+	}
+
+	/// <summary>A newline or disabled plugin releases an unfinished sequence unchanged.</summary>
+	private async ValueTask FlushPendingAsync()
+	{
+		await ReleasePendingAsync();
+		_inputState = InputState.Ground;
+		_previousEscape = false;
+		_passingThrough = false;
+	}
+
+	private async ValueTask<bool> FinishInputLineAsync()
+	{
+		await FlushPendingAsync();
+		var consumeEmptyLine = IsEnabled && !_disposed && _lineHadAnswer;
+		_lineHadAnswer = false;
+		return consumeEmptyLine;
 	}
 
 	/// <summary>Folds one answer into the report. Called under <see cref="_gate"/>.</summary>
@@ -442,3 +530,4 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 		return false;
 	}
 }
+

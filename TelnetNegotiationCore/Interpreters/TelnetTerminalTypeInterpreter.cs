@@ -21,7 +21,9 @@ public partial class TelnetInterpreter
     public ImmutableList<string> TerminalTypes { get; internal set; } = [];
 
     /// <summary>
-    /// The current selected Terminal Type. Use RequestTerminalTypeAsync if you want the client to switch to the next mode.
+    /// In server mode, the peer's most recently reported non-MTTS name, or "unknown" before one
+    /// arrives. Repeats retain that name; MTTS capability metadata is excluded. This is not a claim
+    /// of server support. In client mode, the last terminal-type response sent.
     /// </summary>
     public string CurrentTerminalType => CurrentTerminalTypeIndex == -1
         ? "unknown"

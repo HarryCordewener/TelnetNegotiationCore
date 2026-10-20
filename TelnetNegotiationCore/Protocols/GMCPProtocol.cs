@@ -1,3 +1,4 @@
+using System.Text;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -265,7 +266,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
             // consumer cannot tell apart from a malformed server.
             var receivedBytes = _gmcpBytes.ReceivedBytes;
             var maxMessageSize = _gmcpBytes.MaxMessageSize;
-            var oversizedPackage = PackageNameOf(gmcpBytes, context.CurrentEncoding);
+            var oversizedPackage = PackageNameOf(gmcpBytes, Encoding.UTF8);
             _gmcpBytes.Reset();
 
             context.Logger.LogError(
@@ -296,7 +297,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
             // that sent nothing at all.
             context.Logger.LogWarning(
                 "Discarded a GMCP message with no package name: {Payload}",
-                Preview(gmcpBytes, context.CurrentEncoding));
+                Preview(gmcpBytes, Encoding.UTF8));
             _gmcpBytes.Reset();
             return;
         }
@@ -308,9 +309,9 @@ public class GMCPProtocol : TelnetProtocolPluginBase
 #if NET5_0_OR_GREATER
         // Use CollectionsMarshal.AsSpan with slicing for zero-copy access
         var gmcpSpan = CollectionsMarshal.AsSpan(gmcpBytes);
-        var package = context.CurrentEncoding.GetString(gmcpSpan[..packageLength]);
+        var package = Encoding.UTF8.GetString(gmcpSpan[..packageLength]);
 #else
-        var package = context.CurrentEncoding.GetString(gmcpBytes.Take(packageLength).ToArray());
+        var package = Encoding.UTF8.GetString(gmcpBytes.Take(packageLength).ToArray());
 #endif
 
         if (separatorMissing)
@@ -331,9 +332,9 @@ public class GMCPProtocol : TelnetProtocolPluginBase
         // Decode the data section once, for whichever destination is going to receive it.
         var info = hasMsdpPlugin || _onGMCPReceived != null || _sessionMessage != null
 #if NET5_0_OR_GREATER
-            ? context.CurrentEncoding.GetString(gmcpSpan[dataStart..])
+            ? Encoding.UTF8.GetString(gmcpSpan[dataStart..])
 #else
-            ? context.CurrentEncoding.GetString(gmcpBytes.Skip(dataStart).ToArray())
+            ? Encoding.UTF8.GetString(gmcpBytes.Skip(dataStart).ToArray())
 #endif
             : string.Empty;
 
