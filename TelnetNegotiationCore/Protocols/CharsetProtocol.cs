@@ -29,6 +29,9 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     private static readonly byte[] s_ttableNak = new byte[] { (byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.CHARSET, (byte)Trigger.TTABLE_NAK, (byte)Trigger.IAC, (byte)Trigger.SE };
 
     private HashSet<int>? _offeredCodePages;
+    // The server's fallback DO CHARSET, sent at most once after a client refused its WILL, awaits an answer.
+    private bool _askedClientToOffer;
+    private bool _fallbackOffered;
     private Func<IEnumerable<EncodingInfo>, IOrderedEnumerable<Encoding>> _charsetOrder = x 
         => x.Select(y => y.GetEncoding()).OrderBy(z => z.EncodingName);
     private Func<Encoding, ValueTask>? _signalCharsetChangeAsync;
@@ -451,6 +454,17 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
     private async ValueTask OnWillingCharsetAsync(IProtocolContext context)
     {
+        if (_askedClientToOffer)
+        {
+            // The client's answer to the server's fallback DO. It agreed but will not send REQUEST itself (Axmud
+            // waits for one), so the server sends it, as it would have after its own WILL.
+            _askedClientToOffer = false;
+            context.Logger.LogDebug("Connection: {ConnectionState}", "Client agreed to Charset after the server asked");
+            await OnNegotiatedAsync(true);
+            await SendRequestAsync(context);
+            return;
+        }
+
         context.Logger.LogDebug("Connection: {ConnectionState}", "Request charset negotiation from Client");
         await OnNegotiatedAsync(true);
         await context.SendNegotiationAsync(s_doCharset);
@@ -466,15 +480,28 @@ public class CharsetProtocol : TelnetProtocolPluginBase
     private ValueTask OnWontCharsetAsync(IProtocolContext context)
     {
         _offeredCodePages = null;
+        _askedClientToOffer = false;
         context.Logger.LogDebug("Connection: {ConnectionState}", "Won't do Character Set - do nothing");
         return OnNegotiatedAsync(false);
     }
 
-    private ValueTask OnDontCharsetAsync(IProtocolContext context)
+    private async ValueTask OnDontCharsetAsync(IProtocolContext context)
     {
         _offeredCodePages = null;
-        context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Character Set - do nothing");
-        return OnNegotiatedAsync(false);
+        await OnNegotiatedAsync(false);
+
+        // Some clients take CHARSET only the other way round: they refuse the server's WILL and accept its DO
+        // (Axmud). RFC 2066 allows either side to ask, so a server asks once more that way before giving up.
+        if (context.Mode != Interpreters.TelnetInterpreter.TelnetMode.Server || _fallbackOffered)
+        {
+            context.Logger.LogDebug("Connection: {ConnectionState}", "Client won't do Character Set - do nothing");
+            return;
+        }
+
+        _fallbackOffered = true;
+        _askedClientToOffer = true;
+        context.Logger.LogDebug("Connection: {ConnectionState}", "Client refused WILL Charset; asking with DO");
+        await context.SendNegotiationAsync(s_doCharset);
     }
 
     /// <summary>
@@ -504,11 +531,18 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
     private async ValueTask OnDoCharsetAsync(IProtocolContext context)
     {
+        // A client that took the WILL and withdraws later has answered; it is not asked the other way.
+        _fallbackOffered = true;
+        await OnNegotiatedAsync(true);
+        await SendRequestAsync(context);
+    }
+
+    private async ValueTask SendRequestAsync(IProtocolContext context)
+    {
         var offered = GetCharsetOrder(AllowedEncodings()).ToArray();
         var request = Helpers.SubnegotiationFrame.Build(
             (byte)Trigger.CHARSET, (byte)Trigger.REQUEST,
             Encoding.ASCII.GetBytes($";{string.Join(";", offered.Select(x => x.WebName))}"));
-        await OnNegotiatedAsync(true);
         // A failed replacement write must not leave the previous request usable.
         _offeredCodePages = null;
         await context.SendNegotiationAsync(request);

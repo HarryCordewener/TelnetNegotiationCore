@@ -90,6 +90,64 @@ public class CharsetOfferValidationTests : BaseTest
         await InterpretAndWaitAsync(server, Accepted("iso-8859-1"));
         await Assert.That(server.CurrentEncoding.WebName).IsEqualTo("utf-8");
     }
+    /// <summary>
+    /// Axmud refuses a server's WILL CHARSET and takes only its DO, then waits for the server's REQUEST.
+    /// The server asks that way once, and the client's WILL is the agreement, not a fresh offer to answer.
+    /// </summary>
+    [Test]
+    public async Task RefusedOfferIsAskedOnceTheOtherWayRound()
+    {
+        var output = new List<byte>();
+        var charset = new CharsetProtocol
+        {
+            AllowedEncodings = () => Encoding.GetEncodings().Where(e => e.CodePage is 65001 or 28591),
+            CharsetOrder = [Encoding.UTF8, Encoding.Latin1]
+        };
+        await using var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server).UseLogger(logger).OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(bytes => { output.AddRange(bytes.ToArray()); return default; }).AddPlugin(charset));
+        output.Clear();
+
+        await InterpretAndWaitAsync(server, [255, 254, 42]);
+        await AssertByteArraysEqual(output.ToArray(), [255, 253, 42]);
+        await Assert.That(charset.IsNegotiated).IsFalse();
+
+        output.Clear();
+        await InterpretAndWaitAsync(server, [255, 251, 42]);
+        await AssertByteArraysEqual(output.ToArray(), [255, 250, 42, 1, .. ";utf-8;iso-8859-1"u8.ToArray(), 255, 240]);
+        await Assert.That(charset.IsNegotiated).IsTrue();
+
+        await InterpretAndWaitAsync(server, Accepted("utf-8"));
+        await Assert.That(server.CurrentEncoding.WebName).IsEqualTo("utf-8");
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task OfferIsAskedTheOtherWayRoundAtMostOnce(bool agreedFirst)
+    {
+        var output = new List<byte>();
+        var charset = new CharsetProtocol { AllowedEncodings = () => Encoding.GetEncodings().Where(e => e.CodePage is 65001) };
+        await using var server = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+            .UseMode(TelnetInterpreter.TelnetMode.Server).UseLogger(logger).OnSubmit(NoOpSubmitCallback)
+            .OnNegotiation(bytes => { output.AddRange(bytes.ToArray()); return default; }).AddPlugin(charset));
+        if (agreedFirst)
+        {
+            // A client that took the WILL and later withdraws has answered; it is not asked again.
+            await InterpretAndWaitAsync(server, [255, 253, 42]);
+        }
+        else
+        {
+            await InterpretAndWaitAsync(server, [255, 254, 42]);
+            await InterpretAndWaitAsync(server, [255, 252, 42]);
+        }
+
+        output.Clear();
+        await InterpretAndWaitAsync(server, [255, 254, 42]);
+        await AssertByteArraysEqual(output.ToArray(), []);
+        await Assert.That(charset.IsNegotiated).IsFalse();
+    }
+
     [Test]
     [Arguments(false)]
     [Arguments(true)]
