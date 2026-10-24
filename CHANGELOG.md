@@ -14,6 +14,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **A server whose `WILL CHARSET` is refused asks once more with `DO CHARSET`.** RFC 2066 lets
+  either side ask. Axmud refuses the server's `WILL` and only takes `DO`; when it answers `WILL`, the
+  server sends its `REQUEST`, so the two agree on UTF-8 instead of falling back to the client's
+  default. A client that refuses both, or that accepted and later withdraws, is not asked again.
+
 - **Terminal query replies are processed as soon as a complete answer arrives**, without requiring
   CR/LF. Replies split across reads or telnet negotiation are retained, removed before byte and line
   callbacks, and reported once per answer. Incomplete and unrelated input is preserved; pending
