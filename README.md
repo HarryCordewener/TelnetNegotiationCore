@@ -85,6 +85,7 @@ Each row is a plugin you register, and one page in
 | [RFC 1408](https://www.rfc-editor.org/rfc/rfc1408) | Environment | [RFC 2066](https://www.rfc-editor.org/rfc/rfc2066) | Charset, including TTABLE |
 | [RFC 1572](https://www.rfc-editor.org/rfc/rfc1572) | New Environment | [RFC 2941](https://www.rfc-editor.org/rfc/rfc2941) | Authentication |
 | | | [RFC 2946](https://www.rfc-editor.org/rfc/rfc2946) | Encryption |
+| | | [MSP](https://www.zuggsoft.com/zmud/msp.htm) | MUD Sound Protocol (option 90) |
 | | | [Pueblo](https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/docs/protocols/pueblo.md) | Pueblo handshake (in-band, no option) |
 | | | [Terminal queries](https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/docs/protocols/terminal-queries.md) | Kitty graphics, sixel, cell size and version, asked of the terminal (in-band, no option) |
 

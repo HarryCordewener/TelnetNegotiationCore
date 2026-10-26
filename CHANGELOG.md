@@ -56,6 +56,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **MSP (MUD Sound Protocol, option 90).** `MSPProtocol` negotiates the option: a server offers
+  `WILL MSP` and turns it on at the client's `DO`; a client answers a server's `WILL` with `DO`.
+  `OnMSPEnabled` and `OnMSPDisabled` say when the option starts and stops, and `IsMSPActive` says
+  whether it is in force. The `!!SOUND(…)` and `!!MUSIC(…)` lines themselves are in-band text and are
+  the host's to parse, as MXP's tags are. Register the plugin only where sound can be played; without
+  it the offer is refused as before.
+
 - **`MsdpNames`**, in TelnetNegotiationCore.Gmcp: the MSDP commands, lists, reportable and configurable
   variables and the `MSDP` GMCP package name, spelled as the specification spells them. `CLIENT_ID`, which
   KaVir's snippet sends instead of `CLIENT_NAME`, is there too and marked nonstandard.

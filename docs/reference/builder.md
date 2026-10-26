@@ -44,6 +44,7 @@ Grouped by the plugin they configure.
 | `EORProtocol` | `.OnPrompt(() => …)` — see [Detecting prompts](../guides/prompts.md) |
 | `SuppressGoAheadProtocol` | `.OnPrompt(() => …)` |
 | `PacketPatchProtocol` | `.OnPrompt(() => …)`, `.WithHoldTime(TimeSpan)` |
+| `MSPProtocol` | `.OnMSPEnabled(() => …)`, `.OnMSPDisabled(() => …)` — see [MSP](../protocols/msp.md) |
 | `MXPProtocol` | `.OnMXPEnabled(() => …)` — see [MXP](../protocols/mxp.md) |
 | `EchoProtocol` | `.OnEchoStateChanged(echoing => …)`, `.UseDefaultEchoHandler()`, `.WithEchoHandler((b, encoding) => …)` — see [ECHO](../protocols/echo.md) |
 | `MCCPProtocol` | `.OnCompressionEnabled((version, enabled) => …)` — see [MCCP](../protocols/mccp.md) |

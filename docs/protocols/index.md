@@ -25,6 +25,7 @@ MSDP, MSSP, TTYPE, CHARSET, EOR, SUPPRESS-GO-AHEAD and MXP — in one call.
 | [RFC 1096](http://www.faqs.org/rfcs/rfc1096.html) X-Display Location | `XDisplayProtocol` | [X-Display Location](x-display.md) |
 | [RFC 2941](http://www.faqs.org/rfcs/rfc2941.html) Authentication | `AuthenticationProtocol` | [Authentication](authentication.md) |
 | [RFC 2946](http://www.faqs.org/rfcs/rfc2946.html) Encryption | `EncryptionProtocol` | [Encryption](encryption.md) |
+| [MSP](https://www.zuggsoft.com/zmud/msp.htm) (telnet option 90) | `MSPProtocol` | [MSP](msp.md) |
 | [MXP](https://www.zuggsoft.com/zmud/mxp.htm) (telnet option 91) | `MXPProtocol` | [MXP](mxp.md) |
 | [Pueblo](https://github.com/pennmush/pennmush/blob/master/game/txt/hlp/pennpueb.hlp) *(no option — an in-band handshake)* | `PuebloProtocol` | [Pueblo](pueblo.md) |
 | Terminal queries *(no option — escape sequences in the data stream)* | `TerminalQueryProtocol` | [Terminal queries](terminal-queries.md) |
@@ -34,8 +35,8 @@ MSDP, MSSP, TTYPE, CHARSET, EOR, SUPPRESS-GO-AHEAD and MXP — in one call.
 ## What is not here
 
 Being a telnet negotiation library, this one does not implement the **content** layers that ride on
-top of telnet: ANSI, Pueblo, and MXP's own tags and entities are the host application's
-to render. MXP is negotiated (option 91 and its start marker), and Pueblo is handshaken (the hello,
+top of telnet: ANSI, Pueblo, MXP's own tags and entities, and MSP's `!!SOUND` and `!!MUSIC` lines are
+the host application's to render. MXP is negotiated (option 91 and its start marker), and Pueblo is handshaken (the hello,
 `PUEBLOCLIENT` and the start sequence); neither's markup is parsed or written.
 
 RFC 1184's SLC (Set Local Characters) and FORWARDMASK subnegotiations are not implemented — the

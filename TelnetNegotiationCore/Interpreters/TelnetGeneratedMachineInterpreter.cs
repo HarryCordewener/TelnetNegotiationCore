@@ -37,6 +37,7 @@ public partial class TelnetInterpreter
         [42] = typeof(Protocols.CharsetProtocol),
         [39] = typeof(Protocols.NewEnvironProtocol),
         [36] = typeof(Protocols.EnvironProtocol),
+        [90] = typeof(Protocols.MSPProtocol),
         [91] = typeof(Protocols.MXPProtocol),
         [86] = typeof(Protocols.MCCPProtocol),
         [87] = typeof(Protocols.MCCPProtocol),
@@ -182,6 +183,9 @@ public partial class TelnetInterpreter
                         return;
                     case Protocols.EnvironProtocol environ:
                         await environ.OnPeerNegotiatedAsync(verb, Context());
+                        return;
+                    case Protocols.MSPProtocol msp:
+                        await msp.OnPeerNegotiatedAsync(verb, Context());
                         return;
                     case Protocols.MXPProtocol mxp:
                         await mxp.OnPeerNegotiatedAsync(verb, Context());
