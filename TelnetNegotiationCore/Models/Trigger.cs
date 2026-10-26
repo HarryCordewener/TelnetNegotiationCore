@@ -267,6 +267,13 @@ public enum Trigger : short
 	/// </summary>
 	MCCP3 = 87,
 	/// <summary>
+	/// MUD Sound Protocol
+	/// </summary>
+	/// <remarks>
+	/// MSP: https://www.zuggsoft.com/zmud/msp.htm
+	/// </remarks>
+	MSP = 90,
+	/// <summary>
 	/// MUD eXtension Protocol
 	/// </summary>
 	/// <remarks>

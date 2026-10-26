@@ -863,6 +863,34 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Sets the callback run when MSP is agreed. See <see cref="MSPProtocol.OnMSPEnabled"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle MSP activation</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MSPProtocol> OnMSPEnabled(
+        this PluginConfigurationContext<MSPProtocol> context,
+        Func<ValueTask>? callback)
+    {
+        context.Plugin.OnMSPEnabled(callback);
+        return context;
+    }
+
+    /// <summary>
+    /// Sets the callback run when an agreed MSP is withdrawn. See <see cref="MSPProtocol.OnMSPDisabled"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="callback">The callback to handle MSP being turned off</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MSPProtocol> OnMSPDisabled(
+        this PluginConfigurationContext<MSPProtocol> context,
+        Func<ValueTask>? callback)
+    {
+        context.Plugin.OnMSPDisabled(callback);
+        return context;
+    }
+
+    /// <summary>
     /// Sets the MXP enabled callback in a fluent manner.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>
