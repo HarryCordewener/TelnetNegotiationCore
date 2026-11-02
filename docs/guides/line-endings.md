@@ -78,13 +78,39 @@ look at rather than `OnSubmit`.
 
 ## Outbound
 
-This library adds no line terminator to anything you send. Whatever bytes you write are the bytes
-that go out, so terminating them is yours to do — `\r\n` is the conventional choice, and what a
-telnet peer expects.
+There are three ways to send, and each frames the bytes differently. None of them translates line
+endings inside the bytes you pass.
 
-That is deliberate: libtelnet translates in both directions, but a library that rewrites outbound
-data has to be right about every case, and a consumer that already knows what it is sending does not
-need the help. There is no setting for this because there is no behaviour to choose.
+| Method | IAC (0xFF) in your bytes | What is appended |
+| --- | --- | --- |
+| `SendAsync(byte[])` | Doubled | `CR LF`, always |
+| `SendPromptAsync(byte[])` | Doubled | The prompt marker this end has negotiated (below) |
+| `WriteToNetworkAsync(ReadOnlyMemory<byte>)` | Left alone | Nothing |
+
+**`SendAsync` terminates the line for you.** Pass the line without a terminator. The `CR LF` is
+added whether or not the bytes already end in one, so a pre-terminated line arrives with a blank
+line after it:
+
+```csharp
+await telnet.SendAsync(Encoding.UTF8.GetBytes("hello"));     // hello\r\n
+await telnet.SendAsync(Encoding.UTF8.GetBytes("hello\r\n")); // hello\r\n\r\n  (a blank line follows)
+await telnet.SendAsync([]);                                  // \r\n
+```
+
+Line breaks inside the text go out as you wrote them. `"one\r\ntwo"` sends two lines; `"one\ntwo"`
+sends a bare `LF` between them, which most MUD clients treat as a line break although RFC 854's
+end of line is `CR LF`.
+
+**`SendPromptAsync` ends with a prompt marker instead of a line ending**, so a client can keep the
+prompt on its input line. The marker is `IAC EOR` if this end has agreed to send End of Record
+(the peer sent `DO EOR`). Without EOR it is `IAC GA`, unless this end has also agreed to suppress
+its own Go-Ahead (the peer sent `DO SUPPRESS-GO-AHEAD`); then nothing marks a prompt, and it ends
+with `CR LF` like a line.
+
+**`WriteToNetworkAsync` is the raw write** that both of the above, and every negotiation, go
+through. It serializes writes and applies the outbound transform (MCCP compression, when that is
+on), but it does not escape IAC and does not frame anything. Use it for bytes that are already
+telnet: a negotiation you built yourself, or text you have escaped and terminated.
 
 ## Related
 

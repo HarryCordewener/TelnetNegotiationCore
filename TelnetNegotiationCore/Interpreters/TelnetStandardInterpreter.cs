@@ -772,6 +772,11 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// All outgoing telnet data (negotiation, user data, prompts) should go through this method
     /// to prevent concurrent write conflicts on the dual-channel telnet pipe.
     /// </summary>
+    /// <remarks>
+    /// The bytes go out as given, apart from the active outbound transform (MCCP compression, for
+    /// one). Nothing escapes IAC bytes in them and nothing appends a line terminator or prompt
+    /// marker; <see cref="SendAsync"/> and <see cref="SendPromptAsync"/> do both for ordinary text.
+    /// </remarks>
     /// <param name="data">The bytes to send.</param>
     /// <param name="cancellationToken">Token to cancel the wait for the write lock.</param>
     /// <returns>A ValueTask representing the asynchronous operation.</returns>
