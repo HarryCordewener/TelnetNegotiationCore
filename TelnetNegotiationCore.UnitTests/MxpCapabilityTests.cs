@@ -56,6 +56,28 @@ public class MxpCapabilityTests : BaseTest
 		TelnetInterpreter.TelnetMode mode = TelnetInterpreter.TelnetMode.Server,
 		string[] queryOnStart = null)
 	{
+		var peer = await UnstartedPeerAsync(mode, queryOnStart);
+
+		if (mode == TelnetInterpreter.TelnetMode.Client)
+		{
+			byte[] start = [(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MXP, (byte)Trigger.IAC, (byte)Trigger.SE];
+			await peer.Interpreter.InterpretByteArrayAsync(start);
+			await peer.Interpreter.WaitForProcessingAsync();
+		}
+
+		await PollUntilAsync(() => peer.Mxp.IsMxpModeStarted, timeoutMs: 5000);
+		return peer;
+	}
+
+	/// <summary>
+	/// An interpreter with the option settled, or not, and no start marker sent: what a client sees from
+	/// a server that never sends one.
+	/// </summary>
+	private static async Task<Peer> UnstartedPeerAsync(
+		TelnetInterpreter.TelnetMode mode,
+		string[] queryOnStart = null,
+		bool negotiate = true)
+	{
 		var peer = new Peer();
 		var mxp = new TelnetInterpreterBuilder()
 			.UseMode(mode)
@@ -96,21 +118,16 @@ public class MxpCapabilityTests : BaseTest
 
 		peer.Interpreter = await mxp.BuildAsync();
 
-		// Settle the option and start MXP mode, which is what the exchange needs.
-		byte[] settle = mode == TelnetInterpreter.TelnetMode.Server
-			? [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MXP]
-			: [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MXP];
-		await peer.Interpreter.InterpretByteArrayAsync(settle);
-		await peer.Interpreter.WaitForProcessingAsync();
-
-		if (mode == TelnetInterpreter.TelnetMode.Client)
+		// Settle the option, which the exchange needs before anything can start MXP mode.
+		if (negotiate)
 		{
-			byte[] start = [(byte)Trigger.IAC, (byte)Trigger.SB, (byte)Trigger.MXP, (byte)Trigger.IAC, (byte)Trigger.SE];
-			await peer.Interpreter.InterpretByteArrayAsync(start);
+			byte[] settle = mode == TelnetInterpreter.TelnetMode.Server
+				? [(byte)Trigger.IAC, (byte)Trigger.DO, (byte)Trigger.MXP]
+				: [(byte)Trigger.IAC, (byte)Trigger.WILL, (byte)Trigger.MXP];
+			await peer.Interpreter.InterpretByteArrayAsync(settle);
 			await peer.Interpreter.WaitForProcessingAsync();
 		}
 
-		await PollUntilAsync(() => peer.Mxp.IsMxpModeStarted, timeoutMs: 5000);
 		return peer;
 	}
 
@@ -439,6 +456,84 @@ public class MxpCapabilityTests : BaseTest
 		await peer.Mxp.SendVersionAsync(new MxpVersion("0.4", null, "SharpMUSH", "1.0", false));
 
 		await Assert.That(peer.Wired).Contains("<VERSION MXP=0.4 CLIENT=SharpMUSH VERSION=1.0 REGISTERED=no>");
+	}
+
+	// ── A server that never sends the start marker ──────────────────────────────
+
+	/// <summary>
+	/// CoffeeMud agrees option 91, never sends <c>IAC SB MXP IAC SE</c>, and asks on lock-secure lines —
+	/// bytes as <c>DefaultSession.HandshakeCallback</c> writes them. It then holds its connect screen
+	/// for three seconds unless the client answers, so a client that cannot answer pays that on every
+	/// connection.
+	/// </summary>
+	[Test]
+	public async Task ALineModeAfterTheOptionIsAgreedStartsMxpMode()
+	{
+		var peer = await UnstartedPeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		await Assert.That(peer.Mxp.IsMxpModeStarted).IsFalse().Because("the option alone does not start MXP");
+
+		await peer.FeedAsync("\n\u001b[6z\n\u001b[6z<SUPPORT IMAGE IMAGE.URL>\n");
+
+		await Assert.That(peer.Mxp.IsMxpModeStarted).IsTrue()
+			.Because("a line-mode sequence is MXP in-band, so the server is speaking it");
+		await Assert.That(peer.SupportAsked).Count().IsEqualTo(1);
+		await Assert.That(peer.SupportAsked[0]).IsEquivalentTo(new[] { "IMAGE", "IMAGE.URL" });
+		await Assert.That(peer.Submitted).DoesNotContain("\u001b[6z<SUPPORT IMAGE IMAGE.URL>")
+			.Because("the query is protocol, not content");
+
+		await peer.Mxp.SendSupportsAsync([], ["image", "image.url"]);
+
+		await Assert.That(peer.Wired).Contains($"{Secure}<SUPPORTS -image -image.url>\r\n");
+	}
+
+	[Test]
+	public async Task TheQueryOnTheSameLineAsTheFirstLineModeIsStillRead()
+	{
+		var peer = await UnstartedPeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		await peer.FeedAsync($"{Secure}<SUPPORT>\r\n");
+
+		await Assert.That(peer.SupportAsked).Count().IsEqualTo(1);
+		await Assert.That(peer.Submitted).IsEmpty();
+	}
+
+	[Test]
+	public async Task ALineModeWithoutTheOptionStartsNothing()
+	{
+		var peer = await UnstartedPeerAsync(TelnetInterpreter.TelnetMode.Client, negotiate: false);
+
+		await peer.FeedAsync($"{Secure}<SUPPORT>\r\n");
+
+		await Assert.That(peer.Mxp.IsMxpModeStarted).IsFalse()
+			.Because("a server that never agreed MXP is sending text, whatever it looks like");
+		await Assert.That(peer.SupportAsked).IsEmpty();
+		await Assert.That(peer.Submitted).Contains($"{Secure}<SUPPORT>");
+	}
+
+	[Test]
+	public async Task TextWithoutALineModeStartsNothing()
+	{
+		var peer = await UnstartedPeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		await peer.FeedAsync("<SUPPORT>\r\n");
+
+		await Assert.That(peer.Mxp.IsMxpModeStarted).IsFalse()
+			.Because("before the marker or a line mode, a tag is only text");
+		await Assert.That(peer.SupportAsked).IsEmpty();
+	}
+
+	[Test]
+	[Arguments("\u001b[1z", true)]
+	[Arguments("\u001b[6z<SUPPORT>", true)]
+	[Arguments("text \u001b[20z", true)]
+	[Arguments("\u001b[z", false)]
+	[Arguments("\u001b[123z", false)]
+	[Arguments("\u001b[1m", false)]
+	[Arguments("plain", false)]
+	public async Task ALineModeIsEscBracketDigitsZ(string text, bool expected)
+	{
+		await Assert.That(MXPProtocol.HasLineMode(text)).IsEqualTo(expected);
 	}
 
 	// ── Parsing, without a connection ───────────────────────────────────────────
