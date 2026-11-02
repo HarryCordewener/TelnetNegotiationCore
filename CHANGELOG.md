@@ -14,6 +14,13 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **A client takes MXP mode as started when a server that agreed option 91 writes a line-mode
+  sequence** (`ESC[` one or two digits `z`), even if it never sends `IAC SB MXP IAC SE`. CoffeeMud
+  is one such server. It goes straight to `ESC[6z<SUPPORT IMAGE IMAGE.URL>` and holds its connect
+  screen for three seconds waiting for the answer. Until now that query reached the application as
+  text and `OnMxpSupportRequested` never ran, so a client could not answer it. A line-mode sequence
+  starts nothing on a server, and nothing without the option agreed.
+
 - **A server whose `WILL CHARSET` is refused asks once more with `DO CHARSET`.** RFC 2066 lets
   either side ask. Axmud refuses the server's `WILL` and only takes `DO`; when it answers `WILL`, the
   server sends its `REQUEST`, so the two agree on UTF-8 instead of falling back to the client's

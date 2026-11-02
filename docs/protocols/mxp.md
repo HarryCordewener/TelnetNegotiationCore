@@ -9,6 +9,11 @@ client start parsing tags and decoding entities; before it, a client is in plain
 the server's `<send>` tags and `&quot;` entities to the player verbatim. Both halves are here: the
 server sends the marker when the client says `DO`, and the client recognises it when a server sends it.
 
+Some servers skip the marker. CoffeeMud agrees the option and then writes `ESC[6z<SUPPORT …>`
+straight away. A line-mode sequence (`ESC[` one or two digits `z`) is MXP in-band, so a client also
+takes MXP mode as started at the first one it receives once the option is agreed, and reads that
+line's tag. A server never starts MXP mode from what a client writes.
+
 ```csharp
 .AddPlugin<MXPProtocol>()
     .OnMXPEnabled(() => SwitchToMxpRendererAsync())

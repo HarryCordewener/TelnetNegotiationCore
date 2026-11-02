@@ -25,6 +25,11 @@ namespace TelnetNegotiationCore.Protocols;
 /// client says <c>DO</c>, and the client recognises it when a server sends it.
 /// </para>
 /// <para>
+/// A client also takes MXP mode as started when a server that agreed the option writes a line-mode
+/// sequence without ever sending the marker, as CoffeeMud does. That sequence is MXP in-band, so it
+/// is the server saying the same thing another way.
+/// </para>
+/// <para>
 /// What the marker does <i>not</i> do is change how the byte stream is framed — unlike MCCP's
 /// identically shaped one, which turns everything after it into a zlib stream. Ordinary text keeps
 /// flowing through the same state machine.
@@ -287,9 +292,19 @@ public class MXPProtocol : TelnetProtocolPluginBase
     /// </summary>
     private async ValueTask<bool> OnInputLineAsync(byte[] line, Encoding encoding, IProtocolContext context)
     {
-        if (!IsEnabled || _disposed || !_mxpModeStarted) return false;
+        if (!IsEnabled || _disposed) return false;
 
-        var text = StripLineMode(encoding.GetString(line).Trim());
+        var received = encoding.GetString(line);
+
+        if (!_mxpModeStarted)
+        {
+            if (!StartsModeInBand(received, context)) return false;
+
+            await StartMxpModeAsync(context);
+            if (!_mxpModeStarted) return false;
+        }
+
+        var text = StripLineMode(received.Trim());
         if (text.Length < 2 || text[0] != '<' || text[text.Length - 1] != '>') return false;
 
         var inside = text.Substring(1, text.Length - 2).Trim();
@@ -613,6 +628,39 @@ public class MXPProtocol : TelnetProtocolPluginBase
         }
 
         await Context.SendNegotiationAsync(Context.CurrentEncoding.GetBytes(SecureLine + tag + "\r\n"));
+    }
+
+    /// <summary>
+    /// Whether a server that never sent <c>IAC SB MXP IAC SE</c> has started MXP mode anyway, by writing
+    /// a line-mode sequence after the option was agreed.
+    /// </summary>
+    /// <remarks>
+    /// The marker is how the specification starts MXP, but not every server sends it. CoffeeMud agrees
+    /// option 91 and goes straight to <c>ESC[6z</c> lines carrying <c>&lt;SUPPORT&gt;</c>, then holds its
+    /// connect screen for three seconds waiting on the answer. A line-mode sequence is MXP's own in-band
+    /// signal, so with the option agreed it can only mean the server is speaking MXP. Client side only:
+    /// what a client writes does not start anything on a server.
+    /// </remarks>
+    private bool StartsModeInBand(string received, IProtocolContext context) =>
+        context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client
+        && _mxpEnabled == true
+        && HasLineMode(received);
+
+    /// <summary>Whether <paramref name="text"/> carries a line-mode sequence, <c>ESC[</c> one or two digits <c>z</c>.</summary>
+    internal static bool HasLineMode(string text)
+    {
+        for (var i = text.IndexOf('\u001b'); i >= 0; i = text.IndexOf('\u001b', i + 1))
+        {
+            if (i + 1 >= text.Length || text[i + 1] != '[') continue;
+
+            var j = i + 2;
+            while (j < text.Length && text[j] >= '0' && text[j] <= '9') j++;
+
+            var digits = j - (i + 2);
+            if (digits is >= 1 and <= 2 && j < text.Length && text[j] == 'z') return true;
+        }
+
+        return false;
     }
 
     /// <summary>Drops a leading line-mode sequence (<c>ESC[1z</c>), which a peer may put before its reply.</summary>
