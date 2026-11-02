@@ -14,6 +14,12 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **The outbound section of the line-endings guide described `SendAsync` wrongly.** It said the
+  library adds no line terminator. `SendAsync` escapes IAC and always appends `CR LF`, including
+  after bytes that already end in one. The guide and the XML docs for `SendAsync`,
+  `SendPromptAsync` and `WriteToNetworkAsync` now say what each one appends, and the keep-alive
+  guide's custom-payload example no longer sends two blank lines. Behaviour is unchanged.
+
 - **A client takes MXP mode as started when a server that agreed option 91 writes a line-mode
   sequence** (`ESC[` one or two digits `z`), even if it never sends `IAC SB MXP IAC SE`. CoffeeMud
   is one such server. It goes straight to `ESC[6z<SUPPORT IMAGE IMAGE.URL>` and holds its connect

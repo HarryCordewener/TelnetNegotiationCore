@@ -16,6 +16,10 @@ public partial class TelnetInterpreter
 	/// newline, so the client can keep it on the input line.
 	/// IAC bytes (255) in <paramref name="send"/> are automatically escaped.
 	/// </summary>
+	/// <remarks>
+	/// The marker is <c>IAC EOR</c> when this end has agreed to send EOR, otherwise <c>IAC GA</c>,
+	/// otherwise CR LF when this end has agreed to suppress its own Go-Ahead.
+	/// </remarks>
 	/// <param name="send">Byte array</param>
 	/// <returns>A completed ValueTask</returns>
 	public async ValueTask SendPromptAsync(byte[] send)
@@ -64,10 +68,15 @@ public partial class TelnetInterpreter
 	}
 
 	/// <summary>
-	/// Sends a byte message, adding an EOR at the end if needed.
-	/// IAC bytes (255) in <paramref name="send"/> are automatically escaped.
+	/// Sends a byte message as a line: IAC bytes (255) in <paramref name="send"/> are escaped, and
+	/// CR LF is appended.
 	/// </summary>
-	/// <param name="send">Byte array</param>
+	/// <remarks>
+	/// The CR LF is appended unconditionally, so pass the line without its terminator.
+	/// <c>hello\r\n</c> goes out as <c>hello\r\n\r\n</c>, and an empty array sends a bare CR LF.
+	/// Use <see cref="SendPromptAsync"/> for text that should end with a prompt marker instead.
+	/// </remarks>
+	/// <param name="send">The line's bytes, without a line terminator</param>
 	/// <returns>A completed ValueTask</returns>
 	public async ValueTask SendAsync(byte[] send)
 	{

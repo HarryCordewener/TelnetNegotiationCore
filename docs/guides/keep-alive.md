@@ -18,7 +18,7 @@ The interval is an **idle** window, not a fixed heartbeat: every outbound write 
     .WithKeepAlive(TimeSpan.FromSeconds(90))      // custom idle window
 
     .WithKeepAlive(TimeSpan.FromMinutes(2), async (telnet, token) =>
-        await telnet.SendAsync(Encoding.ASCII.GetBytes("\r\n")))   // custom payload
+        await telnet.SendAsync([]))   // custom payload: SendAsync appends CR LF, so this is one blank line
 ```
 
 The interval must be between **1 second** (`TelnetInterpreter.MinimumKeepAliveInterval`) and **24 hours** (`TelnetInterpreter.MaximumKeepAliveInterval`); the default is 30 seconds (`TelnetInterpreter.DefaultKeepAliveInterval`). Anything outside that range throws `ArgumentOutOfRangeException` rather than being quietly clamped, so a mistyped interval fails where you wrote it instead of running at a value you did not choose. Below a second a keep-alive is a flood — nothing it defends against, from NAT eviction to load balancer idle timeouts, is measured in anything shorter. The upper bound is the library's, not the network's — an idle timeout somewhere in the path may well be longer than a day, and a keep-alive above the maximum is refused rather than clamped, so a mistyped interval fails where you wrote it.
