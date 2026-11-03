@@ -35,7 +35,8 @@ consent to both.
 ## Client
 
 A client recognises and consumes both of the server's halves — the hello and the start sequence — and
-is told about the offer, but **sends nothing on its own**:
+is told about the offer, but **sends nothing on its own**. The hello
+is matched for any version, since TinyMUX and RhostMUSH send `1.0` where PennMUSH sends `1.10`:
 
 ```csharp
 .AddPlugin<PuebloProtocol>()

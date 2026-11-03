@@ -27,6 +27,11 @@ All notable changes to this project will be documented in this file.
   text and `OnMxpSupportRequested` never ran, so a client could not answer it. A line-mode sequence
   starts nothing on a server, and nothing without the option agreed.
 
+- **A client consumes the Pueblo hello whatever version it names.** Only PennMUSH's
+  `This world is Pueblo 1.10 Enhanced.` was recognised. TinyMUX and RhostMUSH send
+  `This world is Pueblo 1.0 Enhanced.`, which reached the application as text and never raised
+  `OnPuebloOffered`. The version is now any run of digits and dots; the rest of the line must match.
+
 - **A server whose `WILL CHARSET` is refused asks once more with `DO CHARSET`.** RFC 2066 lets
   either side ask. Axmud refuses the server's `WILL` and only takes `DO`; when it answers `WILL`, the
   server sends its `REQUEST`, so the two agree on UTF-8 instead of falling back to the client's
@@ -68,6 +73,12 @@ All notable changes to this project will be documented in this file.
   without a data section the space should be omitted."
 
 ### Added
+
+- **`DecodeEntities()` on `MXPProtocol`, for a client.** Once MXP mode has started, `&quot;`,
+  `&amp;`, `&lt;`, `&gt;` and numeric `&#NN;` / `&#xNN;` entities in incoming lines are decoded
+  before the line reaches the application. A server with MXP on escapes these characters as MXP
+  requires (CoffeeMud does), and a client that renders no MXP showed them verbatim. Off by default.
+  Other named entities, and anything before MXP mode starts, are left as they arrived.
 
 - **MSP (MUD Sound Protocol, option 90).** `MSPProtocol` negotiates the option: a server offers
   `WILL MSP` and turns it on at the client's `DO`; a client answers a server's `WILL` with `DO`.

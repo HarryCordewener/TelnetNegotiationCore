@@ -863,6 +863,19 @@ public static class PluginConfigurationExtensions
     }
 
     /// <summary>
+    /// Decodes MXP character entities in the server's lines once MXP mode starts, for a host that
+    /// shows text without rendering MXP. See <see cref="MXPProtocol.DecodeEntities"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <returns>The configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MXPProtocol> DecodeEntities(
+        this PluginConfigurationContext<MXPProtocol> context)
+    {
+        context.Plugin.DecodeEntities();
+        return context;
+    }
+
+    /// <summary>
     /// Sets the callback run when MSP is agreed. See <see cref="MSPProtocol.OnMSPEnabled"/>.
     /// </summary>
     /// <param name="context">The plugin configuration context</param>

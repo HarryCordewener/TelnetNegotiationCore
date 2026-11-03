@@ -26,6 +26,22 @@ switches renderers in that callback cannot emit a tag ahead of it. `IsMXPActive`
 Unlike [MCCP](mccp.md)'s identically shaped marker, this one does **not** change how the byte stream is
 framed: ordinary text keeps flowing through the same state machine.
 
+## Entities
+
+A server with MXP on has to escape `"`, `&`, `<` and `>` in ordinary text, because MXP would read
+them as markup. A client that renders MXP decodes them; one that renders nothing shows `&quot;` to
+the player. `DecodeEntities()` decodes them for you:
+
+```csharp
+.AddPlugin<MXPProtocol>()
+    .DecodeEntities()
+```
+
+It applies only on a client and only once MXP mode has started, so text before the marker (or the
+first line-mode sequence) is untouched. `&quot;`, `&amp;`, `&lt;`, `&gt;` and numeric `&#NN;` /
+`&#xNN;` are decoded. Every other named entity is left as it arrived, since a server can define its
+own with `<!ENTITY>` and this library does not track them. Tags are not removed. Off by default.
+
 ## Asking what the client can render
 
 MXP's own feature negotiation rides inside the MXP stream, and both halves are here.

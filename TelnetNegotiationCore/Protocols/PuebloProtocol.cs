@@ -279,12 +279,41 @@ public class PuebloProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <summary>
+	/// Whether a whole line is a server's Pueblo hello, whatever version it names.
+	/// </summary>
+	/// <remarks>
+	/// PennMUSH announces <c>Pueblo 1.10</c>; TinyMUX and RhostMUSH announce <c>Pueblo 1.0</c>. Both are
+	/// the same offer, so the version is read as digits and dots rather than matched. The line must be
+	/// the hello and nothing else, as PennMUSH sends it.
+	/// </remarks>
+	internal static bool IsHello(string text)
+	{
+		const string prefix = "This world is Pueblo ";
+		const string suffix = " Enhanced.";
+
+		if (text.Length <= prefix.Length + suffix.Length
+			|| !text.StartsWith(prefix, StringComparison.Ordinal)
+			|| !text.EndsWith(suffix, StringComparison.Ordinal))
+			return false;
+
+		var version = text.Substring(prefix.Length, text.Length - prefix.Length - suffix.Length);
+		if (version[0] is < '0' or > '9') return false;
+
+		foreach (var c in version)
+		{
+			if (c is not ('.' or (>= '0' and <= '9'))) return false;
+		}
+
+		return true;
+	}
+
+	/// <summary>
 	/// Client mode: the server's hello, and the start sequence that answers our own announcement. Both
 	/// are protocol rather than content, so both are consumed.
 	/// </summary>
 	private async ValueTask<bool> OnServerLineAsync(string text, IProtocolContext context)
 	{
-		if (string.Equals(text, Hello.TrimEnd('\r', '\n'), StringComparison.Ordinal))
+		if (IsHello(text))
 		{
 			if (_serverOffered) return true;
 

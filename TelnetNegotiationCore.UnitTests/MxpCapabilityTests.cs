@@ -536,6 +536,71 @@ public class MxpCapabilityTests : BaseTest
 		await Assert.That(MXPProtocol.HasLineMode(text)).IsEqualTo(expected);
 	}
 
+	// ── Entities, for a host that does not render MXP ──────────────────────────
+
+	/// <summary>
+	/// CoffeeMud escapes its own text once the client agrees MXP (<c>CoffeeFilter</c>): every quote in
+	/// its ASCII-art connect screen arrives as <c>&amp;quot;</c>.
+	/// </summary>
+	[Test]
+	public async Task EntitiesAreDecodedWhenTheHostAsks()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+		peer.Mxp.DecodeEntities();
+
+		await peer.FeedAsync("  .-&quot;&quot;  ) &amp; &lt;b&gt; &#65;&#x42;\r\n");
+
+		await Assert.That(peer.Submitted).Contains("  .-\"\"  ) & <b> AB");
+	}
+
+	[Test]
+	public async Task EntitiesAreLeftAloneByDefault()
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		await peer.FeedAsync("&quot;hello&quot;\r\n");
+
+		await Assert.That(peer.Submitted).Contains("&quot;hello&quot;")
+			.Because("a host that renders MXP decodes entities itself, and twice is wrong");
+	}
+
+	[Test]
+	public async Task EntitiesBeforeMxpModeStartsAreText()
+	{
+		var peer = await UnstartedPeerAsync(TelnetInterpreter.TelnetMode.Client);
+		peer.Mxp.DecodeEntities();
+
+		await peer.FeedAsync("&quot;hello&quot;\r\n");
+
+		await Assert.That(peer.Mxp.IsMxpModeStarted).IsFalse();
+		await Assert.That(peer.Submitted).Contains("&quot;hello&quot;")
+			.Because("a server not speaking MXP that prints &quot; meant it");
+	}
+
+	[Test]
+	[Arguments("fish &amp chips", "fish &amp chips")]
+	[Arguments("&nbsp;&foo;", "&nbsp;&foo;")]
+	[Arguments("& alone", "& alone")]
+	[Arguments("&#0;&#xD800;", "&#0;&#xD800;")]
+	[Arguments("&amp;lt;", "&lt;")]
+	[Arguments("&QUOT;", "&QUOT;")]
+	public async Task OnlyTheNamedEntitiesAreDecoded(string sent, string expected)
+	{
+		var decoded = MXPProtocol.DecodeEntityBytes(Encoding.ASCII.GetBytes(sent), Encoding.ASCII);
+
+		await Assert.That(Encoding.ASCII.GetString(decoded)).IsEqualTo(expected);
+	}
+
+	[Test]
+	public async Task BytesAroundAnEntityArriveUnchanged()
+	{
+		var sent = Encoding.UTF8.GetBytes("café &quot;北&quot; &#233;");
+
+		var decoded = MXPProtocol.DecodeEntityBytes(sent, Encoding.UTF8);
+
+		await Assert.That(Encoding.UTF8.GetString(decoded)).IsEqualTo("café \"北\" é");
+	}
+
 	// ── Parsing, without a connection ───────────────────────────────────────────
 
 	[Test]
