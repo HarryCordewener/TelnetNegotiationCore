@@ -67,6 +67,7 @@ public class MXPProtocol : TelnetProtocolPluginBase
     private Func<IReadOnlyList<string>, ValueTask>? _onSupportRequested;
     private Func<ValueTask>? _onVersionRequested;
     private string[]? _queryOnStart;
+    private volatile bool _decodeEntities;
     private volatile bool _disposed;
     private volatile MxpSupport _support = MxpSupport.None;
     private volatile MxpVersion? _peerVersion;
@@ -190,6 +191,33 @@ public class MXPProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
+    /// Decodes MXP's character entities (<c>&amp;quot;</c>, <c>&amp;amp;</c>, <c>&amp;lt;</c>,
+    /// <c>&amp;gt;</c> and numeric <c>&amp;#NN;</c> / <c>&amp;#xNN;</c>) in each line the server sends
+    /// once MXP mode has started, before the line reaches the application. Client side only.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For a host that shows the server's text without rendering MXP. A server in MXP mode escapes its
+    /// own output: CoffeeMud turns every <c>"</c> into <c>&amp;quot;</c> as soon as the client agrees
+    /// option 91, so a client that agrees in order to measure or answer MXP but never renders it shows
+    /// the player <c>&amp;quot;</c> where the game wrote a quote.
+    /// </para>
+    /// <para>
+    /// Off by default, because a host that renders MXP itself decodes entities as part of rendering,
+    /// and decoding twice would turn a server's <c>&amp;amp;lt;</c> into <c>&lt;</c>. Before MXP mode
+    /// starts nothing is touched: a server that is not speaking MXP and prints <c>&amp;quot;</c> meant it.
+    /// An entity this list does not name, such as one the server declared with <c>&lt;!ENTITY&gt;</c>,
+    /// is left as it arrived.
+    /// </para>
+    /// </remarks>
+    /// <returns>This instance for fluent chaining</returns>
+    public MXPProtocol DecodeEntities()
+    {
+        _decodeEntities = true;
+        return this;
+    }
+
+    /// <summary>
     /// Sends <c>&lt;SUPPORT&gt;</c>, asking the peer which tags and arguments it can render. With no
     /// <paramref name="queries"/> it asks for everything; otherwise each is a tag (<c>image</c>), one of
     /// a tag's arguments (<c>send.expire</c>), or a pattern the specification allows (<c>"color.*"</c>).
@@ -284,7 +312,7 @@ public class MXPProtocol : TelnetProtocolPluginBase
         // are read off the assembled-line path and consumed: they are the peer answering a question this
         // plugin asked, not something the application typed or printed.
         context.Interpreter.RegisterInputLineObserver(async (line, encoding) =>
-            await OnInputLineAsync(line, encoding, context) ? null : line);
+            await OnInputLineAsync(line, encoding, context) ? null : Decoded(line, encoding, context));
     }
 
     /// <summary>
@@ -661,6 +689,103 @@ public class MXPProtocol : TelnetProtocolPluginBase
         }
 
         return false;
+    }
+
+    /// <summary>The line with its entities decoded, when the host asked for that and MXP mode is live.</summary>
+    private byte[] Decoded(byte[] line, Encoding encoding, IProtocolContext context) =>
+        _decodeEntities
+        && _mxpModeStarted
+        && !_disposed
+        && context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client
+            ? DecodeEntityBytes(line, encoding)
+            : line;
+
+    /// <summary>
+    /// Decodes the entities <see cref="DecodeEntities()"/> names, byte by byte rather than through a
+    /// string, so every byte that is not part of an entity reaches the host exactly as it arrived.
+    /// </summary>
+    /// <remarks>
+    /// Entities are ASCII, and <c>&amp;</c> (0x26) is never the trailing byte of a character in the
+    /// multi-byte encodings MUDs use (UTF-8, GBK, Big5, Shift-JIS), so matching on bytes cannot split
+    /// a character. A numeric entity is written in <paramref name="encoding"/>.
+    /// </remarks>
+    internal static byte[] DecodeEntityBytes(byte[] line, Encoding encoding)
+    {
+        if (Array.IndexOf(line, (byte)'&') < 0) return line;
+
+        var output = new List<byte>(line.Length);
+        var i = 0;
+        while (i < line.Length)
+        {
+            if (line[i] == (byte)'&' && TryEntity(line, i, encoding, out var length, out var decoded))
+            {
+                output.AddRange(decoded);
+                i += length;
+                continue;
+            }
+
+            output.Add(line[i]);
+            i++;
+        }
+
+        return output.ToArray();
+    }
+
+    /// <summary>Whether an entity starts at <paramref name="start"/>; if so, its length and its bytes.</summary>
+    private static bool TryEntity(byte[] line, int start, Encoding encoding, out int length, out byte[] decoded)
+    {
+        length = 0;
+        decoded = [];
+
+        // The longest entity read here is &#x10FFFF; — ten bytes.
+        var semicolon = -1;
+        for (var j = start + 1; j < line.Length && j <= start + 10; j++)
+        {
+            if (line[j] == (byte)';') { semicolon = j; break; }
+        }
+
+        if (semicolon < 0) return false;
+
+        var name = Encoding.ASCII.GetString(line, start + 1, semicolon - start - 1);
+        string? text = name switch
+        {
+            "quot" => "\"",
+            "amp" => "&",
+            "lt" => "<",
+            "gt" => ">",
+            _ => Numeric(name),
+        };
+
+        if (text is null) return false;
+
+        length = semicolon - start + 1;
+        decoded = text.Length == 1 && text[0] < 0x80 ? [(byte)text[0]] : encoding.GetBytes(text);
+        return true;
+    }
+
+    /// <summary>The character a <c>#NN</c> or <c>#xNN</c> entity names, or null when it names none.</summary>
+    private static string? Numeric(string name)
+    {
+        if (name.Length < 2 || name[0] != '#') return null;
+
+        int code;
+        if (name[1] is 'x' or 'X')
+        {
+            if (name.Length < 3
+                || !int.TryParse(name.Substring(2), System.Globalization.NumberStyles.AllowHexSpecifier,
+                    System.Globalization.CultureInfo.InvariantCulture, out code))
+                return null;
+        }
+        else if (!int.TryParse(name.Substring(1), System.Globalization.NumberStyles.None,
+                     System.Globalization.CultureInfo.InvariantCulture, out code))
+        {
+            return null;
+        }
+
+        // A control character or a surrogate is not text a screen can show; leave the entity as sent.
+        if (code < 0x20 || code is >= 0xD800 and <= 0xDFFF || code > 0x10FFFF) return null;
+
+        return char.ConvertFromUtf32(code);
     }
 
     /// <summary>Drops a leading line-mode sequence (<c>ESC[1z</c>), which a peer may put before its reply.</summary>

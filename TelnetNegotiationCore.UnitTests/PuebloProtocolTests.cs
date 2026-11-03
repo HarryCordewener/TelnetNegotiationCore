@@ -286,6 +286,35 @@ public class PuebloProtocolTests : BaseTest
 	}
 
 	/// <summary>
+	/// TinyMUX and RhostMUSH announce Pueblo 1.0 rather than PennMUSH's 1.10. It is the same offer, and
+	/// the same protocol line rather than screen text.
+	/// </summary>
+	[Test]
+	[Arguments("This world is Pueblo 1.0 Enhanced.")]
+	[Arguments("This world is Pueblo 1.10 Enhanced.")]
+	[Arguments("This world is Pueblo 2.01 Enhanced.")]
+	public async Task AClientConsumesTheHelloWhateverVersionItNames(string hello)
+	{
+		var peer = await PeerAsync(TelnetInterpreter.TelnetMode.Client);
+
+		await peer.FeedAsync(hello + "\r\n");
+
+		await Assert.That(peer.Pueblo.ServerOffered).IsTrue();
+		await Assert.That(peer.Submitted).IsEmpty().Because("the hello is protocol, not content");
+	}
+
+	[Test]
+	[Arguments("This world is Pueblo  Enhanced.")]
+	[Arguments("This world is Pueblo one Enhanced.")]
+	[Arguments("This world is Pueblo 1.0 Enhanced")]
+	[Arguments("This world is Pueblo .1 Enhanced.")]
+	[Arguments("Welcome! This world is Pueblo 1.0 Enhanced.")]
+	public async Task OnlyAWholeHelloIsTheHello(string line)
+	{
+		await Assert.That(PuebloProtocol.IsHello(line)).IsFalse();
+	}
+
+	/// <summary>
 	/// A line that merely starts like the hello is the server's own text, not the handshake: PennMUSH's
 	/// hello is a whole line.
 	/// </summary>
