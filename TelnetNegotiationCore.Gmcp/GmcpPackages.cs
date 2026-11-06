@@ -43,8 +43,14 @@ public static class GmcpPackages
 	/// <summary>Server to client: stop media. <see cref="MediaStop"/>.</summary>
 	public const string ClientMediaStop = "Client.Media.Stop";
 
-	/// <summary>Server to client: pause media. A Mudlet extension. <see cref="MediaPause"/>.</summary>
+	/// <summary>Server to client: pause media. MCMP version 2. <see cref="MediaPause"/>.</summary>
 	public const string ClientMediaPause = "Client.Media.Pause";
+
+	/// <summary>Server to client: move a playing sound or change its volume. MCMP version 2. <see cref="MediaUpdate"/>.</summary>
+	public const string ClientMediaUpdate = "Client.Media.Update";
+
+	/// <summary>Server to client: the way the player faces. MCMP version 2. <see cref="MediaListener"/>.</summary>
+	public const string ClientMediaListener = "Client.Media.Listener";
 
 	/// <summary>
 	/// The obsolete name for <see cref="ClientMediaDefault"/>, which Mudlet still reads the same way.

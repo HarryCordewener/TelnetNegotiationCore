@@ -3,6 +3,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **MCMP version 2.** `MediaPlay` has `Direction` and `Pan`, and the optional `Stream` and `Close`.
+  `MediaUpdate` (`Client.Media.Update`) moves a playing sound or changes its volume, and
+  `MediaListener` (`Client.Media.Listener`) sets the way the player faces. `MediaDirection` holds a
+  direction given as a word or as degrees, and resolves either to an angle.
+- **`SupportedVersion(package)` on `GmcpServerSession`**, the version the client listed for a
+  package or the module it belongs to. `SupportedVersion(GmcpPackages.ClientMediaUpdate) >= 2`
+  asks for MCMP version 2.
+
+### Fixed
+
+- **An empty `Client.Media.Pause` pauses all media.** `MediaPause.TryParse` refused an empty body;
+  MCMP version 2 defines it as "pause everything". The doc for `MediaPause.Priority` said it pauses
+  media of that priority or lower; it pauses media of lower priority only, unlike `MediaStop`.
+
 ## [4.6.1]
 
 ### Fixed

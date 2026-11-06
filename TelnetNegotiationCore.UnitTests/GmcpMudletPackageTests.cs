@@ -23,6 +23,19 @@ public class GmcpMudletPackageTests : BaseTest
 	}
 
 	/// <summary>
+	/// MCMP version 2: "An empty body pauses all media."
+	/// </summary>
+	[Test]
+	public async Task AnEmptyMediaPausePausesEverything()
+	{
+		await Assert.That(new MediaPause().ToJson()).IsEqualTo("{}");
+		await Assert.That(MediaPause.TryParse("", out var pause)).IsTrue();
+		await Assert.That(pause).IsEqualTo(new MediaPause());
+		await Assert.That(MediaPause.TryParse("{}", out var empty)).IsTrue();
+		await Assert.That(empty).IsEqualTo(new MediaPause());
+	}
+
+	/// <summary>
 	/// <c>{"baseui": false}</c> declines Mudlet's starter UI; the plain form is a version line and a URL line.
 	/// </summary>
 	[Test]

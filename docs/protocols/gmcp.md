@@ -107,7 +107,7 @@ the casing clients expect, and a `TryParse` for the receiving side. `SendAsync(m
 
 | Package | Types |
 | --- | --- |
-| `Client.Media` | `MediaDefault`, `MediaLoad`, `MediaPlay`, `MediaStop`, `MediaPause` |
+| `Client.Media` | `MediaDefault`, `MediaLoad`, `MediaPlay`, `MediaStop`, and for version 2 `MediaPause`, `MediaUpdate`, `MediaListener` |
 | `Client.GUI`, `Client.Map` | `ClientGui`, `ClientMap` |
 | `Char.Login` | `LoginDefault`, `LoginCredentials`, `LoginResult`, and for version 2 `LoginUrl`, `LoginToken`, `LoginReconnect`, `LoginAuthCode` |
 | `External.Discord` | `DiscordHello`, `DiscordInfo`, `DiscordStatus` |
@@ -130,10 +130,27 @@ await gmcp.SendIfSupportedAsync(new MediaPlay("rain.mp3") { Type = MediaType.Sou
 await gmcp.SendAsync(new RoomInfo(6008, "Market Square") { Area = "Midgaard", Exits = new Dictionary<string, long> { ["n"] = 6011 } });
 ```
 
+MCMP version 2, which a client announces as `Client.Media 2`, places sounds around the player.
+`MediaPlay.Direction` takes a word (`"north"`, `"ne"`, `"up"`, `"behind"`) or degrees clockwise from
+north, and `MediaPlay.Pan` runs from -100 to 100. `MediaUpdate` moves a playing sound or changes its
+volume, selected by `Key`, `Name` or `Tag`. `MediaListener` sets the way the player faces; send it
+again after a reconnect. `MediaPause` pauses matching media, or all media when empty, and a later
+`MediaPlay` that matches resumes it. A version 1 client ignores all of these, so they can go to
+every client; check `SupportedVersion` only when the game depends on the player hearing direction.
+`MediaPlay.Stream` and `MediaPlay.Close` are optional for clients; send `Stream` only to one known to
+support it.
+
+```csharp
+if (gmcp.SupportedVersion(GmcpPackages.ClientMediaUpdate) >= 2)
+{
+	await gmcp.SendAsync(new MediaPlay("cart.wav") { Key = "cart", Direction = "west", Loops = -1 });
+	await gmcp.SendAsync(new MediaUpdate { Key = "cart", Direction = "east", Duration = 4000 });
+}
+```
+
 Some of these go past the published specifications and follow what Mudlet sends and reads:
 
-- `Client.Media.Pause` pauses matching media; a later `MediaPlay` that matches resumes it.
-  `GmcpPackages.ClientMediaObsoleteDefault` is the old `Client.Media` name for `Client.Media.Default`.
+- `GmcpPackages.ClientMediaObsoleteDefault` is the old `Client.Media` name for `Client.Media.Default`.
 - `ClientGui.BaseUi = false` (or `ClientGui.DeclineBaseUi`) tells Mudlet the game brings its own
   interface. `ClientGui.TryParse` also reads the plain form, a version line and a URL line.
 - `Char.Login` version 2, which Mudlet announces as `Char.Login 2`: `LoginDefault` carries `Version`
