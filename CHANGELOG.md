@@ -3,14 +3,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Changed
-
-- **NEW-ENVIRON now negotiates in the direction RFC 1572 and MNES give.** A server sends
-  `DO NEW-ENVIRON` and answers the client's `WILL` with `SEND`; it used to send `WILL` and wait for
-  `DO`, which Mudlet and TinTin++ tolerate but MNES does not describe. A server now refuses a client's
-  `DO NEW-ENVIRON` with `WONT`. A client answers `DO` with `WILL`, acknowledges a later `DONT` with
-  `WONT` as RFC 1143 asks, and still accepts an older TNC server that announces `WILL`, so mixed
-  versions keep working. `EnvironProtocol` (RFC 1408) is unchanged.
+## [4.6.1]
 
 ### Fixed
 
@@ -20,6 +13,23 @@ All notable changes to this project will be documented in this file.
   `SendPromptAsync` and `WriteToNetworkAsync` now say what each one appends, and the keep-alive
   guide's custom-payload example no longer sends two blank lines. Behaviour is unchanged.
 
+- **A client consumes the Pueblo hello whatever version it names.** Only PennMUSH's
+  `This world is Pueblo 1.10 Enhanced.` was recognised. TinyMUX and RhostMUSH send
+  `This world is Pueblo 1.0 Enhanced.`, which reached the application as text and never raised
+  `OnPuebloOffered`. The version is now any run of digits and dots; the rest of the line must match.
+
+### Added
+
+- **`DecodeEntities()` on `MXPProtocol`, for a client.** Once MXP mode has started, `&quot;`,
+  `&amp;`, `&lt;`, `&gt;` and numeric `&#NN;` / `&#xNN;` entities in incoming lines are decoded
+  before the line reaches the application. A server with MXP on escapes these characters as MXP
+  requires (CoffeeMud does), and a client that renders no MXP showed them verbatim. Off by default.
+  Other named entities, and anything before MXP mode starts, are left as they arrived.
+
+## [4.6.0]
+
+### Fixed
+
 - **A client takes MXP mode as started when a server that agreed option 91 writes a line-mode
   sequence** (`ESC[` one or two digits `z`), even if it never sends `IAC SB MXP IAC SE`. CoffeeMud
   is one such server. It goes straight to `ESC[6z<SUPPORT IMAGE IMAGE.URL>` and holds its connect
@@ -27,10 +37,20 @@ All notable changes to this project will be documented in this file.
   text and `OnMxpSupportRequested` never ran, so a client could not answer it. A line-mode sequence
   starts nothing on a server, and nothing without the option agreed.
 
-- **A client consumes the Pueblo hello whatever version it names.** Only PennMUSH's
-  `This world is Pueblo 1.10 Enhanced.` was recognised. TinyMUX and RhostMUSH send
-  `This world is Pueblo 1.0 Enhanced.`, which reached the application as text and never raised
-  `OnPuebloOffered`. The version is now any run of digits and dots; the rest of the line must match.
+## [4.5.3]
+
+### Added
+
+- **MSP (MUD Sound Protocol, option 90).** `MSPProtocol` negotiates the option: a server offers
+  `WILL MSP` and turns it on at the client's `DO`; a client answers a server's `WILL` with `DO`.
+  `OnMSPEnabled` and `OnMSPDisabled` say when the option starts and stops, and `IsMSPActive` says
+  whether it is in force. The `!!SOUND(…)` and `!!MUSIC(…)` lines themselves are in-band text and are
+  the host's to parse, as MXP's tags are. Register the plugin only where sound can be played; without
+  it the offer is refused as before.
+
+## [4.5.2]
+
+### Fixed
 
 - **A server whose `WILL CHARSET` is refused asks once more with `DO CHARSET`.** RFC 2066 lets
   either side ask. Axmud refuses the server's `WILL` and only takes `DO`; when it answers `WILL`, the
@@ -45,6 +65,7 @@ All notable changes to this project will be documented in this file.
 - **DA1 sixel detection interprets the device family first.** VT100 option numbers and the VT132
   family identifier no longer imply sixel. Families 62–65 advertise it with trailing feature 4;
   unsupported families remain unknown, with their raw attributes preserved.
+
 - **Server TTYPE selection follows the reported mode.** A repeated name no longer wraps to the
   first entry, and MTTS bitvectors and expanded capability names never become the selected terminal.
   Plugin and interpreter selections remain consistent through enumeration and resets.
@@ -53,83 +74,108 @@ All notable changes to this project will be documented in this file.
   reports `VT100` followed by `vt100` now completes the cycle without adding a duplicate or
   sending another `SEND`; the first reported spelling is preserved.
 
+## [4.5.1]
+
+### Fixed
+
 - **CHARSET ACCEPTED is checked against the outstanding request before changing the decoder.**
   Aliases resolve by code page. Rejected, withdrawn, consumed, empty and failed offers cannot be
   replayed; repeated requests snapshot the current allowed set instead of a cached first request.
+
 - **GMCP always uses UTF-8**, including receive decoding and string send overloads, independently
   of the ordinary terminal text charset.
+
+## [4.5.0]
+
+### Changed
+
+- **NEW-ENVIRON now negotiates in the direction RFC 1572 and MNES give.** A server sends
+  `DO NEW-ENVIRON` and answers the client's `WILL` with `SEND`; it used to send `WILL` and wait for
+  `DO`, which Mudlet and TinTin++ tolerate but MNES does not describe. A server now refuses a client's
+  `DO NEW-ENVIRON` with `WONT`. A client answers `DO` with `WILL`, acknowledges a later `DONT` with
+  `WONT` as RFC 1143 asks, and still accepts an older TNC server that announces `WILL`, so mixed
+  versions keep working. `EnvironProtocol` (RFC 1408) is unchanged.
+
+### Fixed
 
 - **MCCP streams end with `Z_FINISH`.** When this side stops compressing on purpose (a server on
   `DONT MCCP2`, a client sending `WONT MCCP3`, or `UnannounceSupportAsync`), the final deflate block and
   the Adler-32 trailer are written before the plain-telnet bytes that follow. The stream used to end
   without its final block and checksum, which the peer cannot tell apart from a cut-off.
+
 - **`DONT TTYPE` resets a client's terminal-type cycle**, as MTTS asks, so the next `SEND` gets the
   first name again.
+
 - **MSDP over GMCP requests were answered over native MSDP.** `MSDPServerHandler` wrote `IAC SB MSDP`
   even to a client that had refused MSDP and asked over GMCP, so the answer never arrived. It now
   answers `IAC SB GMCP 'MSDP {...}'` when GMCP is the only one of the two agreed, as the specification's
   example does. Reported variables follow the same rule.
+
 - **`SendGMCPCommand` with no data wrote a trailing space** (`Core.Ping `). "When sending a command
   without a data section the space should be omitted."
 
 ### Added
 
-- **`DecodeEntities()` on `MXPProtocol`, for a client.** Once MXP mode has started, `&quot;`,
-  `&amp;`, `&lt;`, `&gt;` and numeric `&#NN;` / `&#xNN;` entities in incoming lines are decoded
-  before the line reaches the application. A server with MXP on escapes these characters as MXP
-  requires (CoffeeMud does), and a client that renders no MXP showed them verbatim. Off by default.
-  Other named entities, and anything before MXP mode starts, are left as they arrived.
-
-- **MSP (MUD Sound Protocol, option 90).** `MSPProtocol` negotiates the option: a server offers
-  `WILL MSP` and turns it on at the client's `DO`; a client answers a server's `WILL` with `DO`.
-  `OnMSPEnabled` and `OnMSPDisabled` say when the option starts and stops, and `IsMSPActive` says
-  whether it is in force. The `!!SOUND(…)` and `!!MUSIC(…)` lines themselves are in-band text and are
-  the host's to parse, as MXP's tags are. Register the plugin only where sound can be played; without
-  it the offer is refused as before.
-
 - **`MsdpNames`**, in TelnetNegotiationCore.Gmcp: the MSDP commands, lists, reportable and configurable
   variables and the `MSDP` GMCP package name, spelled as the specification spells them. `CLIENT_ID`, which
   KaVir's snippet sends instead of `CLIENT_NAME`, is there too and marked nonstandard.
+
 - **`TelnetNegotiationCore.Gmcp`, a new package for the GMCP `Core` package.** `GmcpServerSession` reads
   `Core.Hello`, keeps the `Core.Supports.Set`/`Add`/`Remove` module list (`Supports("Char.Vitals")` is true
   when `Char` was listed), answers `Core.Ping`, reports `Core.KeepAlive` and sends `Core.Goodbye`.
   `GmcpClientSession` sends `Core.Hello` and `Core.Supports`, and times `Core.Ping`. It does not depend on
   TelnetNegotiationCore: a session sends through a delegate, which `SendGMCPCommand` fits.
+
 - **`UseGmcpClientSession` and `UseGmcpServerSession`** wire a Core session to `GMCPProtocol` in one
   call: `.AddPlugin<GMCPProtocol>().UseGmcpClientSession(out var gmcp, new("Char", 1))`. The client
   session sends `Core.Hello` with the name and version from `WithClientIdentity` once GMCP is agreed,
   then `Core.Supports.Set` with the modules given. No identity, no `Core.Hello`. `OnGMCPMessage` and
   `OnGMCPNegotiated` still run alongside the session. TelnetNegotiationCore now references
   TelnetNegotiationCore.Gmcp.
+
 - **`GMCPProtocol.OnGMCPNegotiated`**, called when the peer agrees to, refuses or withdraws GMCP. It runs
   after this side's own `DO`/`WILL`, so a client's `Core.Hello` sent from it follows the agreement.
+
 - **`MSDPClientHandler` is implemented.** It threw `NotImplementedException`. It now sends `LIST`, `SEND`,
   `REPORT`, `UNREPORT`, `RESET` and configurable variables, and keeps the latest value of every variable
   the server sends in `Variables`.
+
 - **Standard GMCP packages in `TelnetNegotiationCore.Gmcp`.** Typed messages for what Mudlet handles
   without a script: `Client.Media.*`, `Client.GUI`, `Client.Map`, `Char.Login.*` and `External.Discord.*`.
   Also `Char.Vitals`, `Room.Info` (the IRE shape Mudlet's mapper reads) and `Comm.Channel.Text`, and
   `GmcpPackages` constants for the other common package names. Sessions send them with
   `SendAsync(IGmcpMessage)`; `GmcpClientSession.SendAsync` sends any package.
+
 - **The GMCP packages Mudlet handles beyond the specifications.** `MediaPause` (`Client.Media.Pause`),
   `ClientGui.BaseUi` and the plain `Client.GUI` form, `Char.Login` version 2 (`LoginUrl`, `LoginToken`,
   `LoginReconnect`, `LoginAuthCode`, and the version 2 fields of `LoginDefault` and
   `LoginCredentials`), and `IRE.Composer.Edit`/`SetBuffer` (`ComposerEdit`, `ComposerSetBuffer`).
+
 - **Typed `Char.Items`, `Char.Skills`, `Char.Afflictions` and `Char.Defences` messages** in the Iron
   Realms shapes, and the MUD Standards `mudstd.*` proposals: resources and attributes, channels, rooms,
   frames and tile maps. `mudstd.*` lists written in braces, as the pages write them, are read too.
+
 - **Reported MSDP variables can be sent once per tick.** `MSDPServerModel.MarkChanged` records a
   change and `FlushChangesAsync` sends every marked variable in one message, leaving out any whose
   value matches the one last sent. `NotifyChangeAsync` still sends at once.
+
 - **`GmcpBatch`** does the same for GMCP: `Set` keeps each package's latest data and `FlushAsync`
   sends what changed since the last send.
+
 - **`TelnetInterpreter.SendMSDPVariablesAsync`** sends MSDP variables over native MSDP, or over GMCP as
   MSDP over GMCP when the peer agreed only to GMCP.
+
 - **`TelnetInterpreter.UnannounceSupportAsync` and `AnnounceSupportAsync`, for copyovers.** The first
   ends compression and withdraws every `WILL` and `DO` this side offered at connection start; the second
   makes the offers again. `InitialOffers` lists them. This is the procedure GMCP, MSDP, MCCP3, MTTS and
   MNES describe for a copyover, and what MTH calls `unannounce_support` / `announce_support`.
+
 - **`MttsCapabilities.Ssl` (2048).** The application sets it when the connection runs over TLS.
+
+## [4.4.0]
+
+### Added
+
 - **`TerminalQueryProtocol`: ask the terminal behind a connection what it can draw.** `ProbeAsync`
   writes the Kitty graphics query (`a=q`), `CSI 16 t` (cell size in pixels), XTVERSION and, always last,
   primary device attributes. A terminal answers in its own input, which over telnet is the user's next
