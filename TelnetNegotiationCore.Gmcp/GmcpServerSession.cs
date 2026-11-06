@@ -161,23 +161,31 @@ public sealed class GmcpServerSession(GmcpSend send)
 	/// True when the client listed <paramref name="package"/> or a module it belongs to:
 	/// <c>Char.Vitals</c> is supported when the client listed <c>Char.Vitals</c> or <c>Char</c>.
 	/// </summary>
-	public bool Supports(string package)
+	public bool Supports(string package) => SupportedVersion(package) is not null;
+
+	/// <summary>
+	/// The version the client listed for <paramref name="package"/>, or for the nearest module it
+	/// belongs to, or null if it listed neither. <c>Client.Media.Update</c> gives the version of
+	/// <c>Client.Media</c>, so <c>SupportedVersion(GmcpPackages.ClientMediaUpdate) &gt;= 2</c> asks
+	/// for MCMP version 2.
+	/// </summary>
+	public int? SupportedVersion(string package)
 	{
 		var modules = SupportedModules;
 		var name = package;
 
 		while (true)
 		{
-			if (modules.ContainsKey(name))
+			if (modules.TryGetValue(name, out var version))
 			{
-				return true;
+				return version;
 			}
 
 			var dot = name.LastIndexOf('.');
 
 			if (dot <= 0)
 			{
-				return false;
+				return null;
 			}
 
 			name = name.Substring(0, dot);

@@ -73,6 +73,91 @@ public class GmcpStandardPackageTests : BaseTest
 		await Assert.That(stop).IsEqualTo(new MediaStop());
 	}
 
+	/// <summary>
+	/// MCMP version 2 keys on Play, and <c>stream</c> and <c>close</c>.
+	/// </summary>
+	[Test]
+	public async Task MediaPlayWritesVersionTwoKeys()
+	{
+		await AssertJsonEqual(new MediaPlay("door.wav") { Direction = "north", Pan = -40, Caption = "a door creaks" }.ToJson(),
+			"""{"name":"door.wav","caption":"a door creaks","direction":"north","pan":-40}""");
+		await AssertJsonEqual(new MediaPlay("bird.wav") { Direction = 270 }.ToJson(), """{"name":"bird.wav","direction":270}""");
+		await AssertJsonEqual(new MediaPlay("radio") { Url = "https://radio.example.com/", Type = MediaType.Music, Stream = true }.ToJson(),
+			"""{"name":"radio","url":"https://radio.example.com/","type":"music","stream":true}""");
+		await AssertJsonEqual(new MediaPlay("intro.mp4") { Type = MediaType.Video, Close = true }.ToJson(),
+			"""{"name":"intro.mp4","type":"video","close":true}""");
+
+		await Assert.That(MediaPlay.TryParse("""{"name":"a.wav","direction":"NE","pan":"25","stream":"true","close":false}""", out var play)).IsTrue();
+		await Assert.That(play.Direction).IsEqualTo(MediaDirection.FromWord("NE"));
+		await Assert.That(play.Pan).IsEqualTo(25);
+		await Assert.That(play.Stream).IsTrue();
+		await Assert.That(play.Close).IsFalse();
+
+		// "Numbers may be sent as quoted strings": a quoted number is degrees.
+		await Assert.That(MediaPlay.TryParse("""{"name":"a.wav","direction":"90"}""", out var quoted)).IsTrue();
+		await Assert.That(quoted.Direction).IsEqualTo(MediaDirection.FromDegrees(90));
+	}
+
+	[Test]
+	public async Task MediaDirectionResolvesWordsAndDegrees()
+	{
+		await Assert.That(((MediaDirection)"northeast").Angle).IsEqualTo(45);
+		await Assert.That(((MediaDirection)"SW").Angle).IsEqualTo(225);
+		await Assert.That(((MediaDirection)"left").Angle).IsEqualTo(270);
+		await Assert.That(((MediaDirection)"left").IsRelative).IsTrue();
+		await Assert.That(((MediaDirection)"west").IsRelative).IsFalse();
+		await Assert.That(((MediaDirection)"up").Angle).IsNull();
+		await Assert.That(((MediaDirection)"d").IsVertical).IsTrue();
+		await Assert.That(((MediaDirection)"sideways").Angle).IsNull();
+
+		// "Values outside that range wrap around the circle."
+		await Assert.That(((MediaDirection)370).Angle).IsEqualTo(10);
+		await Assert.That(((MediaDirection)(-90)).Angle).IsEqualTo(270);
+	}
+
+	[Test]
+	public async Task MediaUpdateNeedsSomethingToSelect()
+	{
+		var update = new MediaUpdate { Key = "cart", Type = MediaType.Sound, Volume = 30, Direction = "east", Duration = 2000 };
+
+		await AssertJsonEqual(update.ToJson(), """{"key":"cart","type":"sound","volume":30,"direction":"east","duration":2000}""");
+		await Assert.That(update.Package).IsEqualTo("Client.Media.Update");
+		await Assert.That(MediaUpdate.TryParse("""{"tag":"rain","pan":"-100","duration":500}""", out var read)).IsTrue();
+		await Assert.That(read).IsEqualTo(new MediaUpdate { Tag = "rain", Pan = -100, Duration = 500 });
+
+		// "type ... on its own it selects nothing."
+		await Assert.That(new MediaUpdate { Type = MediaType.Music, Volume = 10 }.SelectsMedia).IsFalse();
+		await Assert.That(MediaUpdate.TryParse("""{"type":"music","volume":10}""", out _)).IsFalse();
+		await Assert.That(MediaUpdate.TryParse("", out _)).IsFalse();
+	}
+
+	[Test]
+	public async Task MediaListenerCarriesTheFacing()
+	{
+		await AssertJsonEqual(new MediaListener("west").ToJson(), """{"facing":"west"}""");
+		await AssertJsonEqual(new MediaListener(135).ToJson(), """{"facing":135}""");
+		await Assert.That(new MediaListener("n").Package).IsEqualTo("Client.Media.Listener");
+		await Assert.That(MediaListener.TryParse("""{"facing":180}""", out var read)).IsTrue();
+		await Assert.That(read.Facing.Angle).IsEqualTo(180);
+		await Assert.That(MediaListener.TryParse("""{}""", out _)).IsFalse();
+	}
+
+	/// <summary>
+	/// "Servers should match the package name and parse the number after it."
+	/// </summary>
+	[Test]
+	public async Task ServerReadsTheMediaVersionTheClientListed()
+	{
+		var server = new GmcpServerSession((_, _) => default);
+
+		await server.HandleAsync("Core.Supports.Set", """["Client.Media 2", "Char 1"]""");
+		await Assert.That(server.SupportedVersion(GmcpPackages.ClientMediaUpdate)).IsEqualTo(2);
+		await Assert.That(server.SupportedVersion("client.media")).IsEqualTo(2);
+		await Assert.That(server.SupportedVersion("Char.Vitals")).IsEqualTo(1);
+		await Assert.That(server.SupportedVersion("Room.Info")).IsNull();
+		await Assert.That(server.Supports("Room.Info")).IsFalse();
+	}
+
 	[Test]
 	public async Task ClientGuiAndMapUseMudletsKeys()
 	{
