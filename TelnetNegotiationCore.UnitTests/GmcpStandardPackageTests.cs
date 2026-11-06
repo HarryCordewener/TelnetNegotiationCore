@@ -140,6 +140,20 @@ public class GmcpStandardPackageTests : BaseTest
 		await Assert.That(MediaListener.TryParse("""{"facing":180}""", out var read)).IsTrue();
 		await Assert.That(read.Facing.Angle).IsEqualTo(180);
 		await Assert.That(MediaListener.TryParse("""{}""", out _)).IsFalse();
+
+		// "A compass word other than up or down": the client keeps its facing for anything else.
+		await Assert.That(MediaListener.TryParse("""{"facing":"up"}""", out _)).IsFalse();
+		await Assert.That(MediaListener.TryParse("""{"facing":"behind"}""", out _)).IsFalse();
+		await Assert.That(MediaListener.TryParse("""{"facing":"sideways"}""", out _)).IsFalse();
+		await Assert.That(MediaListener.TryParse("""{"facing":"NW"}""", out var northwest)).IsTrue();
+		await Assert.That(northwest.Facing.Angle).IsEqualTo(315);
+
+		// A number in any JSON form is degrees.
+		await Assert.That(MediaListener.TryParse("""{"facing":1e2}""", out var exponent)).IsTrue();
+		await Assert.That(exponent.Facing).IsEqualTo(MediaDirection.FromDegrees(100));
+		await AssertJsonEqual(exponent.ToJson(), """{"facing":100}""");
+		await Assert.That(MediaListener.TryParse("""{"facing":"89.6"}""", out var fraction)).IsTrue();
+		await Assert.That(fraction.Facing.Degrees).IsEqualTo(90);
 	}
 
 	/// <summary>

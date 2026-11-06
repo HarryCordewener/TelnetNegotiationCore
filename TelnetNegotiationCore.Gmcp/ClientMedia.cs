@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 using System.Text.Json.Nodes;
 
@@ -377,13 +378,18 @@ public sealed record MediaListener(MediaDirection Facing) : IGmcpMessage
 	/// <inheritdoc />
 	public string ToJson() => new JsonFieldWriter().Add("facing", Facing.ToNode()).ToString();
 
-	/// <summary>Reads a <c>Client.Media.Listener</c> body.</summary>
+	/// <summary>
+	/// Reads a <c>Client.Media.Listener</c> body. A facing that is not degrees or a compass word
+	/// other than <c>up</c> or <c>down</c> is refused, so the caller keeps the facing it had.
+	/// </summary>
 	public static bool TryParse(string? data, out MediaListener message)
 	{
 		message = null!;
 
 		if (!JsonFieldReader.TryRead(data, fields => MediaDirection.Read(fields.String("facing")), out var facing)
-			|| facing is null)
+			|| facing is null
+			|| facing.Angle is null
+			|| facing.IsRelative)
 		{
 			return false;
 		}
@@ -464,8 +470,8 @@ public sealed record MediaDirection
 	internal JsonNode? ToNode() => Degrees is { } degrees ? JsonValue.Create(degrees) : JsonValue.Create(Word);
 
 	/// <summary>
-	/// Reads a direction field: a number, or a number in a string as some servers send, is degrees;
-	/// any other text is a word.
+	/// Reads a direction field: a number, or a number in a string as some servers send, is degrees,
+	/// rounded to a whole degree; any other text is a word.
 	/// </summary>
 	internal static MediaDirection? Read(string? value)
 	{
@@ -474,9 +480,19 @@ public sealed record MediaDirection
 			return null;
 		}
 
-		return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var degrees)
-			? FromDegrees(degrees)
-			: FromWord(value!.Trim());
+		if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var degrees))
+		{
+			return FromDegrees(degrees);
+		}
+
+		// 90.5 and 1e2 are numbers too. NaN and Infinity parse as doubles but are no direction.
+		if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+			&& !double.IsNaN(number) && !double.IsInfinity(number))
+		{
+			return FromDegrees((int)Math.Round(number % 360));
+		}
+
+		return FromWord(value!.Trim());
 	}
 }
 
