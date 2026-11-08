@@ -25,12 +25,17 @@ public partial class TelnetInterpreter
 	/// Call after building the interpreter and while the transport feeds received bytes normally.
 	/// A complete application line or disposal ends the wait early. Silent clients reach the deadline;
 	/// timeout does not mean unsupported capabilities, and later replies remain valid.
+	/// Await the returned value once; use AsTask() if the caller needs to share or compose the wait.
 	/// </remarks>
-	public async Task<InitialNegotiationEnd> WaitForInitialNegotiationAsync(TimeSpan maximumWait, CancellationToken cancellationToken = default)
+	public async ValueTask<InitialNegotiationEnd> WaitForInitialNegotiationAsync(TimeSpan maximumWait, CancellationToken cancellationToken = default)
 	{
 		if (maximumWait < TimeSpan.Zero || maximumWait.TotalMilliseconds > int.MaxValue)
 			throw new ArgumentOutOfRangeException(nameof(maximumWait));
 		cancellationToken.ThrowIfCancellationRequested();
+		// Avoid allocating a timer, linked cancellation source, and WhenAny promise when no wait is needed.
+		if (_initialConnectionClosed.Task.IsCompleted) return InitialNegotiationEnd.ConnectionClosed;
+		if (_initialApplicationInput.Task.IsCompleted) return InitialNegotiationEnd.ApplicationInput;
+		if (maximumWait == TimeSpan.Zero) return InitialNegotiationEnd.DeadlineElapsed;
 		using var timer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 		try
 		{

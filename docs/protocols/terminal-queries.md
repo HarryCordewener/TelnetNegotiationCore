@@ -94,3 +94,7 @@ interpreter is disposed. Caller cancellation throws `OperationCanceledException`
 input processing, wait for a specific plugin, or prove every capability exchange is complete.
 A silent client remains unknown; later replies still update the plugins. The host decides when to
 register the connection and emit its welcome, and must keep receiving bytes during this window.
+
+The returned `ValueTask<InitialNegotiationEnd>` should be awaited once. Convert it with `AsTask()`
+if it must be shared or passed to task combinators. Zero-duration and already-finished windows
+complete synchronously without allocating a timer or linked cancellation source.

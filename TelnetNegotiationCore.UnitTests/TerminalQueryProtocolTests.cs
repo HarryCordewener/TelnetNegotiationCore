@@ -128,6 +128,28 @@ public class TerminalQueryProtocolTests : BaseTest
 	}
 
 	[Test]
+	public async Task StartupWindowFastPathsCompleteSynchronously()
+	{
+		var peer = await PeerAsync();
+		await using var interpreter = peer.Interpreter;
+		var expired = interpreter.WaitForInitialNegotiationAsync(TimeSpan.Zero);
+		await Assert.That(expired.IsCompletedSuccessfully).IsTrue();
+		await Assert.That(await expired).IsEqualTo(InitialNegotiationEnd.DeadlineElapsed);
+		await peer.FeedAsync("look\r\n");
+		var input = interpreter.WaitForInitialNegotiationAsync(TimeSpan.FromSeconds(10));
+		await Assert.That(input.IsCompletedSuccessfully).IsTrue();
+		await Assert.That(await input).IsEqualTo(InitialNegotiationEnd.ApplicationInput);
+		await interpreter.DisposeAsync();
+		var closed = interpreter.WaitForInitialNegotiationAsync(TimeSpan.FromSeconds(10));
+		await Assert.That(closed.IsCompletedSuccessfully).IsTrue();
+		await Assert.That(await closed).IsEqualTo(InitialNegotiationEnd.ConnectionClosed);
+		using var cancelled = new System.Threading.CancellationTokenSource();
+		cancelled.Cancel();
+		await Assert.That(async () => await interpreter.WaitForInitialNegotiationAsync(TimeSpan.Zero, cancelled.Token))
+			.Throws<OperationCanceledException>();
+	}
+
+	[Test]
 	public async Task DisposalEndsStartupWait()
 	{
 		var peer = await PeerAsync();
