@@ -89,9 +89,17 @@ Each row is a plugin you register, and one page in
 | | | [Pueblo](https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/docs/protocols/pueblo.md) | Pueblo handshake (in-band, no option) |
 | | | [Terminal queries](https://github.com/HarryCordewener/TelnetNegotiationCore/blob/main/docs/protocols/terminal-queries.md) | Kitty graphics, sixel, cell size and version, asked of the terminal (in-band, no option) |
 
-Being a telnet *negotiation* library, it does not render the content layers that ride on top: ANSI,
-Pueblo, and MXP's own tags are the host application's to draw. MXP is negotiated and Pueblo is
-handshaken; neither's markup is parsed.
+## Rendering ANSI, MXP, and other markup
+
+For styled text and output rendering, see [MarkupString](https://github.com/SharpMUSH/MarkupString).
+Its `MarkupText` model lets you build content once and render it as ANSI, MXP, Pueblo, HTML, or plain
+text, with Unicode-aware layout, colours, links, and images. See its
+[quick start](https://github.com/SharpMUSH/MarkupString#quick-start) and
+[package guide](https://github.com/SharpMUSH/MarkupString#packages) for the core and format-specific packages.
+
+Use Telnet Negotiation Core to negotiate the connection and discover client capabilities, then
+choose the appropriate MarkupString output format in your application and send the rendered content
+through TNC. The receiving client remains responsible for displaying that content.
 
 ## Project status
 
