@@ -103,6 +103,29 @@ public class TerminalQueryProtocolTests : BaseTest
 	}
 
 	[Test]
+	public async Task DisabledStartupProbeDoesNotBlockLaterAnnouncementHooks()
+	{
+		var peer = await PeerAsync(probeOnStart: true);
+		await using var interpreter = peer.Interpreter;
+		var laterCalls = 0;
+		interpreter.RegisterInitialWilling(() =>
+		{
+			laterCalls++;
+			return ValueTask.CompletedTask;
+		});
+		await interpreter.PluginManager!.DisablePluginAsync<TerminalQueryProtocol>();
+		var before = peer.Wired;
+		await interpreter.AnnounceSupportAsync();
+		await Assert.That(peer.Wired).IsEqualTo(before);
+		await Assert.That(laterCalls).IsEqualTo(1);
+		await Assert.That(async () => await peer.Queries.ProbeAsync()).Throws<InvalidOperationException>();
+		await interpreter.PluginManager.EnablePluginAsync<TerminalQueryProtocol>();
+		await interpreter.AnnounceSupportAsync();
+		await Assert.That(peer.Wired.Length > before.Length).IsTrue();
+		await Assert.That(laterCalls).IsEqualTo(2);
+	}
+
+	[Test]
 	public async Task StartupWindowCanExpireOrBeCancelledWithoutChangingCapabilities()
 	{
 		var peer = await PeerAsync();

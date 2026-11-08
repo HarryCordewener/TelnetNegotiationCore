@@ -241,7 +241,7 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 		{
 			if (context.Mode != Interpreters.TelnetInterpreter.TelnetMode.Server)
 				throw new InvalidOperationException("Startup terminal probes require server mode.");
-			context.RegisterInitialNegotiation(() => ProbeAsync(queries));
+			context.RegisterInitialNegotiation(() => IsEnabled ? ProbeAsync(queries) : default);
 		}
 		_emit = context.Interpreter.WriteUnfilteredInputByteAsync;
 		context.Interpreter.RegisterInputByteFilter(OnInputByteAsync, FinishInputLineAsync, () => _pending.Count > 0);

@@ -76,7 +76,8 @@ Inject a configured plugin to send the probes alongside the initial protocol off
 ```
 
 This is server-side and opt-in. It sends queries during the interpreter's initial negotiation,
-when the plugins and input filters are ready. `AnnounceSupportAsync` also reruns the startup hooks.
+when the plugins and input filters are ready. `AnnounceSupportAsync` also reruns the startup hooks. Disabled terminal-query plugins skip their
+startup probe; re-enabling the plugin allows subsequent announcements to probe again.
 Client identity and graphics preference remain application policy.
 
 For MXP, use the existing `.AddPlugin<MXPProtocol>().QuerySupportOnStart("IMAGE")`;
