@@ -30,20 +30,38 @@ public partial class TelnetInterpreter
 	/// Cancellation returns Cancelled and takes precedence when observed with another outcome.
 	/// Await the returned value once; use AsTask() if the caller needs to share or compose the wait.
 	/// </remarks>
-	public async ValueTask<InitialNegotiationEnd> WaitForInitialNegotiationAsync(TimeSpan maximumWait, CancellationToken cancellationToken = default)
+	public ValueTask<InitialNegotiationEnd> WaitForInitialNegotiationAsync(TimeSpan maximumWait, CancellationToken cancellationToken = default) =>
+		WaitForInitialNegotiationAsync(maximumWait, cancellationToken, endOnApplicationInput: true);
+
+	/// <summary>Wait for startup replies, optionally continuing after application input arrives.</summary>
+	/// <param name="maximumWait">The bounded window; zero skips waiting.</param>
+	/// <param name="cancellationToken">Cancellation ends the window with Cancelled.</param>
+	/// <param name="endOnApplicationInput">
+	/// True preserves interactive startup behavior. False keeps the window open for clients that send
+	/// saved login commands before their capability replies. Input is still delivered normally; hosts
+	/// that defer registration must queue application input themselves.
+	/// </param>
+	/// <remarks>
+	/// Disposal and cancellation still end the window. Replies arriving after the deadline remain valid;
+	/// this method does not establish that every capability is known. Keep feeding transport input while waiting.
+	/// </remarks>
+	public async ValueTask<InitialNegotiationEnd> WaitForInitialNegotiationAsync(TimeSpan maximumWait,
+		CancellationToken cancellationToken, bool endOnApplicationInput)
 	{
 		if (maximumWait < TimeSpan.Zero || maximumWait.TotalMilliseconds > int.MaxValue)
 			throw new ArgumentOutOfRangeException(nameof(maximumWait));
 		if (cancellationToken.IsCancellationRequested) return InitialNegotiationEnd.Cancelled;
 		// Avoid allocating a timer, linked cancellation source, and WhenAny promise when no wait is needed.
 		if (_initialConnectionClosed.Task.IsCompleted) return InitialNegotiationEnd.ConnectionClosed;
-		if (_initialApplicationInput.Task.IsCompleted) return InitialNegotiationEnd.ApplicationInput;
+		if (endOnApplicationInput && _initialApplicationInput.Task.IsCompleted) return InitialNegotiationEnd.ApplicationInput;
 		if (maximumWait == TimeSpan.Zero) return InitialNegotiationEnd.DeadlineElapsed;
 		using var timer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 		try
 		{
 			var delay = Task.Delay(maximumWait, timer.Token);
-			var ended = await Task.WhenAny(_initialConnectionClosed.Task, _initialApplicationInput.Task, delay).ConfigureAwait(false);
+			var ended = await (endOnApplicationInput
+				? Task.WhenAny(_initialConnectionClosed.Task, _initialApplicationInput.Task, delay)
+				: Task.WhenAny(_initialConnectionClosed.Task, delay)).ConfigureAwait(false);
 			if (cancellationToken.IsCancellationRequested) return InitialNegotiationEnd.Cancelled;
 			if (ended == _initialConnectionClosed.Task) return InitialNegotiationEnd.ConnectionClosed;
 			return ended == _initialApplicationInput.Task
