@@ -100,3 +100,15 @@ register the connection and emit its welcome, and must keep receiving bytes duri
 The returned `ValueTask<InitialNegotiationEnd>` should be awaited once. Convert it with `AsTask()`
 if it must be shared or passed to task combinators. Zero-duration and already-finished windows
 complete synchronously without allocating a timer or linked cancellation source.
+
+For clients with automatic login, keep the full window open even when a command arrives:
+
+```csharp
+var ended = await interpreter.WaitForInitialNegotiationAsync(
+    TimeSpan.FromMilliseconds(400), cancellationToken, endOnApplicationInput: false);
+```
+
+This also ignores application input received before the wait starts. Input callbacks still run:
+queue commands in the host until registration is ready. Cancellation and disposal still end the
+wait early. The original overload continues ending on application input, including calls that pass
+`default` as their second argument.

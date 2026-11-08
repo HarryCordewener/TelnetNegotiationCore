@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- An opt-in `WaitForInitialNegotiationAsync` overload keeps the startup window open after application
+  input (`endOnApplicationInput: false`), for clients with automatic login. The original overload
+  and its behavior remain unchanged; hosts still own command buffering.
+
 - Opt-in `TerminalQueryProtocol.ProbeOnStart` sends terminal queries through initial negotiation hooks.
 - `TelnetInterpreter.WaitForInitialNegotiationAsync` provides a bounded pre-welcome window that ends
   on application input, disposal, or timeout without blocking protocol reply processing.

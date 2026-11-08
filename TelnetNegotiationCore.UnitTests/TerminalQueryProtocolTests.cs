@@ -103,6 +103,49 @@ public class TerminalQueryProtocolTests : BaseTest
 	}
 
 	[Test]
+	[Arguments(false)]
+	[Arguments(true)]
+	public async Task StartupWindowCanKeepWaitingAfterAutomaticLogin(bool inputAlreadyReceived)
+	{
+		var peer = await PeerAsync();
+		await using var interpreter = peer.Interpreter;
+		if (inputAlreadyReceived) await peer.FeedAsync("connect guest\r\n");
+		using var cancellation = new System.Threading.CancellationTokenSource();
+		var waiting = interpreter.WaitForInitialNegotiationAsync(TimeSpan.FromMinutes(1),
+			cancellation.Token, endOnApplicationInput: false);
+		if (!inputAlreadyReceived) await peer.FeedAsync("connect guest\r\n");
+		await peer.FeedAsync(Esc + "[?62;4c");
+		await Assert.That(waiting.IsCompleted).IsFalse();
+		await Assert.That(peer.Queries.Report.Sixel).IsTrue();
+		await Assert.That(peer.Submitted).Contains("connect guest");
+		cancellation.Cancel();
+		await Assert.That(await waiting).IsEqualTo(InitialNegotiationEnd.Cancelled);
+		await Assert.That(await interpreter.WaitForInitialNegotiationAsync(TimeSpan.Zero, cancellationToken: default, endOnApplicationInput: false))
+			.IsEqualTo(InitialNegotiationEnd.DeadlineElapsed);
+	}
+
+	[Test]
+	public async Task DisposalEndsWindowThatIgnoresInput()
+	{
+		var peer = await PeerAsync();
+		var waiting = peer.Interpreter.WaitForInitialNegotiationAsync(TimeSpan.FromMinutes(1), cancellationToken: default, endOnApplicationInput: false);
+		await peer.FeedAsync("connect guest\r\n");
+		await peer.Interpreter.DisposeAsync();
+		await Assert.That(await waiting).IsEqualTo(InitialNegotiationEnd.ConnectionClosed);
+	}
+
+	[Test]
+	public async Task WindowThatIgnoresInputStillExpires()
+	{
+		var peer = await PeerAsync();
+		await using var interpreter = peer.Interpreter;
+		await peer.FeedAsync("connect guest\r\n");
+		var waiting = interpreter.WaitForInitialNegotiationAsync(TimeSpan.FromMilliseconds(30), cancellationToken: default, endOnApplicationInput: false);
+		await Assert.That(await waiting.AsTask().WaitAsync(TimeSpan.FromSeconds(10)))
+			.IsEqualTo(InitialNegotiationEnd.DeadlineElapsed);
+	}
+
+	[Test]
 	public async Task DisabledStartupProbeDoesNotBlockLaterAnnouncementHooks()
 	{
 		var peer = await PeerAsync(probeOnStart: true);
@@ -155,7 +198,7 @@ public class TerminalQueryProtocolTests : BaseTest
 	{
 		var peer = await PeerAsync();
 		await using var interpreter = peer.Interpreter;
-		var expired = interpreter.WaitForInitialNegotiationAsync(TimeSpan.Zero);
+		var expired = interpreter.WaitForInitialNegotiationAsync(TimeSpan.Zero, default);
 		await Assert.That(expired.IsCompletedSuccessfully).IsTrue();
 		await Assert.That(await expired).IsEqualTo(InitialNegotiationEnd.DeadlineElapsed);
 		await peer.FeedAsync("look\r\n");
