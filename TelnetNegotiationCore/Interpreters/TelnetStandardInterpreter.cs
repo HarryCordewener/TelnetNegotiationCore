@@ -570,6 +570,8 @@ public partial class TelnetInterpreter : IAsyncDisposable
             cp = kept;
         }
 
+        _initialApplicationInput.TrySetResult(true);
+
         if (CallbackOnSubmitAsync is not null)
         {
             await CallbackOnSubmitAsync(cp, lineEncoding, this);
@@ -1189,6 +1191,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
     private async Task DisposeCoreAsync()
     {
+        _initialConnectionClosed.TrySetResult(true);
         List<Exception>? failures = null;
         _byteChannel.Writer.TryComplete();  // Signal no more data
 

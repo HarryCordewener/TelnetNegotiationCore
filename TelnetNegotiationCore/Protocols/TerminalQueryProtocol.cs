@@ -101,7 +101,7 @@ public sealed record TerminalReport
 /// <see cref="OnTerminalReport"/>. A line that held nothing else is consumed.
 /// </para>
 /// <para>
-/// <b>Nothing is asked unless <see cref="ProbeAsync"/> is called.</b> Only a terminal emulator answers
+/// <b>Nothing is asked unless <see cref="ProbeAsync"/> is called or <see cref="ProbeOnStart"/> is enabled.</b> Only a terminal emulator answers
 /// these questions; a MUD client that is not one may print them. And a telnet client in line mode
 /// echoes the terminal's answer through the local line discipline before the user presses Enter, so the
 /// user can see it. When to ask is therefore the application's decision, made per connection — when the
@@ -120,6 +120,16 @@ public sealed record TerminalReport
 [RequiredMethod("OnTerminalReport", Description = "Configure the callback that receives what the terminal reported (optional but recommended)")]
 public class TerminalQueryProtocol : TelnetProtocolPluginBase
 {
+	private TerminalQueries? _startupQueries;
+
+	/// <summary>Ask the terminal when initial protocol negotiation starts. Disabled by default.</summary>
+	/// <remarks>Server-side only. Replies are handled by the normal input filters; this does not wait for them.</remarks>
+	public TerminalQueryProtocol ProbeOnStart(TerminalQueries queries = TerminalQueries.All)
+	{
+		_startupQueries = queries;
+		return this;
+	}
+
 	private const char Escape = '\u001b';
 	private const char Bell = '\u0007';
 
@@ -227,6 +237,12 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 	/// <remarks>Answers are filtered from application data after telnet framing and before consumer callbacks.</remarks>
 	public override void ConfigureStateMachine(IProtocolContext context)
 	{
+		if (_startupQueries is { } queries)
+		{
+			if (context.Mode != Interpreters.TelnetInterpreter.TelnetMode.Server)
+				throw new InvalidOperationException("Startup terminal probes require server mode.");
+			context.RegisterInitialNegotiation(() => IsEnabled ? ProbeAsync(queries) : default);
+		}
 		_emit = context.Interpreter.WriteUnfilteredInputByteAsync;
 		context.Interpreter.RegisterInputByteFilter(OnInputByteAsync, FinishInputLineAsync, () => _pending.Count > 0);
 	}
