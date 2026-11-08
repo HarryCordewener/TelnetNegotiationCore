@@ -45,7 +45,7 @@ public class TerminalQueryProtocolTests : BaseTest
 		}
 	}
 
-	private static async Task<Peer> PeerAsync(TelnetInterpreter.TelnetMode mode = TelnetInterpreter.TelnetMode.Server, bool captureBytes = false, int maxBufferSize = TelnetInterpreter.DefaultMaxBufferSize, bool markPrompts = false, Action onSubmit = null)
+	private static async Task<Peer> PeerAsync(TelnetInterpreter.TelnetMode mode = TelnetInterpreter.TelnetMode.Server, bool captureBytes = false, int maxBufferSize = TelnetInterpreter.DefaultMaxBufferSize, bool markPrompts = false, Action onSubmit = null, bool probeOnStart = false)
 	{
 		var peer = new Peer();
 		var builder = new TelnetInterpreterBuilder()
@@ -66,12 +66,12 @@ public class TerminalQueryProtocolTests : BaseTest
 				peer.Write(data);
 				return ValueTask.CompletedTask;
 			})
-			.AddPlugin<TerminalQueryProtocol>()
+			.AddPlugin((probeOnStart ? new TerminalQueryProtocol().ProbeOnStart() : new TerminalQueryProtocol())
 			.OnTerminalReport(report =>
 			{
 				lock (peer.Reports) peer.Reports.Add(report);
 				return ValueTask.CompletedTask;
-			});
+			}));
 		if (captureBytes)
 			builder.AddPlugin(new EchoProtocol().WithEchoHandler((b, _) =>
 			{
@@ -85,6 +85,55 @@ public class TerminalQueryProtocolTests : BaseTest
 		}
 		peer.Interpreter = await builder.BuildAsync();
 		return peer;
+	}
+
+	[Test]
+	public async Task StartupProbeIsOptInAndRepliesDoNotEndTheStartupWindow()
+	{
+		var peer = await PeerAsync(probeOnStart: true);
+		await using var interpreter = peer.Interpreter;
+		await Assert.That(peer.Wired).Contains(TerminalQueryProtocol.KittyGraphicsQuery);
+		await Assert.That(peer.Wired).Contains(TerminalQueryProtocol.DeviceAttributesQuery);
+		var waiting = interpreter.WaitForInitialNegotiationAsync(TimeSpan.FromSeconds(10));
+		await peer.FeedAsync(Esc + "[?62;4c");
+		await Assert.That(waiting.IsCompleted).IsFalse();
+		await peer.FeedAsync("look\r\n");
+		await Assert.That(await waiting).IsEqualTo(InitialNegotiationEnd.ApplicationInput);
+		await Assert.That(peer.Queries.Report.Sixel).IsTrue();
+	}
+
+	[Test]
+	public async Task StartupWindowCanExpireOrBeCancelledWithoutChangingCapabilities()
+	{
+		var peer = await PeerAsync();
+		await using var interpreter = peer.Interpreter;
+		await Assert.That(await interpreter.WaitForInitialNegotiationAsync(TimeSpan.Zero))
+			.IsEqualTo(InitialNegotiationEnd.DeadlineElapsed);
+		await Assert.That(peer.Queries.Report.Sixel).IsNull();
+		using var cancellation = new System.Threading.CancellationTokenSource();
+		var waiting = interpreter.WaitForInitialNegotiationAsync(TimeSpan.FromMinutes(1), cancellation.Token);
+		cancellation.Cancel();
+		await Assert.That(async () => await waiting).Throws<OperationCanceledException>();
+		await peer.FeedAsync(Esc + "[?62;4c");
+		await Assert.That(peer.Queries.Report.Sixel).IsTrue();
+	}
+
+	[Test]
+	public async Task StartupWindowRejectsAnUnboundedWait()
+	{
+		var peer = await PeerAsync();
+		await using var interpreter = peer.Interpreter;
+		await Assert.That(async () => await interpreter.WaitForInitialNegotiationAsync(TimeSpan.FromMilliseconds(-1)))
+			.Throws<ArgumentOutOfRangeException>();
+	}
+
+	[Test]
+	public async Task DisposalEndsStartupWait()
+	{
+		var peer = await PeerAsync();
+		var waiting = peer.Interpreter.WaitForInitialNegotiationAsync(TimeSpan.FromMinutes(1));
+		await peer.Interpreter.DisposeAsync();
+		await Assert.That(await waiting).IsEqualTo(InitialNegotiationEnd.ConnectionClosed);
 	}
 
 	[Test]

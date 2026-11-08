@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Opt-in `TerminalQueryProtocol.ProbeOnStart` sends terminal queries through initial negotiation hooks.
+- `TelnetInterpreter.WaitForInitialNegotiationAsync` provides a bounded pre-welcome window that ends
+  on application input, disposal, or timeout without blocking protocol reply processing.
+
 - **MCMP version 2.** `MediaPlay` has `Direction` and `Pan`, and the optional `Stream` and `Close`.
   `MediaUpdate` (`Client.Media.Update`) moves a playing sound or changes its volume, and
   `MediaListener` (`Client.Media.Listener`) sets the way the player faces. `MediaDirection` holds a
