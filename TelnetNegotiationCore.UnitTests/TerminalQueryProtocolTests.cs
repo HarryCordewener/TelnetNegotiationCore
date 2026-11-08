@@ -136,7 +136,7 @@ public class TerminalQueryProtocolTests : BaseTest
 		using var cancellation = new System.Threading.CancellationTokenSource();
 		var waiting = interpreter.WaitForInitialNegotiationAsync(TimeSpan.FromMinutes(1), cancellation.Token);
 		cancellation.Cancel();
-		await Assert.That(async () => await waiting).Throws<OperationCanceledException>();
+		await Assert.That(await waiting).IsEqualTo(InitialNegotiationEnd.Cancelled);
 		await peer.FeedAsync(Esc + "[?62;4c");
 		await Assert.That(peer.Queries.Report.Sixel).IsTrue();
 	}
@@ -168,8 +168,9 @@ public class TerminalQueryProtocolTests : BaseTest
 		await Assert.That(await closed).IsEqualTo(InitialNegotiationEnd.ConnectionClosed);
 		using var cancelled = new System.Threading.CancellationTokenSource();
 		cancelled.Cancel();
-		await Assert.That(async () => await interpreter.WaitForInitialNegotiationAsync(TimeSpan.Zero, cancelled.Token))
-			.Throws<OperationCanceledException>();
+		var cancelledWait = interpreter.WaitForInitialNegotiationAsync(TimeSpan.Zero, cancelled.Token);
+		await Assert.That(cancelledWait.IsCompletedSuccessfully).IsTrue();
+		await Assert.That(await cancelledWait).IsEqualTo(InitialNegotiationEnd.Cancelled);
 	}
 
 	[Test]

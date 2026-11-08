@@ -91,7 +91,8 @@ var ended = await interpreter.WaitForInitialNegotiationAsync(
 ```
 
 The wait ends at the deadline, on a complete application line after protocol filtering, or when the
-interpreter is disposed. Caller cancellation throws `OperationCanceledException`. It does not pause
+interpreter is disposed. Caller cancellation returns `InitialNegotiationEnd.Cancelled`. The host must stop startup on
+`Cancelled` or `ConnectionClosed` rather than register the connection. It does not pause
 input processing, wait for a specific plugin, or prove every capability exchange is complete.
 A silent client remains unknown; later replies still update the plugins. The host decides when to
 register the connection and emit its welcome, and must keep receiving bytes during this window.
