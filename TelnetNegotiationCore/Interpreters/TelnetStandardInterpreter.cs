@@ -168,6 +168,9 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
     internal void QueueInputCallback(Func<ValueTask> callback) => _pendingInputCallbacks.Enqueue(callback);
 
+    // Keep the closure allocation out of the synchronous per-byte path.
+    private void QueueInputWriteCompletion(ValueTask write) => QueueInputCallback(() => write);
+
     private async ValueTask DrainPendingInputCallbacksAsync()
     {
         while (_pendingInputCallbacks.Count > 0)
@@ -347,6 +350,45 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// </summary>
     public Func<byte, Encoding, ValueTask>? CallbackOnByteAsync { get; init; }
 
+    // Separate from the legacy post-filter callback, which the ECHO plugin owns.
+    private Func<byte, Encoding, ValueTask>? InputByteObserver { get; set; }
+    private Action? _inputByteObserverBoundary;
+
+    // Only built-in in-band protocols register here, during setup. This is not a public plugin API.
+    internal void RegisterInputByteObserver(Func<byte, Encoding, ValueTask> observer, Action onBoundary)
+    {
+        if (observer is null) throw new ArgumentNullException(nameof(observer));
+        if (onBoundary is null) throw new ArgumentNullException(nameof(onBoundary));
+        if (InputByteObserver is not null) throw new InvalidOperationException("An input byte observer is already registered.");
+        InputByteObserver = observer;
+        _inputByteObserverBoundary = onBoundary;
+    }
+
+    internal ValueTask ObserveInputByteAsync(byte b, Encoding? encoding = null)
+    {
+        if (InputByteObserver is not { } observer) return default;
+        try
+        {
+            var observed = observer(b, encoding ?? CurrentEncoding);
+            if (!observed.IsCompleted) return AwaitObserverAsync(observed);
+            observed.GetAwaiter().GetResult();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "An application-byte observer failed. Input continues unchanged.");
+        }
+        return default;
+    }
+
+    private async ValueTask AwaitObserverAsync(ValueTask observed)
+    {
+        try { await observed; }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "An application-byte observer failed. Input continues unchanged.");
+        }
+    }
+
     /// <summary>
     /// Constructor, sets up for standard Telnet protocol with NAWS and Character Set support.
     /// </summary>
@@ -426,18 +468,42 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// Write the character into a buffer.
     /// </summary>
     /// <param name="b">A useful byte for the Client/Server</param>
-    private async ValueTask WriteToBufferAndAdvanceAsync(byte b, Encoding? inputEncoding = null)
+    private ValueTask WriteToBufferAndAdvanceAsync(byte b, Encoding? inputEncoding = null)
     {
         var encoding = inputEncoding ?? CurrentEncoding;
-        if (_inputByteFilter is not null && await _inputByteFilter(b, encoding)) return;
+        // The machine observes CR when it arrives, even if normalization later drops it. A CR
+        // written here is a preserved pending CR, so observing it again would duplicate input.
+        if (b != 13 && InputByteObserver is not null)
+        {
+            var observed = ObserveInputByteAsync(b, encoding);
+            if (!observed.IsCompleted) return AwaitObserverAndWriteAsync(observed, b, encoding);
+            observed.GetAwaiter().GetResult();
+        }
+        return FilterAndWriteInputByteAsync(b, encoding);
+    }
+
+    private async ValueTask AwaitObserverAndWriteAsync(ValueTask observed, byte b, Encoding encoding)
+    {
+        await observed;
+        await FilterAndWriteInputByteAsync(b, encoding);
+    }
+
+    private ValueTask FilterAndWriteInputByteAsync(byte b, Encoding encoding) => _inputByteFilter is null
+        ? WriteUnfilteredInputByteAsync(b, encoding)
+        : FilterAndWriteAwaitedAsync(b, encoding);
+
+    private async ValueTask FilterAndWriteAwaitedAsync(byte b, Encoding encoding)
+    {
+        if (await _inputByteFilter!(b, encoding)) return;
         await WriteUnfilteredInputByteAsync(b, encoding);
     }
 
     /// <summary>Releases ordinary bytes retained by the application-data filter, in their original order.</summary>
-    internal async ValueTask WriteUnfilteredInputByteAsync(byte b, Encoding encoding)
+    internal ValueTask WriteUnfilteredInputByteAsync(byte b, Encoding encoding)
     {
         if (WriteToBufferAndAdvance(b, encoding) && CallbackOnByteAsync is { } callback)
-            await callback(b, encoding);
+            return callback(b, encoding);
+        return default;
     }
 
     /// <summary>
@@ -525,6 +591,10 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// </summary>
     private async ValueTask WriteToOutput()
     {
+        // CR NUL is also a line boundary in EndOfLine mode, without a raw LF to observe.
+        // Notify before a line filter or overflow handling can consume the submission.
+        _inputByteObserverBoundary?.Invoke();
+
         // Reset filter line state on every submission, even if this line is dropped or consumed.
         var consumeEmptyLine = _finishInputByteFilterLine is not null && await _finishInputByteFilterLine();
 

@@ -61,6 +61,8 @@ stateDiagram-v2
     }
     Accepting --> ReadingCharacters : any
     ReadingCharacters --> ReadingCharacters : any run
+    Accepting --> AfterCarriageReturn : 13
+    ReadingCharacters --> AfterCarriageReturn : 13
     AfterCarriageReturn --> Idle : 10
     AfterCarriageReturn --> Idle : 0
     AfterCarriageReturn --> AfterCarriageReturn : 13
@@ -77,8 +79,6 @@ stateDiagram-v2
     Dont --> Idle : any
     EndSubNegotiation --> Idle : 240
     Connected --> Connected : InitializeConnection
-    Accepting --> AfterCarriageReturn : 13
-    ReadingCharacters --> AfterCarriageReturn : 13
     Accepting --> StartNegotiation : 255
     ReadingCharacters --> StartNegotiation : 255
     StartNegotiation --> Willing : 251

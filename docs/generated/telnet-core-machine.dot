@@ -63,6 +63,8 @@ digraph TelnetCoreMachine {
     }
     Accepting -> ReadingCharacters [label="any"];
     ReadingCharacters -> ReadingCharacters [label="any run"];
+    Accepting -> AfterCarriageReturn [label="13"];
+    ReadingCharacters -> AfterCarriageReturn [label="13"];
     AfterCarriageReturn -> Idle [label="10"];
     AfterCarriageReturn -> Idle [label="0"];
     AfterCarriageReturn -> AfterCarriageReturn [label="13"];
@@ -79,8 +81,6 @@ digraph TelnetCoreMachine {
     Dont -> Idle [label="any"];
     EndSubNegotiation -> Idle [label="240"];
     Connected -> Connected [label="InitializeConnection"];
-    Accepting -> AfterCarriageReturn [label="13"];
-    ReadingCharacters -> AfterCarriageReturn [label="13"];
     Accepting -> StartNegotiation [label="255"];
     ReadingCharacters -> StartNegotiation [label="255"];
     StartNegotiation -> Willing [label="251"];

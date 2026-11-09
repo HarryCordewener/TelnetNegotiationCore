@@ -118,7 +118,7 @@ public sealed record TerminalReport
 /// </list>
 /// </remarks>
 [RequiredMethod("OnTerminalReport", Description = "Configure the callback that receives what the terminal reported (optional but recommended)")]
-public class TerminalQueryProtocol : TelnetProtocolPluginBase
+public partial class TerminalQueryProtocol : TelnetProtocolPluginBase
 {
 	private TerminalQueries? _startupQueries;
 
@@ -243,6 +243,7 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 				throw new InvalidOperationException("Startup terminal probes require server mode.");
 			context.RegisterInitialNegotiation(() => IsEnabled ? ProbeAsync(queries) : default);
 		}
+		if (ConfigureClientCellSizeResponder(context)) return;
 		_emit = context.Interpreter.WriteUnfilteredInputByteAsync;
 		context.Interpreter.RegisterInputByteFilter(OnInputByteAsync, FinishInputLineAsync, () => _pending.Count > 0);
 	}
@@ -256,13 +257,24 @@ public class TerminalQueryProtocol : TelnetProtocolPluginBase
 	}
 
 	/// <inheritdoc />
-	protected override async ValueTask OnProtocolDisabledAsync() => await OnNegotiatedAsync(false);
+	protected override async ValueTask OnProtocolDisabledAsync()
+	{
+		if (_clientCellSizeResponder is { } responder) await responder.StopAsync();
+		await OnNegotiatedAsync(false);
+	}
 
 	/// <inheritdoc />
-	protected override ValueTask OnDisposeAsync()
+	protected override ValueTask OnProtocolEnabledAsync()
+	{
+		_clientCellSizeResponder?.Enable();
+		return default;
+	}
+
+	/// <inheritdoc />
+	protected override async ValueTask OnDisposeAsync()
 	{
 		_disposed = true;
-		return default;
+		if (_clientCellSizeResponder is { } responder) await responder.StopAsync();
 	}
 
 	/// <summary>
