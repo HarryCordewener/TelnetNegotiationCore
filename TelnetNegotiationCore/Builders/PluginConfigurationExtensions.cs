@@ -11,6 +11,18 @@ namespace TelnetNegotiationCore.Builders;
 public static class PluginConfigurationExtensions
 {
     /// <summary>
+    /// Opts a client into answering cell-size queries with measured physical pixels.
+    /// See <see cref="TerminalQueryProtocol.WithCellSizeProvider"/>.
+    /// </summary>
+    public static PluginConfigurationContext<TerminalQueryProtocol> WithCellSizeProvider(
+        this PluginConfigurationContext<TerminalQueryProtocol> context,
+        Func<Models.TerminalCellSize?> provider)
+    {
+        context.Plugin.WithCellSizeProvider(provider);
+        return context;
+    }
+
+    /// <summary>
     /// Says who this application is from inside a plugin configuration chain.
     /// See <see cref="TelnetInterpreterBuilder.WithClientIdentity(Models.ClientIdentity)"/>.
     /// </summary>

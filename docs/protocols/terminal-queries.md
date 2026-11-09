@@ -46,6 +46,53 @@ interpreted as controls, which avoids mistaking UTF-8 continuation bytes for ter
 A line-mode client can still hold the reply locally until Enter. Incremental recognition starts when
 the client sends the bytes; it cannot bypass that client-side buffering.
 
+## Answering cell-size queries as a client
+
+A client that can measure its actual character cells can opt into the other side of the exchange:
+
+```csharp
+.AddPlugin<TerminalQueryProtocol>()
+    .WithCellSizeProvider(() => measuredCellSize)
+```
+
+`measuredCellSize` is a thread-safe snapshot of `TelnetNegotiationCore.Models.TerminalCellSize`,
+constructed with `(Width, Height)` in **physical pixels**, or null when unknown. Return the rendered
+cell dimensions, not the viewport size or display-independent units. The provider must not access UI
+controls from the receive thread or wait for input processing or disposal. Nonpositive dimensions or
+values above 65535 are ignored. No dimensions are invented when the terminal cannot measure them.
+Configuring the provider is client-only and must happen before building the interpreter. Without it,
+no client replies are enabled and the existing server-probe behavior is unchanged.
+
+The plugin answers the exact seven-bit `ESC[16t` query with `ESC[6;height;widtht`, with no appended
+newline. It recognizes fragmented queries after Telnet decoding and MCCP inflation, before line
+buffering. Telnet negotiation payloads and query-shaped content inside OSC/DCS/APC/PM/SOS strings
+are not acted on. CR/LF are observed before normalization; LF and real/inferred prompt boundaries
+reset unfinished controls. CR-NUL also resets them in `CarriageReturnMode.EndOfLine`; in Drop or
+Preserve mode it remains inside an open control string. Raw
+8-bit C1 controls are not interpreted, and a charset that cannot represent the control syntax as
+ASCII bytes disables responses. All application bytes, including a recognized query, continue
+unchanged to the normal line and prompt paths. This does not enable or replace ECHO.
+
+After font, zoom, DPI or host-terminal metrics change, or first become available:
+
+```csharp
+var queries = interpreter.PluginManager!.GetPlugin<TerminalQueryProtocol>()!;
+await queries.ReportCellSizeAsync();
+```
+
+A refresh sends nothing until the peer has asked at least once, and repeats no unchanged size.
+Each explicit query still gets a reply when valid measurements exist. The provider is read inside
+a serialized send gate, so overlapping A-to-B-to-A updates finish with A. Failed writes are not
+remembered as successful reports; a later refresh can retry. Provider/send failures during query
+handling are logged without dropping input; an explicit refresh reports its exception to the caller.
+
+Disabling the plugin stops queued reports immediately and waits for writes that already started.
+Re-enabling requires a fresh peer query. Interpreter disposal also suppresses queued refreshes.
+When closing a transport on which a write might be blocked, initiate plugin disable, close/cancel
+the transport, then await disable and dispose the interpreter. Waiting for disable before closing
+that blocked transport would wait for the write it cannot finish. This responder only answers cell
+size; it does not advertise graphics support or answer version/device-attribute queries.
+
 ## Interpreting sixel support
 
 DA1 starts with a device family, not a feature. Following

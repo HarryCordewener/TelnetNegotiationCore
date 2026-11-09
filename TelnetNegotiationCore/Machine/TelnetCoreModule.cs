@@ -16,6 +16,10 @@ public abstract partial class TelnetCoreContext
     /// <summary>Ordinary input, in whatever chunks it arrived. Carriage returns are already gone.</summary>
     public abstract void Write(ReadOnlySpan<byte> text);
 
+    // Line-control bytes bypass Write, which sees normalized text. Observe them at arrival,
+    // not when a later byte resolves a pending CR; the default keeps machine-only users unchanged.
+    internal virtual ValueTask ObserveLineControlAsync(byte value) => default;
+
     /// <summary>A line ended.</summary>
     public abstract ValueTask SubmitAsync();
 
@@ -93,8 +97,10 @@ public static class TelnetCoreModule
     /// A carriage return: what it meant depends on the next byte, so it is remembered rather than acted on.
     /// </summary>
     [Transition(From = typeof(Accepting), To = typeof(AfterCarriageReturn)), On(CarriageReturn)]
-    public static void PendingReturn()
+    public static class PendingReturn
     {
+        public static void Transform() { }
+        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.ObserveLineControlAsync(CarriageReturn);
     }
 
     /// <summary>
@@ -102,8 +108,10 @@ public static class TelnetCoreModule
     /// its ancestors do with values, so the state that takes a run of text has to name what stops that run.
     /// </summary>
     [Transition(From = typeof(ReadingCharacters), To = typeof(AfterCarriageReturn)), On(CarriageReturn)]
-    public static void PendingReturnInLine()
+    public static class PendingReturnInLine
     {
+        public static void Transform() { }
+        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.ObserveLineControlAsync(CarriageReturn);
     }
 
     /// <summary>CR LF: the line ends, and the carriage return was part of the terminator rather than data.</summary>
@@ -114,7 +122,7 @@ public static class TelnetCoreModule
         {
         }
 
-        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.SubmitAsync();
+        public static ValueTask CompletedAsync(TelnetCoreContext context) => ObserveNewlineAndSubmitAsync(context);
     }
 
     /// <summary>
@@ -130,7 +138,14 @@ public static class TelnetCoreModule
         {
         }
 
-        public static ValueTask CompletedAsync(TelnetCoreContext context, in TelnetMachineConfig config) => config.CarriageReturnMode switch
+        public static ValueTask CompletedAsync(TelnetCoreContext context, in TelnetMachineConfig config) =>
+            ObserveNulAndResolveReturnAsync(context, config.CarriageReturnMode);
+    }
+
+    private static async ValueTask ObserveNulAndResolveReturnAsync(TelnetCoreContext context, CarriageReturnMode mode)
+    {
+        await context.ObserveLineControlAsync(Nul);
+        await (mode switch
         {
             // RFC 1123 §3.3.1: the same effect as CR LF on a server reading user input.
             CarriageReturnMode.EndOfLine => context.SubmitAsync(),
@@ -139,8 +154,8 @@ public static class TelnetCoreModule
             CarriageReturnMode.Preserve => Write(context, CarriageReturn),
 
             // Drop: the pair is consumed entirely. The NUL never reaches the consumer.
-            _ => default,
-        };
+            _ => default(ValueTask),
+        });
     }
 
     /// <summary>
@@ -153,12 +168,13 @@ public static class TelnetCoreModule
     {
         public static void Transform() { }
 
-        public static void Completed(TelnetCoreContext context, in TelnetMachineConfig config)
+        public static ValueTask CompletedAsync(TelnetCoreContext context, in TelnetMachineConfig config)
         {
             if (config.CarriageReturnMode == CarriageReturnMode.Preserve)
             {
                 context.Write(Single(CarriageReturn));
             }
+            return context.ObserveLineControlAsync(CarriageReturn);
         }
     }
 
@@ -214,7 +230,7 @@ public static class TelnetCoreModule
         {
         }
 
-        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.SubmitAsync();
+        public static ValueTask CompletedAsync(TelnetCoreContext context) => ObserveNewlineAndSubmitAsync(context);
     }
 
     /// <summary>The same, from the middle of a line, which is where it usually arrives.</summary>
@@ -225,7 +241,7 @@ public static class TelnetCoreModule
         {
         }
 
-        public static ValueTask CompletedAsync(TelnetCoreContext context) => context.SubmitAsync();
+        public static ValueTask CompletedAsync(TelnetCoreContext context) => ObserveNewlineAndSubmitAsync(context);
     }
 
     /// <summary>IAC: what follows is a command, not text.</summary>
@@ -412,6 +428,12 @@ public static class TelnetCoreModule
     [Transition(From = typeof(SubNegotiating)), OnAny, Run]
     public static void Payload(ref SubNegotiating self, ReadOnlySpan<byte> run)
     {
+    }
+
+    private static async ValueTask ObserveNewlineAndSubmitAsync(TelnetCoreContext context)
+    {
+        await context.ObserveLineControlAsync(Newline);
+        await context.SubmitAsync();
     }
 
     /// <summary>Writes one byte and completes, so a switch arm can both write and return a task.</summary>

@@ -116,9 +116,8 @@ public partial class TelnetInterpreter
                 }
 
                 var b = text[position];
-                // Preserve the existing synchronous byte-callback contract. Terminal reports are
-                // queued by the filter instead, so awaiting a report never blocks this Write.
-                if (owner._inputByteFilter is null && owner.CallbackOnByteAsync is null)
+                // Unobserved ordinary text keeps the allocation-free synchronous path.
+                if (owner._inputByteFilter is null && owner.CallbackOnByteAsync is null && owner.InputByteObserver is null)
                 {
                     owner.WriteToBufferAndAdvance(b);
                 }
@@ -126,12 +125,27 @@ public partial class TelnetInterpreter
                 {
                     var write = owner.WriteToBufferAndAdvanceAsync(b);
                     if (write.IsCompleted) write.GetAwaiter().GetResult();
-                    else write.AsTask().GetAwaiter().GetResult();
+                    else
+                    {
+                        // A synchronous machine Write cannot await. Stop at its cooperative
+                        // boundary instead of blocking a thread; the next iteration retains any
+                        // suffix until this byte (observer, filter and echo) has finished.
+                        owner.QueueInputWriteCompletion(write);
+                        owner._generatedMachine!.RequestBatchBoundary();
+                    }
                 }
             }
 
             if (owner._pendingInputCallbacks.Count > 0)
                 owner._generatedMachine!.RequestBatchBoundary();
+        }
+
+        internal override async ValueTask ObserveLineControlAsync(byte value)
+        {
+            // A preserved CR can have queued an asynchronous legacy callback within this same
+            // transition. Finish it before observing the next original line-control byte.
+            await owner.DrainPendingInputAsync();
+            await owner.ObserveInputByteAsync(value);
         }
 
         public override ValueTask SubmitAsync() => owner.WriteToOutput();

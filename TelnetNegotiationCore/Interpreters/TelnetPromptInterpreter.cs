@@ -85,6 +85,8 @@ public partial class TelnetInterpreter
 			return false;
 		}
 
+		_inputByteObserverBoundary?.Invoke();
+
 		if (_bufferOverflowed)
 		{
 			_logger.LogWarning(

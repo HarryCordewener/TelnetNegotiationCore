@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Opt-in client cell-size replies on `TerminalQueryProtocol.WithCellSizeProvider`. The terminal
+  supplies measured physical pixels; the plugin answers `CSI 16 t` immediately, including across
+  network reads, without ECHO or a line terminator. `ReportCellSizeAsync` sends changed measurements
+  only after the peer has asked. Unknown/invalid measurements send nothing. Parsing, encoding checks,
+  ordered refreshes and shutdown are handled by the plugin; no generic public byte API is added.
+
 - An opt-in `WaitForInitialNegotiationAsync` overload keeps the startup window open after application
   input (`endOnApplicationInput: false`), for clients with automatic login. The original overload
   and its behavior remain unchanged; hosts still own command buffering.
