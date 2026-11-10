@@ -3,6 +3,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Built with the .NET 11 GA SDK (11.0.100); the net11.0 builds are compiled against the release runtime.
+
 ### Added
 
 - Opt-in client cell-size replies on `TerminalQueryProtocol.WithCellSizeProvider`. The terminal
