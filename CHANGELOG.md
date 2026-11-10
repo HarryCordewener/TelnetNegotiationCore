@@ -27,6 +27,13 @@ All notable changes to this project will be documented in this file.
   package or the module it belongs to. `SupportedVersion(GmcpPackages.ClientMediaUpdate) >= 2`
   asks for MCMP version 2.
 
+### Changed
+
+- **The `net11.0` build is compiled against .NET 11 GA instead of RC1.** `global.json` pins SDK
+  `11.0.100` and no longer allows prerelease SDKs, so building from source needs the released .NET
+  11 SDK. The net8.0 and net10.0 builds now use the trimming tasks from the 8.0.34 and 10.0.15
+  servicing releases that SDK carries.
+
 ### Fixed
 
 - **An empty `Client.Media.Pause` pauses all media.** `MediaPause.TryParse` refused an empty body;

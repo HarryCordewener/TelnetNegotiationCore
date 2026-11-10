@@ -104,7 +104,7 @@ through TNC. The receiving client remains responsible for displaying that conten
 ## Project status
 
 Stable. The package targets `netstandard2.0`, `net8.0`, `net10.0` and `net11.0`. Building from source
-needs the .NET 11 SDK (RC1 or later), which `global.json` pins.
+needs the .NET 11 SDK, which `global.json` pins.
 
 Releases are published from GitHub Actions by
 [trusted publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing) — no
