@@ -1,0 +1,15 @@
+<Project>
+
+  <!--
+    Runtime async on .NET 11: the compiler marks async methods MethodImplOptions.Async and the
+    runtime runs them, in place of a compiler-generated state machine. It is set here and not in
+    Directory.Build.props because a project's own TargetFramework is not yet known when the props
+    are read. Only net11.0 and later: below it the flag makes the compiler call preview-only APIs
+    (SYSLIB5007, CA2252), and netstandard2.0 has no such runtime. /p:UseRuntimeAsync=false builds
+    state machines instead, for comparing the two.
+  -->
+  <PropertyGroup Condition="'$(UseRuntimeAsync)' != 'false' AND $([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net11.0'))">
+    <Features>$(Features);runtime-async=on</Features>
+  </PropertyGroup>
+
+</Project>

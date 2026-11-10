@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Built with the .NET 11 GA SDK (11.0.100); the net11.0 builds are compiled against the release runtime.
+- The net11.0 builds use runtime async: async methods are marked `MethodImplOptions.Async` and the
+  runtime runs them, with no compiler-generated state machine. netstandard2.0, net8.0 and net10.0
+  are unchanged. `/p:UseRuntimeAsync=false` turns it off.
+- StateAlchemist 1.5.0 (was 1.3.0), which is built with runtime async on net11.0 as well.
 
 ### Added
 

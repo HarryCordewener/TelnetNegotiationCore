@@ -324,8 +324,8 @@
       },
       "StateAlchemist": {
         "type": "Transitive",
-        "resolved": "1.3.0",
-        "contentHash": "xH5kaKhxAO270/anPfjKeB7WzVfdK78tF13uMeOysIHrZEB7wlgL9QvTU/MVv0JZY7v2ukwIjtlj4ZhVqMvX2Q=="
+        "resolved": "1.5.0",
+        "contentHash": "xwTDdYDCeX/DiaD31aGMl4yiNZCkZyVOyRIAGlKn/zuieDizaS+R3vpUdWulEClF/s7VoL0+x4YnfhDBKbjHtg=="
       },
       "System.Diagnostics.EventLog": {
         "type": "Transitive",
@@ -337,7 +337,7 @@
         "dependencies": {
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.14, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.14, )",
-          "StateAlchemist": "[1.3.0, )",
+          "StateAlchemist": "[1.5.0, )",
           "TelnetNegotiationCore.Gmcp": "[0.1.0, )"
         }
       },
