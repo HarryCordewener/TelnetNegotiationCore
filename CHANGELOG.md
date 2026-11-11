@@ -3,37 +3,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Changed
-
-- Built with the .NET 11 GA SDK (11.0.100); the net11.0 builds are compiled against the release runtime.
-- The net11.0 builds use runtime async: async methods are marked `MethodImplOptions.Async` and the
-  runtime runs them, with no compiler-generated state machine. netstandard2.0, net8.0 and net10.0
-  are unchanged. `/p:UseRuntimeAsync=false` turns it off.
-- StateAlchemist 1.5.0 (was 1.3.0), which is built with runtime async on net11.0 as well.
-
-### Added
-
-- Opt-in client cell-size replies on `TerminalQueryProtocol.WithCellSizeProvider`. The terminal
-  supplies measured physical pixels; the plugin answers `CSI 16 t` immediately, including across
-  network reads, without ECHO or a line terminator. `ReportCellSizeAsync` sends changed measurements
-  only after the peer has asked. Unknown/invalid measurements send nothing. Parsing, encoding checks,
-  ordered refreshes and shutdown are handled by the plugin; no generic public byte API is added.
-
-- An opt-in `WaitForInitialNegotiationAsync` overload keeps the startup window open after application
-  input (`endOnApplicationInput: false`), for clients with automatic login. The original overload
-  and its behavior remain unchanged; hosts still own command buffering.
-
-- Opt-in `TerminalQueryProtocol.ProbeOnStart` sends terminal queries through initial negotiation hooks.
-- `TelnetInterpreter.WaitForInitialNegotiationAsync` provides a bounded pre-welcome window that ends
-  on application input, disposal, or timeout without blocking protocol reply processing.
-
-- **MCMP version 2.** `MediaPlay` has `Direction` and `Pan`, and the optional `Stream` and `Close`.
-  `MediaUpdate` (`Client.Media.Update`) moves a playing sound or changes its volume, and
-  `MediaListener` (`Client.Media.Listener`) sets the way the player faces. `MediaDirection` holds a
-  direction given as a word or as degrees, and resolves either to an angle.
-- **`SupportedVersion(package)` on `GmcpServerSession`**, the version the client listed for a
-  package or the module it belongs to. `SupportedVersion(GmcpPackages.ClientMediaUpdate) >= 2`
-  asks for MCMP version 2.
+## [4.11.0]
 
 ### Fixed
 
@@ -48,6 +18,52 @@ All notable changes to this project will be documented in this file.
   echoed: its local echo stayed off and nothing typed was shown. A server now sends `WILL ECHO`/`WONT ECHO`,
   a client `DO ECHO`/`DONT ECHO`, only when the state changes. The peer's answer is not answered again, and a
   `DO` answering a server's `WONT` does not turn echo back on (RFC 1143).
+
+## [4.10.0]
+
+### Changed
+
+- Built with the .NET 11 GA SDK (11.0.100); the net11.0 builds are compiled against the release runtime.
+- The net11.0 builds use runtime async: async methods are marked `MethodImplOptions.Async` and the
+  runtime runs them, with no compiler-generated state machine. netstandard2.0, net8.0 and net10.0
+  are unchanged. `/p:UseRuntimeAsync=false` turns it off.
+- StateAlchemist 1.5.0 (was 1.3.0), which is built with runtime async on net11.0 as well.
+
+## [4.9.0]
+
+### Added
+
+- Opt-in client cell-size replies on `TerminalQueryProtocol.WithCellSizeProvider`. The terminal
+  supplies measured physical pixels; the plugin answers `CSI 16 t` immediately, including across
+  network reads, without ECHO or a line terminator. `ReportCellSizeAsync` sends changed measurements
+  only after the peer has asked. Unknown/invalid measurements send nothing. Parsing, encoding checks,
+  ordered refreshes and shutdown are handled by the plugin; no generic public byte API is added.
+
+## [4.8.0]
+
+### Added
+
+- An opt-in `WaitForInitialNegotiationAsync` overload keeps the startup window open after application
+  input (`endOnApplicationInput: false`), for clients with automatic login. The original overload
+  and its behavior remain unchanged; hosts still own command buffering.
+
+## [4.7.0]
+
+### Added
+
+- Opt-in `TerminalQueryProtocol.ProbeOnStart` sends terminal queries through initial negotiation hooks.
+- `TelnetInterpreter.WaitForInitialNegotiationAsync` provides a bounded pre-welcome window that ends
+  on application input, disposal, or timeout without blocking protocol reply processing.
+
+- **MCMP version 2.** `MediaPlay` has `Direction` and `Pan`, and the optional `Stream` and `Close`.
+  `MediaUpdate` (`Client.Media.Update`) moves a playing sound or changes its volume, and
+  `MediaListener` (`Client.Media.Listener`) sets the way the player faces. `MediaDirection` holds a
+  direction given as a word or as degrees, and resolves either to an angle.
+- **`SupportedVersion(package)` on `GmcpServerSession`**, the version the client listed for a
+  package or the module it belongs to. `SupportedVersion(GmcpPackages.ClientMediaUpdate) >= 2`
+  asks for MCMP version 2.
+
+### Fixed
 
 - **An empty `Client.Media.Pause` pauses all media.** `MediaPause.TryParse` refused an empty body;
   MCMP version 2 defines it as "pause everything". The doc for `MediaPause.Priority` said it pauses
