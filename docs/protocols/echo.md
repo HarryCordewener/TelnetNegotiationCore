@@ -11,7 +11,9 @@ duration.
 ```
 
 `IsEchoing` is the same fact as a property. `EnableEchoAsync()` and `DisableEchoAsync()` drive the
-negotiation by hand — the pair a server calls around a password prompt.
+negotiation by hand — the pair a server calls around a password prompt. Each sends the peer the change
+(`WILL`/`WONT ECHO` from a server, `DO`/`DONT ECHO` from a client) and sends nothing when echo is already
+where it was asked to be.
 
 **Nothing is echoed for you unless you ask.** A server that agreed to echo still has to write the
 bytes back, and what to write is an application decision — a password prompt echoes nothing, a line

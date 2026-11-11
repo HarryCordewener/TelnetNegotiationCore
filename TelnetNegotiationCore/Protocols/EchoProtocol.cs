@@ -27,6 +27,11 @@ public class EchoProtocol : TelnetProtocolPluginBase
 
     private bool? _willEcho = null;
 
+    // True while a WILL/WONT (server) or DO/DONT (client) this side sent from EnableEchoAsync or
+    // DisableEchoAsync is unanswered: RFC 1143's WANTYES/WANTNO. The peer's next ECHO verb is the
+    // answer to it, and an answer is not answered again.
+    private bool _awaitingAnswer;
+
     private Func<bool, ValueTask>? _onEchoStateChanged;
     
     private Func<byte, System.Text.Encoding, ValueTask>? _echoHandler;
@@ -121,34 +126,47 @@ public class EchoProtocol : TelnetProtocolPluginBase
     }
 
     /// <summary>
-    /// Enables echoing for the connection
+    /// Turns echo on and tells the peer: a server sends <c>WILL ECHO</c>, a client <c>DO ECHO</c>.
+    /// Nothing is sent while echo is already on (RFC 854).
     /// </summary>
+    /// <remarks>
+    /// A server calls this after a password prompt. Changing the state without telling the peer
+    /// left a client that had turned its local echo off for the password with no echo at all.
+    /// </remarks>
     public async ValueTask EnableEchoAsync()
     {
-        if (!IsEnabled)
+        if (!IsEnabled || _willEcho == true)
             return;
 
-        var previousState = _willEcho;
         _willEcho = true;
+        _awaitingAnswer = true;
         Context.Logger.LogInformation("Echo enabled");
-        
-        if (previousState != _willEcho && _onEchoStateChanged != null)
+        await Context.SendNegotiationAsync(Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client ? s_doEcho : s_willEcho);
+
+        if (_onEchoStateChanged != null)
             await _onEchoStateChanged(true);
     }
 
     /// <summary>
-    /// Disables echoing for the connection
+    /// Turns echo off and tells the peer: a server sends <c>WONT ECHO</c>, a client <c>DONT ECHO</c>.
+    /// Nothing is sent while echo is already off. A server's initial <c>WILL ECHO</c> that is still
+    /// unanswered counts as on, so the peer does not go on believing the offer stands.
     /// </summary>
+    /// <remarks>
+    /// A server calls this before a password prompt, so the client stops echoing what is typed.
+    /// </remarks>
     public async ValueTask DisableEchoAsync()
     {
-        if (!IsEnabled)
+        if (!IsEnabled || _willEcho == false)
             return;
 
         var previousState = _willEcho;
         _willEcho = false;
+        _awaitingAnswer = true;
         Context.Logger.LogInformation("Echo disabled");
-        
-        if (previousState != _willEcho && _onEchoStateChanged != null)
+        await Context.SendNegotiationAsync(Context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client ? s_dontEcho : s_wontEcho);
+
+        if (previousState == true && _onEchoStateChanged != null)
             await _onEchoStateChanged(false);
     }
 
@@ -156,6 +174,7 @@ public class EchoProtocol : TelnetProtocolPluginBase
     protected override ValueTask OnDisposeAsync()
     {
         _willEcho = null;
+        _awaitingAnswer = false;
         _echoHandler = null;
         return default(ValueTask);
     }
@@ -218,6 +237,17 @@ public class EchoProtocol : TelnetProtocolPluginBase
     internal async ValueTask OnPeerNegotiatedAsync(byte verb, IProtocolContext context)
     {
         var client = context.Mode == Interpreters.TelnetInterpreter.TelnetMode.Client;
+        var answering = _awaitingAnswer;
+        _awaitingAnswer = false;
+
+        // RFC 1143: the peer may not refuse to turn an option off. A DO or WILL answering this
+        // side's own WONT or DONT is an error and is dropped, not taken as a new request.
+        if (answering && _willEcho == false
+            && ((verb == (byte)Trigger.DO && !client) || (verb == (byte)Trigger.WILL && client)))
+        {
+            context.Logger.LogDebug("Peer answered a disable of ECHO with a request to enable it; ignoring");
+            return;
+        }
 
         switch (verb)
         {
@@ -228,7 +258,7 @@ public class EchoProtocol : TelnetProtocolPluginBase
                 break;
 
             case (byte)Trigger.DONT when !client:
-                await OnDontEchoAsync(context);
+                await OnDontEchoAsync(context, answering);
                 break;
 
             // A server offers to echo, and the client accepts with DO ECHO.
@@ -237,7 +267,7 @@ public class EchoProtocol : TelnetProtocolPluginBase
                 break;
 
             case (byte)Trigger.WONT when client:
-                await WontEchoAsync(context);
+                await WontEchoAsync(context, answering);
                 break;
 
             // A peer asking this client to echo. RFC 857 allows either side to echo -- "neither,
@@ -282,16 +312,17 @@ public class EchoProtocol : TelnetProtocolPluginBase
     /// <summary>
     /// Server: the client asks it to stop echoing. Acknowledged with <c>WONT ECHO</c> only when echo
     /// was on (RFC 1143: us=YES, DONT → us=NO, send WONT). A <c>DONT</c> answering the initial
-    /// <c>WILL ECHO</c> is a refusal of that offer, and a refusal is not answered.
+    /// <c>WILL ECHO</c>, or one sent by <see cref="EnableEchoAsync"/>, is a refusal of that offer,
+    /// and a refusal is not answered.
     /// </summary>
-    private async ValueTask OnDontEchoAsync(IProtocolContext context)
+    private async ValueTask OnDontEchoAsync(IProtocolContext context, bool answering)
     {
         context.Logger.LogDebug("Client doesn't want server to echo - disabling echo");
         var previousState = _willEcho;
         _willEcho = false;
         await OnNegotiatedAsync(false);
 
-        if (previousState == true)
+        if (previousState == true && !answering)
             await context.SendNegotiationAsync(s_wontEcho);
 
         if (previousState != _willEcho && _onEchoStateChanged != null)
@@ -303,14 +334,14 @@ public class EchoProtocol : TelnetProtocolPluginBase
     /// echoing (RFC 1143: him=YES, WONT → him=NO, send DONT). A <c>WONT</c> while echo is already off
     /// is a mode this side is already in, and is not answered.
     /// </summary>
-    private async ValueTask WontEchoAsync(IProtocolContext context)
+    private async ValueTask WontEchoAsync(IProtocolContext context, bool answering)
     {
         context.Logger.LogDebug("Server won't echo - disabling echo");
         var previousState = _willEcho;
         _willEcho = false;
         await OnNegotiatedAsync(false);
 
-        if (previousState == true)
+        if (previousState == true && !answering)
             await context.SendNegotiationAsync(s_dontEcho);
 
         if (previousState != _willEcho && _onEchoStateChanged != null)
