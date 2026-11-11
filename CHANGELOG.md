@@ -37,6 +37,12 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `EchoProtocol` follows RFC 1143 when echo is turned off and asked for again. A client now answers a server's
+  `WONT ECHO` with `DONT ECHO` when the server was echoing (it sent nothing), and no longer answers a repeated
+  `WILL ECHO` while echo is already on (it sent `DO ECHO` every time, which two implementations can loop on).
+  A server answers a client's `DONT ECHO` with `WONT ECHO` when it was echoing, and accepts a later `DO ECHO`
+  with `WILL ECHO`.
+
 - **An empty `Client.Media.Pause` pauses all media.** `MediaPause.TryParse` refused an empty body;
   MCMP version 2 defines it as "pause everything". The doc for `MediaPause.Priority` said it pauses
   media of that priority or lower; it pauses media of lower priority only, unlike `MediaStop`.

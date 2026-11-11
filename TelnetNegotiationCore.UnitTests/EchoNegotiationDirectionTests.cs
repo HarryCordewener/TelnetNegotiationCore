@@ -140,4 +140,112 @@ public class EchoNegotiationDirectionTests : BaseTest
 		await Assert.That(await AnswerTo(mode, WontEcho)).IsNull();
 		await Assert.That(await AnswerTo(mode, DontEcho)).IsNull();
 	}
+	// ---------------------------------------------------------------------------------------------
+	// Turning echo off and asking again, once it is on (RFC 854, RFC 1143).
+	// ---------------------------------------------------------------------------------------------
+
+	/// <summary>
+	/// Drives several negotiations in order and returns what went back after each one: an empty
+	/// array where nothing was sent.
+	/// </summary>
+	private static async Task<byte[][]> AnswersTo(TelnetInterpreter.TelnetMode mode, params byte[][] incoming)
+	{
+		var sent = new System.Collections.Generic.List<byte>();
+
+		ValueTask Capture(ReadOnlyMemory<byte> data)
+		{
+			lock (sent)
+			{
+				sent.AddRange(data.ToArray());
+			}
+
+			return ValueTask.CompletedTask;
+		}
+
+		var interpreter = await BuildAndWaitAsync(new TelnetInterpreterBuilder()
+			.UseMode(mode)
+			.UseLogger(silentLogger)
+			.OnSubmit(NoOpSubmitCallback)
+			.OnNegotiation(Capture)
+			.AddPlugin<EchoProtocol>());
+
+		await interpreter.WaitForProcessingAsync();
+		lock (sent)
+		{
+			sent.Clear();
+		}
+
+		var answers = new byte[incoming.Length][];
+		for (var i = 0; i < incoming.Length; i++)
+		{
+			await InterpretAndWaitAsync(interpreter, incoming[i]);
+			await interpreter.WaitForProcessingAsync();
+			lock (sent)
+			{
+				answers[i] = sent.ToArray();
+				sent.Clear();
+			}
+		}
+
+		await interpreter.DisposeAsync();
+		return answers;
+	}
+
+	/// <summary>
+	/// A server that stops echoing (the end of a password prompt) is acknowledged: RFC 1143 has a
+	/// <c>WONT</c> for an option that is on answered with <c>DONT</c>, because the server cannot tell an
+	/// unanswered disable from a lost one.
+	/// </summary>
+	[Test]
+	public async Task AClientAcknowledgesTheServerStoppingEcho()
+	{
+		var answers = await AnswersTo(TelnetInterpreter.TelnetMode.Client, WillEcho, WontEcho);
+
+		await AssertByteArraysEqual(answers[0], DoEcho);
+		await AssertByteArraysEqual(answers[1], DontEcho);
+	}
+
+	/// <summary>
+	/// RFC 854: "if a party receives what appears to be a request to enter some mode it is already in,
+	/// the request should not be acknowledged". Answering every <c>WILL ECHO</c> is how two
+	/// implementations loop.
+	/// </summary>
+	[Test]
+	public async Task AClientDoesNotAnswerARepeatedWillEcho()
+	{
+		var answers = await AnswersTo(TelnetInterpreter.TelnetMode.Client, WillEcho, WillEcho);
+
+		await AssertByteArraysEqual(answers[0], DoEcho);
+		await Assert.That(answers[1]).IsEmpty();
+	}
+
+	/// <summary>A password prompt is the round trip: on, off, on, off, each change answered once.</summary>
+	[Test]
+	public async Task AClientFollowsAPasswordPromptRoundTrip()
+	{
+		var answers = await AnswersTo(TelnetInterpreter.TelnetMode.Client,
+			WillEcho, WontEcho, WontEcho, WillEcho, WontEcho);
+
+		await AssertByteArraysEqual(answers[0], DoEcho);
+		await AssertByteArraysEqual(answers[1], DontEcho);
+		await Assert.That(answers[2]).IsEmpty(); // already off
+		await AssertByteArraysEqual(answers[3], DoEcho);
+		await AssertByteArraysEqual(answers[4], DontEcho);
+	}
+
+	/// <summary>
+	/// The server's side of the same rule: a client asking it to stop echoing, once echo is on, is
+	/// acknowledged with <c>WONT</c>; asked again afterwards, it agrees with <c>WILL</c>, since its
+	/// initial offer has been answered and a <c>DO</c> is now a new request.
+	/// </summary>
+	[Test]
+	public async Task AServerAcknowledgesDontAndAcceptsANewDo()
+	{
+		var answers = await AnswersTo(TelnetInterpreter.TelnetMode.Server, DoEcho, DontEcho, DoEcho, DoEcho);
+
+		await Assert.That(answers[0]).IsEmpty();  // agrees with its own initial WILL
+		await AssertByteArraysEqual(answers[1], WontEcho);
+		await AssertByteArraysEqual(answers[2], WillEcho);
+		await Assert.That(answers[3]).IsEmpty();  // already on
+	}
 }
