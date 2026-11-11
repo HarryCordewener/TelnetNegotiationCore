@@ -51,20 +51,34 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<PackageReference Include="StateAlchemist" Version="1.5.0" />
+	</ItemGroup>
+
+	<!--
+		The .NET 11 packages have no net8.0 build: under net8.0 they fall back to their netstandard2.0 build, which
+		brings Microsoft.Bcl.AsyncInterfaces and clashes with the framework's own IAsyncEnumerable. net8.0 keeps the
+		.NET 10 line, which still targets it.
+	-->
+	<ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
 		<PackageReference Include="System.IO.Pipelines" Version="10.0.14" />
-		<PackageReference Include="StateAlchemist" Version="1.5.0" />
+	</ItemGroup>
+
+	<ItemGroup Condition="'$(TargetFramework)' != 'net8.0'">
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="11.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="11.0.0" />
+		<PackageReference Include="System.IO.Pipelines" Version="11.0.0" />
 	</ItemGroup>
 
 	<!-- Packages needed for netstandard2.0 -->
 	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
 		<PackageReference Include="System.Memory" Version="4.6.3" />
-		<PackageReference Include="System.Text.Json" Version="10.0.14" />
-		<PackageReference Include="System.Collections.Immutable" Version="10.0.14" />
-		<PackageReference Include="System.Threading.Channels" Version="10.0.14" />
+		<PackageReference Include="System.Text.Json" Version="11.0.0" />
+		<PackageReference Include="System.Collections.Immutable" Version="11.0.0" />
+		<PackageReference Include="System.Threading.Channels" Version="11.0.0" />
 		<PackageReference Include="SharpZipLib" Version="1.4.2" />
-		<PackageReference Include="PolySharp" Version="1.16.0">
+		<PackageReference Include="PolySharp" Version="1.17.0">
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
 		</PackageReference>
