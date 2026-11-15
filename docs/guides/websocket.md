@@ -92,6 +92,8 @@ app.Map("/ws", async (HttpContext ctx) =>
 - `WithFallback` (or `acceptNoSubprotocol: true`) picks the handler for a client that offers nothing. Without one,
   `RunAsync` closes such a socket with 1002.
 - A client offers the registry's names with `options.AddSubprotocols(registry)` and runs the same `RunAsync`.
+- `AddTelnetSession` registers the telnet names to run an `ITelnetSession`, the same object a TCP connection
+  runs; see [Connections and sessions](sessions.md).
 
 ## Writing a subprotocol handler
 

@@ -4,6 +4,10 @@
 [Getting started](getting-started.md) uses. When you need the loop itself — a transport this library
 does not know about, or your own framing around it — build the interpreter and drive it.
 
+Check [Connections and sessions](sessions.md) first: counting traffic, acting after each chunk of input, wrapping
+the writes and closing from your side are builder hooks, and a new transport is an `ITelnetTransport`. Both keep
+the library's read loop.
+
 ## Wiring only the write side
 
 `UsePipe` or `UseStream` wires `OnNegotiation` to the transport and leaves the reading to you:

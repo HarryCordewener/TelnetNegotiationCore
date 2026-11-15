@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **`StartAsync` and `TelnetConnection`.** `StartAsync` takes the transports `BuildAndStartAsync` takes and returns
+  a connection handle: `Interpreter`, `Completion`, `Closed`, `CloseAsync` (ends the connection from this side,
+  whatever the transport) and `ClosedByServer`. It owns the interpreter and deconstructs as the old
+  `(interpreter, readTask)` pair. See [Connections and sessions](docs/guides/sessions.md).
+- **Read and write hooks on the builder:** `OnReceived` (each chunk received), `OnInputProcessed` (after each chunk
+  has been handled) and `WrapOutput` (a decorator on every write). The input hooks run in every read loop the
+  library starts, `BuildAndStartAsync` and the WebSocket handlers included.
+- `ITelnetTransport` and `TelnetTransport` (`Pipe`, `Stream`, `Tcp`, `WebSocket`): every built-in read loop now
+  runs through one, and a transport the library does not know is one interface away. `Pipe` and `Stream` take a
+  `close` lambda, so a Kestrel connection can be aborted.
+- **`ITelnetSession`:** one object per connection that configures the builder and then runs beside the read loop.
+  `TelnetConnection.RunAsync(session, transport)` runs it on any transport, and
+  `WebSocketSubprotocolRegistry.AddTelnetSession` (or `TelnetWebSocketHandler.ForSession`) on a WebSocket
+  endpoint, so the same code serves TCP and WebSocket players. `TelnetSession.Create` makes one from two lambdas.
+
+## [4.12.0]
+
+### Added
+
 - **WebSocket transport, following the [mudstandards.org WebSocket proposal](https://mudstandards.org/websocket/).**
   `BuildAndStartAsync(WebSocket)` runs the interpreter over `telnet.mudstandards.org` (and its alias `telnet`), or
   `telnetb64.mudstandards.org`, server or client side, on every target framework. Each write goes out as one BINARY
