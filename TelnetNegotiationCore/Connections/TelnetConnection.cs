@@ -84,12 +84,18 @@ public sealed class TelnetConnection : IAsyncDisposable
 
 		if (builder.StartingCallback is { } starting)
 		{
+			// Closed is the hook's only cancellation signal, and the read loop that would cancel it with the start
+			// token has not started yet.
+			var startCancelled = cancellationToken.Register(static state => ((TelnetConnection)state!).CancelClosed(), connection);
 			try
 			{
 				await starting(connection);
 			}
 			catch
 			{
+				// The connection ends here, so a hook that kept it sees Closed cancelled.
+				Volatile.Write(ref connection._disposed, 1);
+				connection.CancelClosed();
 				try
 				{
 					await connection.Interpreter.DisposeAsync();
@@ -100,11 +106,14 @@ public sealed class TelnetConnection : IAsyncDisposable
 				}
 				finally
 				{
+					await startCancelled.DisposeAsync();
 					connection.DisposeTokens();
 				}
 
 				throw;
 			}
+
+			await startCancelled.DisposeAsync();
 		}
 
 		var feed = builder.InputFeed(connection.Interpreter);

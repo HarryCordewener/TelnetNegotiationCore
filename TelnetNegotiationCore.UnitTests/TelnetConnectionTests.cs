@@ -155,6 +155,55 @@ public class TelnetConnectionTests : BaseTest
 	}
 
 	[Test]
+	public async Task AFailingOnStartingEndsTheConnectionItHandedOut()
+	{
+		var wire = new PipeWire();
+		TelnetConnection? kept = null;
+		var builder = ServerBuilder()
+			.OnStarting(started =>
+			{
+				kept = started;
+				throw new InvalidOperationException("refused");
+			});
+
+		await Assert.ThrowsAsync<InvalidOperationException>(async () => await builder.StartAsync(wire.Server));
+
+		await Assert.That(kept!.Closed.IsCancellationRequested).IsTrue();
+		await Assert.That(kept.ClosedByServer).IsFalse();
+	}
+
+	[Test]
+	public async Task CancellingTheStartTokenDuringOnStartingCancelsClosed()
+	{
+		var wire = new PipeWire();
+		using var cts = new CancellationTokenSource();
+		var hookWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var builder = ServerBuilder()
+			.OnStarting(async started =>
+			{
+				hookWaiting.SetResult();
+				try
+				{
+					await Task.Delay(Timeout.Infinite, started.Closed);
+				}
+				catch (OperationCanceledException)
+				{
+					// What the hook waits for.
+				}
+			});
+
+		var starting = builder.StartAsync(wire.Server, cts.Token);
+		await hookWaiting.Task.WaitAsync(TimeSpan.FromSeconds(5));
+		await cts.CancelAsync();
+
+		var connection = await starting.WaitAsync(TimeSpan.FromSeconds(5));
+		await connection.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+		await Assert.That(connection.Completion.IsCompletedSuccessfully).IsTrue();
+		await Assert.That(connection.Closed.IsCancellationRequested).IsTrue();
+		await connection.DisposeAsync();
+	}
+
+	[Test]
 	public async Task ASessionsOnStartingRunsBeforeTheSessionAndTheReadLoop()
 	{
 		var wire = new PipeWire();
