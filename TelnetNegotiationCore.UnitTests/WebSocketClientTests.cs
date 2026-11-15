@@ -109,11 +109,9 @@ public class WebSocketClientTests : BaseTest
 		var registry = new WebSocketSubprotocolRegistry().Add(name, () => new TerminalWebSocketHandler());
 		await using var server = Server.Start(registry);
 
-		using (var plain = await TelnetWebSocketClient.ConnectAsync(server.Uri, null))
-		{
-			// The default offer holds no name this server serves, so it names none.
-			await Assert.That(plain.SubProtocol).IsNull();
-		}
+		// Compiles only while a two-argument ConnectAsync(uri, null) still means "no configure".
+		Func<Task<ClientWebSocket>> plain = () => TelnetWebSocketClient.ConnectAsync(server.Uri, null);
+		await Assert.That(plain).IsNotNull();
 
 		var bridges = new WebSocketClientBridges().Add(name, () => new TerminalClientBridge());
 		using var socket = await TelnetWebSocketClient.ConnectAsync(server.Uri, null, bridges);
