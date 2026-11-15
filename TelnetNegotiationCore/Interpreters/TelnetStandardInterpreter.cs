@@ -151,6 +151,19 @@ public partial class TelnetInterpreter : IAsyncDisposable
     private long _itemsHandled;
 
     /// <summary>
+    /// Completed by the processing loop the next time <see cref="_itemsHandled"/> moves, so that
+    /// <see cref="WaitForProcessingAsync"/> can await progress rather than poll for it. Null while
+    /// nobody is waiting, so the loop pays one exchange per item and allocates nothing.
+    /// </summary>
+    /// <remarks>
+    /// A waiter installs it and only then reads <see cref="_itemsHandled"/>; the loop adds to the
+    /// count and only then takes it. Either the loop's add comes before the waiter's read, and the
+    /// waiter sees the new count, or it comes after the waiter installed the signal, and the loop
+    /// completes it. Continuations run asynchronously so a waiter never resumes on the loop's thread.
+    /// </remarks>
+    private TaskCompletionSource<bool>? _handledSignal;
+
+    /// <summary>
     /// Observers that see each assembled line before <see cref="CallbackOnSubmitAsync"/> does, and
     /// may rewrite or consume it. See <see cref="RegisterInputLineObserver"/>.
     /// </summary>
@@ -954,6 +967,11 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// an inbound transform can decode to none or to many, and all of that is the handling of the one
     /// item, so a caller waiting on compressed input waits for the decoded bytes too.
     /// </para>
+    /// <para>
+    /// <b>It awaits a signal, never a timer.</b> It used to poll with <c>Task.Delay(1)</c>, which is one
+    /// timer tick a check (about 4 ms on Linux, 15.6 ms on Windows), and the builder's
+    /// <c>OnInputProcessed</c> read loop calls it after every read. See <see cref="_handledSignal"/>.
+    /// </para>
     /// </remarks>
     /// <param name="maxWaitMs">How long to wait before giving up and returning anyway (default:
     /// 1000ms). A ceiling on a handler that never finishes, not the mechanism.</param>
@@ -967,12 +985,24 @@ public partial class TelnetInterpreter : IAsyncDisposable
         // peer that keeps sending. Otherwise a busy connection would hold the caller here until the
         // ceiling, which reads as a hang rather than as a barrier.
         var target = Interlocked.Read(ref _itemsQueued);
-        var startTime = DateTime.UtcNow;
 
-        while (Interlocked.Read(ref _itemsHandled) < target
-            && (DateTime.UtcNow - startTime).TotalMilliseconds < maxWaitMs)
+        if (Interlocked.Read(ref _itemsHandled) < target)
         {
-            await Task.Delay(1);
+            using var ceiling = new CancellationTokenSource(maxWaitMs);
+            var timedOut = Task.Delay(Timeout.Infinite, ceiling.Token);
+
+            while (true)
+            {
+                var signal = Volatile.Read(ref _handledSignal);
+                if (signal is null)
+                {
+                    var fresh = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    signal = Interlocked.CompareExchange(ref _handledSignal, fresh, null) ?? fresh;
+                }
+
+                if (Interlocked.Read(ref _itemsHandled) >= target) break;
+                if (await Task.WhenAny(signal.Task, timedOut) == timedOut) break;
+            }
         }
 
         if (additionalDelayMs > 0)
@@ -1096,6 +1126,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 finally
                 {
                     Interlocked.Add(ref _itemsHandled, handledItems);
+                    Interlocked.Exchange(ref _handledSignal, null)?.TrySetResult(true);
                 }
             }
             _logger.LogDebug("Byte processing completed. Total bytes processed: {ByteCount}", byteCount);

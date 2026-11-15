@@ -34,6 +34,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `WaitForProcessingAsync` no longer polls with `Task.Delay(1)`; the processing loop signals it when an item has been
+  handled. A pending wait cost a timer tick, about 4 ms on Linux and 15.6 ms on Windows, and `OnInputProcessed`
+  pays that wait after every read, so a server writing a few bytes at a time was slowed to one read per tick. It is
+  now about 5 µs, and a wait with nothing pending returns at once.
 - `TelnetWebSocketClient.ConnectAsync(uri)` dials again offering no subprotocol when the server answers the
   `telnet.mudstandards.org`/`telnet` offer with an HTTP error. websockify (400) and an Apache proxy in front of a game
   (502) refuse names they do not know, and accept the same handshake with none; MUME's and The Last Outpost's
