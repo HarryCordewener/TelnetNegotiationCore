@@ -64,6 +64,61 @@ public class WebSocketClientTests : BaseTest
 	}
 
 	[Test]
+	public async Task AServerWithNoTelnetSubprotocolIsReachedOverGmcp()
+	{
+		// Evennia: json, gmcp, terminal and its own v1, in that order of preference, and no telnet.
+		var hello = new TaskCompletionSource<(string Package, string Data)>(TaskCreationOptions.RunContinuationsAsynchronously);
+		var registry = new WebSocketSubprotocolRegistry()
+			.Add("json.mudstandards.org", () => new GmcpWebSocketHandler())
+			.Add(MudWebSocketSubprotocols.Gmcp, () => new GmcpWebSocketHandler
+			{
+				Opened = h => h.SendAsync("Welcome to Evennia.\r\n"),
+				GmcpReceived = (h, package, data) =>
+				{
+					hello.TrySetResult((package, data));
+					return h.SendGmcpAsync("Char.Vitals", "{\"hp\":10}");
+				},
+			})
+			.Add(MudWebSocketSubprotocols.Terminal, () => new TerminalWebSocketHandler());
+		await using var server = Server.Start(registry);
+
+		using var socket = await TelnetWebSocketClient.ConnectAsync(server.Uri);
+		await Assert.That(socket.SubProtocol).IsEqualTo(MudWebSocketSubprotocols.Gmcp);
+
+		var lines = new ConcurrentQueue<string>();
+		var vitals = new ConcurrentQueue<(string Package, string Info)>();
+		var builder = Builder(TelnetInterpreter.TelnetMode.Client)
+			.OnSubmit((bytes, encoding, _) => { lines.Enqueue(encoding.GetString(bytes)); return ValueTask.CompletedTask; })
+			.AddPlugin<GMCPProtocol>();
+		builder.Plugin
+			.OnGMCPMessage(m => { vitals.Enqueue(m); return ValueTask.CompletedTask; });
+		await using var client = await builder.StartAsync(socket);
+
+		await client.Interpreter.SendGMCPCommand("Core.Hello", "{\"client\":\"ws-client\"}");
+		await Assert.That(await hello.Task.WaitAsync(TimeSpan.FromSeconds(5))).IsEqualTo(("Core.Hello", "{\"client\":\"ws-client\"}"));
+		await Assert.That(await PollUntilAsync(() => !vitals.IsEmpty && !lines.IsEmpty)).IsTrue();
+		await Assert.That(lines.First()).IsEqualTo("Welcome to Evennia.");
+		await Assert.That(vitals.Single()).IsEqualTo(("Char.Vitals", "{\"hp\":10}"));
+		await client.CloseAsync();
+	}
+
+	[Test]
+	public async Task ABridgeSetIsOfferedAfterTheTelnetNamesAndAPlainNullStillMeansNoConfigure()
+	{
+		const string name = "lines.v1.example.org";
+		var registry = new WebSocketSubprotocolRegistry().Add(name, () => new TerminalWebSocketHandler());
+		await using var server = Server.Start(registry);
+
+		// Compiles only while a two-argument ConnectAsync(uri, null) still means "no configure".
+		Func<Task<ClientWebSocket>> plain = () => TelnetWebSocketClient.ConnectAsync(server.Uri, null);
+		await Assert.That(plain is not null).IsTrue();
+
+		var bridges = new WebSocketClientBridges().Add(name, () => new TerminalClientBridge());
+		using var socket = await TelnetWebSocketClient.ConnectAsync(server.Uri, null, bridges);
+		await Assert.That(socket.SubProtocol).IsEqualTo(name);
+	}
+
+	[Test]
 	public async Task AServerThatNamesNoSubprotocolIsTakenAsTelnet()
 	{
 		var registry = new WebSocketSubprotocolRegistry().AddTelnetSession(

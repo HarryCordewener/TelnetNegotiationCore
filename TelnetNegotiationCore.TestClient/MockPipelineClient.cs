@@ -59,7 +59,7 @@ public class MockPipelineClient(ILogger<MockPipelineClient> logger, ITelnetInter
 		await PlayAsync(connection);
 	}
 
-	/// <summary>Telnet over a WebSocket: <c>telnet.mudstandards.org</c>, or no subprotocol for a plain bridge.</summary>
+	/// <summary>A WebSocket: <c>telnet.mudstandards.org</c>, no subprotocol for a plain bridge, or <c>gmcp</c>/<c>terminal</c> (Evennia).</summary>
 	public async Task StartAsync(Uri uri)
 	{
 		using var socket = await TelnetWebSocketClient.ConnectAsync(uri, options =>

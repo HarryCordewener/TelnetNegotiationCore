@@ -52,31 +52,79 @@ public static class TelnetTransport
 	/// An open WebSocket speaking <c>telnet.mudstandards.org</c>, its alias <c>telnet</c>, or
 	/// <c>telnetb64.mudstandards.org</c>. A socket with no subprotocol is taken as plain telnet.
 	/// </summary>
+	/// <remarks>A client that may also have been given <c>gmcp</c>, <c>terminal</c> or another bridged subprotocol uses <see cref="WebSocketClient(WebSocket, WebSocketClientBridges?)"/>.</remarks>
 	/// <exception cref="ArgumentException">The socket negotiated a subprotocol that is not a telnet stream.</exception>
 	public static ITelnetTransport WebSocket(WebSocket socket)
 	{
 		if (socket is null) throw new ArgumentNullException(nameof(socket));
-		var base64 = IsBase64(socket.SubProtocol, nameof(socket));
-		return new WebSocketTransport(new MudWebSocketConnection(socket), base64);
+		return Telnet(new MudWebSocketConnection(socket), nameof(socket));
 	}
 
 	/// <inheritdoc cref="WebSocket(System.Net.WebSockets.WebSocket)"/>
 	public static ITelnetTransport WebSocket(MudWebSocketConnection connection)
 	{
 		if (connection is null) throw new ArgumentNullException(nameof(connection));
-		return new WebSocketTransport(connection, IsBase64(connection.Subprotocol, nameof(connection)));
+		return Telnet(connection, nameof(connection));
 	}
 
 	/// <summary>
-	/// Whether <paramref name="subprotocol"/> is the Base64 telnet stream; throws when it is no telnet stream at all.
+	/// A client's WebSocket to a game: any stream <see cref="WebSocket(WebSocket)"/> speaks, and every subprotocol in
+	/// <paramref name="bridges"/>, which carry no telnet.
 	/// </summary>
-	internal static bool IsBase64(string? subprotocol, string parameterName)
+	/// <remarks>
+	/// <para>
+	/// A client interpreter runs over a bridged subprotocol unchanged: the <see cref="WebSocketClientBridge"/> turns the
+	/// server's frames into a telnet stream and decides what each write becomes, so no negotiation byte reaches a
+	/// server that would read it as text in front of the player's next line. With <see cref="WebSocketClientBridges.Default"/>
+	/// that is <c>gmcp.mudstandards.org</c> (GMCP both ways in TEXT frames, opened as if the server sent
+	/// <c>WILL GMCP</c>) and <c>terminal.mudstandards.org</c>. Nothing else is negotiated on them: no NAWS, TTYPE,
+	/// CHARSET, echo control or prompt marking, and the text is UTF-8.
+	/// </para>
+	/// <para>
+	/// <see cref="Builders.TelnetInterpreterBuilder.StartAsync(WebSocket, CancellationToken)"/> uses this, with the
+	/// default bridges, for a client interpreter. A server answering these subprotocols registers
+	/// <see cref="GmcpWebSocketHandler"/> or <see cref="TerminalWebSocketHandler"/> instead.
+	/// </para>
+	/// </remarks>
+	/// <param name="socket">The connected socket.</param>
+	/// <param name="bridges">The bridged subprotocols. <see cref="WebSocketClientBridges.Default"/> when left out.</param>
+	/// <exception cref="ArgumentException">The socket negotiated a subprotocol that is neither telnet nor bridged.</exception>
+	public static ITelnetTransport WebSocketClient(WebSocket socket, WebSocketClientBridges? bridges = null)
 	{
-		if (string.Equals(subprotocol, MudWebSocketSubprotocols.TelnetBase64, StringComparison.OrdinalIgnoreCase)) return true;
-		if (string.IsNullOrEmpty(subprotocol) || MudWebSocketSubprotocols.IsTelnet(subprotocol)) return false;
+		if (socket is null) throw new ArgumentNullException(nameof(socket));
+		return WebSocketClient(new MudWebSocketConnection(socket), bridges, nameof(socket));
+	}
+
+	/// <inheritdoc cref="WebSocketClient(System.Net.WebSockets.WebSocket, WebSocketClientBridges?)"/>
+	public static ITelnetTransport WebSocketClient(MudWebSocketConnection connection, WebSocketClientBridges? bridges = null)
+	{
+		if (connection is null) throw new ArgumentNullException(nameof(connection));
+		return WebSocketClient(connection, bridges, nameof(connection));
+	}
+
+	private static ITelnetTransport WebSocketClient(MudWebSocketConnection connection, WebSocketClientBridges? bridges, string parameterName)
+	{
+		var subprotocol = connection.Subprotocol;
+		if (IsTelnetStream(subprotocol, out var base64)) return new WebSocketTransport(connection, base64);
+		var factory = (bridges ?? WebSocketClientBridges.Default).Find(subprotocol)
+			?? throw new ArgumentException(
+				$"The socket negotiated '{subprotocol}', which is neither telnet nor a bridged subprotocol. Add a WebSocketClientBridge for it.",
+				parameterName);
+		return new BridgeTransport(connection, factory() ?? throw new InvalidOperationException("The bridge factory returned null."));
+	}
+
+	private static ITelnetTransport Telnet(MudWebSocketConnection connection, string parameterName)
+	{
+		if (IsTelnetStream(connection.Subprotocol, out var base64)) return new WebSocketTransport(connection, base64);
 		throw new ArgumentException(
-			$"The socket negotiated '{subprotocol}', which is not a telnet stream. Use a WebSocketSubprotocolRegistry to serve other subprotocols.",
+			$"The socket negotiated '{connection.Subprotocol}', which is not a telnet stream. Use a WebSocketSubprotocolRegistry to serve other subprotocols.",
 			parameterName);
+	}
+
+	private static bool IsTelnetStream(string? subprotocol, out bool base64)
+	{
+		base64 = string.Equals(subprotocol, MudWebSocketSubprotocols.TelnetBase64, StringComparison.OrdinalIgnoreCase);
+		return base64 || string.IsNullOrEmpty(subprotocol) || MudWebSocketSubprotocols.IsTelnet(subprotocol);
 	}
 
 	private sealed class PipeTransport(IDuplexPipe pipe, Func<ValueTask>? close) : ITelnetTransport

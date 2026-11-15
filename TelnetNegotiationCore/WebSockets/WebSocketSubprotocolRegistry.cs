@@ -64,7 +64,7 @@ public sealed class WebSocketSubprotocolRegistry
 	}
 
 	// RFC 7230 tchar: what the Sec-WebSocket-Protocol header, and ClientWebSocketOptions.AddSubProtocol, accept.
-	private static bool IsToken(string? name)
+	internal static bool IsToken(string? name)
 	{
 		if (string.IsNullOrEmpty(name)) return false;
 		foreach (var c in name!)

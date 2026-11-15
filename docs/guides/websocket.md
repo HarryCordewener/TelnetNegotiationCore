@@ -7,8 +7,8 @@ and lets you add your own. TNC never touches HTTP: your web server accepts the s
 |---|---|---|
 | `telnet.mudstandards.org` (alias `telnet`) | BINARY: the full telnet stream | `TelnetInterpreter`, every plugin unchanged |
 | `telnetb64.mudstandards.org` | TEXT: the telnet stream, Base64 | `TelnetInterpreter`. The proposal advises against it. |
-| `gmcp.mudstandards.org` | BINARY: UTF-8 text and ANSI. TEXT: GMCP | `GmcpWebSocketHandler`, no telnet |
-| `terminal.mudstandards.org` | BINARY: UTF-8 text and ANSI | `TerminalWebSocketHandler`, no telnet |
+| `gmcp.mudstandards.org` | BINARY: UTF-8 text and ANSI. TEXT: GMCP | Server: `GmcpWebSocketHandler`. Client: `TelnetInterpreter` |
+| `terminal.mudstandards.org` | BINARY: UTF-8 text and ANSI | Server: `TerminalWebSocketHandler`. Client: `TelnetInterpreter` |
 | `divstream.mudstandards.org` | BINARY: HTML `div`s | none built in; write a handler |
 | your own, e.g. `markup.v1.example.org` | your choice | a `WebSocketMessageHandler` subclass |
 
@@ -38,8 +38,10 @@ A socket with no subprotocol is taken as telnet, because most existing wss-to-te
 A socket that negotiated anything else (`gmcp.mudstandards.org`, say) throws `ArgumentException`, so non-telnet
 frames never reach the telnet parser.
 
-A client connects with `TelnetWebSocketClient.ConnectAsync`, which offers `telnet.mudstandards.org` and then
-`telnet`. A server that names neither is taken as telnet, as above:
+A client connects with `TelnetWebSocketClient.ConnectAsync`, which offers `telnet.mudstandards.org`, `telnet`,
+`gmcp.mudstandards.org` and `terminal.mudstandards.org`, and the server picks. A server that names none is taken as
+telnet, as above. A client interpreter runs on whichever was picked, so the same code reaches a telnet bridge and an
+Evennia game (see [A client on gmcp or terminal](#a-client-on-gmcp-or-terminal)):
 
 ```csharp
 using var socket = await TelnetWebSocketClient.ConnectAsync(new Uri("wss://game.example/ws"),
@@ -154,6 +156,62 @@ var registry = new WebSocketSubprotocolRegistry()
 
 using var socket = await registry.ConnectAsync(new Uri("wss://game.example/ws"), cancellationToken: ct);
 await registry.RunAsync(socket, ct);   // telnet or gmcp, whichever the server chose
+```
+
+## A client on gmcp or terminal
+
+Evennia speaks no telnet over a WebSocket: it offers `json.mudstandards.org`, `gmcp.mudstandards.org`,
+`terminal.mudstandards.org` and its own `v1.evennia.com`. Offered only the telnet names it names none and sends
+`v1.evennia.com` JSON in TEXT frames, which the telnet transport closes with 1003.
+
+`TelnetTransport.WebSocketClient` (which `StartAsync(socket)` uses for a client interpreter) runs the interpreter on
+any subprotocol that has a `WebSocketClientBridge`. `WebSocketClientBridges.Default` holds two, `GmcpClientBridge`
+and `TerminalClientBridge`, and `TelnetWebSocketClient.ConnectAsync` offers them after the telnet names. A bridge
+turns the server's frames into a telnet stream and decides what each thing the interpreter writes becomes:
+
+- **Text** in BINARY frames is the stream as is, with any `0xFF` doubled so it stays data. What the client sends goes
+  out as one BINARY message per write.
+- **GMCP**, on `gmcp`, arrives as `IAC SB GMCP … IAC SE`, and goes out as a TEXT frame. The connection opens as if
+  the server had sent `IAC WILL GMCP`: picking the subprotocol is its agreement, so `OnGMCPNegotiated` fires and a
+  client that waits for it before saying `Core.Hello` says it then.
+- **Every other telnet command is dropped**, the answer to that `WILL GMCP` and the client's own opening `WILL NAWS`
+  included. A server with no telnet layer reads those bytes as text, in front of the next line the player sends,
+  which is usually the login: the game shows its connect screen again and logs nobody in.
+- **Nothing else is negotiated**: no NAWS, TTYPE, CHARSET, echo control or prompt marking. The text is UTF-8, so
+  decode as UTF-8 rather than waiting for CHARSET. A prompt such as `Name: ` has no line ending and no GA or EOR, so
+  let `PacketPatchProtocol` find it from the pause after it: `AddDefaultMUDProtocols(onPrompt: …)` adds it only when
+  `onPrompt` is given. A password is echoed by the server's own rules.
+
+```csharp
+builder.AddDefaultMUDProtocols(onPrompt: () => screen.ShowPromptAsync(connection.Interpreter.LastPromptBytes));
+```
+
+A TEXT frame on `terminal` closes the socket with 1003. A server interpreter refuses both subprotocols; serve them with
+`GmcpWebSocketHandler` and `TerminalWebSocketHandler`.
+
+### Your own subprotocol
+
+`OptionTextFrameBridge` is GMCP's shape for any option: text in BINARY frames, one telnet option in TEXT frames,
+`WILL` fed on open. Override `Decode`/`Encode` when the TEXT format is not the bare payload. For anything else,
+subclass `WebSocketClientBridge`; by default it behaves as `terminal`, and you override what your subprotocol changes:
+
+| Override | Called with | Default |
+|---|---|---|
+| `OnOpenAsync` | a `TelnetInput` | nothing; feed the `WILL`s the subprotocol implies |
+| `OnBinaryMessageAsync` / `OnTextMessageAsync` | a whole message and the input | text / close 1003 |
+| `OnTextAsync` | text the interpreter wrote | one BINARY message |
+| `OnSubnegotiationAsync` | an option and its unescaped payload | dropped |
+| `OnCommandAsync` | `WILL`/`WONT`/`DO`/`DONT` and an option, or GA, EOR, NOP… | dropped |
+
+`TelnetInput` feeds the interpreter: `TextAsync` (escaped), `WillAsync`, `DoAsync`, `SubnegotiationAsync`,
+`RawAsync`. Register the bridge and offer it:
+
+```csharp
+var bridges = WebSocketClientBridges.Default
+    .Add("msdp.v1.example.org", () => new OptionTextFrameBridge((byte)Trigger.MSDP));
+
+using var socket = await TelnetWebSocketClient.ConnectAsync(uri, null, bridges, ct);
+await using var connection = await builder.StartAsync(TelnetTransport.WebSocketClient(socket, bridges), ct);
 ```
 
 ## MSSP
