@@ -111,7 +111,7 @@ public class WebSocketClientTests : BaseTest
 
 		// Compiles only while a two-argument ConnectAsync(uri, null) still means "no configure".
 		Func<Task<ClientWebSocket>> plain = () => TelnetWebSocketClient.ConnectAsync(server.Uri, null);
-		await Assert.That(plain).IsNotNull();
+		await Assert.That(plain is not null).IsTrue();
 
 		var bridges = new WebSocketClientBridges().Add(name, () => new TerminalClientBridge());
 		using var socket = await TelnetWebSocketClient.ConnectAsync(server.Uri, null, bridges);
