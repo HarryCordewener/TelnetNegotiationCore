@@ -1,4 +1,6 @@
 #nullable enable
+using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -48,5 +50,94 @@ public class ProcessingBarrierTests : BaseTest
 		await interpreter.WaitForProcessingAsync(additionalDelayMs: 0);
 
 		await Assert.That(handled).IsTrue();
+	}
+
+	/// <summary>
+	/// With nothing pending the barrier returns without awaiting anything, so a read loop calling it
+	/// after every read pays nothing for it.
+	/// </summary>
+	/// <remarks>
+	/// It used to poll with <c>Task.Delay(1)</c>, and even a satisfied wait went through the method's
+	/// state machine; a pending one cost a timer tick per read, about 15.6 ms on Windows, which is
+	/// what the builder's <c>OnInputProcessed</c> read loop paid for every read.
+	/// </remarks>
+	[Test]
+	public async Task ABarrierWithNothingPendingCompletesSynchronously()
+	{
+		var interpreter = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit((_, _, _) => ValueTask.CompletedTask)
+			.OnNegotiation(_ => ValueTask.CompletedTask)
+			.BuildAsync();
+
+		await interpreter.InterpretByteArrayAsync(Encoding.UTF8.GetBytes("a line\r\n"));
+		await interpreter.WaitForProcessingAsync(additionalDelayMs: 0);
+
+		var again = interpreter.WaitForProcessingAsync(additionalDelayMs: 0);
+		await Assert.That(again.IsCompletedSuccessfully).IsTrue();
+		await again;
+	}
+
+	/// <summary>
+	/// Every caller waiting at once is released by the handling it was waiting for, not only the
+	/// first to arrive.
+	/// </summary>
+	[Test]
+	public async Task EveryConcurrentWaiterIsReleased()
+	{
+		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var handled = false;
+
+		var interpreter = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(async (_, _, _) =>
+			{
+				await release.Task;
+				handled = true;
+			})
+			.OnNegotiation(_ => ValueTask.CompletedTask)
+			.BuildAsync();
+
+		await interpreter.InterpretByteArrayAsync(Encoding.UTF8.GetBytes("a line\r\n"));
+		var waits = Enumerable.Range(0, 8)
+			.Select(_ => interpreter.WaitForProcessingAsync(maxWaitMs: 10_000, additionalDelayMs: 0).AsTask())
+			.ToArray();
+
+		await Task.Delay(50);
+		await Assert.That(waits.Any(w => w.IsCompleted)).IsFalse();
+
+		release.SetResult();
+		var stopwatch = Stopwatch.StartNew();
+		await Task.WhenAll(waits);
+
+		await Assert.That(handled).IsTrue();
+		await Assert.That(stopwatch.Elapsed).IsLessThan(System.TimeSpan.FromSeconds(5));
+	}
+
+	/// <summary>
+	/// A handler that never finishes still lets the barrier go at its ceiling.
+	/// </summary>
+	[Test]
+	public async Task AHandlerThatNeverFinishesReleasesTheBarrierAtItsCeiling()
+	{
+		var never = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		var interpreter = await new TelnetInterpreterBuilder()
+			.UseMode(TelnetInterpreter.TelnetMode.Client)
+			.UseLogger(logger)
+			.OnSubmit(async (_, _, _) => await never.Task)
+			.OnNegotiation(_ => ValueTask.CompletedTask)
+			.BuildAsync();
+
+		await interpreter.InterpretByteArrayAsync(Encoding.UTF8.GetBytes("a line\r\n"));
+
+		var stopwatch = Stopwatch.StartNew();
+		await interpreter.WaitForProcessingAsync(maxWaitMs: 200, additionalDelayMs: 0);
+
+		await Assert.That(stopwatch.ElapsedMilliseconds).IsGreaterThanOrEqualTo(150);
+		await Assert.That(stopwatch.ElapsedMilliseconds).IsLessThan(5_000);
+		never.SetResult();
 	}
 }

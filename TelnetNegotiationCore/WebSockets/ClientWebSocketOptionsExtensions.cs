@@ -43,6 +43,13 @@ public static class TelnetWebSocketClient
 	/// Connects to <paramref name="uri"/>, offering <c>telnet.mudstandards.org</c> and then <c>telnet</c>. A server
 	/// that names no subprotocol is taken as telnet, as most wss-to-telnet bridges send none.
 	/// </summary>
+	/// <remarks>
+	/// A server that answers the offer with an HTTP error is dialled once more offering no subprotocol. Bridges
+	/// in use refuse names they do not know rather than ignoring them: websockify answers
+	/// <c>400 Invalid protocol selected</c>, and an Apache <c>mod_proxy_wstunnel</c> in front of a game answers
+	/// <c>502</c>; both accept the same handshake with no <c>Sec-WebSocket-Protocol</c> and carry telnet in
+	/// binary frames. A connect that fails without an HTTP answer (no route, TLS, a timeout) is not retried.
+	/// </remarks>
 	/// <param name="uri">A <c>ws://</c> or <c>wss://</c> address.</param>
 	/// <param name="configure">
 	/// Sets anything else on the options before connecting: <c>KeepAliveInterval</c>, and on .NET 9 or later
@@ -53,12 +60,7 @@ public static class TelnetWebSocketClient
 	/// <returns>The connected socket. It is the caller's to dispose.</returns>
 	public static Task<ClientWebSocket> ConnectAsync(
 		Uri uri, Action<ClientWebSocketOptions>? configure = null, CancellationToken cancellationToken = default) =>
-		ConnectCoreAsync(uri, options =>
-		{
-			options.AddSubProtocol(MudWebSocketSubprotocols.Telnet);
-			options.AddSubProtocol(MudWebSocketSubprotocols.TelnetAlias);
-			configure?.Invoke(options);
-		}, cancellationToken);
+		ConnectTelnetAsync(uri, configure, cancellationToken);
 
 	/// <inheritdoc cref="ConnectAsync(Uri, Action{ClientWebSocketOptions}?, CancellationToken)"/>
 	public static Task<ClientWebSocket> ConnectAsync(Uri uri, CancellationToken cancellationToken) =>
@@ -83,8 +85,36 @@ public static class TelnetWebSocketClient
 		}, cancellationToken);
 	}
 
+	// netstandard2.0 cannot see the HTTP status of a failed upgrade, so there any failed handshake is
+	// dialled once more offering nothing: a server that is simply down costs a second attempt.
+	private static async Task<ClientWebSocket> ConnectTelnetAsync(
+		Uri uri, Action<ClientWebSocketOptions>? configure, CancellationToken cancellationToken)
+	{
+		var refused = false;
+		try
+		{
+			return await ConnectCoreAsync(uri, options =>
+			{
+				options.AddSubProtocol(MudWebSocketSubprotocols.Telnet);
+				options.AddSubProtocol(MudWebSocketSubprotocols.TelnetAlias);
+				configure?.Invoke(options);
+#if NETSTANDARD2_0
+			}, cancellationToken, _ => refused = true).ConfigureAwait(false);
+#else
+				options.CollectHttpResponseDetails = true;
+			}, cancellationToken, socket => refused = socket.HttpStatusCode != 0).ConfigureAwait(false);
+#endif
+		}
+		catch (WebSocketException) when (refused && !cancellationToken.IsCancellationRequested)
+		{
+			return await ConnectCoreAsync(uri, options => configure?.Invoke(options), cancellationToken)
+				.ConfigureAwait(false);
+		}
+	}
+
 	private static async Task<ClientWebSocket> ConnectCoreAsync(
-		Uri uri, Action<ClientWebSocketOptions> configure, CancellationToken cancellationToken)
+		Uri uri, Action<ClientWebSocketOptions> configure, CancellationToken cancellationToken,
+		Action<ClientWebSocket>? failed = null)
 	{
 		if (uri is null) throw new ArgumentNullException(nameof(uri));
 
@@ -97,6 +127,7 @@ public static class TelnetWebSocketClient
 		}
 		catch
 		{
+			failed?.Invoke(socket);
 			socket.Dispose();
 			throw;
 		}

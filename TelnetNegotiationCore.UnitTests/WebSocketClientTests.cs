@@ -87,6 +87,42 @@ public class WebSocketClientTests : BaseTest
 	}
 
 	[Test]
+	public async Task ABridgeThatRefusesTheTelnetSubprotocolsIsDialledAgainOfferingNone()
+	{
+		var registry = new WebSocketSubprotocolRegistry().AddTelnetSession(
+			() => Builder(TelnetInterpreter.TelnetMode.Server).AddPlugin<GMCPProtocol>(),
+			(connection, _) => connection.Completion,
+			acceptNoSubprotocol: true);
+		// websockify: an offer of names it does not know is answered 400; no offer is accepted.
+		await using var server = Server.Start(registry, acceptWithoutSubprotocol: true, refuseAnOffer: true);
+
+		using var socket = await TelnetWebSocketClient.ConnectAsync(server.Uri);
+		await Assert.That(string.IsNullOrEmpty(socket.SubProtocol)).IsTrue();
+		await Assert.That(server.Handshakes).IsEqualTo(2);
+
+		var negotiated = false;
+		var builder = Builder(TelnetInterpreter.TelnetMode.Client).AddPlugin<GMCPProtocol>();
+		builder.Plugin.OnGMCPNegotiated(on => { negotiated = on; return ValueTask.CompletedTask; });
+		await using var client = await builder.StartAsync(socket);
+
+		await Assert.That(await PollUntilAsync(() => negotiated)).IsTrue();
+		await client.CloseAsync();
+		await server.LastRun.WaitAsync(TimeSpan.FromSeconds(5));
+	}
+
+	[Test]
+	public async Task AServerThatRefusesEveryHandshakeIsDialledOnlyTwice()
+	{
+		var registry = new WebSocketSubprotocolRegistry().AddTelnetSession(
+			() => Builder(TelnetInterpreter.TelnetMode.Server),
+			(connection, _) => connection.Completion);
+		await using var server = Server.Start(registry, refuseEverything: true);
+
+		await Assert.That(async () => await TelnetWebSocketClient.ConnectAsync(server.Uri)).Throws<WebSocketException>();
+		await Assert.That(server.Handshakes).IsEqualTo(2);
+	}
+
+	[Test]
 	public async Task AClientRegistryRunsWhicheverSubprotocolTheServerPicked()
 	{
 		// The server speaks only gmcp.mudstandards.org: no telnet layer.
@@ -146,8 +182,14 @@ public class WebSocketClientTests : BaseTest
 		private volatile Task _lastRun = Task.CompletedTask;
 		private readonly TaskCompletionSource<bool> _accepted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-		private Server(WebSocketSubprotocolRegistry registry, bool acceptWithoutSubprotocol)
+		private readonly bool _refuseAnOffer;
+		private readonly bool _refuseEverything;
+		private int _handshakes;
+
+		private Server(WebSocketSubprotocolRegistry registry, bool acceptWithoutSubprotocol, bool refuseAnOffer, bool refuseEverything)
 		{
+			_refuseAnOffer = refuseAnOffer;
+			_refuseEverything = refuseEverything;
 			var port = FreePort();
 			Uri = new Uri($"ws://127.0.0.1:{port}/");
 			_listener.Prefixes.Add($"http://127.0.0.1:{port}/");
@@ -157,11 +199,18 @@ public class WebSocketClientTests : BaseTest
 
 		public Uri Uri { get; }
 
+		/// <summary>How many upgrade requests arrived, refused or not.</summary>
+		public int Handshakes => Volatile.Read(ref _handshakes);
+
 		/// <summary>The run of the most recent connection, once one has been accepted.</summary>
 		public Task LastRun => _accepted.Task.ContinueWith(_ => _lastRun).Unwrap();
 
-		public static Server Start(WebSocketSubprotocolRegistry registry, bool acceptWithoutSubprotocol = false) =>
-			new(registry, acceptWithoutSubprotocol);
+		public static Server Start(
+			WebSocketSubprotocolRegistry registry,
+			bool acceptWithoutSubprotocol = false,
+			bool refuseAnOffer = false,
+			bool refuseEverything = false) =>
+			new(registry, acceptWithoutSubprotocol, refuseAnOffer, refuseEverything);
 
 		private async Task AcceptAsync(WebSocketSubprotocolRegistry registry, bool acceptWithoutSubprotocol)
 		{
@@ -179,6 +228,14 @@ public class WebSocketClientTests : BaseTest
 
 				var offered = (context.Request.Headers["Sec-WebSocket-Protocol"] ?? "")
 					.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+				Interlocked.Increment(ref _handshakes);
+				if (_refuseEverything || (_refuseAnOffer && offered.Length > 0))
+				{
+					context.Response.StatusCode = 400;
+					context.Response.Close();
+					continue;
+				}
+
 				var chosen = acceptWithoutSubprotocol ? null : registry.Select(offered);
 				var accepted = await context.AcceptWebSocketAsync(chosen, Timeout.InfiniteTimeSpan);
 				_lastRun = RunAsync(registry, accepted.WebSocket);
