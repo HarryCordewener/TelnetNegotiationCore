@@ -481,7 +481,7 @@ public class TelnetInterpreterBuilder
         }
 
         var connection = new WebSockets.MudWebSocketConnection(socket);
-        _onNegotiation = WebSockets.TelnetWebSocketHandler.Writer(connection, base64);
+        _onNegotiation = WebSockets.TelnetWebSocketHandler.Writer(connection, base64, cancellationToken);
         var interpreter = await BuildAsync();
         var readTask = connection.RunAsync(new WebSockets.TelnetWebSocketHandler(interpreter, base64), cancellationToken);
         return (interpreter, readTask);

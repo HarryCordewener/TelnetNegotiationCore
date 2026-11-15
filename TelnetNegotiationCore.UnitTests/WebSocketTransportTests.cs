@@ -311,6 +311,52 @@ public class WebSocketTransportTests : BaseTest
 	}
 
 	[Test]
+	public async Task ALongUnknownSubprotocolIsStillRefusedWith1002()
+	{
+		// A reason that named the subprotocol would pass the 123-byte close-frame limit and throw instead.
+		var (serverSocket, clientSocket) = WebSocketPair.Create(new string('x', 200) + ".example.org");
+		var run = new WebSocketSubprotocolRegistry().Add("other.example.org", () => new EchoHandler()).RunAsync(serverSocket);
+
+		await Assert.That(await ReceiveCloseAsync(clientSocket)).IsEqualTo(WebSocketCloseStatus.ProtocolError);
+		await run.WaitAsync(TimeSpan.FromSeconds(5));
+	}
+
+	[Test]
+	public async Task ACloseReasonLongerThanTheFrameAllowsIsCutShort()
+	{
+		var (serverSocket, clientSocket) = WebSocketPair.Create(null);
+		var connection = new MudWebSocketConnection(serverSocket);
+
+		await connection.CloseAsync(WebSocketCloseStatus.PolicyViolation, new string('é', 100));
+
+		var buffer = new byte[256];
+		var result = await clientSocket.ReceiveAsync(buffer, CancellationToken.None);
+		await Assert.That(result.CloseStatus).IsEqualTo(WebSocketCloseStatus.PolicyViolation);
+		await Assert.That(Encoding.UTF8.GetByteCount(result.CloseStatusDescription!)).IsLessThanOrEqualTo(MudWebSocketConnection.MaxCloseDescriptionBytes);
+		await Assert.That(connection.CanSend).IsFalse();
+	}
+
+	[Test]
+	public async Task TheRestOfAnOversizedBase64MessageNeverReachesTheInterpreter()
+	{
+		var (serverSocket, clientSocket) = WebSocketPair.Create(MudWebSocketSubprotocols.TelnetBase64);
+		var received = new ConcurrentQueue<(string Package, string Info)>();
+		var (server, read) = await GmcpServerAsync(serverSocket, received);
+
+		var payload = Encoding.ASCII.GetBytes(Convert.ToBase64String([.. DoGmcp, .. GmcpBytes("Foo.Bar", "{}")]));
+		await clientSocket.SendAsync(new byte[WebSocketMessageHandler.DefaultMaxMessageSize + 1], WebSocketMessageType.Text, false, CancellationToken.None);
+		// The final chunk is valid Base64 on its own, and would be a GMCP message if it started a new accumulator.
+		await clientSocket.SendAsync(payload, WebSocketMessageType.Text, true, CancellationToken.None);
+
+		await Assert.That(await ReceiveCloseAsync(clientSocket)).IsEqualTo(WebSocketCloseStatus.MessageTooBig);
+		await clientSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None);
+		await read.WaitAsync(TimeSpan.FromSeconds(5));
+		await server.WaitForProcessingAsync(500, 0);
+		await Assert.That(received).IsEmpty();
+		await server.DisposeAsync();
+	}
+
+	[Test]
 	public async Task RegistryUsesTheFallbackWhenNoSubprotocolWasNegotiated()
 	{
 		var (serverSocket, clientSocket) = WebSocketPair.Create(null);

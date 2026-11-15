@@ -137,9 +137,7 @@ public sealed class WebSocketSubprotocolRegistry
 		if (handler is null)
 		{
 			await connection.CloseAsync(WebSocketCloseStatus.ProtocolError,
-				connection.Subprotocol is { Length: > 0 } name
-					? $"No handler for subprotocol '{name}'"
-					: "A subprotocol is required",
+				string.IsNullOrEmpty(connection.Subprotocol) ? "A subprotocol is required" : "Unsupported subprotocol",
 				cancellationToken);
 			return;
 		}

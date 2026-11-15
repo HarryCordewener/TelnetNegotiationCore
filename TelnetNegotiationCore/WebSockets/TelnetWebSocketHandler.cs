@@ -31,6 +31,7 @@ public sealed class TelnetWebSocketHandler : IWebSocketSubprotocolHandler
 	private readonly Func<TelnetInterpreter, MudWebSocketConnection, ValueTask>? _onConnected;
 	private readonly bool _ownsInterpreter;
 	private readonly MemoryStream? _base64Message;
+	private bool _discardingBase64Message;
 
 	/// <summary>
 	/// A handler that builds its own interpreter when the connection opens, and disposes it when the connection ends.
@@ -73,10 +74,15 @@ public sealed class TelnetWebSocketHandler : IWebSocketSubprotocolHandler
 	/// The write callback for an interpreter on <paramref name="connection"/>: one BINARY message per write, or one
 	/// Base64 TEXT message when <paramref name="base64"/> is set.
 	/// </summary>
-	internal static Func<ReadOnlyMemory<byte>, ValueTask> Writer(MudWebSocketConnection connection, bool base64) =>
+	/// <remarks>
+	/// <paramref name="cancellationToken"/> is the connection's lifetime: once it is cancelled, a write waiting on the
+	/// socket gives up rather than holding the connection open.
+	/// </remarks>
+	internal static Func<ReadOnlyMemory<byte>, ValueTask> Writer(
+		MudWebSocketConnection connection, bool base64, CancellationToken cancellationToken) =>
 		base64
-			? data => connection.SendTextAsync(ToBase64(data))
-			: data => connection.SendBinaryAsync(data);
+			? data => connection.SendTextAsync(ToBase64(data), cancellationToken)
+			: data => connection.SendBinaryAsync(data, cancellationToken);
 
 	/// <inheritdoc/>
 	public async ValueTask OnOpenAsync(MudWebSocketConnection connection, CancellationToken cancellationToken)
@@ -84,7 +90,7 @@ public sealed class TelnetWebSocketHandler : IWebSocketSubprotocolHandler
 		if (_builderFactory is null) return;
 
 		var builder = _builderFactory() ?? throw new InvalidOperationException("The builder factory returned null.");
-		Interpreter = await builder.OnNegotiation(Writer(connection, Base64)).BuildAsync();
+		Interpreter = await builder.OnNegotiation(Writer(connection, Base64, cancellationToken)).BuildAsync();
 		if (_onConnected is not null) await _onConnected(Interpreter, connection);
 	}
 
@@ -120,9 +126,17 @@ public sealed class TelnetWebSocketHandler : IWebSocketSubprotocolHandler
 
 		// Base64 is decoded per message: a chunk boundary can fall inside a four-character group.
 		var message = _base64Message!;
+		if (_discardingBase64Message)
+		{
+			// The rest of a rejected message, final chunk included, never reaches the interpreter.
+			if (endOfMessage) _discardingBase64Message = false;
+			return;
+		}
+
 		if (message.Length + data.Length > WebSocketMessageHandler.DefaultMaxMessageSize)
 		{
 			message.SetLength(0);
+			_discardingBase64Message = !endOfMessage;
 			await connection.CloseAsync(WebSocketCloseStatus.MessageTooBig,
 				$"Messages are limited to {WebSocketMessageHandler.DefaultMaxMessageSize} bytes", cancellationToken);
 			return;

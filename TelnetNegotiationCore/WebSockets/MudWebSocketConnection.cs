@@ -78,7 +78,8 @@ public sealed class MudWebSocketConnection
 	/// Starts or completes the close handshake. A second call, or a call after the socket closed, does nothing.
 	/// </summary>
 	/// <remarks>
-	/// <see cref="RunAsync"/> keeps receiving until the peer answers, then completes.
+	/// <see cref="RunAsync"/> keeps receiving until the peer answers, then completes. A description longer than
+	/// RFC 6455 allows (123 UTF-8 bytes) is cut short rather than rejected.
 	/// </remarks>
 	public async ValueTask CloseAsync(
 		WebSocketCloseStatus status,
@@ -89,13 +90,28 @@ public sealed class MudWebSocketConnection
 		try
 		{
 			if (!CanSend) return;
+			await Socket.CloseOutputAsync(status, LimitCloseDescription(description), cancellationToken);
+			// Only once it went out: a close that failed leaves the socket usable, and a later close can still be sent.
 			_closeSent = true;
-			await Socket.CloseOutputAsync(status, description, cancellationToken);
 		}
 		finally
 		{
 			_sendLock.Release();
 		}
+	}
+
+	/// <summary>The most UTF-8 bytes a close reason may take: a control frame carries 125, two of them the status.</summary>
+	public const int MaxCloseDescriptionBytes = 123;
+
+	private static string? LimitCloseDescription(string? description)
+	{
+		if (description is null || Encoding.UTF8.GetByteCount(description) <= MaxCloseDescriptionBytes) return description;
+
+		// Cut on a character boundary, never inside a surrogate pair.
+		var length = description.Length;
+		while (length > 0 && Encoding.UTF8.GetByteCount(description.Substring(0, length)) > MaxCloseDescriptionBytes) length--;
+		if (length > 0 && char.IsHighSurrogate(description[length - 1])) length--;
+		return description.Substring(0, length);
 	}
 
 	private async ValueTask SendAsync(ReadOnlyMemory<byte> data, WebSocketMessageType type, CancellationToken cancellationToken)
@@ -163,7 +179,15 @@ public sealed class MudWebSocketConnection
 					closeStatus = result.CloseStatus;
 					closeDescription = result.CloseStatusDescription;
 					// Echo the peer's status, as RFC 6455 section 5.5.1 suggests. Does nothing if we started the close.
-					await CloseAsync(result.CloseStatus ?? WebSocketCloseStatus.NormalClosure, null, CancellationToken.None);
+					// Cancellable: a send stuck holding the lock must not keep the loop, and OnClosedAsync, from finishing.
+					try
+					{
+						await CloseAsync(result.CloseStatus ?? WebSocketCloseStatus.NormalClosure, null, cancellationToken);
+					}
+					catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+					{
+					}
+
 					break;
 				}
 

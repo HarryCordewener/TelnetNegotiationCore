@@ -30,8 +30,10 @@ app.Map("/ws", async (HttpContext ctx, ITelnetInterpreterFactory factory) =>
     var (telnet, read) = await factory.CreateBuilder()
         .AddDefaultMUDProtocols()
         .BuildAndStartAsync(socket, ctx.RequestAborted);
-    await read;
-    await telnet.DisposeAsync();
+    await using (telnet)
+    {
+        await read;   // faults if the socket fails; the interpreter is disposed either way
+    }
 });
 ```
 
