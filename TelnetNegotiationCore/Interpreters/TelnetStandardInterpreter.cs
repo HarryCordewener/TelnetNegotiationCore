@@ -232,21 +232,43 @@ public partial class TelnetInterpreter : IAsyncDisposable
     }
 
     /// <summary>
-    /// Written to <see cref="_byteChannel"/> in place of a wire byte, so
-    /// <see cref="Protocols.PacketPatchProtocol"/>'s hold-time decision runs on the byte-processing
-    /// loop -- the thread that owns the line buffer -- instead of its own timer thread. Negative, so
-    /// it can never collide with a genuine wire byte (0-255).
+    /// One item on <see cref="_byteChannel"/>: up to <see cref="MachineBatchSize"/> wire bytes in an
+    /// array rented from <see cref="ArrayPool{T}.Shared"/>, which the processing loop returns once the
+    /// bytes are handled. A null <see cref="Buffer"/> is <see cref="InferredPromptSentinel"/>.
     /// </summary>
-    private const short InferredPromptSentinel = -1;
+    private readonly struct InputChunk(byte[]? buffer, int length)
+    {
+        public byte[]? Buffer { get; } = buffer;
 
-    /// <summary>Maximum raw bytes drained from the channel as one bounded machine batch.</summary>
+        public int Length { get; } = length;
+    }
+
+    /// <summary>
+    /// Written to <see cref="_byteChannel"/> in place of wire bytes, so
+    /// <see cref="Protocols.PacketPatchProtocol"/>'s hold-time decision runs on the byte-processing
+    /// loop -- the thread that owns the line buffer -- instead of its own timer thread. It carries no
+    /// buffer, so it can never be mistaken for input.
+    /// </summary>
+    private static readonly InputChunk InferredPromptSentinel = new(null, 0);
+
+    /// <summary>The most wire bytes one channel item holds, and so one bounded machine batch.</summary>
     internal const int MachineBatchSize = 4 * 1024;
 
     /// <summary>
-    /// Channel for byte processing pipeline with backpressure. Element type is <c>short</c>, not
-    /// <c>byte</c>, so the negative range can carry <see cref="InferredPromptSentinel"/>.
+    /// How many chunks the channel holds before a writer waits: at most 16 KiB of unprocessed input
+    /// per connection, about what the 10,000 single bytes it used to hold came to.
     /// </summary>
-    private readonly Channel<short> _byteChannel;
+    private const int ChannelCapacity = 4;
+
+    /// <summary>
+    /// Channel for byte processing pipeline with backpressure.
+    /// </summary>
+    /// <remarks>
+    /// It carries chunks, not bytes. It used to carry one <c>short</c> per wire byte, which cost a
+    /// channel lock on each side and often an async suspension for every byte: 94% of the time to
+    /// interpret a 4 MiB burst of text went to the queue, not to the state machine.
+    /// </remarks>
+    private readonly Channel<InputChunk> _byteChannel;
 
     /// <summary>
     /// SemaphoreSlim used to serialize all writes to the output stream,
@@ -418,8 +440,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
         _initialCall = [];
 
-        // Create bounded channel with backpressure (max 10,000 bytes buffered)
-        _byteChannel = Channel.CreateBounded<short>(new BoundedChannelOptions(10000)
+        _byteChannel = Channel.CreateBounded<InputChunk>(new BoundedChannelOptions(ChannelCapacity)
         {
             FullMode = BoundedChannelFullMode.Wait,  // Backpressure: block producer if full
             SingleReader = true,   // Optimization: only one consumer
@@ -517,6 +538,44 @@ public partial class TelnetInterpreter : IAsyncDisposable
         if (WriteToBufferAndAdvance(b, encoding) && CallbackOnByteAsync is { } callback)
             return callback(b, encoding);
         return default;
+    }
+
+    /// <summary>
+    /// <see cref="WriteToBufferAndAdvance"/> for a whole run of text at once, for when nothing needs to
+    /// see the bytes one at a time: no input filter, no byte observer, no per-byte callback.
+    /// </summary>
+    /// <remarks>
+    /// The same ceiling as the byte-at-a-time writer: what fits below <see cref="MaxBufferSize"/> is
+    /// stored and the rest only marks the line as overflowed. It reaches the same state as calling
+    /// <see cref="WriteToBufferAndAdvance"/> once per byte, with one copy instead of a call, a bounds
+    /// check and a log-level check for every byte.
+    /// </remarks>
+    internal void WriteSpanToBuffer(ReadOnlySpan<byte> text)
+    {
+        if (text.IsEmpty) return;
+
+        if (_logger.IsEnabled(LogLevel.Trace))
+        {
+            _logger.LogTrace("Debug: Writing {Count} bytes into buffer", text.Length);
+        }
+
+        _lineEncoding ??= CurrentEncoding;
+
+        var room = Math.Max(MaxBufferSize - _bufferPosition, 0);
+        if (text.Length > room)
+        {
+            _bufferOverflowed = true;
+            text = text.Slice(0, room);
+        }
+
+        // Terminates: text is no longer than MaxBufferSize - _bufferPosition, and growth stops at MaxBufferSize.
+        while (_bufferCapacity - _bufferPosition < text.Length)
+        {
+            GrowLineBuffer();
+        }
+
+        text.CopyTo(_buffer.AsSpan(_bufferPosition));
+        _bufferPosition += text.Length;
     }
 
     /// <summary>
@@ -899,7 +958,9 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// <returns>ValueTask</returns>
     public async ValueTask InterpretAsync(byte bt)
     {
-        await QueueAsync(bt);
+        var buffer = ArrayPool<byte>.Shared.Rent(1);
+        buffer[0] = bt;
+        await QueueAsync(new InputChunk(buffer, 1));
     }
 
     /// <summary>
@@ -910,12 +971,14 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// <returns>ValueTask</returns>
     public async ValueTask InterpretByteArrayAsync(ReadOnlyMemory<byte> byteArray)
     {
-        // Index into ReadOnlyMemory<byte> directly to avoid a .ToArray() allocation.
-        // ReadOnlyMemory<byte> (unlike ReadOnlySpan<byte>) is not a ref struct,
-        // so it is safe to hold across await boundaries.
-        for (int i = 0; i < byteArray.Length; i++)
+        // Copied, because the caller's memory is only promised for the duration of this call: a pipe
+        // read loop advances past it as soon as this returns, long before the processing loop runs.
+        for (var offset = 0; offset < byteArray.Length; offset += MachineBatchSize)
         {
-            await QueueAsync(byteArray.Span[i]);
+            var length = Math.Min(MachineBatchSize, byteArray.Length - offset);
+            var buffer = ArrayPool<byte>.Shared.Rent(length);
+            byteArray.Span.Slice(offset, length).CopyTo(buffer);
+            await QueueAsync(new InputChunk(buffer, length));
         }
     }
 
@@ -934,13 +997,13 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// undershoot. The count is put back if the write never lands, so a closed channel does not leave
     /// phantom pending work the barrier can never see completed.
     /// </remarks>
-    private async ValueTask QueueAsync(byte bt)
+    private async ValueTask QueueAsync(InputChunk chunk)
     {
         Interlocked.Increment(ref _itemsQueued);
 
         try
         {
-            await _byteChannel.Writer.WriteAsync(bt);
+            await _byteChannel.Writer.WriteAsync(chunk);
         }
         catch
         {
@@ -1028,7 +1091,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 var handledItems = 1;
                 try
                 {
-                    if (raw == InferredPromptSentinel)
+                    if (raw.Buffer is null)
                     {
                         // Not a wire byte -- see TakePartialLineAsPrompt and TryEnqueueInferredPrompt.
                         // The handler is checked first: null means the plugin does not want this honoured
@@ -1056,71 +1119,20 @@ public partial class TelnetInterpreter : IAsyncDisposable
                         continue;
                     }
 
-                    var bt = (byte)raw;
-
-                    // Between bytes: the one point where this loop is provably not inside a decoder.
                     if (_hasRetiredInboundTransforms)
                     {
                         DisposeRetiredInboundTransforms();
                     }
 
-                    var transform = _inboundTransform;
-                    if (transform is null)
+                    // Every chunk takes the batch path, with or without a decoder: it already switches
+                    // decoders at the exact byte a marker installs one, and feeds a decoder one byte at a time.
+                    try
                     {
-                        var rented = ArrayPool<byte>.Shared.Rent(MachineBatchSize);
-                        try
-                        {
-                            rented[0] = bt;
-                            var count = 1;
-                            while (count < MachineBatchSize
-                                   && _byteChannel.Reader.TryPeek(out var next)
-                                   && next != InferredPromptSentinel
-                                   && _byteChannel.Reader.TryRead(out next))
-                            {
-                                rented[count++] = (byte)next;
-                                handledItems++;
-                            }
-
-                            byteCount += await ProcessRawBatchAsync(rented.AsMemory(0, count));
-                        }
-                        finally
-                        {
-                            ArrayPool<byte>.Shared.Return(rented);
-                        }
-
-                        continue;
+                        byteCount += await ProcessRawBatchAsync(raw.Buffer.AsMemory(0, raw.Length));
                     }
-
-                    // A transform is installed (MCCP, in practice), so this wire byte is not a telnet
-                    // byte. Only what comes back out of it is, and one wire byte can decode to none or
-                    // to many. A decode failure is terminal for the stream and has its own path inside
-                    // the transform, so it deliberately is not caught the way a bad telnet byte is.
-                    //
-                    // Feeding ONE byte per call is load-bearing, not incidental: it is what bounds a
-                    // decoder's output buffer. DEFLATE expands at most 1032:1 from a single input byte,
-                    // so an inflater's buffer plateaus at 2 KiB no matter what the peer sends — a 16 MiB
-                    // zip bomb arrives as 1032 bytes per call, 16,315 times. Batch the feed and that
-                    // ceiling becomes 1032 x batch size, which a hostile peer chooses. See
-                    // MCCPCompressedStreamTests.AHighRatioPayloadDoesNotGrowTheDecodersBuffer.
-                    var decoded = await transform.DecodeAsync(bt);
-                    if (decoded.Length == 0)
+                    finally
                     {
-                        // Nothing reached the state machine (mid-sequence in a stateful decoder), but the
-                        // connection is still not silent: counts as a processed byte regardless.
-                        await NotifyByteProcessedAsync();
-                    }
-                    else
-                    {
-                        for (var i = 0; i < decoded.Length; i++)
-                        {
-                            byteCount++;
-                            await FireGeneratedBytesAsync(decoded.Slice(i, 1));
-
-                            // Once per decoded byte, not once per wire byte, so a large decoded batch
-                            // keeps disarming throughout rather than only at its end. A premature idle
-                            // flag mid-batch is corrected by the very next byte's own fresh check.
-                            await NotifyByteProcessedAsync();
-                        }
+                        ArrayPool<byte>.Shared.Return(raw.Buffer);
                     }
                 }
                 finally
@@ -1169,7 +1181,9 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 offset += consumed;
                 await DrainPendingInputAsync();
                 telnetBytes += consumed;
-                for (var i = 0; i < consumed; i++)
+                // Skipped outright when nothing listens: each notification reads the channel's count,
+                // which takes the channel's lock, and this runs once per consumed byte.
+                for (var i = 0; _onByteProcessed is not null && i < consumed; i++)
                 {
                     await NotifyByteProcessedAsync();
                 }
@@ -1177,6 +1191,14 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 continue;
             }
 
+            // A transform is installed (MCCP, in practice), so this wire byte is not a telnet byte.
+            // Only what comes back out of it is, and one wire byte can decode to none or to many.
+            //
+            // Feeding ONE byte per call is load-bearing, not incidental: it is what bounds a decoder's
+            // output buffer. DEFLATE expands at most 1032:1 from a single input byte, so an inflater's
+            // buffer plateaus at 2 KiB no matter what the peer sends. Batch the feed and that ceiling
+            // becomes 1032 x batch size, which a hostile peer chooses. See
+            // MCCPCompressedStreamTests.AHighRatioPayloadDoesNotGrowTheDecodersBuffer.
             var decoded = await transform.DecodeAsync(raw.Span[offset++]);
             if (decoded.Length == 0)
             {
@@ -1206,13 +1228,13 @@ public partial class TelnetInterpreter : IAsyncDisposable
     /// having disarmed it. See <see cref="Protocols.PacketPatchProtocol.OnByteProcessedAsync"/>.
     /// <para>
     /// "Idle" is the channel being empty at this exact instant, which can be true mid-read (see
-    /// <see cref="InterpretByteArrayAsync"/>, which writes one byte per <c>await</c>). Harmless: the
+    /// <see cref="InterpretByteArrayAsync"/>, which writes a long read as several chunks). Harmless: the
     /// handler arms only from the buffer's state at that instant, so a premature idle flag is
     /// corrected by the very next byte if there was truly more to come.
     /// </para>
     /// </remarks>
-    private async ValueTask NotifyByteProcessedAsync()
-        => await NotifyByteProcessedAsync(_byteChannel.Reader.Count == 0);
+    private ValueTask NotifyByteProcessedAsync()
+        => _onByteProcessed is null ? default : NotifyByteProcessedAsync(_byteChannel.Reader.Count == 0);
 
     private async ValueTask NotifyByteProcessedAsync(bool idle)
     {

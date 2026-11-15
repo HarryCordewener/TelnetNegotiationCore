@@ -110,6 +110,30 @@ internal sealed class SubnegotiationBuffer
 	}
 
 	/// <summary>
+	/// Appends a run of payload bytes: the same result as <see cref="Add"/> for each of them, in one copy.
+	/// </summary>
+	public void AddRange(ReadOnlySpan<byte> values)
+	{
+		ReceivedBytes += values.Length;
+
+		var room = Math.Max(_maxMessageSize - _bytes.Count, 0);
+		if (values.Length > room)
+		{
+			Overflowed = true;
+			values = values.Slice(0, room);
+		}
+
+#if NET8_0_OR_GREATER
+		CollectionExtensions.AddRange(_bytes, values);
+#else
+		foreach (var value in values)
+		{
+			_bytes.Add(value);
+		}
+#endif
+	}
+
+	/// <summary>
 	/// Clears the buffer, ready for the next subnegotiation.
 	/// </summary>
 	public void Reset()
