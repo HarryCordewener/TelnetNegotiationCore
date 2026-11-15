@@ -173,6 +173,25 @@ public class TelnetConnectionTests : BaseTest
 	}
 
 	[Test]
+	public async Task AThrowingClosedCallbackDoesNotHideAFailingOnStarting()
+	{
+		var wire = new PipeWire();
+		TelnetConnection? kept = null;
+		var builder = ServerBuilder()
+			.OnStarting(started =>
+			{
+				kept = started;
+				started.Closed.Register(() => throw new InvalidOperationException("callback"));
+				throw new InvalidOperationException("refused");
+			});
+
+		var error = await Assert.ThrowsAsync<InvalidOperationException>(async () => await builder.StartAsync(wire.Server));
+
+		await Assert.That(error!.Message).IsEqualTo("refused");
+		await Assert.That(kept!.Closed.IsCancellationRequested).IsTrue();
+	}
+
+	[Test]
 	public async Task CancellingTheStartTokenDuringOnStartingCancelsClosed()
 	{
 		var wire = new PipeWire();

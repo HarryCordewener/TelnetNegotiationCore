@@ -95,7 +95,15 @@ public sealed class TelnetConnection : IAsyncDisposable
 			{
 				// The connection ends here, so a hook that kept it sees Closed cancelled.
 				Volatile.Write(ref connection._disposed, 1);
-				connection.CancelClosed();
+				try
+				{
+					connection.CancelClosed();
+				}
+				catch
+				{
+					// A Closed callback that throws must not replace the hook's exception or skip the cleanup.
+				}
+
 				try
 				{
 					await connection.Interpreter.DisposeAsync();
