@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipelines;
 using System.Linq;
+using System.Net.WebSockets;
 using System.Net.Sockets;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
@@ -445,6 +446,48 @@ public class TelnetInterpreterBuilder
     }
 
     /// <summary>
+    /// Builds the interpreter and starts reading from an open <see cref="WebSocket"/> that speaks
+    /// <c>telnet.mudstandards.org</c> (or its alias <c>telnet</c>), or <c>telnetb64.mudstandards.org</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The socket carries the same telnet stream a TCP connection would, so every plugin works unchanged.
+    /// Each interpreter write goes out as one message; received frames are fed to the interpreter as they
+    /// arrive. A socket with no subprotocol is taken as plain telnet, as most wss-to-telnet bridges send none.
+    /// </para>
+    /// <para>
+    /// The read task completes when the close handshake finishes or the token is cancelled, and faults if the
+    /// socket fails. The socket and the interpreter stay the caller's to dispose. To serve several subprotocols
+    /// on one endpoint, use <see cref="WebSockets.WebSocketSubprotocolRegistry"/> instead.
+    /// </para>
+    /// </remarks>
+    /// <param name="socket">An open WebSocket, server or client side.</param>
+    /// <param name="cancellationToken">Token to cancel the read loop</param>
+    /// <exception cref="ArgumentException">The socket negotiated a subprotocol that is not a telnet stream.</exception>
+    public async Task<(TelnetInterpreter Interpreter, Task ReadTask)> BuildAndStartAsync(
+        WebSocket socket,
+        CancellationToken cancellationToken = default)
+    {
+        if (socket == null)
+            throw new ArgumentNullException(nameof(socket));
+
+        var subprotocol = socket.SubProtocol;
+        var base64 = string.Equals(subprotocol, WebSockets.MudWebSocketSubprotocols.TelnetBase64, StringComparison.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(subprotocol) && !base64 && !WebSockets.MudWebSocketSubprotocols.IsTelnet(subprotocol))
+        {
+            throw new ArgumentException(
+                $"The socket negotiated '{subprotocol}', which is not a telnet stream. Use a WebSocketSubprotocolRegistry to serve other subprotocols.",
+                nameof(socket));
+        }
+
+        var connection = new WebSockets.MudWebSocketConnection(socket);
+        _onNegotiation = WebSockets.TelnetWebSocketHandler.Writer(connection, base64);
+        var interpreter = await BuildAsync();
+        var readTask = connection.RunAsync(new WebSockets.TelnetWebSocketHandler(interpreter, base64), cancellationToken);
+        return (interpreter, readTask);
+    }
+
+    /// <summary>
     /// Adds a protocol plugin to the interpreter.
     /// Returns a configuration context that allows fluent chaining of plugin-specific configuration
     /// and builder methods. Implicitly converts back to TelnetInterpreterBuilder for continued chaining.
@@ -690,5 +733,18 @@ public class PluginConfigurationContext<T> where T : ITelnetProtocolPlugin
         CancellationToken cancellationToken = default)
     {
         return _builder.BuildAndStartAsync(client, cancellationToken);
+    }
+
+    /// <summary>
+    /// Builds the interpreter and starts reading from an open <see cref="WebSocket"/> that speaks
+    /// <c>telnet.mudstandards.org</c>. See <see cref="TelnetInterpreterBuilder.BuildAndStartAsync(WebSocket, CancellationToken)"/>.
+    /// </summary>
+    /// <param name="socket">An open WebSocket, server or client side.</param>
+    /// <param name="cancellationToken">Token to cancel the read loop</param>
+    public Task<(Interpreters.TelnetInterpreter Interpreter, Task ReadTask)> BuildAndStartAsync(
+        WebSocket socket,
+        CancellationToken cancellationToken = default)
+    {
+        return _builder.BuildAndStartAsync(socket, cancellationToken);
     }
 }

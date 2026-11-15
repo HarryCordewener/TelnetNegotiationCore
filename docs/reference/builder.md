@@ -25,7 +25,7 @@ if something is missing here it is a bug in this page.
 | `.AddPlugin(ITelnetProtocolPlugin)` | Register an instance you constructed yourself. |
 | `.AddDefaultMUDProtocols(…)` | NAWS, GMCP, MSDP, MSSP, TTYPE, CHARSET, EOR, SUPPRESS-GO-AHEAD and MXP in one call — plus Packet Patch when given an `onPrompt`. Follow with `.OnTerminalTypes(types => …)` to configure TTYPE. |
 | `.BuildAsync()` | The interpreter, with no read loop started. |
-| `.BuildAndStartAsync(IDuplexPipe \| Stream \| TcpClient, ct)` | The interpreter and a `Task` that completes when the peer closes. |
+| `.BuildAndStartAsync(IDuplexPipe \| Stream \| TcpClient \| WebSocket, ct)` | The interpreter and a `Task` that completes when the peer closes. A `WebSocket` must speak `telnet.mudstandards.org`, `telnet`, `telnetb64.mudstandards.org` or no subprotocol. See [WebSockets](../guides/websocket.md). |
 | `TelnetInterpreterBuilder.ReadFromPipeAsync(telnet, reader, ct)` | The read loop on its own, for a connection built with `BuildAsync`. |
 
 ## Plugin settings

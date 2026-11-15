@@ -70,47 +70,58 @@ namespace TelnetNegotiationCore.TestServer
 			await ValueTask.CompletedTask;
 		}
 
+		/// <summary>
+		/// The builder for one connection, shared by the TCP listener and the WebSocket endpoint so both get the same
+		/// plugins. The negotiation callback is left unset: each transport wires its own.
+		/// </summary>
+		public TelnetInterpreterBuilder CreateBuilder()
+		{
+			var msdpHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
+			{
+				Commands = () => ["help", "stats", "info"],
+				Configurable_Variables = () => ["CLIENT_NAME", "CLIENT_VERSION", "PLUGIN_ID"],
+				SerializerOptions = MsdpJsonContext.Default.Options,
+				Reportable_Variables = new() { ["ROOM"] = () => CurrentRoom() },
+				Sendable_Variables = new() { ["ROOM"] = () => CurrentRoom() },
+			});
+
+			return telnetFactory.CreateBuilder()
+			.OnSubmit(WriteBackAsync)
+			.AddPlugin<NAWSProtocol>()
+				.OnNAWS(SignalNAWSAsync)
+			.AddPlugin<GMCPProtocol>()
+				.OnGMCPMessage(SignalGMCPAsync)
+			.AddPlugin<MSDPProtocol>()
+				.OnMSDPMessage((t, config) => SignalMSDPAsync(msdpHandler, t, config))
+			.AddPlugin<MSSPProtocol>()
+				.OnMSSP(SignalMSSPAsync)
+				.WithMSSPConfig(() => new MSSPConfig
+				{
+					Name = "My Telnet Negotiated Server",
+					UTF_8 = true,
+					Gameplay = ["ABC", "DEF"],
+					WebSocket = "ws://localhost:4203/ws",
+					WebSocketSubprotocols = "telnet.mudstandards.org,telnet,telnetb64.mudstandards.org,gmcp.mudstandards.org,terminal.mudstandards.org",
+					Extended = new Dictionary<string, object>
+					{
+						{ "Foo",  "Bar"},
+						{ "Baz", (string[])["Moo", "Meow"] }
+					}
+				})
+			.AddPlugin<TerminalTypeProtocol>()
+			.AddPlugin<CharsetProtocol>()
+				.WithCharsetOrder(Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1"))
+			.AddPlugin<EORProtocol>()
+			.AddPlugin<SuppressGoAheadProtocol>();
+		}
+
 		public override async Task OnConnectedAsync(ConnectionContext connection)
 		{
 			using (logger.BeginScope(new Dictionary<string, object> { { "ConnectionId", connection.ConnectionId } }))
 			{
 				logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
 
-				var msdpHandler = new MSDPServerHandler(new MSDPServerModel(MSDPUpdateBehavior)
-				{
-					Commands = () => ["help", "stats", "info"],
-					Configurable_Variables = () => ["CLIENT_NAME", "CLIENT_VERSION", "PLUGIN_ID"],
-					SerializerOptions = MsdpJsonContext.Default.Options,
-					Reportable_Variables = new() { ["ROOM"] = () => CurrentRoom() },
-					Sendable_Variables = new() { ["ROOM"] = () => CurrentRoom() },
-				});
-
-				var (telnet, readTask) = await telnetFactory.CreateBuilder()
-				.OnSubmit(WriteBackAsync)
-				.AddPlugin<NAWSProtocol>()
-					.OnNAWS(SignalNAWSAsync)
-				.AddPlugin<GMCPProtocol>()
-					.OnGMCPMessage(SignalGMCPAsync)
-				.AddPlugin<MSDPProtocol>()
-					.OnMSDPMessage((t, config) => SignalMSDPAsync(msdpHandler, t, config))
-				.AddPlugin<MSSPProtocol>()
-					.OnMSSP(SignalMSSPAsync)
-					.WithMSSPConfig(() => new MSSPConfig
-					{
-						Name = "My Telnet Negotiated Server",
-						UTF_8 = true,
-						Gameplay = ["ABC", "DEF"],
-						Extended = new Dictionary<string, object>
-						{
-							{ "Foo",  "Bar"},
-							{ "Baz", (string[])["Moo", "Meow"] }
-						}
-					})
-				.AddPlugin<TerminalTypeProtocol>()
-				.AddPlugin<CharsetProtocol>()
-					.WithCharsetOrder(Encoding.GetEncoding("utf-8"), Encoding.GetEncoding("iso-8859-1"))
-				.AddPlugin<EORProtocol>()
-				.AddPlugin<SuppressGoAheadProtocol>()
+				var (telnet, readTask) = await CreateBuilder()
 				.BuildAndStartAsync(connection.Transport);
 
 				await readTask;
