@@ -85,6 +85,8 @@ public static class TelnetWebSocketClient
 		}, cancellationToken);
 	}
 
+	// netstandard2.0 cannot see the HTTP status of a failed upgrade, so there any failed handshake is
+	// dialled once more offering nothing: a server that is simply down costs a second attempt.
 	private static async Task<ClientWebSocket> ConnectTelnetAsync(
 		Uri uri, Action<ClientWebSocketOptions>? configure, CancellationToken cancellationToken)
 	{
@@ -96,8 +98,12 @@ public static class TelnetWebSocketClient
 				options.AddSubProtocol(MudWebSocketSubprotocols.Telnet);
 				options.AddSubProtocol(MudWebSocketSubprotocols.TelnetAlias);
 				configure?.Invoke(options);
+#if NETSTANDARD2_0
+			}, cancellationToken, _ => refused = true).ConfigureAwait(false);
+#else
 				options.CollectHttpResponseDetails = true;
 			}, cancellationToken, socket => refused = socket.HttpStatusCode != 0).ConfigureAwait(false);
+#endif
 		}
 		catch (WebSocketException) when (refused && !cancellationToken.IsCancellationRequested)
 		{
