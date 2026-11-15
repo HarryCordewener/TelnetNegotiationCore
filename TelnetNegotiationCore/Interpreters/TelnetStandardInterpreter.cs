@@ -1124,15 +1124,43 @@ public partial class TelnetInterpreter : IAsyncDisposable
                         DisposeRetiredInboundTransforms();
                     }
 
+                    var buffer = raw.Buffer;
+                    var length = raw.Length;
+
+                    // Small chunks already waiting behind this one join it, up to one batch. A caller
+                    // feeding one byte per InterpretAsync call otherwise pays a whole batch's setup for
+                    // every byte, which the per-byte channel this replaced avoided the same way.
+                    if (length < MachineBatchSize
+                        && _byteChannel.Reader.TryPeek(out var next)
+                        && next.Buffer is not null
+                        && length + next.Length <= MachineBatchSize)
+                    {
+                        var joined = ArrayPool<byte>.Shared.Rent(MachineBatchSize);
+                        buffer.AsSpan(0, length).CopyTo(joined);
+                        ArrayPool<byte>.Shared.Return(buffer);
+                        buffer = joined;
+
+                        while (_byteChannel.Reader.TryPeek(out next)
+                               && next.Buffer is not null
+                               && length + next.Length <= MachineBatchSize
+                               && _byteChannel.Reader.TryRead(out next))
+                        {
+                            next.Buffer!.AsSpan(0, next.Length).CopyTo(buffer.AsSpan(length));
+                            length += next.Length;
+                            handledItems++;
+                            ArrayPool<byte>.Shared.Return(next.Buffer!);
+                        }
+                    }
+
                     // Every chunk takes the batch path, with or without a decoder: it already switches
                     // decoders at the exact byte a marker installs one, and feeds a decoder one byte at a time.
                     try
                     {
-                        byteCount += await ProcessRawBatchAsync(raw.Buffer.AsMemory(0, raw.Length));
+                        byteCount += await ProcessRawBatchAsync(buffer.AsMemory(0, length));
                     }
                     finally
                     {
-                        ArrayPool<byte>.Shared.Return(raw.Buffer);
+                        ArrayPool<byte>.Shared.Return(buffer);
                     }
                 }
                 finally
