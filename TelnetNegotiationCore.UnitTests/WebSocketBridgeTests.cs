@@ -145,6 +145,79 @@ public class WebSocketBridgeTests : BaseTest
 		await Assert.That(() => TelnetTransport.WebSocketClient(clientSocket)).Throws<ArgumentException>();
 	}
 
+	[Test]
+	public async Task ACustomSubprotocolPlugsInWithItsOwnBridge()
+	{
+		// A made-up subprotocol: text in TEXT frames, and a GA the client writes becomes a "ga" TEXT frame.
+		const string name = "lines.v1.example.org";
+		var (serverSocket, clientSocket) = WebSocketPair.Create(name);
+		var server = new RawServer(serverSocket);
+		var bridges = new WebSocketClientBridges().Add(name, () => new TextLinesBridge());
+		var lines = new ConcurrentQueue<string>();
+
+		var transport = TelnetTransport.WebSocketClient(clientSocket, bridges);
+		await using var client = await ClientBuilder(lines).StartAsync(transport);
+		await server.SendTextAsync("hello there\r\n");
+		// What the interpreter writes for a line and then a GA.
+		await transport.WriteAsync(new byte[] { (byte)'h', (byte)'i', 0x0D, 0x0A, 0xFF, 0xF9 }, CancellationToken.None);
+
+		await Assert.That(await PollUntilAsync(() => !lines.IsEmpty && server.Text.Count >= 2)).IsTrue();
+		await Assert.That(lines.Single()).IsEqualTo("hello there");
+		await Assert.That(server.Text.ToArray()).IsEquivalentTo(new[] { "hi", "ga" });
+		await Assert.That(server.Binary.IsEmpty).IsTrue();
+	}
+
+	[Test]
+	public async Task AnotherOptionCanRideTextFramesTheWayGmcpDoes()
+	{
+		const string name = "msdp.v1.example.org";
+		var (serverSocket, clientSocket) = WebSocketPair.Create(name);
+		var server = new RawServer(serverSocket);
+		var bridges = WebSocketClientBridges.Default.Add(name, () => new OptionTextFrameBridge((byte)Models.Trigger.MSDP));
+		var transport = TelnetTransport.WebSocketClient(clientSocket, bridges);
+		var fed = new ConcurrentQueue<byte[]>();
+		var reading = transport.ReadAsync(d => { fed.Enqueue(d.ToArray()); return default; }, CancellationToken.None);
+
+		await server.SendTextAsync("hp");
+		// A GMCP subnegotiation is not this bridge's option, and is dropped; an MSDP one goes out as TEXT.
+		await transport.WriteAsync(new byte[] { 0xFF, 0xFA, 0xC9, (byte)'x', 0xFF, 0xF0, 0xFF, 0xFA, 0x45, (byte)'y', 0xFF, 0xF0 }, CancellationToken.None);
+
+		await Assert.That(await PollUntilAsync(() => fed.Count >= 2 && !server.Text.IsEmpty)).IsTrue();
+		await Assert.That(Convert.ToHexString(fed.First())).IsEqualTo("FFFB45");
+		await Assert.That(Convert.ToHexString(fed.Skip(1).First())).IsEqualTo("FFFA456870FFF0");
+		await Assert.That(server.Text.Single()).IsEqualTo("y");
+
+		await transport.CloseAsync(CancellationToken.None);
+		await reading.WaitAsync(TimeSpan.FromSeconds(5));
+	}
+
+	[Test]
+	public async Task TheBridgeSetRefusesTelnetNamesDuplicatesAndNonTokens()
+	{
+		await Assert.That(() => new WebSocketClientBridges().Add(MudWebSocketSubprotocols.Telnet, () => new TerminalClientBridge()))
+			.Throws<ArgumentException>();
+		await Assert.That(() => new WebSocketClientBridges().Add(MudWebSocketSubprotocols.TelnetBase64, () => new TerminalClientBridge()))
+			.Throws<ArgumentException>();
+		await Assert.That(() => WebSocketClientBridges.Default.Add(MudWebSocketSubprotocols.Gmcp, () => new TerminalClientBridge()))
+			.Throws<ArgumentException>();
+		await Assert.That(() => new WebSocketClientBridges().Add("a b", () => new TerminalClientBridge()))
+			.Throws<ArgumentException>();
+		await Assert.That(WebSocketClientBridges.Default.Names.ToArray())
+			.IsEquivalentTo(new[] { MudWebSocketSubprotocols.Gmcp, MudWebSocketSubprotocols.Terminal });
+	}
+
+	private sealed class TextLinesBridge : WebSocketClientBridge
+	{
+		protected override ValueTask OnTextMessageAsync(string text, TelnetInput input, CancellationToken cancellationToken) =>
+			input.TextAsync(text);
+
+		protected override ValueTask OnTextAsync(ReadOnlyMemory<byte> text, CancellationToken cancellationToken) =>
+			Connection.SendTextAsync(Encoding.UTF8.GetString(text.ToArray()).TrimEnd('\r', '\n'), cancellationToken);
+
+		protected override ValueTask OnCommandAsync(byte command, byte? option, CancellationToken cancellationToken) =>
+			command == 0xF9 ? Connection.SendTextAsync("ga", cancellationToken) : default;
+	}
+
 	private static TelnetInterpreterBuilder ClientBuilder(ConcurrentQueue<string> lines) =>
 		new TelnetInterpreterBuilder()
 			.UseMode(TelnetInterpreter.TelnetMode.Client)

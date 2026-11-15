@@ -52,7 +52,7 @@ public static class TelnetTransport
 	/// An open WebSocket speaking <c>telnet.mudstandards.org</c>, its alias <c>telnet</c>, or
 	/// <c>telnetb64.mudstandards.org</c>. A socket with no subprotocol is taken as plain telnet.
 	/// </summary>
-	/// <remarks>A client that may also have been given <c>gmcp</c> or <c>terminal</c> uses <see cref="WebSocketClient(WebSocket)"/>.</remarks>
+	/// <remarks>A client that may also have been given <c>gmcp</c>, <c>terminal</c> or another bridged subprotocol uses <see cref="WebSocketClient(WebSocket, WebSocketClientBridges?)"/>.</remarks>
 	/// <exception cref="ArgumentException">The socket negotiated a subprotocol that is not a telnet stream.</exception>
 	public static ITelnetTransport WebSocket(WebSocket socket)
 	{
@@ -68,77 +68,63 @@ public static class TelnetTransport
 	}
 
 	/// <summary>
-	/// A client's WebSocket to a game: any stream <see cref="WebSocket(WebSocket)"/> speaks, and also
-	/// <c>gmcp.mudstandards.org</c> and <c>terminal.mudstandards.org</c>, which carry no telnet.
+	/// A client's WebSocket to a game: any stream <see cref="WebSocket(WebSocket)"/> speaks, and every subprotocol in
+	/// <paramref name="bridges"/>, which carry no telnet.
 	/// </summary>
 	/// <remarks>
 	/// <para>
-	/// A client interpreter runs over <c>gmcp</c> and <c>terminal</c> unchanged: the transport turns the server's
-	/// frames into a telnet stream and takes telnet back out of every write, so no negotiation byte reaches a server
-	/// that would read it as text in front of the player's next line. On <c>gmcp</c> the connection opens as if the
-	/// server had sent <c>WILL GMCP</c>, and GMCP goes both ways in TEXT frames. Nothing else is negotiated: no NAWS,
-	/// TTYPE, CHARSET, echo control or prompt marking, and the text is UTF-8.
+	/// A client interpreter runs over a bridged subprotocol unchanged: the <see cref="WebSocketClientBridge"/> turns the
+	/// server's frames into a telnet stream and decides what each write becomes, so no negotiation byte reaches a
+	/// server that would read it as text in front of the player's next line. With <see cref="WebSocketClientBridges.Default"/>
+	/// that is <c>gmcp.mudstandards.org</c> (GMCP both ways in TEXT frames, opened as if the server sent
+	/// <c>WILL GMCP</c>) and <c>terminal.mudstandards.org</c>. Nothing else is negotiated on them: no NAWS, TTYPE,
+	/// CHARSET, echo control or prompt marking, and the text is UTF-8.
 	/// </para>
 	/// <para>
-	/// <see cref="Builders.TelnetInterpreterBuilder.StartAsync(WebSocket, CancellationToken)"/> uses this for a
-	/// client interpreter. A server answering these subprotocols registers
+	/// <see cref="Builders.TelnetInterpreterBuilder.StartAsync(WebSocket, CancellationToken)"/> uses this, with the
+	/// default bridges, for a client interpreter. A server answering these subprotocols registers
 	/// <see cref="GmcpWebSocketHandler"/> or <see cref="TerminalWebSocketHandler"/> instead.
 	/// </para>
 	/// </remarks>
-	/// <exception cref="ArgumentException">The socket negotiated a subprotocol this transport does not speak.</exception>
-	public static ITelnetTransport WebSocketClient(WebSocket socket)
+	/// <param name="socket">The connected socket.</param>
+	/// <param name="bridges">The bridged subprotocols. <see cref="WebSocketClientBridges.Default"/> when left out.</param>
+	/// <exception cref="ArgumentException">The socket negotiated a subprotocol that is neither telnet nor bridged.</exception>
+	public static ITelnetTransport WebSocketClient(WebSocket socket, WebSocketClientBridges? bridges = null)
 	{
 		if (socket is null) throw new ArgumentNullException(nameof(socket));
-		return WebSocketClient(new MudWebSocketConnection(socket), nameof(socket));
+		return WebSocketClient(new MudWebSocketConnection(socket), bridges, nameof(socket));
 	}
 
-	/// <inheritdoc cref="WebSocketClient(System.Net.WebSockets.WebSocket)"/>
-	public static ITelnetTransport WebSocketClient(MudWebSocketConnection connection)
+	/// <inheritdoc cref="WebSocketClient(System.Net.WebSockets.WebSocket, WebSocketClientBridges?)"/>
+	public static ITelnetTransport WebSocketClient(MudWebSocketConnection connection, WebSocketClientBridges? bridges = null)
 	{
 		if (connection is null) throw new ArgumentNullException(nameof(connection));
-		return WebSocketClient(connection, nameof(connection));
+		return WebSocketClient(connection, bridges, nameof(connection));
 	}
 
-	private static ITelnetTransport WebSocketClient(MudWebSocketConnection connection, string parameterName) =>
-		KindOf(connection.Subprotocol, parameterName) switch
-		{
-			WebSocketStream.Gmcp => new BridgeTransport(new TelnetBridge(connection, gmcp: true)),
-			WebSocketStream.Terminal => new BridgeTransport(new TelnetBridge(connection, gmcp: false)),
-			var telnet => new WebSocketTransport(connection, base64: telnet == WebSocketStream.TelnetBase64),
-		};
+	private static ITelnetTransport WebSocketClient(MudWebSocketConnection connection, WebSocketClientBridges? bridges, string parameterName)
+	{
+		var subprotocol = connection.Subprotocol;
+		if (IsTelnetStream(subprotocol, out var base64)) return new WebSocketTransport(connection, base64);
+		var factory = (bridges ?? WebSocketClientBridges.Default).Find(subprotocol)
+			?? throw new ArgumentException(
+				$"The socket negotiated '{subprotocol}', which is neither telnet nor a bridged subprotocol. Add a WebSocketClientBridge for it.",
+				parameterName);
+		return new BridgeTransport(connection, factory() ?? throw new InvalidOperationException("The bridge factory returned null."));
+	}
 
 	private static ITelnetTransport Telnet(MudWebSocketConnection connection, string parameterName)
 	{
-		var kind = KindOf(connection.Subprotocol, parameterName);
-		if (kind is WebSocketStream.Telnet or WebSocketStream.TelnetBase64)
-			return new WebSocketTransport(connection, base64: kind == WebSocketStream.TelnetBase64);
+		if (IsTelnetStream(connection.Subprotocol, out var base64)) return new WebSocketTransport(connection, base64);
 		throw new ArgumentException(
 			$"The socket negotiated '{connection.Subprotocol}', which is not a telnet stream. Use a WebSocketSubprotocolRegistry to serve other subprotocols.",
 			parameterName);
 	}
 
-	/// <summary>
-	/// What <paramref name="subprotocol"/> carries; throws when it is none of the streams <see cref="WebSocketClient(MudWebSocketConnection)"/> speaks.
-	/// </summary>
-	internal static WebSocketStream KindOf(string? subprotocol, string parameterName)
+	private static bool IsTelnetStream(string? subprotocol, out bool base64)
 	{
-		if (string.IsNullOrEmpty(subprotocol) || MudWebSocketSubprotocols.IsTelnet(subprotocol)) return WebSocketStream.Telnet;
-		if (Is(subprotocol, MudWebSocketSubprotocols.TelnetBase64)) return WebSocketStream.TelnetBase64;
-		if (Is(subprotocol, MudWebSocketSubprotocols.Gmcp)) return WebSocketStream.Gmcp;
-		if (Is(subprotocol, MudWebSocketSubprotocols.Terminal)) return WebSocketStream.Terminal;
-		throw new ArgumentException(
-			$"The socket negotiated '{subprotocol}', which no TNC transport speaks. Use a WebSocketSubprotocolRegistry to serve other subprotocols.",
-			parameterName);
-
-		static bool Is(string? a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
-	}
-
-	internal enum WebSocketStream
-	{
-		Telnet,
-		TelnetBase64,
-		Gmcp,
-		Terminal,
+		base64 = string.Equals(subprotocol, MudWebSocketSubprotocols.TelnetBase64, StringComparison.OrdinalIgnoreCase);
+		return base64 || string.IsNullOrEmpty(subprotocol) || MudWebSocketSubprotocols.IsTelnet(subprotocol);
 	}
 
 	private sealed class PipeTransport(IDuplexPipe pipe, Func<ValueTask>? close) : ITelnetTransport
@@ -215,17 +201,6 @@ public static class TelnetTransport
 
 		public ValueTask CloseAsync(CancellationToken cancellationToken) =>
 			connection.CloseAsync(WebSocketCloseStatus.NormalClosure, null, cancellationToken);
-	}
-
-	private sealed class BridgeTransport(TelnetBridge bridge) : ITelnetTransport
-	{
-		public Task ReadAsync(Func<ReadOnlyMemory<byte>, ValueTask> onData, CancellationToken cancellationToken) =>
-			bridge.ReadAsync(onData, cancellationToken);
-
-		public ValueTask WriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken) =>
-			bridge.WriteAsync(data, cancellationToken);
-
-		public ValueTask CloseAsync(CancellationToken cancellationToken) => bridge.CloseAsync(cancellationToken);
 	}
 
 	/// <summary>The read loop every pipe-shaped transport shares.</summary>

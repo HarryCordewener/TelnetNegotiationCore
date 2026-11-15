@@ -40,9 +40,9 @@ public static class ClientWebSocketOptionsExtensions
 public static class TelnetWebSocketClient
 {
 	/// <summary>
-	/// Connects to <paramref name="uri"/>, offering <c>telnet.mudstandards.org</c>, <c>telnet</c>,
-	/// <c>gmcp.mudstandards.org</c> and <c>terminal.mudstandards.org</c>, in that order. A server that names no
-	/// subprotocol is taken as telnet, as most wss-to-telnet bridges send none.
+	/// Connects to <paramref name="uri"/>, offering <c>telnet.mudstandards.org</c> and <c>telnet</c>, then
+	/// <c>gmcp.mudstandards.org</c> and <c>terminal.mudstandards.org</c> (<see cref="WebSocketClientBridges.Default"/>).
+	/// A server that names no subprotocol is taken as telnet, as most wss-to-telnet bridges send none.
 	/// </summary>
 	/// <remarks>
 	/// <para>
@@ -68,7 +68,18 @@ public static class TelnetWebSocketClient
 	/// <returns>The connected socket. It is the caller's to dispose.</returns>
 	public static Task<ClientWebSocket> ConnectAsync(
 		Uri uri, Action<ClientWebSocketOptions>? configure = null, CancellationToken cancellationToken = default) =>
-		ConnectTelnetAsync(uri, configure, cancellationToken);
+		ConnectTelnetAsync(uri, WebSocketClientBridges.Default, configure, cancellationToken);
+
+	/// <summary>
+	/// Connects to <paramref name="uri"/>, offering <c>telnet.mudstandards.org</c> and <c>telnet</c>, then every name in
+	/// <paramref name="bridges"/> in its order. Run the result with
+	/// <see cref="Connections.TelnetTransport.WebSocketClient(WebSocket, WebSocketClientBridges?)"/> and the same bridges.
+	/// Otherwise as <see cref="ConnectAsync(Uri, Action{ClientWebSocketOptions}?, CancellationToken)"/>.
+	/// </summary>
+	public static Task<ClientWebSocket> ConnectAsync(
+		Uri uri, WebSocketClientBridges bridges, Action<ClientWebSocketOptions>? configure = null,
+		CancellationToken cancellationToken = default) =>
+		ConnectTelnetAsync(uri, bridges ?? throw new ArgumentNullException(nameof(bridges)), configure, cancellationToken);
 
 	/// <inheritdoc cref="ConnectAsync(Uri, Action{ClientWebSocketOptions}?, CancellationToken)"/>
 	public static Task<ClientWebSocket> ConnectAsync(Uri uri, CancellationToken cancellationToken) =>
@@ -96,7 +107,7 @@ public static class TelnetWebSocketClient
 	// netstandard2.0 cannot see the HTTP status of a failed upgrade, so there any failed handshake is
 	// dialled once more offering nothing: a server that is simply down costs a second attempt.
 	private static async Task<ClientWebSocket> ConnectTelnetAsync(
-		Uri uri, Action<ClientWebSocketOptions>? configure, CancellationToken cancellationToken)
+		Uri uri, WebSocketClientBridges bridges, Action<ClientWebSocketOptions>? configure, CancellationToken cancellationToken)
 	{
 		var refused = false;
 		try
@@ -105,8 +116,7 @@ public static class TelnetWebSocketClient
 			{
 				options.AddSubProtocol(MudWebSocketSubprotocols.Telnet);
 				options.AddSubProtocol(MudWebSocketSubprotocols.TelnetAlias);
-				options.AddSubProtocol(MudWebSocketSubprotocols.Gmcp);
-				options.AddSubProtocol(MudWebSocketSubprotocols.Terminal);
+				foreach (var name in bridges.Names) options.AddSubProtocol(name);
 				configure?.Invoke(options);
 #if NETSTANDARD2_0
 			}, cancellationToken, _ => refused = true).ConfigureAwait(false);

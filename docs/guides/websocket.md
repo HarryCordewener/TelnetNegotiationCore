@@ -165,8 +165,9 @@ Evennia speaks no telnet over a WebSocket: it offers `json.mudstandards.org`, `g
 `v1.evennia.com` JSON in TEXT frames, which the telnet transport closes with 1003.
 
 `TelnetTransport.WebSocketClient` (which `StartAsync(socket)` uses for a client interpreter) runs the interpreter on
-`gmcp` and `terminal` unchanged. It turns the server's frames into a telnet stream and takes telnet back out of
-everything the interpreter writes:
+any subprotocol that has a `WebSocketClientBridge`. `WebSocketClientBridges.Default` holds two, `GmcpClientBridge`
+and `TerminalClientBridge`, and `TelnetWebSocketClient.ConnectAsync` offers them after the telnet names. A bridge
+turns the server's frames into a telnet stream and decides what each thing the interpreter writes becomes:
 
 - **Text** in BINARY frames is the stream as is, with any `0xFF` doubled so it stays data. What the client sends goes
   out as one BINARY message per write.
@@ -182,6 +183,31 @@ everything the interpreter writes:
 
 A TEXT frame on `terminal` closes the socket with 1003. A server interpreter refuses both subprotocols; serve them with
 `GmcpWebSocketHandler` and `TerminalWebSocketHandler`.
+
+### Your own subprotocol
+
+`OptionTextFrameBridge` is GMCP's shape for any option: text in BINARY frames, one telnet option in TEXT frames,
+`WILL` fed on open. Override `Decode`/`Encode` when the TEXT format is not the bare payload. For anything else,
+subclass `WebSocketClientBridge`; by default it behaves as `terminal`, and you override what your subprotocol changes:
+
+| Override | Called with | Default |
+|---|---|---|
+| `OnOpenAsync` | a `TelnetInput` | nothing; feed the `WILL`s the subprotocol implies |
+| `OnBinaryMessageAsync` / `OnTextMessageAsync` | a whole message and the input | text / close 1003 |
+| `OnTextAsync` | text the interpreter wrote | one BINARY message |
+| `OnSubnegotiationAsync` | an option and its unescaped payload | dropped |
+| `OnCommandAsync` | `WILL`/`WONT`/`DO`/`DONT` and an option, or GA, EOR, NOP… | dropped |
+
+`TelnetInput` feeds the interpreter: `TextAsync` (escaped), `WillAsync`, `DoAsync`, `SubnegotiationAsync`,
+`RawAsync`. Register the bridge and offer it:
+
+```csharp
+var bridges = WebSocketClientBridges.Default
+    .Add("msdp.v1.example.org", () => new OptionTextFrameBridge((byte)Trigger.MSDP));
+
+using var socket = await TelnetWebSocketClient.ConnectAsync(uri, bridges, cancellationToken: ct);
+await using var connection = await builder.StartAsync(TelnetTransport.WebSocketClient(socket, bridges), ct);
+```
 
 ## MSSP
 
