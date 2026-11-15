@@ -316,12 +316,18 @@ internal sealed class MCCPDeflateTransform : IFinishableOutboundTransform
 	private readonly ZLibStream _deflater;
 #endif
 
-	public MCCPDeflateTransform()
+	/// <param name="level">How hard to compress. See <see cref="MCCPProtocol.WithCompressionLevel"/>.</param>
+	public MCCPDeflateTransform(CompressionLevel level = CompressionLevel.Optimal)
 	{
 #if NETSTANDARD2_0
-		_deflater = new DeflaterOutputStream(_sink) { IsStreamOwner = false };
+		_deflater = new DeflaterOutputStream(_sink, new Deflater(level switch
+		{
+			CompressionLevel.NoCompression => Deflater.NO_COMPRESSION,
+			CompressionLevel.Fastest => Deflater.BEST_SPEED,
+			_ => Deflater.DEFAULT_COMPRESSION,
+		})) { IsStreamOwner = false };
 #else
-		_deflater = new ZLibStream(_sink, CompressionLevel.Optimal, leaveOpen: true);
+		_deflater = new ZLibStream(_sink, level, leaveOpen: true);
 #endif
 	}
 

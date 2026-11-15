@@ -468,6 +468,10 @@ public class TelnetInterpreterBuilder
 
     private static async ValueTask WriteToStreamAsync(Stream stream, ReadOnlyMemory<byte> data)
     {
+#if !NETSTANDARD2_0
+        // The memory overload: a ValueTask, and no copy for memory that is not an array.
+        await stream.WriteAsync(data);
+#else
         if (MemoryMarshal.TryGetArray(data, out var segment) && segment.Array is not null)
         {
             await stream.WriteAsync(segment.Array, segment.Offset, segment.Count);
@@ -476,6 +480,7 @@ public class TelnetInterpreterBuilder
 
         var copy = data.ToArray();
         await stream.WriteAsync(copy, 0, copy.Length);
+#endif
     }
 
     /// <summary>

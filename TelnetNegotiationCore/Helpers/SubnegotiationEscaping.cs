@@ -73,6 +73,52 @@ internal static class SubnegotiationEscaping
 	internal static void AppendEscaped(List<byte> destination, string text, Encoding encoding)
 		=> AppendEscaped(destination, encoding.GetBytes(text));
 
+	/// <summary>The length of <paramref name="input"/> once every <c>IAC</c> in it is doubled.</summary>
+	internal static int EscapedLength(ReadOnlySpan<byte> input)
+	{
+#if NET8_0_OR_GREATER
+		return input.Length + input.Count(IAC);
+#else
+		var length = input.Length;
+		for (var at = input.IndexOf(IAC); at >= 0; at = input.IndexOf(IAC))
+		{
+			length++;
+			input = input.Slice(at + 1);
+		}
+
+		return length;
+#endif
+	}
+
+	/// <summary>
+	/// Writes <paramref name="input"/> into <paramref name="destination"/> with every <c>IAC</c> doubled,
+	/// and returns how many bytes it wrote. <paramref name="destination"/> must hold
+	/// <see cref="EscapedLength"/> bytes.
+	/// </summary>
+	/// <remarks>
+	/// For building a frame in one buffer: the escaped copy that <see cref="Escaped"/> returns would
+	/// otherwise be allocated only to be copied again into the frame around it.
+	/// </remarks>
+	internal static int CopyEscaped(ReadOnlySpan<byte> input, Span<byte> destination)
+	{
+		var written = 0;
+		while (true)
+		{
+			var at = input.IndexOf(IAC);
+			if (at < 0)
+			{
+				input.CopyTo(destination.Slice(written));
+				return written + input.Length;
+			}
+
+			input.Slice(0, at).CopyTo(destination.Slice(written));
+			written += at;
+			destination[written++] = IAC;
+			destination[written++] = IAC;
+			input = input.Slice(at + 1);
+		}
+	}
+
 	/// <summary>
 	/// A copy of <paramref name="input"/> with every <c>IAC</c> doubled, or the input itself when
 	/// there is nothing to escape.

@@ -1080,4 +1080,19 @@ public static class PluginConfigurationExtensions
         context.Plugin.WithMaxExpansionRatio(ratio);
         return context;
     }
+
+    /// <summary>
+    /// Sets how hard this side compresses what it sends, in a fluent manner.
+    /// See <see cref="MCCPProtocol.WithCompressionLevel"/>.
+    /// </summary>
+    /// <param name="context">The plugin configuration context</param>
+    /// <param name="level">The zlib level to deflate with (default <see cref="System.IO.Compression.CompressionLevel.Optimal"/>)</param>
+    /// <returns>The plugin configuration context for continued chaining</returns>
+    public static PluginConfigurationContext<MCCPProtocol> WithCompressionLevel(
+        this PluginConfigurationContext<MCCPProtocol> context,
+        System.IO.Compression.CompressionLevel level)
+    {
+        context.Plugin.WithCompressionLevel(level);
+        return context;
+    }
 }
