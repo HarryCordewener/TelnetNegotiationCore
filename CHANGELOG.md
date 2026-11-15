@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **WebSocket clients on `gmcp.mudstandards.org` and `terminal.mudstandards.org`.** `TelnetTransport.WebSocketClient`
+  runs a client interpreter over either, with every plugin unchanged: frames become a telnet stream, GMCP TEXT frames
+  become `IAC SB GMCP`, the connection opens as if the server sent `WILL GMCP`, and no telnet command the interpreter
+  writes reaches the server (a server with no telnet layer reads them as text in front of the login).
+  `StartAsync(socket)` uses it for a client, and `TelnetWebSocketClient.ConnectAsync` now offers both after the telnet
+  names. This is how a client reaches Evennia, which offers no telnet subprotocol; checked against an Evennia 6.1 game.
+
 - **`StartAsync` and `TelnetConnection`.** `StartAsync` takes the transports `BuildAndStartAsync` takes and returns
   a connection handle: `Interpreter`, `Completion`, `Closed`, `CloseAsync` (ends the connection from this side,
   whatever the transport) and `ClosedByServer`. It owns the interpreter and deconstructs as the old

@@ -7,8 +7,8 @@ and lets you add your own. TNC never touches HTTP: your web server accepts the s
 |---|---|---|
 | `telnet.mudstandards.org` (alias `telnet`) | BINARY: the full telnet stream | `TelnetInterpreter`, every plugin unchanged |
 | `telnetb64.mudstandards.org` | TEXT: the telnet stream, Base64 | `TelnetInterpreter`. The proposal advises against it. |
-| `gmcp.mudstandards.org` | BINARY: UTF-8 text and ANSI. TEXT: GMCP | `GmcpWebSocketHandler`, no telnet |
-| `terminal.mudstandards.org` | BINARY: UTF-8 text and ANSI | `TerminalWebSocketHandler`, no telnet |
+| `gmcp.mudstandards.org` | BINARY: UTF-8 text and ANSI. TEXT: GMCP | Server: `GmcpWebSocketHandler`. Client: `TelnetInterpreter` |
+| `terminal.mudstandards.org` | BINARY: UTF-8 text and ANSI | Server: `TerminalWebSocketHandler`. Client: `TelnetInterpreter` |
 | `divstream.mudstandards.org` | BINARY: HTML `div`s | none built in; write a handler |
 | your own, e.g. `markup.v1.example.org` | your choice | a `WebSocketMessageHandler` subclass |
 
@@ -38,8 +38,10 @@ A socket with no subprotocol is taken as telnet, because most existing wss-to-te
 A socket that negotiated anything else (`gmcp.mudstandards.org`, say) throws `ArgumentException`, so non-telnet
 frames never reach the telnet parser.
 
-A client connects with `TelnetWebSocketClient.ConnectAsync`, which offers `telnet.mudstandards.org` and then
-`telnet`. A server that names neither is taken as telnet, as above:
+A client connects with `TelnetWebSocketClient.ConnectAsync`, which offers `telnet.mudstandards.org`, `telnet`,
+`gmcp.mudstandards.org` and `terminal.mudstandards.org`, and the server picks. A server that names none is taken as
+telnet, as above. A client interpreter runs on whichever was picked, so the same code reaches a telnet bridge and an
+Evennia game (see [A client on gmcp or terminal](#a-client-on-gmcp-or-terminal)):
 
 ```csharp
 using var socket = await TelnetWebSocketClient.ConnectAsync(new Uri("wss://game.example/ws"),
@@ -155,6 +157,31 @@ var registry = new WebSocketSubprotocolRegistry()
 using var socket = await registry.ConnectAsync(new Uri("wss://game.example/ws"), cancellationToken: ct);
 await registry.RunAsync(socket, ct);   // telnet or gmcp, whichever the server chose
 ```
+
+## A client on gmcp or terminal
+
+Evennia speaks no telnet over a WebSocket: it offers `json.mudstandards.org`, `gmcp.mudstandards.org`,
+`terminal.mudstandards.org` and its own `v1.evennia.com`. Offered only the telnet names it names none and sends
+`v1.evennia.com` JSON in TEXT frames, which the telnet transport closes with 1003.
+
+`TelnetTransport.WebSocketClient` (which `StartAsync(socket)` uses for a client interpreter) runs the interpreter on
+`gmcp` and `terminal` unchanged. It turns the server's frames into a telnet stream and takes telnet back out of
+everything the interpreter writes:
+
+- **Text** in BINARY frames is the stream as is, with any `0xFF` doubled so it stays data. What the client sends goes
+  out as one BINARY message per write.
+- **GMCP**, on `gmcp`, arrives as `IAC SB GMCP … IAC SE`, and goes out as a TEXT frame. The connection opens as if
+  the server had sent `IAC WILL GMCP`: picking the subprotocol is its agreement, so `OnGMCPNegotiated` fires and a
+  client that waits for it before saying `Core.Hello` says it then.
+- **Every other telnet command is dropped**, the answer to that `WILL GMCP` and the client's own opening `WILL NAWS`
+  included. A server with no telnet layer reads those bytes as text, in front of the next line the player sends,
+  which is usually the login: the game shows its connect screen again and logs nobody in.
+- **Nothing else is negotiated**: no NAWS, TTYPE, CHARSET, echo control or prompt marking. The text is UTF-8, so
+  decode as UTF-8 rather than waiting for CHARSET, and let `PacketPatchProtocol` (in `AddDefaultMUDProtocols`) find
+  the prompts. A password is echoed by the server's own rules.
+
+A TEXT frame on `terminal` closes the socket with 1003. A server interpreter refuses both subprotocols; serve them with
+`GmcpWebSocketHandler` and `TerminalWebSocketHandler`.
 
 ## MSSP
 

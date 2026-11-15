@@ -40,15 +40,23 @@ public static class ClientWebSocketOptionsExtensions
 public static class TelnetWebSocketClient
 {
 	/// <summary>
-	/// Connects to <paramref name="uri"/>, offering <c>telnet.mudstandards.org</c> and then <c>telnet</c>. A server
-	/// that names no subprotocol is taken as telnet, as most wss-to-telnet bridges send none.
+	/// Connects to <paramref name="uri"/>, offering <c>telnet.mudstandards.org</c>, <c>telnet</c>,
+	/// <c>gmcp.mudstandards.org</c> and <c>terminal.mudstandards.org</c>, in that order. A server that names no
+	/// subprotocol is taken as telnet, as most wss-to-telnet bridges send none.
 	/// </summary>
 	/// <remarks>
+	/// <para>
+	/// The server picks, by its own preference. Evennia speaks no telnet over a WebSocket and picks <c>gmcp</c>;
+	/// offered only the telnet names it names none and sends its own JSON, which is not a telnet stream.
+	/// <see cref="Connections.TelnetTransport.WebSocket(WebSocket)"/> runs the interpreter over whichever was picked.
+	/// </para>
+	/// <para>
 	/// A server that answers the offer with an HTTP error is dialled once more offering no subprotocol. Bridges
 	/// in use refuse names they do not know rather than ignoring them: websockify answers
 	/// <c>400 Invalid protocol selected</c>, and an Apache <c>mod_proxy_wstunnel</c> in front of a game answers
 	/// <c>502</c>; both accept the same handshake with no <c>Sec-WebSocket-Protocol</c> and carry telnet in
 	/// binary frames. A connect that fails without an HTTP answer (no route, TLS, a timeout) is not retried.
+	/// </para>
 	/// </remarks>
 	/// <param name="uri">A <c>ws://</c> or <c>wss://</c> address.</param>
 	/// <param name="configure">
@@ -97,6 +105,8 @@ public static class TelnetWebSocketClient
 			{
 				options.AddSubProtocol(MudWebSocketSubprotocols.Telnet);
 				options.AddSubProtocol(MudWebSocketSubprotocols.TelnetAlias);
+				options.AddSubProtocol(MudWebSocketSubprotocols.Gmcp);
+				options.AddSubProtocol(MudWebSocketSubprotocols.Terminal);
 				configure?.Invoke(options);
 #if NETSTANDARD2_0
 			}, cancellationToken, _ => refused = true).ConfigureAwait(false);

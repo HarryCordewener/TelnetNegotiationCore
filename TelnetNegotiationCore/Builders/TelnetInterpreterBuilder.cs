@@ -530,6 +530,8 @@ public class TelnetInterpreterBuilder
     /// The socket carries the same telnet stream a TCP connection would, so every plugin works unchanged.
     /// Each interpreter write goes out as one message; received frames are fed to the interpreter as they
     /// arrive. A socket with no subprotocol is taken as plain telnet, as most wss-to-telnet bridges send none.
+    /// A client interpreter also runs on <c>gmcp.mudstandards.org</c> and <c>terminal.mudstandards.org</c>; see
+    /// <see cref="TelnetTransport.WebSocketClient(WebSocket)"/>.
     /// </para>
     /// <para>
     /// The read task completes when the close handshake finishes or the token is cancelled, and faults if the
@@ -547,7 +549,7 @@ public class TelnetInterpreterBuilder
         if (socket == null)
             throw new ArgumentNullException(nameof(socket));
 
-        return await BuildAndStartAsync(TelnetTransport.WebSocket(socket), cancellationToken);
+        return await BuildAndStartAsync(WebSocketTransport(socket), cancellationToken);
     }
 
     /// <summary>
@@ -607,11 +609,15 @@ public class TelnetInterpreterBuilder
         StartAsync(TelnetTransport.Tcp(client), cancellationToken);
 
     /// <summary>
-    /// Builds the interpreter on a WebSocket that speaks telnet and starts reading. See
-    /// <see cref="StartAsync(ITelnetTransport, CancellationToken)"/> and <see cref="TelnetTransport.WebSocket(WebSocket)"/>.
+    /// Builds the interpreter on a WebSocket and starts reading. See <see cref="StartAsync(ITelnetTransport, CancellationToken)"/>.
+    /// A server's socket must speak telnet (<see cref="TelnetTransport.WebSocket(WebSocket)"/>); a client's may also speak
+    /// <c>gmcp.mudstandards.org</c> or <c>terminal.mudstandards.org</c> (<see cref="TelnetTransport.WebSocketClient(WebSocket)"/>).
     /// </summary>
     public Task<TelnetConnection> StartAsync(WebSocket socket, CancellationToken cancellationToken = default) =>
-        StartAsync(TelnetTransport.WebSocket(socket), cancellationToken);
+        StartAsync(WebSocketTransport(socket ?? throw new ArgumentNullException(nameof(socket))), cancellationToken);
+
+    private ITelnetTransport WebSocketTransport(WebSocket socket) =>
+        _mode == TelnetInterpreter.TelnetMode.Client ? TelnetTransport.WebSocketClient(socket) : TelnetTransport.WebSocket(socket);
 
     /// <summary>
     /// Adds a protocol plugin to the interpreter.
