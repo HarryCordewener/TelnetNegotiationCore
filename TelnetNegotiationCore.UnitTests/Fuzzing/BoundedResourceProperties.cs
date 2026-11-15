@@ -271,15 +271,16 @@ public class BoundedResourceProperties : BaseTest
 		yield return ("empty", [], false);
 	}
 
+	/// <summary>
+	/// What a MUD sends: the payload, sync-flushed so the peer can decode all of it, in a stream that
+	/// stays open. Finishing it would end the stream, which the inflater now notices at once.
+	/// </summary>
 	private static byte[] Deflate(byte[] payload)
 	{
 		using var sink = new MemoryStream();
-		using (var z = new ZLibStream(sink, CompressionLevel.Optimal, leaveOpen: true))
-		{
-			z.Write(payload, 0, payload.Length);
-			z.Flush();
-		}
-
+		using var z = new ZLibStream(sink, CompressionLevel.Optimal, leaveOpen: true);
+		z.Write(payload, 0, payload.Length);
+		z.Flush();
 		return sink.ToArray();
 	}
 }

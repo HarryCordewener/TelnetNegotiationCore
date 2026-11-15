@@ -1195,9 +1195,18 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
         var telnetBytes = 0;
         var offset = 0;
-        while (offset < raw.Length)
+        IInboundChunkTransform? draining = null;
+        while (offset < raw.Length || draining is not null)
         {
             var transform = _inboundTransform;
+            if (draining is not null && !ReferenceEquals(transform, draining))
+            {
+                // Swapped out while it still had output to give: it is retired, and nothing it held
+                // is telnet any more.
+                draining = null;
+                continue;
+            }
+
             if (transform is null)
             {
                 var consumed = await _generatedMachine!.FireUntilBoundaryAsync(raw.Slice(offset));
@@ -1219,14 +1228,43 @@ public partial class TelnetInterpreter : IAsyncDisposable
                 continue;
             }
 
-            // A transform is installed (MCCP, in practice), so this wire byte is not a telnet byte.
-            // Only what comes back out of it is, and one wire byte can decode to none or to many.
-            //
-            // Feeding ONE byte per call is load-bearing, not incidental: it is what bounds a decoder's
-            // output buffer. DEFLATE expands at most 1032:1 from a single input byte, so an inflater's
-            // buffer plateaus at 2 KiB no matter what the peer sends. Batch the feed and that ceiling
-            // becomes 1032 x batch size, which a hostile peer chooses. See
-            // MCCPCompressedStreamTests.AHighRatioPayloadDoesNotGrowTheDecodersBuffer.
+            // A transform is installed (MCCP, in practice), so these wire bytes are not telnet bytes.
+            // Only what comes back out of it is, and a few wire bytes can decode to none or to many.
+            if (transform is IInboundChunkTransform chunked)
+            {
+                // The decoder bounds its own output per call, so a whole chunk goes in at once and the
+                // memory a peer can make it hold stays flat. See MCCPInflateTransform.
+                var result = await chunked.DecodeChunkAsync(raw.Slice(offset));
+                offset += result.Consumed;
+                draining = result.HasMoreOutput ? chunked : null;
+
+                if (result.Decoded.IsEmpty)
+                {
+                    // An empty answer to an empty call is just the end of a drain. One to a call with input
+                    // left would loop here for ever.
+                    if (result.Consumed == 0 && !result.HasMoreOutput && offset < raw.Length
+                        && ReferenceEquals(_inboundTransform, transform))
+                    {
+                        throw new InvalidOperationException("The inbound transform neither consumed input nor produced output.");
+                    }
+
+                    await NotifyByteProcessedAsync();
+                    continue;
+                }
+
+                telnetBytes += result.Decoded.Length;
+                await FireGeneratedBytesAsync(result.Decoded);
+                for (var i = 0; _onByteProcessed is not null && i < result.Decoded.Length; i++)
+                {
+                    await NotifyByteProcessedAsync();
+                }
+
+                continue;
+            }
+
+            // A transform with only the one-byte interface. One byte per call is what bounds its output:
+            // DEFLATE, say, expands at most 1032:1 from a single input byte, where a batch would let the
+            // peer choose the ceiling.
             var decoded = await transform.DecodeAsync(raw.Span[offset++]);
             if (decoded.Length == 0)
             {
@@ -1236,7 +1274,7 @@ public partial class TelnetInterpreter : IAsyncDisposable
 
             telnetBytes += decoded.Length;
             await FireGeneratedBytesAsync(decoded);
-            for (var i = 0; i < decoded.Length; i++)
+            for (var i = 0; _onByteProcessed is not null && i < decoded.Length; i++)
             {
                 await NotifyByteProcessedAsync();
             }

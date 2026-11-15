@@ -261,6 +261,56 @@ public class MCCPStreamEndTests : BaseTest
 	}
 
 	[Test]
+	public async Task ANewStreamInTheSameReadAsTheLastOnesEndIsInflated()
+	{
+		// The inflater takes a whole read at a time, so the end of one stream, plain telnet, a fresh
+		// marker and the next stream can all be in its hands at once. Only the bytes up to the end of
+		// the zlib stream are its; the marker behind them has to install a new inflater at exactly
+		// its own byte, or the second stream is read as plain text.
+		var submitted = new List<string>();
+		var compressionEvents = new List<(int Version, bool Enabled)>();
+		var client = await BuildClientAsync(submitted, compressionEvents);
+
+		await InterpretAndWaitAsync(client, s_willMccp2);
+
+		using var first = new MccpStreamWriter();
+		using var second = new MccpStreamWriter();
+		await InterpretAndWaitAsync(client, Concat(
+			s_startMccp2,
+			first.Send("first stream\n"),
+			first.Finish(),
+			Encoding.ASCII.GetBytes("in the clear\n"),
+			s_startMccp2,
+			second.Send("second stream\n")));
+		await PollUntilAsync(() => submitted.Count > 2);
+
+		await Assert.That(submitted).IsEquivalentTo(new[] { "first stream", "in the clear", "second stream" });
+		await Assert.That(compressionEvents).IsEquivalentTo(new[] { (2, true), (2, false), (2, true) });
+
+		await client.DisposeAsync();
+	}
+
+	[Test]
+	public async Task TheEndIsReportedWithoutWaitingForAnotherByte()
+	{
+		// The last byte of the Adler-32 trailer ends the stream. Nothing after it should be needed
+		// for the client to know it is back in plain telnet.
+		var submitted = new List<string>();
+		var compressionEvents = new List<(int Version, bool Enabled)>();
+		var client = await BuildClientAsync(submitted, compressionEvents);
+
+		await InterpretAndWaitAsync(client, s_willMccp2);
+
+		using var server = new MccpStreamWriter();
+		await InterpretAndWaitAsync(client, Concat(s_startMccp2, server.Send("a line\n"), server.Finish()));
+		await PollUntilAsync(() => compressionEvents.Count > 1);
+
+		await Assert.That(compressionEvents).IsEquivalentTo(new[] { (2, true), (2, false) });
+
+		await client.DisposeAsync();
+	}
+
+	[Test]
 	public async Task ARefusalInsideALiveStreamDoesNotTakeTheInflaterOut()
 	{
 		// A peer can say IAC WONT COMPRESS2 while it is still compressing — the refusal is inside

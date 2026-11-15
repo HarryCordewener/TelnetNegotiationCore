@@ -42,15 +42,17 @@ public class GoAheadDuringNegotiationTests : BaseTest
 	private static readonly byte[] s_wont200 = [(byte)Trigger.IAC, (byte)Trigger.WONT, 200];
 	private static readonly byte[] s_wont201 = [(byte)Trigger.IAC, (byte)Trigger.WONT, 201];
 
+	/// <summary>
+	/// The start of a compressed stream, sync-flushed and left open as a MUD leaves it. Finishing it
+	/// would end compression, which the inflater reports at once.
+	/// </summary>
 	private static byte[] Compress(string text)
 	{
 		using var sink = new MemoryStream();
-		using (var deflate = new ZLibStream(sink, CompressionLevel.Optimal, leaveOpen: true))
-		{
-			var bytes = Encoding.ASCII.GetBytes(text);
-			deflate.Write(bytes, 0, bytes.Length);
-		}
-
+		using var deflate = new ZLibStream(sink, CompressionLevel.Optimal, leaveOpen: true);
+		var bytes = Encoding.ASCII.GetBytes(text);
+		deflate.Write(bytes, 0, bytes.Length);
+		deflate.Flush();
 		return sink.ToArray();
 	}
 
