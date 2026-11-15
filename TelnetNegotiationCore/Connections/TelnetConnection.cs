@@ -106,14 +106,14 @@ public sealed class TelnetConnection : IAsyncDisposable
 				}
 				finally
 				{
-					await startCancelled.DisposeAsync();
+					startCancelled.Dispose();
 					connection.DisposeTokens();
 				}
 
 				throw;
 			}
 
-			await startCancelled.DisposeAsync();
+			startCancelled.Dispose();
 		}
 
 		var feed = builder.InputFeed(connection.Interpreter);
