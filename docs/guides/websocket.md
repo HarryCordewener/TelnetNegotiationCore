@@ -171,6 +171,10 @@ turns the server's frames into a telnet stream and decides what each thing the i
 
 - **Text** in BINARY frames is the stream as is, with any `0xFF` doubled so it stays data. What the client sends goes
   out as one BINARY message per write.
+- **A message ends a line.** Evennia sends each `msg()` as one frame with no line ending (its telnet adds `\r\n`), so
+  when a message does not end in `\n` (a trailing colour reset aside) and more text follows, the bridge feeds `\r\n`
+  first. The last message stays open until then, so a prompt still reads as a prompt. Set
+  `MessageEndsLine = false` on the bridge for a server that splits a line across messages.
 - **GMCP**, on `gmcp`, arrives as `IAC SB GMCP … IAC SE`, and goes out as a TEXT frame. The connection opens as if
   the server had sent `IAC WILL GMCP`: picking the subprotocol is its agreement, so `OnGMCPNegotiated` fires and a
   client that waits for it before saying `Core.Hello` says it then.

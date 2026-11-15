@@ -69,6 +69,62 @@ public class WebSocketBridgeTests : BaseTest
 	}
 
 	[Test]
+	public async Task EachMessageEndsALineTheWayEvenniaSendsThem()
+	{
+		var (serverSocket, clientSocket) = WebSocketPair.Create(MudWebSocketSubprotocols.Gmcp);
+		var server = new RawServer(serverSocket);
+		var lines = new ConcurrentQueue<string>();
+		await using var client = await ClientBuilder(lines).StartAsync(clientSocket);
+
+		// Evennia: one msg() per frame, no line ending, a colour reset after the text.
+		await server.SendBinaryAsync("Logging in\u001b[0m");
+		await server.SendTextAsync("Char.Vitals {}");
+		await server.SendBinaryAsync("Name: \u001b[0m");
+		await Assert.That(await PollUntilAsync(() => lines.Count >= 1)).IsTrue();
+		await Assert.That(lines.Count).IsEqualTo(1); // "Name: " is still open: a prompt, not a line
+
+		await server.SendBinaryAsync("first\r\n\u001b[0m");
+		await server.SendBinaryAsync("second\u001b[0m");
+		await server.SendBinaryAsync("third\r\n");
+		await Assert.That(await PollUntilAsync(() => lines.Count >= 5)).IsTrue();
+		await Assert.That(lines.ToArray()).IsEquivalentTo(new[]
+		{
+			"Logging in\u001b[0m", "Name: \u001b[0m", "first", "\u001b[0msecond\u001b[0m", "third",
+		});
+	}
+
+	[Test]
+	public async Task WithMessageEndsLineOffAServerMaySplitALineAcrossMessages()
+	{
+		var (serverSocket, clientSocket) = WebSocketPair.Create(MudWebSocketSubprotocols.Terminal);
+		var server = new RawServer(serverSocket);
+		var lines = new ConcurrentQueue<string>();
+		var bridges = new WebSocketClientBridges()
+			.Add(MudWebSocketSubprotocols.Terminal, () => new TerminalClientBridge { MessageEndsLine = false });
+		await using var client = await ClientBuilder(lines).StartAsync(TelnetTransport.WebSocketClient(clientSocket, bridges));
+
+		await server.SendBinaryAsync("one ");
+		await server.SendBinaryAsync("line\r\n");
+
+		await Assert.That(await PollUntilAsync(() => !lines.IsEmpty)).IsTrue();
+		await Assert.That(lines.Single()).IsEqualTo("one line");
+	}
+
+	[Test]
+	[Arguments("text\n", true)]
+	[Arguments("text\r\n\u001b[0m", true)]
+	[Arguments("text\n\u001b[1m\u001b[37m", true)]
+	[Arguments("text\u001b[0m", false)]
+	[Arguments("Name: ", false)]
+	[Arguments("ends [m", false)]
+	[Arguments("\u001b[0m", false)]
+	[Arguments("", false)]
+	public async Task AMessageEndsALineWhenItsLastTextIsANewline(string text, bool ends)
+	{
+		await Assert.That(WebSocketClientBridge.EndsLine(Encoding.UTF8.GetBytes(text))).IsEqualTo(ends);
+	}
+
+	[Test]
 	public async Task AByteThatLooksLikeIacInTheServersTextIsData()
 	{
 		var (serverSocket, clientSocket) = WebSocketPair.Create(MudWebSocketSubprotocols.Terminal);

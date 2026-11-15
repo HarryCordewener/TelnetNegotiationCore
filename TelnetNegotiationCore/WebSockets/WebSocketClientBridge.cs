@@ -54,9 +54,56 @@ public abstract class WebSocketClientBridge
 	/// <summary>Called once the connection opens, before any frame: the place to feed the server's agreement.</summary>
 	protected virtual ValueTask OnOpenAsync(TelnetInput input, CancellationToken cancellationToken) => default;
 
-	/// <summary>A whole BINARY message from the server. Fed as text unless overridden.</summary>
-	protected virtual ValueTask OnBinaryMessageAsync(ReadOnlyMemory<byte> data, TelnetInput input, CancellationToken cancellationToken) =>
-		input.TextAsync(data);
+	/// <summary>
+	/// Whether a BINARY message ends a line. On by default: Evennia sends each message as one frame with no line ending
+	/// (its telnet adds <c>\r\n</c> per message), so without this two messages in a row run together on one line.
+	/// </summary>
+	/// <remarks>
+	/// The line end is fed only once more text arrives, so a message still waiting for more is read as a prompt
+	/// (with <see cref="Protocols.PacketPatchProtocol"/>). A message that already ends in <c>\n</c>, ignoring the
+	/// colour reset Evennia appends after the text, gets nothing added. Turn it off for a server that splits a line
+	/// across messages.
+	/// </remarks>
+	public bool MessageEndsLine { get; init; } = true;
+
+	private bool _lineOpen;
+
+	/// <summary>
+	/// A whole BINARY message from the server. Fed as text unless overridden, after a <c>\r\n</c> when
+	/// <see cref="MessageEndsLine"/> is on and the previous message left a line open.
+	/// </summary>
+	protected virtual async ValueTask OnBinaryMessageAsync(ReadOnlyMemory<byte> data, TelnetInput input, CancellationToken cancellationToken)
+	{
+		if (data.Length == 0) return;
+		if (MessageEndsLine && _lineOpen) await input.TextAsync(LineEnd).ConfigureAwait(false);
+		await input.TextAsync(data).ConfigureAwait(false);
+		_lineOpen = !EndsLine(data.Span);
+	}
+
+	private static readonly ReadOnlyMemory<byte> LineEnd = new byte[] { (byte)'\r', (byte)'\n' };
+
+	/// <summary>
+	/// Whether <paramref name="text"/> ends with <c>\n</c>, once complete escape sequences (an SGR reset, say) after
+	/// it are set aside.
+	/// </summary>
+	internal static bool EndsLine(ReadOnlySpan<byte> text)
+	{
+		var end = text.Length;
+		while (end > 0)
+		{
+			var last = text[end - 1];
+			if (last == (byte)'\n') return true;
+
+			// A CSI sequence: ESC [ parameters (0x30–0x3F) intermediates (0x20–0x2F) final (0x40–0x7E).
+			if (last < 0x40 || last > 0x7E) return false;
+			var i = end - 2;
+			while (i >= 0 && text[i] >= 0x20 && text[i] <= 0x3F) i--;
+			if (i < 1 || text[i] != (byte)'[' || text[i - 1] != 0x1B) return false;
+			end = i - 1;
+		}
+
+		return false;
+	}
 
 	/// <summary>A whole TEXT message from the server, valid UTF-8. Closes the socket with 1003 unless overridden.</summary>
 	protected virtual ValueTask OnTextMessageAsync(string text, TelnetInput input, CancellationToken cancellationToken) =>
