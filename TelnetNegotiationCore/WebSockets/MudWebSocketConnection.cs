@@ -142,7 +142,7 @@ public sealed class MudWebSocketConnection
 
 	private static string? LimitCloseDescription(string? description)
 	{
-		if (description is null || Encoding.UTF8.GetByteCount(description) <= MaxCloseDescriptionBytes) return description;
+		if (description is null) return null;
 
 		// Cut on a character boundary, never inside a surrogate pair. Each step adds at least one byte, so this
 		// looks at no more than MaxCloseDescriptionBytes characters however long the description is.
@@ -167,7 +167,7 @@ public sealed class MudWebSocketConnection
 			length += chars;
 		}
 
-		return description.Substring(0, length);
+		return length == description.Length ? description : description.Substring(0, length);
 	}
 
 	private async ValueTask SendAsync(ReadOnlyMemory<byte> data, WebSocketMessageType type, CancellationToken cancellationToken)
