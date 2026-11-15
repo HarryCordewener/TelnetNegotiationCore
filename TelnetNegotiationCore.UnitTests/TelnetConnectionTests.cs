@@ -115,6 +115,70 @@ public class TelnetConnectionTests : BaseTest
 	}
 
 	[Test]
+	public async Task OnStartingRunsBeforeAnyInputReachesTheHooks()
+	{
+		var wire = new PipeWire();
+		// Already waiting when the connection starts: the read loop would hand it over at once.
+		await wire.SendAsync(DoGmcp);
+		TelnetConnection? kept = null;
+		var seen = new ConcurrentQueue<TelnetConnection?>();
+		var connection = await ServerBuilder()
+			.OnStarting(async started =>
+			{
+				// Give an early read loop every chance to run first.
+				await Task.Delay(50);
+				Volatile.Write(ref kept, started);
+			})
+			.OnReceived(_ => { seen.Enqueue(Volatile.Read(ref kept)); return ValueTask.CompletedTask; })
+			.StartAsync(wire.Server);
+
+		await Assert.That(await PollUntilAsync(() => !seen.IsEmpty)).IsTrue();
+		await Assert.That(seen.First()).IsSameReferenceAs(connection);
+		await connection.DisposeAsync();
+	}
+
+	[Test]
+	public async Task AFailingOnStartingFailsTheStartAndReadsNothing()
+	{
+		var wire = new PipeWire();
+		await wire.SendAsync(DoGmcp);
+		var received = 0;
+		var builder = ServerBuilder()
+			.OnStarting(_ => throw new InvalidOperationException("refused"))
+			.OnReceived(_ => { Interlocked.Increment(ref received); return ValueTask.CompletedTask; });
+
+		var error = await Assert.ThrowsAsync<InvalidOperationException>(async () => await builder.StartAsync(wire.Server));
+
+		await Assert.That(error!.Message).IsEqualTo("refused");
+		await Task.Delay(100);
+		await Assert.That(Volatile.Read(ref received)).IsEqualTo(0);
+	}
+
+	[Test]
+	public async Task ASessionsOnStartingRunsBeforeTheSessionAndTheReadLoop()
+	{
+		var wire = new PipeWire();
+		await wire.SendAsync(DoGmcp);
+		var order = new ConcurrentQueue<string>();
+		var session = TelnetSession.Create(
+			() => ServerBuilder()
+				.OnStarting(_ => { order.Enqueue("starting"); return ValueTask.CompletedTask; })
+				.OnReceived(_ => { order.Enqueue("received"); return ValueTask.CompletedTask; }),
+			async (connection, _) =>
+			{
+				order.Enqueue("run");
+				await wire.ToServer.Writer.CompleteAsync();
+				await connection.Completion;
+			});
+
+		await TelnetConnection.RunAsync(session, TelnetTransport.Pipe(wire.Server)).WaitAsync(TimeSpan.FromSeconds(5));
+
+		await Assert.That(order.First()).IsEqualTo("starting");
+		await Assert.That(order).Contains("received");
+		await Assert.That(order).Contains("run");
+	}
+
+	[Test]
 	public async Task CloseAsyncUsesTheTransportsCloseAndMarksTheConnectionClosedByServer()
 	{
 		var wire = new PipeWire();

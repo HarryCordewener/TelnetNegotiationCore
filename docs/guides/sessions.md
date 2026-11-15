@@ -48,6 +48,26 @@ connection.ClosedByServer   // whether CloseAsync ended it while the peer was st
 
 It deconstructs as the old pair, so `var (telnet, read) = await builder.StartAsync(...)` still reads the same.
 
+`StartAsync` starts reading before it returns, so a callback can run before your code has the connection back. If
+callbacks need the connection or its interpreter from a field, set the field in `.OnStarting`. It runs with the
+new connection after the opening negotiation is written and before the read loop starts, and nothing is read
+until it returns:
+
+```csharp
+var connection = await builder
+    .OnStarting(started =>
+    {
+        _telnet = started.Interpreter;
+        _connection = started;
+        return ValueTask.CompletedTask;
+    })
+    .StartAsync(transport, ct);
+```
+
+It runs wherever a `TelnetConnection` is made, which includes `TelnetConnection.RunAsync` and sessions on a WebSocket
+endpoint. `BuildAndStartAsync` makes no connection and does not call it. If it throws, `StartAsync` throws the
+same exception, the interpreter is disposed, and nothing has been read; the transport is still yours to close.
+
 - `CloseAsync` closes through the transport: it completes a pipe's output, disposes a stream, closes a
   `TcpClient`, or sends a WebSocket a 1000 close. A write after it does nothing.
 - `DisposeAsync` stops the read loop and disposes the interpreter. It does not close the transport, and a read

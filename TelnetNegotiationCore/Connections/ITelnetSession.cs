@@ -20,6 +20,10 @@ namespace TelnetNegotiationCore.Connections;
 /// <see cref="RunAsync"/> starts once the interpreter is reading, so it can wait for the opening negotiation. The
 /// connection is closed and disposed when it returns.
 /// </para>
+/// <para>
+/// The builder's callbacks can run before <see cref="RunAsync"/> does. A session whose callbacks need the connection
+/// keeps it from <see cref="TelnetInterpreterBuilder.OnStarting"/>, which runs before anything is read.
+/// </para>
 /// </remarks>
 public interface ITelnetSession
 {

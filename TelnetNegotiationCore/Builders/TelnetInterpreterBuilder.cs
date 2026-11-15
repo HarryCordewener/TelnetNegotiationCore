@@ -36,6 +36,7 @@ public class TelnetInterpreterBuilder
     private Models.ClientIdentity? _clientIdentity;
     private Func<ReadOnlyMemory<byte>, ValueTask>? _onReceived;
     private Func<TelnetInterpreter, ValueTask>? _onInputProcessed;
+    private Func<TelnetConnection, ValueTask>? _onStarting;
     private readonly List<Func<Func<ReadOnlyMemory<byte>, ValueTask>, Func<ReadOnlyMemory<byte>, ValueTask>>> _outputWrappers = new();
 
     public TelnetInterpreterBuilder()
@@ -120,6 +121,42 @@ public class TelnetInterpreterBuilder
         _onInputProcessed = callback ?? throw new ArgumentNullException(nameof(callback));
         return this;
     }
+
+    /// <summary>
+    /// Called with the new <see cref="TelnetConnection"/> before its read loop starts: no input reaches the
+    /// interpreter, its callbacks or the other hooks until it returns. The place to keep the connection, or its
+    /// interpreter, where those callbacks will look for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="StartAsync(ITelnetTransport, CancellationToken)"/> starts reading before it returns, so a callback
+    /// that reads a field set from its result can run before the field is set. Set it here instead:
+    /// <code>
+    /// builder.OnStarting(connection =&gt;
+    /// {
+    ///     _telnet = connection.Interpreter;
+    ///     return default;
+    /// });
+    /// </code>
+    /// </para>
+    /// <para>
+    /// Runs wherever a <see cref="TelnetConnection"/> is made: every <c>StartAsync</c>,
+    /// <see cref="TelnetConnection.RunAsync(ITelnetSession, ITelnetTransport, CancellationToken)"/> and sessions on a
+    /// WebSocket endpoint. <c>BuildAndStartAsync</c> makes no connection and does not call it. The opening
+    /// negotiation has already been written. If it throws, the interpreter is disposed and <c>StartAsync</c> throws
+    /// the same exception; the transport stays yours to close.
+    /// </para>
+    /// </remarks>
+    /// <param name="callback">Called once per connection; reading starts when it completes.</param>
+    /// <returns>This builder for chaining</returns>
+    public TelnetInterpreterBuilder OnStarting(Func<TelnetConnection, ValueTask> callback)
+    {
+        _onStarting = callback ?? throw new ArgumentNullException(nameof(callback));
+        return this;
+    }
+
+    /// <summary>The <see cref="OnStarting"/> callback, if one was set.</summary>
+    internal Func<TelnetConnection, ValueTask>? StartingCallback => _onStarting;
 
     /// <summary>
     /// Wraps the interpreter's write path: <paramref name="wrapper"/> gets the write that would happen and returns
@@ -542,7 +579,8 @@ public class TelnetInterpreterBuilder
     /// yours. <see cref="TelnetConnection.CloseAsync"/> ends the connection from this side, whatever the transport.
     /// </para>
     /// <para>
-    /// <see cref="OnReceived"/>, <see cref="OnInputProcessed"/> and <see cref="WrapOutput"/> apply. To run an
+    /// <see cref="OnStarting"/>, <see cref="OnReceived"/>, <see cref="OnInputProcessed"/> and <see cref="WrapOutput"/>
+    /// apply. To run an
     /// <see cref="ITelnetSession"/> on it, use <see cref="TelnetConnection.RunAsync(ITelnetSession, ITelnetTransport, CancellationToken)"/>.
     /// </para>
     /// </remarks>
@@ -874,4 +912,8 @@ public class PluginConfigurationContext<T> where T : ITelnetProtocolPlugin
     public TelnetInterpreterBuilder WrapOutput(
         Func<Func<ReadOnlyMemory<byte>, ValueTask>, Func<ReadOnlyMemory<byte>, ValueTask>> wrapper) =>
         _builder.WrapOutput(wrapper);
+
+    /// <inheritdoc cref="TelnetInterpreterBuilder.OnStarting"/>
+    public TelnetInterpreterBuilder OnStarting(Func<TelnetConnection, ValueTask> callback) =>
+        _builder.OnStarting(callback);
 }
