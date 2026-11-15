@@ -252,6 +252,29 @@ public class TelnetConnectionTests : BaseTest
 	}
 
 	[Test]
+	public async Task AVanishedPeerFaultsARegistrySessionsCompletion()
+	{
+		var (serverSocket, clientSocket) = WebSocketPair.Create(MudWebSocketSubprotocols.Telnet);
+		TelnetConnection? seen = null;
+		var registry = new WebSocketSubprotocolRegistry().AddTelnetSession(
+			() => ServerBuilder(),
+			async (connection, _) =>
+			{
+				seen = connection;
+				await connection.Completion;
+			});
+		var run = registry.RunAsync(serverSocket);
+
+		await Assert.That(await PollUntilAsync(() => seen is not null)).IsTrue();
+		// No close frame: the stream just ends, as when a player's network drops.
+		clientSocket.Dispose();
+
+		await Assert.ThrowsAsync<WebSocketException>(() => run.WaitAsync(TimeSpan.FromSeconds(5)));
+		await Assert.That(seen!.Completion.IsFaulted).IsTrue();
+		await Assert.That(seen.Completion.Exception!.InnerException).IsTypeOf<WebSocketException>();
+	}
+
+	[Test]
 	public async Task ARegistrySessionsFailureFaultsTheRun()
 	{
 		var (serverSocket, clientSocket) = WebSocketPair.Create(MudWebSocketSubprotocols.Telnet);

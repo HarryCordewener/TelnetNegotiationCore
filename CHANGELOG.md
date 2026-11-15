@@ -34,6 +34,13 @@ All notable changes to this project will be documented in this file.
 - `ReadFromPipeAsync` (and every pipe read loop) returns when the reader's `CancelPendingRead` is called. It
   ignored the cancel and went on reading.
 - The TestClient connected to port 4201; the TestServer listens on 4202.
+- A session run by the registry (`AddTelnetSession`) saw `Completion` complete normally when the socket failed;
+  it now faults, as it does for a connection that reads its own socket.
+- `MudWebSocketConnection.RunAsync` completes normally when cancelled while a handler is opening or handling a
+  frame, instead of throwing `OperationCanceledException`.
+- `WebSocketSubprotocolRegistry.Add` refuses any name that is not an HTTP token (separators such as `/` or `;`,
+  control and non-ASCII characters), which a client could not have offered.
+- Cutting a long close reason down to 123 bytes no longer re-encodes the string once per character removed.
 
 ## [4.12.0]
 

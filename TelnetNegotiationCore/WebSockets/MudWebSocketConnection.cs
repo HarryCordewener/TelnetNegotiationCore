@@ -34,6 +34,7 @@ public sealed class MudWebSocketConnection
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
 	private bool _closeSent;
 	private volatile bool _abortedUnanswered;
+	private volatile Exception? _failure;
 
 	/// <summary>
 	/// Wraps an open socket.
@@ -124,6 +125,18 @@ public sealed class MudWebSocketConnection
 		Socket.Abort();
 	}
 
+	/// <summary>
+	/// What ended <see cref="RunAsync"/> with an error, once it has: a socket that failed, or a handler that threw.
+	/// Set before <see cref="IWebSocketSubprotocolHandler.OnClosedAsync"/> is called.
+	/// </summary>
+	internal Exception? Failure => _failure;
+
+	private bool RecordFailure(Exception exception)
+	{
+		_failure = exception;
+		return false;
+	}
+
 	/// <summary>The most UTF-8 bytes a close reason may take: a control frame carries 125, two of them the status.</summary>
 	public const int MaxCloseDescriptionBytes = 123;
 
@@ -131,10 +144,29 @@ public sealed class MudWebSocketConnection
 	{
 		if (description is null || Encoding.UTF8.GetByteCount(description) <= MaxCloseDescriptionBytes) return description;
 
-		// Cut on a character boundary, never inside a surrogate pair.
-		var length = description.Length;
-		while (length > 0 && Encoding.UTF8.GetByteCount(description.Substring(0, length)) > MaxCloseDescriptionBytes) length--;
-		if (length > 0 && char.IsHighSurrogate(description[length - 1])) length--;
+		// Cut on a character boundary, never inside a surrogate pair. Each step adds at least one byte, so this
+		// looks at no more than MaxCloseDescriptionBytes characters however long the description is.
+		int length = 0, bytes = 0;
+		while (length < description.Length)
+		{
+			var c = description[length];
+			int chars = 1, size;
+			if (char.IsHighSurrogate(c) && length + 1 < description.Length && char.IsLowSurrogate(description[length + 1]))
+			{
+				chars = 2;
+				size = 4;
+			}
+			else
+			{
+				// A lone surrogate encodes as U+FFFD, three bytes.
+				size = c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+			}
+
+			if (bytes + size > MaxCloseDescriptionBytes) break;
+			bytes += size;
+			length += chars;
+		}
+
 		return description.Substring(0, length);
 	}
 
@@ -227,6 +259,15 @@ public sealed class MudWebSocketConnection
 					result.EndOfMessage,
 					cancellationToken);
 			}
+		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+			// Cancelled while a handler was opening or handling a frame: the same as cancelling the receive.
+		}
+		catch (Exception exception) when (RecordFailure(exception))
+		{
+			// Never entered: the filter records the failure for OnClosedAsync and lets it propagate.
+			throw;
 		}
 		finally
 		{

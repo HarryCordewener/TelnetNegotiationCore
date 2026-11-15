@@ -60,7 +60,8 @@ internal sealed class TelnetSessionWebSocketHandler(Func<ITelnetSession> session
 
 	public async ValueTask OnClosedAsync(MudWebSocketConnection connection, WebSocketCloseStatus? status, string? description)
 	{
-		_transport?.Complete();
+		// A socket that failed faults the connection's Completion, as it does when the connection reads for itself.
+		_transport?.Complete(connection.Failure);
 		if (_connection is null) return;
 
 		try
@@ -89,7 +90,11 @@ internal sealed class TelnetSessionWebSocketHandler(Func<ITelnetSession> session
 
 		public ValueTask FeedAsync(ReadOnlyMemory<byte> data) => _onData?.Invoke(data) ?? default;
 
-		public void Complete() => _ended.TrySetResult(true);
+		public void Complete(Exception? failure)
+		{
+			if (failure is null) _ended.TrySetResult(true);
+			else _ended.TrySetException(failure);
+		}
 
 		public ValueTask WriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken) =>
 			TelnetWebSocketHandler.WriteAsync(connection, base64, data, cancellationToken);
