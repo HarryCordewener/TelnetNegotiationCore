@@ -115,6 +115,119 @@ public class TelnetConnectionTests : BaseTest
 	}
 
 	[Test]
+	public async Task OnStartingRunsBeforeAnyInputReachesTheHooks()
+	{
+		var wire = new PipeWire();
+		// Already waiting when the connection starts: the read loop would hand it over at once.
+		await wire.SendAsync(DoGmcp);
+		TelnetConnection? kept = null;
+		var seen = new ConcurrentQueue<TelnetConnection?>();
+		var connection = await ServerBuilder()
+			.OnStarting(async started =>
+			{
+				// Give an early read loop every chance to run first.
+				await Task.Delay(50);
+				Volatile.Write(ref kept, started);
+			})
+			.OnReceived(_ => { seen.Enqueue(Volatile.Read(ref kept)); return ValueTask.CompletedTask; })
+			.StartAsync(wire.Server);
+
+		await Assert.That(await PollUntilAsync(() => !seen.IsEmpty)).IsTrue();
+		await Assert.That(seen.First()).IsSameReferenceAs(connection);
+		await connection.DisposeAsync();
+	}
+
+	[Test]
+	public async Task AFailingOnStartingFailsTheStartAndReadsNothing()
+	{
+		var wire = new PipeWire();
+		await wire.SendAsync(DoGmcp);
+		var received = 0;
+		var builder = ServerBuilder()
+			.OnStarting(_ => throw new InvalidOperationException("refused"))
+			.OnReceived(_ => { Interlocked.Increment(ref received); return ValueTask.CompletedTask; });
+
+		var error = await Assert.ThrowsAsync<InvalidOperationException>(async () => await builder.StartAsync(wire.Server));
+
+		await Assert.That(error!.Message).IsEqualTo("refused");
+		await Task.Delay(100);
+		await Assert.That(Volatile.Read(ref received)).IsEqualTo(0);
+	}
+
+	[Test]
+	public async Task AFailingOnStartingEndsTheConnectionItHandedOut()
+	{
+		var wire = new PipeWire();
+		TelnetConnection? kept = null;
+		var builder = ServerBuilder()
+			.OnStarting(started =>
+			{
+				kept = started;
+				throw new InvalidOperationException("refused");
+			});
+
+		await Assert.ThrowsAsync<InvalidOperationException>(async () => await builder.StartAsync(wire.Server));
+
+		await Assert.That(kept!.Closed.IsCancellationRequested).IsTrue();
+		await Assert.That(kept.ClosedByServer).IsFalse();
+	}
+
+	[Test]
+	public async Task CancellingTheStartTokenDuringOnStartingCancelsClosed()
+	{
+		var wire = new PipeWire();
+		using var cts = new CancellationTokenSource();
+		var hookWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var builder = ServerBuilder()
+			.OnStarting(async started =>
+			{
+				hookWaiting.SetResult();
+				try
+				{
+					await Task.Delay(Timeout.Infinite, started.Closed);
+				}
+				catch (OperationCanceledException)
+				{
+					// What the hook waits for.
+				}
+			});
+
+		var starting = builder.StartAsync(wire.Server, cts.Token);
+		await hookWaiting.Task.WaitAsync(TimeSpan.FromSeconds(5));
+		await cts.CancelAsync();
+
+		var connection = await starting.WaitAsync(TimeSpan.FromSeconds(5));
+		await connection.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+		await Assert.That(connection.Completion.IsCompletedSuccessfully).IsTrue();
+		await Assert.That(connection.Closed.IsCancellationRequested).IsTrue();
+		await connection.DisposeAsync();
+	}
+
+	[Test]
+	public async Task ASessionsOnStartingRunsBeforeTheSessionAndTheReadLoop()
+	{
+		var wire = new PipeWire();
+		await wire.SendAsync(DoGmcp);
+		var order = new ConcurrentQueue<string>();
+		var session = TelnetSession.Create(
+			() => ServerBuilder()
+				.OnStarting(_ => { order.Enqueue("starting"); return ValueTask.CompletedTask; })
+				.OnReceived(_ => { order.Enqueue("received"); return ValueTask.CompletedTask; }),
+			async (connection, _) =>
+			{
+				order.Enqueue("run");
+				await wire.ToServer.Writer.CompleteAsync();
+				await connection.Completion;
+			});
+
+		await TelnetConnection.RunAsync(session, TelnetTransport.Pipe(wire.Server)).WaitAsync(TimeSpan.FromSeconds(5));
+
+		await Assert.That(order.First()).IsEqualTo("starting");
+		await Assert.That(order).Contains("received");
+		await Assert.That(order).Contains("run");
+	}
+
+	[Test]
 	public async Task CloseAsyncUsesTheTransportsCloseAndMarksTheConnectionClosedByServer()
 	{
 		var wire = new PipeWire();

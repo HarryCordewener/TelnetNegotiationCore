@@ -65,7 +65,8 @@ public sealed class TelnetConnection : IAsyncDisposable
 	}
 
 	/// <summary>
-	/// Builds the interpreter on <paramref name="transport"/> and starts reading.
+	/// Builds the interpreter on <paramref name="transport"/>, runs <see cref="TelnetInterpreterBuilder.OnStarting"/>,
+	/// and starts reading.
 	/// </summary>
 	internal static async Task<TelnetConnection> StartAsync(
 		TelnetInterpreterBuilder builder, ITelnetTransport transport, CancellationToken cancellationToken)
@@ -79,6 +80,40 @@ public sealed class TelnetConnection : IAsyncDisposable
 		{
 			connection.DisposeTokens();
 			throw;
+		}
+
+		if (builder.StartingCallback is { } starting)
+		{
+			// Closed is the hook's only cancellation signal, and the read loop that would cancel it with the start
+			// token has not started yet.
+			var startCancelled = cancellationToken.Register(static state => ((TelnetConnection)state!).CancelClosed(), connection);
+			try
+			{
+				await starting(connection);
+			}
+			catch
+			{
+				// The connection ends here, so a hook that kept it sees Closed cancelled.
+				Volatile.Write(ref connection._disposed, 1);
+				connection.CancelClosed();
+				try
+				{
+					await connection.Interpreter.DisposeAsync();
+				}
+				catch
+				{
+					// The hook's exception is the one the caller needs.
+				}
+				finally
+				{
+					startCancelled.Dispose();
+					connection.DisposeTokens();
+				}
+
+				throw;
+			}
+
+			startCancelled.Dispose();
 		}
 
 		var feed = builder.InputFeed(connection.Interpreter);

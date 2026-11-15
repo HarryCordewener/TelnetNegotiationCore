@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
 - **Read and write hooks on the builder:** `OnReceived` (each chunk received), `OnInputProcessed` (after each chunk
   has been handled) and `WrapOutput` (a decorator on every write). The input hooks run in every read loop the
   library starts, `BuildAndStartAsync` and the WebSocket handlers included.
+- **`OnStarting` on the builder:** called with the new `TelnetConnection` before its read loop starts, so callbacks
+  that look for the connection or its interpreter in a field never run before the field is set. `StartAsync` used to
+  leave that race to the caller. Runs in every `StartAsync`, `TelnetConnection.RunAsync` and WebSocket sessions.
 - `ITelnetTransport` and `TelnetTransport` (`Pipe`, `Stream`, `Tcp`, `WebSocket`): every built-in read loop now
   runs through one, and a transport the library does not know is one interface away. `Pipe` and `Stream` take a
   `close` lambda, so a Kestrel connection can be aborted.
