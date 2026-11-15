@@ -38,6 +38,12 @@ public class TerminalWebSocketHandler : WebSocketMessageHandler
 	/// <summary>Called for each line of input, without its line ending.</summary>
 	public Func<TerminalWebSocketHandler, string, ValueTask>? LineReceived { get; init; }
 
+	/// <summary>
+	/// Called with each BINARY message as it arrived, before any splitting into lines. What a client wants: server
+	/// output is a stream, and a prompt has no line ending.
+	/// </summary>
+	public Func<TerminalWebSocketHandler, string, ValueTask>? TextReceived { get; init; }
+
 	/// <summary>Called once the connection has ended.</summary>
 	public Func<TerminalWebSocketHandler, ValueTask>? Closed { get; init; }
 
@@ -77,8 +83,11 @@ public class TerminalWebSocketHandler : WebSocketMessageHandler
 	/// <inheritdoc/>
 	protected override async ValueTask OnBinaryMessageAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
 	{
+		if (LineReceived is null && TextReceived is null) return;
+		var text = Decode(data);
+		if (TextReceived is not null) await TextReceived(this, text);
 		if (LineReceived is null) return;
-		foreach (var line in SplitLines(Decode(data)))
+		foreach (var line in SplitLines(text))
 		{
 			await LineReceived(this, line);
 		}

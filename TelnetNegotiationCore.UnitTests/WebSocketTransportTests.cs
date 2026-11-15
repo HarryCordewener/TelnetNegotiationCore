@@ -337,6 +337,75 @@ public class WebSocketTransportTests : BaseTest
 	}
 
 	[Test]
+	public async Task ALongCloseReasonIsCutBetweenSurrogatePairs()
+	{
+		var (serverSocket, clientSocket) = WebSocketPair.Create(null);
+		var connection = new MudWebSocketConnection(serverSocket);
+
+		// One byte, then four-byte characters: 30 of them fit in the 122 bytes left, and the 31st would split.
+		await connection.CloseAsync(WebSocketCloseStatus.PolicyViolation, "a" + string.Concat(Enumerable.Repeat("\U0001F600", 10_000)));
+
+		var result = await clientSocket.ReceiveAsync(new byte[256], CancellationToken.None);
+		await Assert.That(result.CloseStatusDescription).IsEqualTo("a" + string.Concat(Enumerable.Repeat("\U0001F600", 30)));
+	}
+
+	[Test]
+	[Arguments("a/b")]
+	[Arguments("a;b")]
+	[Arguments("caf\u00e9")]
+	[Arguments("a\u0001b")]
+	[Arguments("a b")]
+	[Arguments("")]
+	public async Task TheRegistryRefusesANameThatIsNotAToken(string name)
+	{
+		await Assert.That(() => new WebSocketSubprotocolRegistry().Add(name, () => new EchoHandler()))
+			.Throws<ArgumentException>();
+	}
+
+	[Test]
+	public async Task TheRegistryTakesEveryTokenCharacterAndAClientCanOfferIt()
+	{
+		const string name = "x-y_z.v1~!#$%&'*+^`|";
+		var registry = new WebSocketSubprotocolRegistry().Add(name, () => new EchoHandler());
+
+		using var client = new ClientWebSocket();
+		client.Options.AddSubprotocols(registry);
+		await Assert.That(registry.Names.Single()).IsEqualTo(name);
+	}
+
+	[Test]
+	public async Task FramesAfterThisSideClosedNeverReachTheHandler()
+	{
+		var (serverSocket, clientSocket) = WebSocketPair.Create(null);
+		var frames = 0;
+		var run = new MudWebSocketConnection(serverSocket).RunAsync(new CloseOnFirstFrameHandler(() => frames++));
+
+		// A frame that arrives after the close, as one already in flight would.
+		await SendBinaryAsync(clientSocket, [1]);
+		await Assert.That(await ReceiveCloseAsync(clientSocket)).IsEqualTo(WebSocketCloseStatus.PolicyViolation);
+		await SendBinaryAsync(clientSocket, [2]);
+		await clientSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None);
+
+		await run.WaitAsync(TimeSpan.FromSeconds(5));
+		await Assert.That(frames).IsEqualTo(1);
+	}
+
+	[Test]
+	public async Task CancellingTheRunWhileAHandlerOpensEndsTheRunNormally()
+	{
+		var (serverSocket, _) = WebSocketPair.Create(null);
+		var opening = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var cts = new CancellationTokenSource();
+		var run = new MudWebSocketConnection(serverSocket).RunAsync(new SlowOpenHandler(opening), cts.Token);
+
+		await opening.Task.WaitAsync(TimeSpan.FromSeconds(5));
+		await cts.CancelAsync();
+
+		await run.WaitAsync(TimeSpan.FromSeconds(5));
+		await Assert.That(run.IsCompletedSuccessfully).IsTrue();
+	}
+
+	[Test]
 	public async Task TheRestOfAnOversizedBase64MessageNeverReachesTheInterpreter()
 	{
 		var (serverSocket, clientSocket) = WebSocketPair.Create(MudWebSocketSubprotocols.TelnetBase64);
@@ -528,6 +597,36 @@ public class WebSocketTransportTests : BaseTest
 			var result = await socket.ReceiveAsync(buffer, timeout.Token);
 			if (result.MessageType == WebSocketMessageType.Close) return result.CloseStatus;
 		}
+	}
+
+	/// <summary>Closes with 1008 on the first frame it is given.</summary>
+	private sealed class CloseOnFirstFrameHandler(Action onFrame) : IWebSocketSubprotocolHandler
+	{
+		public ValueTask OnOpenAsync(MudWebSocketConnection connection, CancellationToken cancellationToken) => default;
+
+		public ValueTask OnFrameAsync(MudWebSocketConnection connection, WebSocketMessageType messageType,
+			ReadOnlyMemory<byte> data, bool endOfMessage, CancellationToken cancellationToken)
+		{
+			onFrame();
+			return connection.CloseAsync(WebSocketCloseStatus.PolicyViolation, null, cancellationToken);
+		}
+
+		public ValueTask OnClosedAsync(MudWebSocketConnection connection, WebSocketCloseStatus? status, string? description) => default;
+	}
+
+	/// <summary>Waits in <c>OnOpenAsync</c> until the run is cancelled.</summary>
+	private sealed class SlowOpenHandler(TaskCompletionSource<bool> opening) : IWebSocketSubprotocolHandler
+	{
+		public async ValueTask OnOpenAsync(MudWebSocketConnection connection, CancellationToken cancellationToken)
+		{
+			opening.SetResult(true);
+			await Task.Delay(Timeout.Infinite, cancellationToken);
+		}
+
+		public ValueTask OnFrameAsync(MudWebSocketConnection connection, WebSocketMessageType messageType,
+			ReadOnlyMemory<byte> data, bool endOfMessage, CancellationToken cancellationToken) => default;
+
+		public ValueTask OnClosedAsync(MudWebSocketConnection connection, WebSocketCloseStatus? status, string? description) => default;
 	}
 
 	/// <summary>Echoes each TEXT message back with an <c>echo: </c> prefix.</summary>

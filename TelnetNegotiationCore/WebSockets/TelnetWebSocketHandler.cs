@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Builders;
+using TelnetNegotiationCore.Connections;
 using TelnetNegotiationCore.Interpreters;
 
 namespace TelnetNegotiationCore.WebSockets;
@@ -31,6 +32,7 @@ public sealed class TelnetWebSocketHandler : IWebSocketSubprotocolHandler
 	private readonly Func<TelnetInterpreter, MudWebSocketConnection, ValueTask>? _onConnected;
 	private readonly bool _ownsInterpreter;
 	private readonly MemoryStream? _base64Message;
+	private Func<ReadOnlyMemory<byte>, ValueTask>? _onData;
 	private bool _discardingBase64Message;
 
 	/// <summary>
@@ -56,10 +58,13 @@ public sealed class TelnetWebSocketHandler : IWebSocketSubprotocolHandler
 		_base64Message = base64 ? new MemoryStream() : null;
 	}
 
-	/// <summary>A handler for an interpreter that is already built and wired to the connection. It is not disposed.</summary>
-	internal TelnetWebSocketHandler(TelnetInterpreter interpreter, bool base64)
+	/// <summary>
+	/// A handler that only decodes frames, handing the telnet bytes to <paramref name="onData"/>: the read side of
+	/// <see cref="Connections.TelnetTransport.WebSocket(MudWebSocketConnection)"/>.
+	/// </summary>
+	internal TelnetWebSocketHandler(Func<ReadOnlyMemory<byte>, ValueTask> onData, bool base64)
 	{
-		Interpreter = interpreter;
+		_onData = onData;
 		Base64 = base64;
 		_base64Message = base64 ? new MemoryStream() : null;
 	}
@@ -67,7 +72,7 @@ public sealed class TelnetWebSocketHandler : IWebSocketSubprotocolHandler
 	/// <summary>Whether the stream is Base64 in TEXT frames (<c>telnetb64.mudstandards.org</c>).</summary>
 	public bool Base64 { get; }
 
-	/// <summary>The interpreter, once the connection has opened.</summary>
+	/// <summary>The interpreter, once the connection has opened. Null on a handler that only decodes frames.</summary>
 	public TelnetInterpreter? Interpreter { get; private set; }
 
 	/// <summary>
@@ -80,9 +85,14 @@ public sealed class TelnetWebSocketHandler : IWebSocketSubprotocolHandler
 	/// </remarks>
 	internal static Func<ReadOnlyMemory<byte>, ValueTask> Writer(
 		MudWebSocketConnection connection, bool base64, CancellationToken cancellationToken) =>
+		data => WriteAsync(connection, base64, data, cancellationToken);
+
+	/// <summary>Sends one interpreter write: a BINARY message, or a Base64 TEXT message.</summary>
+	internal static ValueTask WriteAsync(
+		MudWebSocketConnection connection, bool base64, ReadOnlyMemory<byte> data, CancellationToken cancellationToken) =>
 		base64
-			? data => connection.SendTextAsync(ToBase64(data), cancellationToken)
-			: data => connection.SendBinaryAsync(data, cancellationToken);
+			? connection.SendTextAsync(ToBase64(data), cancellationToken)
+			: connection.SendBinaryAsync(data, cancellationToken);
 
 	/// <inheritdoc/>
 	public async ValueTask OnOpenAsync(MudWebSocketConnection connection, CancellationToken cancellationToken)
@@ -91,6 +101,7 @@ public sealed class TelnetWebSocketHandler : IWebSocketSubprotocolHandler
 
 		var builder = _builderFactory() ?? throw new InvalidOperationException("The builder factory returned null.");
 		Interpreter = await builder.OnNegotiation(Writer(connection, Base64, cancellationToken)).BuildAsync();
+		_onData = builder.InputFeed(Interpreter);
 		if (_onConnected is not null) await _onConnected(Interpreter, connection);
 	}
 
@@ -102,7 +113,7 @@ public sealed class TelnetWebSocketHandler : IWebSocketSubprotocolHandler
 		bool endOfMessage,
 		CancellationToken cancellationToken)
 	{
-		var interpreter = Interpreter ?? throw new InvalidOperationException("The connection has not opened.");
+		var onData = _onData ?? throw new InvalidOperationException("The connection has not opened.");
 
 		if (!Base64)
 		{
@@ -113,7 +124,7 @@ public sealed class TelnetWebSocketHandler : IWebSocketSubprotocolHandler
 				return;
 			}
 
-			await interpreter.InterpretByteArrayAsync(data);
+			await onData(data);
 			return;
 		}
 
@@ -161,7 +172,7 @@ public sealed class TelnetWebSocketHandler : IWebSocketSubprotocolHandler
 			message.SetLength(0);
 		}
 
-		await interpreter.InterpretByteArrayAsync(decoded);
+		await onData(decoded);
 	}
 
 	/// <inheritdoc/>
@@ -172,6 +183,21 @@ public sealed class TelnetWebSocketHandler : IWebSocketSubprotocolHandler
 			await Interpreter.DisposeAsync();
 		}
 	}
+
+	/// <summary>
+	/// A handler that runs <paramref name="sessionFactory"/>'s session on each connection: the WebSocket side of
+	/// <see cref="TelnetConnection.RunAsync(ITelnetSession, ITelnetTransport, CancellationToken)"/>.
+	/// </summary>
+	/// <remarks>
+	/// For registering a session under a name of your choosing, <c>telnetb64.mudstandards.org</c> say:
+	/// <c>registry.Add(MudWebSocketSubprotocols.TelnetBase64, () =&gt; TelnetWebSocketHandler.ForSession(factory, base64: true))</c>.
+	/// <see cref="TelnetWebSocketRegistryExtensions.AddTelnetSession(WebSocketSubprotocolRegistry, Func{ITelnetSession}, bool)"/>
+	/// registers the plain telnet names.
+	/// </remarks>
+	/// <param name="sessionFactory">Makes the session for one connection. Called once per connection.</param>
+	/// <param name="base64">Speak <c>telnetb64.mudstandards.org</c> instead of the plain telnet stream.</param>
+	public static IWebSocketSubprotocolHandler ForSession(Func<ITelnetSession> sessionFactory, bool base64 = false) =>
+		new TelnetSessionWebSocketHandler(sessionFactory ?? throw new ArgumentNullException(nameof(sessionFactory)), base64);
 
 	private static string ToBase64(ReadOnlyMemory<byte> data) =>
 		MemoryMarshal.TryGetArray(data, out var segment) && segment.Array is not null
@@ -206,6 +232,48 @@ public static class TelnetWebSocketRegistryExtensions
 		registry.Add([MudWebSocketSubprotocols.Telnet, MudWebSocketSubprotocols.TelnetAlias], factory);
 		if (acceptNoSubprotocol) registry.WithFallback(factory);
 		return registry;
+	}
+
+	/// <summary>
+	/// Registers <c>telnet.mudstandards.org</c> and its alias <c>telnet</c> to run <paramref name="sessionFactory"/>'s
+	/// session on each connection: the same <see cref="ITelnetSession"/> a TCP connection runs.
+	/// </summary>
+	/// <remarks>
+	/// The session starts once the interpreter is reading, so it can wait for the opening negotiation; the socket
+	/// is closed when it returns. Use this rather than <see cref="AddTelnet"/> when the application drives each
+	/// connection's lifetime itself.
+	/// </remarks>
+	/// <param name="registry">The registry.</param>
+	/// <param name="sessionFactory">Makes the session for one connection. Called once per connection.</param>
+	/// <param name="acceptNoSubprotocol">Also run it for a client that offers no subprotocol.</param>
+	public static WebSocketSubprotocolRegistry AddTelnetSession(
+		this WebSocketSubprotocolRegistry registry,
+		Func<ITelnetSession> sessionFactory,
+		bool acceptNoSubprotocol = false)
+	{
+		if (registry is null) throw new ArgumentNullException(nameof(registry));
+		if (sessionFactory is null) throw new ArgumentNullException(nameof(sessionFactory));
+
+		Func<IWebSocketSubprotocolHandler> factory = () => TelnetWebSocketHandler.ForSession(sessionFactory);
+		registry.Add([MudWebSocketSubprotocols.Telnet, MudWebSocketSubprotocols.TelnetAlias], factory);
+		if (acceptNoSubprotocol) registry.WithFallback(factory);
+		return registry;
+	}
+
+	/// <summary>
+	/// Registers <c>telnet.mudstandards.org</c> and <c>telnet</c> to run a session made of two lambdas: the
+	/// connection's builder, and what to do once it is reading. See
+	/// <see cref="AddTelnetSession(WebSocketSubprotocolRegistry, Func{ITelnetSession}, bool)"/>.
+	/// </summary>
+	public static WebSocketSubprotocolRegistry AddTelnetSession(
+		this WebSocketSubprotocolRegistry registry,
+		Func<TelnetInterpreterBuilder> builderFactory,
+		Func<TelnetConnection, CancellationToken, Task> run,
+		bool acceptNoSubprotocol = false)
+	{
+		if (builderFactory is null) throw new ArgumentNullException(nameof(builderFactory));
+		if (run is null) throw new ArgumentNullException(nameof(run));
+		return registry.AddTelnetSession(() => TelnetSession.Create(builderFactory, run), acceptNoSubprotocol);
 	}
 
 	/// <summary>

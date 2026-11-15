@@ -3,13 +3,13 @@
 Off unless you ask for it. `WithKeepAlive()` sends `IAC NOP` after 30 seconds of outbound silence, which keeps NAT tables, load balancers and idle timers from tearing down a quiet connection:
 
 ```csharp
-var (telnet, readTask) = await new TelnetInterpreterBuilder()
+await using var telnet = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Server)
     .UseLogger(logger)
     .OnSubmit(HandleSubmitAsync)
     .WithKeepAlive()                              // IAC NOP after 30s of silence
     .AddDefaultMUDProtocols()
-    .BuildAndStartAsync(connection.Transport);
+    .StartAsync(connection.Transport);
 ```
 
 The interval is an **idle** window, not a fixed heartbeat: every outbound write restarts it, so a connection that is already sending data never sends anything extra. Both the interval and the payload are configurable:

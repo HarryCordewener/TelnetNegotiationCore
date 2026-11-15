@@ -26,6 +26,7 @@ dotnet add package TelnetNegotiationCore
 | [Saying who your application is](guides/client-identity.md) | `ClientIdentity`, and the MTTS bits that are calculated rather than claimed |
 | [Detecting prompts](guides/prompts.md) | EOR, Go-Ahead and Packet Patch — three sources, one callback |
 | [Keep-alive](guides/keep-alive.md) | `IAC NOP` on an idle connection, and what it does not prove |
+| [Connections and sessions](guides/sessions.md) | `StartAsync`, `TelnetConnection`, the read and write hooks, `ITelnetSession` on TCP and WebSockets alike |
 | [Managing the read loop yourself](guides/connection-management.md) | `UsePipe`, `UseStream`, `OnNegotiation`, `InterpretByteArrayAsync` |
 | [Implementing an authentication mechanism](guides/authentication-mechanisms.md) | Kerberos, SRP, RSA and TLS on top of RFC 2941 |
 | [Line endings and carriage returns](guides/line-endings.md) | `CR LF`, `CR NUL` and bare `CR`, and the three modes for choosing what they mean |

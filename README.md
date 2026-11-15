@@ -42,11 +42,11 @@ library handles that machinery while leaving application behavior in your hands.
 
 ## Quick start
 
-`BuildAndStartAsync` wires the connection and starts the read loop. This server example adds window
+`StartAsync` wires the connection and starts the read loop. This server example adds window
 size, GMCP, and server-status negotiation to a Kestrel connection:
 
 ```csharp
-var (telnet, readTask) = await new TelnetInterpreterBuilder()
+await using var telnet = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Server)
     .UseLogger(logger)
     .OnSubmit(HandleSubmitAsync)
@@ -56,10 +56,13 @@ var (telnet, readTask) = await new TelnetInterpreterBuilder()
         .OnGMCPMessage(HandleGMCPAsync)
     .AddPlugin<MSSPProtocol>()
         .WithMSSPConfig(() => new MSSPConfig { Name = "My Server", UTF_8 = true })
-    .BuildAndStartAsync(connection.Transport);
+    .StartAsync(connection.Transport);
 
-await readTask; // Completes when the connection closes.
+await telnet.Completion; // Completes when the connection closes; disposing it disposes the interpreter.
 ```
+
+To run the same per-connection code over TCP and [WebSockets](docs/guides/websocket.md), with hooks for counting
+traffic and closing from the server's side, see [Connections and sessions](docs/guides/sessions.md).
 
 `AddDefaultMUDProtocols()` registers the common MUD protocol set in one call. Use
 `AddTelnetServer()` or `AddTelnetClient()` to register the interpreter with a dependency-injection

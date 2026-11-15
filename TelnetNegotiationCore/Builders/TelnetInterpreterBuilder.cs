@@ -10,6 +10,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TelnetNegotiationCore.Connections;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Plugins;
 using TelnetNegotiationCore.Models;
@@ -33,6 +34,9 @@ public class TelnetInterpreterBuilder
     private readonly List<ITelnetProtocolPlugin> _plugins = new();
     private ProtocolPluginManager? _pluginManager;
     private Models.ClientIdentity? _clientIdentity;
+    private Func<ReadOnlyMemory<byte>, ValueTask>? _onReceived;
+    private Func<TelnetInterpreter, ValueTask>? _onInputProcessed;
+    private readonly List<Func<Func<ReadOnlyMemory<byte>, ValueTask>, Func<ReadOnlyMemory<byte>, ValueTask>>> _outputWrappers = new();
 
     public TelnetInterpreterBuilder()
     {
@@ -80,6 +84,101 @@ public class TelnetInterpreterBuilder
     {
         _onNegotiation = callback;
         return this;
+    }
+
+    /// <summary>
+    /// Sees every chunk of telnet bytes a read loop receives, before the interpreter does: for counting traffic,
+    /// say. The chunk is only valid for the duration of the call.
+    /// </summary>
+    /// <remarks>
+    /// Runs in every read loop this library starts: <see cref="StartAsync(ITelnetTransport, CancellationToken)"/>,
+    /// every <c>BuildAndStartAsync</c>, and the WebSocket handlers. On <c>telnetb64.mudstandards.org</c> the chunk is
+    /// the decoded bytes. A loop you write yourself around <see cref="TelnetInterpreter.InterpretByteArrayAsync"/>
+    /// does not call it.
+    /// </remarks>
+    /// <param name="observer">Called with each chunk; the next read waits for it.</param>
+    /// <returns>This builder for chaining</returns>
+    public TelnetInterpreterBuilder OnReceived(Func<ReadOnlyMemory<byte>, ValueTask> observer)
+    {
+        _onReceived = observer ?? throw new ArgumentNullException(nameof(observer));
+        return this;
+    }
+
+    /// <summary>
+    /// Called after each received chunk has been handled: run through the interpreter and out through its
+    /// callbacks, as <see cref="TelnetInterpreter.WaitForProcessingAsync"/> defines it.
+    /// </summary>
+    /// <remarks>
+    /// The place to look at what a chunk settled: whether the client has negotiated anything yet, for one. The read
+    /// loop waits for the chunk and then for this callback before it reads again, so input is not handled ahead
+    /// of it. Runs in the same read loops as <see cref="OnReceived"/>.
+    /// </remarks>
+    /// <param name="callback">Called with the interpreter after each chunk.</param>
+    /// <returns>This builder for chaining</returns>
+    public TelnetInterpreterBuilder OnInputProcessed(Func<TelnetInterpreter, ValueTask> callback)
+    {
+        _onInputProcessed = callback ?? throw new ArgumentNullException(nameof(callback));
+        return this;
+    }
+
+    /// <summary>
+    /// Wraps the interpreter's write path: <paramref name="wrapper"/> gets the write that would happen and returns
+    /// the one to use instead. For counting what is written, holding it, or logging it.
+    /// </summary>
+    /// <remarks>
+    /// Applies however the output is wired (<see cref="OnNegotiation"/>, <see cref="UsePipe"/>, <see cref="UseStream"/>
+    /// or a transport). Several wrappers compose: the one added last is outermost, so it sees each write first.
+    /// <example>
+    /// <code>
+    /// builder.WrapOutput(write => async data =>
+    /// {
+    ///     traffic.Writing(data.Length);
+    ///     await write(data);
+    ///     traffic.Written(data.Length);
+    /// });
+    /// </code>
+    /// </example>
+    /// </remarks>
+    /// <param name="wrapper">Takes the inner write and returns the wrapped one.</param>
+    /// <returns>This builder for chaining</returns>
+    public TelnetInterpreterBuilder WrapOutput(
+        Func<Func<ReadOnlyMemory<byte>, ValueTask>, Func<ReadOnlyMemory<byte>, ValueTask>> wrapper)
+    {
+        _outputWrappers.Add(wrapper ?? throw new ArgumentNullException(nameof(wrapper)));
+        return this;
+    }
+
+    /// <summary>The write path with every <see cref="WrapOutput"/> wrapper applied.</summary>
+    private Func<ReadOnlyMemory<byte>, ValueTask> ComposeOutput(Func<ReadOnlyMemory<byte>, ValueTask> write)
+    {
+        foreach (var wrapper in _outputWrappers)
+        {
+            write = wrapper(write) ?? throw new InvalidOperationException("An output wrapper returned null.");
+        }
+
+        return write;
+    }
+
+    /// <summary>
+    /// What a read loop calls with each chunk: the interpreter's input, with <see cref="OnReceived"/> and
+    /// <see cref="OnInputProcessed"/> around it. The one place those hooks are applied.
+    /// </summary>
+    internal Func<ReadOnlyMemory<byte>, ValueTask> InputFeed(TelnetInterpreter interpreter)
+    {
+        var received = _onReceived;
+        var processed = _onInputProcessed;
+        if (received is null && processed is null) return interpreter.InterpretByteArrayAsync;
+
+        return async data =>
+        {
+            if (received is not null) await received(data);
+            await interpreter.InterpretByteArrayAsync(data);
+            if (processed is not null)
+            {
+                await interpreter.WaitForProcessingAsync(additionalDelayMs: 0);
+                await processed(interpreter);
+            }
+        };
     }
 
     /// <summary>
@@ -304,10 +403,7 @@ public class TelnetInterpreterBuilder
         if (pipe == null)
             throw new ArgumentNullException(nameof(pipe));
 
-        UsePipe(pipe);
-        var interpreter = await BuildAsync();
-        var readTask = ReadFromPipeAsync(interpreter, pipe.Input, cancellationToken);
-        return (interpreter, readTask);
+        return await BuildAndStartAsync(TelnetTransport.Pipe(pipe), cancellationToken);
     }
 
     /// <summary>
@@ -330,19 +426,7 @@ public class TelnetInterpreterBuilder
         if (stream == null)
             throw new ArgumentNullException(nameof(stream));
 
-        var reader = PipeReader.Create(stream, new StreamPipeReaderOptions(leaveOpen: true));
-        _onNegotiation = data => WriteToStreamAsync(stream, data);
-        try
-        {
-            var interpreter = await BuildAsync();
-            var readTask = ReadFromOwnedPipeAsync(interpreter, reader, cancellationToken);
-            return (interpreter, readTask);
-        }
-        catch (Exception buildFailure)
-        {
-            await CompleteOwnedReaderAsync(reader, buildFailure);
-            throw;
-        }
+        return await BuildAndStartAsync(TelnetTransport.Stream(stream), cancellationToken);
     }
 
     private static async ValueTask WriteToStreamAsync(Stream stream, ReadOnlyMemory<byte> data)
@@ -357,43 +441,6 @@ public class TelnetInterpreterBuilder
         await stream.WriteAsync(copy, 0, copy.Length);
     }
 
-    private static async Task ReadFromOwnedPipeAsync(
-        TelnetInterpreter interpreter,
-        PipeReader reader,
-        CancellationToken cancellationToken)
-    {
-        Exception? readFailure = null;
-        try
-        {
-            await ReadFromPipeAsync(interpreter, reader, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            readFailure = ex;
-        }
-
-        await CompleteOwnedReaderAsync(reader, readFailure);
-    }
-
-    private static async ValueTask CompleteOwnedReaderAsync(PipeReader reader, Exception? primaryFailure = null)
-    {
-        try
-        {
-            await reader.CompleteAsync(primaryFailure);
-        }
-        catch (Exception cleanupFailure) when (primaryFailure is not null)
-        {
-            throw new AggregateException(
-                "Reading the transport failed, and releasing its pipe adapter also failed.",
-                primaryFailure, cleanupFailure);
-        }
-
-        if (primaryFailure is not null)
-        {
-            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
-        }
-    }
-
     /// <summary>
     /// Reads incoming data from <paramref name="reader"/> and feeds it to the
     /// <paramref name="interpreter"/> until the pipe completes or the token is cancelled.
@@ -406,20 +453,12 @@ public class TelnetInterpreterBuilder
         PipeReader reader,
         CancellationToken cancellationToken = default)
     {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var result = await reader.ReadAtLeastAsync(1, cancellationToken);
+        if (interpreter == null)
+            throw new ArgumentNullException(nameof(interpreter));
+        if (reader == null)
+            throw new ArgumentNullException(nameof(reader));
 
-            foreach (var segment in result.Buffer)
-            {
-                await interpreter.InterpretByteArrayAsync(segment);
-            }
-
-            reader.AdvanceTo(result.Buffer.End);
-
-            if (result.IsCompleted)
-                break;
-        }
+        await TelnetTransport.ReadPipeAsync(reader, interpreter.InterpretByteArrayAsync, cancellationToken);
     }
 
     /// <summary>
@@ -471,21 +510,70 @@ public class TelnetInterpreterBuilder
         if (socket == null)
             throw new ArgumentNullException(nameof(socket));
 
-        var subprotocol = socket.SubProtocol;
-        var base64 = string.Equals(subprotocol, WebSockets.MudWebSocketSubprotocols.TelnetBase64, StringComparison.OrdinalIgnoreCase);
-        if (!string.IsNullOrEmpty(subprotocol) && !base64 && !WebSockets.MudWebSocketSubprotocols.IsTelnet(subprotocol))
-        {
-            throw new ArgumentException(
-                $"The socket negotiated '{subprotocol}', which is not a telnet stream. Use a WebSocketSubprotocolRegistry to serve other subprotocols.",
-                nameof(socket));
-        }
+        return await BuildAndStartAsync(TelnetTransport.WebSocket(socket), cancellationToken);
+    }
 
-        var connection = new WebSockets.MudWebSocketConnection(socket);
-        _onNegotiation = WebSockets.TelnetWebSocketHandler.Writer(connection, base64, cancellationToken);
+    /// <summary>
+    /// Builds the interpreter on <paramref name="transport"/> and starts its read loop, returning the pair the other
+    /// <c>BuildAndStartAsync</c> overloads return. <see cref="StartAsync(ITelnetTransport, CancellationToken)"/>
+    /// returns a <see cref="TelnetConnection"/> instead, which can also close the connection and dispose it.
+    /// </summary>
+    /// <param name="transport">The transport to run on</param>
+    /// <param name="cancellationToken">Token to cancel the read loop, and the WebSocket writes</param>
+    public async Task<(TelnetInterpreter Interpreter, Task ReadTask)> BuildAndStartAsync(
+        ITelnetTransport transport,
+        CancellationToken cancellationToken = default)
+    {
+        if (transport == null)
+            throw new ArgumentNullException(nameof(transport));
+
+        _onNegotiation = data => transport.WriteAsync(data, cancellationToken);
         var interpreter = await BuildAsync();
-        var readTask = connection.RunAsync(new WebSockets.TelnetWebSocketHandler(interpreter, base64), cancellationToken);
+        var readTask = transport.ReadAsync(InputFeed(interpreter), cancellationToken);
         return (interpreter, readTask);
     }
+
+    /// <summary>
+    /// Builds the interpreter on <paramref name="transport"/> and starts reading.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The connection owns the interpreter: dispose the connection, not the interpreter. The transport stays
+    /// yours. <see cref="TelnetConnection.CloseAsync"/> ends the connection from this side, whatever the transport.
+    /// </para>
+    /// <para>
+    /// <see cref="OnReceived"/>, <see cref="OnInputProcessed"/> and <see cref="WrapOutput"/> apply. To run an
+    /// <see cref="ITelnetSession"/> on it, use <see cref="TelnetConnection.RunAsync(ITelnetSession, ITelnetTransport, CancellationToken)"/>.
+    /// </para>
+    /// </remarks>
+    /// <param name="transport">A transport from <see cref="TelnetTransport"/>, or your own</param>
+    /// <param name="cancellationToken">Cancels the read loop, and the WebSocket writes</param>
+    public Task<TelnetConnection> StartAsync(ITelnetTransport transport, CancellationToken cancellationToken = default)
+    {
+        if (transport == null)
+            throw new ArgumentNullException(nameof(transport));
+
+        return TelnetConnection.StartAsync(this, transport, cancellationToken);
+    }
+
+    /// <summary>Builds the interpreter on a duplex pipe and starts reading. See <see cref="StartAsync(ITelnetTransport, CancellationToken)"/>.</summary>
+    public Task<TelnetConnection> StartAsync(IDuplexPipe pipe, CancellationToken cancellationToken = default) =>
+        StartAsync(TelnetTransport.Pipe(pipe), cancellationToken);
+
+    /// <summary>Builds the interpreter on a stream and starts reading. See <see cref="StartAsync(ITelnetTransport, CancellationToken)"/>.</summary>
+    public Task<TelnetConnection> StartAsync(Stream stream, CancellationToken cancellationToken = default) =>
+        StartAsync(TelnetTransport.Stream(stream), cancellationToken);
+
+    /// <summary>Builds the interpreter on a TCP client and starts reading. See <see cref="StartAsync(ITelnetTransport, CancellationToken)"/>.</summary>
+    public Task<TelnetConnection> StartAsync(TcpClient client, CancellationToken cancellationToken = default) =>
+        StartAsync(TelnetTransport.Tcp(client), cancellationToken);
+
+    /// <summary>
+    /// Builds the interpreter on a WebSocket that speaks telnet and starts reading. See
+    /// <see cref="StartAsync(ITelnetTransport, CancellationToken)"/> and <see cref="TelnetTransport.WebSocket(WebSocket)"/>.
+    /// </summary>
+    public Task<TelnetConnection> StartAsync(WebSocket socket, CancellationToken cancellationToken = default) =>
+        StartAsync(TelnetTransport.WebSocket(socket), cancellationToken);
 
     /// <summary>
     /// Adds a protocol plugin to the interpreter.
@@ -564,7 +652,7 @@ public class TelnetInterpreterBuilder
         var interpreter = new TelnetInterpreter(_mode, _logger)
         {
             CallbackOnSubmitAsync = _onSubmit,
-            CallbackNegotiationAsync = _onNegotiation,
+            CallbackNegotiationAsync = ComposeOutput(_onNegotiation),
             CallbackOnByteAsync = byteCallback,
             PluginManager = _pluginManager,
             KeepAliveInterval = _keepAliveInterval,
@@ -747,4 +835,43 @@ public class PluginConfigurationContext<T> where T : ITelnetProtocolPlugin
     {
         return _builder.BuildAndStartAsync(socket, cancellationToken);
     }
+
+    /// <inheritdoc cref="TelnetInterpreterBuilder.BuildAndStartAsync(ITelnetTransport, CancellationToken)"/>
+    public Task<(Interpreters.TelnetInterpreter Interpreter, Task ReadTask)> BuildAndStartAsync(
+        ITelnetTransport transport,
+        CancellationToken cancellationToken = default) =>
+        _builder.BuildAndStartAsync(transport, cancellationToken);
+
+    /// <inheritdoc cref="TelnetInterpreterBuilder.StartAsync(ITelnetTransport, CancellationToken)"/>
+    public Task<TelnetConnection> StartAsync(ITelnetTransport transport, CancellationToken cancellationToken = default) =>
+        _builder.StartAsync(transport, cancellationToken);
+
+    /// <inheritdoc cref="TelnetInterpreterBuilder.StartAsync(IDuplexPipe, CancellationToken)"/>
+    public Task<TelnetConnection> StartAsync(IDuplexPipe pipe, CancellationToken cancellationToken = default) =>
+        _builder.StartAsync(pipe, cancellationToken);
+
+    /// <inheritdoc cref="TelnetInterpreterBuilder.StartAsync(Stream, CancellationToken)"/>
+    public Task<TelnetConnection> StartAsync(Stream stream, CancellationToken cancellationToken = default) =>
+        _builder.StartAsync(stream, cancellationToken);
+
+    /// <inheritdoc cref="TelnetInterpreterBuilder.StartAsync(TcpClient, CancellationToken)"/>
+    public Task<TelnetConnection> StartAsync(TcpClient client, CancellationToken cancellationToken = default) =>
+        _builder.StartAsync(client, cancellationToken);
+
+    /// <inheritdoc cref="TelnetInterpreterBuilder.StartAsync(WebSocket, CancellationToken)"/>
+    public Task<TelnetConnection> StartAsync(WebSocket socket, CancellationToken cancellationToken = default) =>
+        _builder.StartAsync(socket, cancellationToken);
+
+    /// <inheritdoc cref="TelnetInterpreterBuilder.OnReceived"/>
+    public TelnetInterpreterBuilder OnReceived(Func<ReadOnlyMemory<byte>, ValueTask> observer) =>
+        _builder.OnReceived(observer);
+
+    /// <inheritdoc cref="TelnetInterpreterBuilder.OnInputProcessed"/>
+    public TelnetInterpreterBuilder OnInputProcessed(Func<Interpreters.TelnetInterpreter, ValueTask> callback) =>
+        _builder.OnInputProcessed(callback);
+
+    /// <inheritdoc cref="TelnetInterpreterBuilder.WrapOutput"/>
+    public TelnetInterpreterBuilder WrapOutput(
+        Func<Func<ReadOnlyMemory<byte>, ValueTask>, Func<ReadOnlyMemory<byte>, ValueTask>> wrapper) =>
+        _builder.WrapOutput(wrapper);
 }

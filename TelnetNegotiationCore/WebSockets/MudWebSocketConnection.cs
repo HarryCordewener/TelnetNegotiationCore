@@ -28,8 +28,13 @@ public sealed class MudWebSocketConnection
 	/// <summary>The receive buffer size. Frames larger than this arrive as several chunks.</summary>
 	public const int ReceiveBufferSize = 4 * 1024;
 
+	/// <summary>How long <see cref="CloseTimeout"/> is unless set: five seconds.</summary>
+	public static readonly TimeSpan DefaultCloseTimeout = TimeSpan.FromSeconds(5);
+
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
-	private bool _closeSent;
+	private volatile bool _closeSent;
+	private volatile bool _abortedUnanswered;
+	private volatile Exception? _failure;
 
 	/// <summary>
 	/// Wraps an open socket.
@@ -42,6 +47,16 @@ public sealed class MudWebSocketConnection
 
 	/// <summary>The wrapped socket.</summary>
 	public WebSocket Socket { get; }
+
+	/// <summary>
+	/// How long to wait for the peer to answer a close this side started. A peer that has not answered by then has
+	/// its socket aborted, and <see cref="RunAsync"/> completes. <see cref="Timeout.InfiniteTimeSpan"/> waits forever.
+	/// </summary>
+	/// <remarks>
+	/// RFC 6455 has the closing side wait for the peer's close frame, but a peer that has gone silent never sends
+	/// one, and without a limit the receive loop, and whatever awaits it, would wait with it.
+	/// </remarks>
+	public TimeSpan CloseTimeout { get; init; } = DefaultCloseTimeout;
 
 	/// <summary>The subprotocol the handshake settled on, or <see langword="null"/> when none was.</summary>
 	public string? Subprotocol => Socket.SubProtocol;
@@ -93,6 +108,7 @@ public sealed class MudWebSocketConnection
 			await Socket.CloseOutputAsync(status, LimitCloseDescription(description), cancellationToken);
 			// Only once it went out: a close that failed leaves the socket usable, and a later close can still be sent.
 			_closeSent = true;
+			if (CloseTimeout != Timeout.InfiniteTimeSpan) _ = AbortIfUnansweredAsync();
 		}
 		finally
 		{
@@ -100,18 +116,58 @@ public sealed class MudWebSocketConnection
 		}
 	}
 
+	private async Task AbortIfUnansweredAsync()
+	{
+		await Task.Delay(CloseTimeout).ConfigureAwait(false);
+		if (Socket.State != WebSocketState.CloseSent) return;
+
+		_abortedUnanswered = true;
+		Socket.Abort();
+	}
+
+	/// <summary>
+	/// What ended <see cref="RunAsync"/> with an error, once it has: a socket that failed, or a handler that threw.
+	/// Set before <see cref="IWebSocketSubprotocolHandler.OnClosedAsync"/> is called.
+	/// </summary>
+	internal Exception? Failure => _failure;
+
+	private bool RecordFailure(Exception exception)
+	{
+		_failure = exception;
+		return false;
+	}
+
 	/// <summary>The most UTF-8 bytes a close reason may take: a control frame carries 125, two of them the status.</summary>
 	public const int MaxCloseDescriptionBytes = 123;
 
 	private static string? LimitCloseDescription(string? description)
 	{
-		if (description is null || Encoding.UTF8.GetByteCount(description) <= MaxCloseDescriptionBytes) return description;
+		if (description is null) return null;
 
-		// Cut on a character boundary, never inside a surrogate pair.
-		var length = description.Length;
-		while (length > 0 && Encoding.UTF8.GetByteCount(description.Substring(0, length)) > MaxCloseDescriptionBytes) length--;
-		if (length > 0 && char.IsHighSurrogate(description[length - 1])) length--;
-		return description.Substring(0, length);
+		// Cut on a character boundary, never inside a surrogate pair. Each step adds at least one byte, so this
+		// looks at no more than MaxCloseDescriptionBytes characters however long the description is.
+		int length = 0, bytes = 0;
+		while (length < description.Length)
+		{
+			var c = description[length];
+			int chars = 1, size;
+			if (char.IsHighSurrogate(c) && length + 1 < description.Length && char.IsLowSurrogate(description[length + 1]))
+			{
+				chars = 2;
+				size = 4;
+			}
+			else
+			{
+				// A lone surrogate encodes as U+FFFD, three bytes.
+				size = c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+			}
+
+			if (bytes + size > MaxCloseDescriptionBytes) break;
+			bytes += size;
+			length += chars;
+		}
+
+		return length == description.Length ? description : description.Substring(0, length);
 	}
 
 	private async ValueTask SendAsync(ReadOnlyMemory<byte> data, WebSocketMessageType type, CancellationToken cancellationToken)
@@ -173,6 +229,11 @@ public sealed class MudWebSocketConnection
 				{
 					break;
 				}
+				catch (Exception) when (_abortedUnanswered)
+				{
+					// Our close went unanswered for CloseTimeout: the end of the connection, not a failure.
+					break;
+				}
 
 				if (result.MessageType == WebSocketMessageType.Close)
 				{
@@ -191,6 +252,10 @@ public sealed class MudWebSocketConnection
 					break;
 				}
 
+				// Once this side has closed (a 1003 for a wrong frame type, say), keep receiving until the peer answers,
+				// but hand nothing more to the handler: the connection is over for the application.
+				if (_closeSent) continue;
+
 				await handler.OnFrameAsync(
 					this,
 					result.MessageType,
@@ -198,6 +263,15 @@ public sealed class MudWebSocketConnection
 					result.EndOfMessage,
 					cancellationToken);
 			}
+		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+			// Cancelled while a handler was opening or handling a frame: the same as cancelling the receive.
+		}
+		catch (Exception exception) when (RecordFailure(exception))
+		{
+			// Never entered: the filter records the failure for OnClosedAsync and lets it propagate.
+			throw;
 		}
 		finally
 		{

@@ -27,13 +27,10 @@ app.Map("/ws", async (HttpContext ctx, ITelnetInterpreterFactory factory) =>
     var chosen = offered.FirstOrDefault(MudWebSocketSubprotocols.IsTelnet);
     using var socket = await ctx.WebSockets.AcceptWebSocketAsync(chosen);
 
-    var (telnet, read) = await factory.CreateBuilder()
+    await using var telnet = await factory.CreateBuilder()
         .AddDefaultMUDProtocols()
-        .BuildAndStartAsync(socket, ctx.RequestAborted);
-    await using (telnet)
-    {
-        await read;   // faults if the socket fails; the interpreter is disposed either way
-    }
+        .StartAsync(socket, ctx.RequestAborted);
+    await telnet.Completion;   // faults only if the socket fails; the interpreter is disposed either way
 });
 ```
 
@@ -41,18 +38,22 @@ A socket with no subprotocol is taken as telnet, because most existing wss-to-te
 A socket that negotiated anything else (`gmcp.mudstandards.org`, say) throws `ArgumentException`, so non-telnet
 frames never reach the telnet parser.
 
-A client does the same with `ClientWebSocket`:
+A client connects with `TelnetWebSocketClient.ConnectAsync`, which offers `telnet.mudstandards.org` and then
+`telnet`. A server that names neither is taken as telnet, as above:
 
 ```csharp
-var ws = new ClientWebSocket();
-ws.Options.AddSubProtocol(MudWebSocketSubprotocols.Telnet);
-await ws.ConnectAsync(new Uri("wss://game.example/ws"), ct);
+using var socket = await TelnetWebSocketClient.ConnectAsync(new Uri("wss://game.example/ws"),
+    options => options.KeepAliveInterval = TimeSpan.FromSeconds(30), ct);
 
-var (telnet, read) = await new TelnetInterpreterBuilder()
+await using var telnet = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Client)
     /* ... */
-    .BuildAndStartAsync(ws, ct);
+    .StartAsync(socket, ct);
+await telnet.Completion;   // the server closed the connection
 ```
+
+The `configure` lambda sets anything else on `ClientWebSocketOptions` (headers, a proxy, `KeepAliveTimeout` on
+.NET 9 or later). The socket is yours to dispose.
 
 ## Several subprotocols on one endpoint
 
@@ -91,7 +92,11 @@ app.Map("/ws", async (HttpContext ctx) =>
   connection's `TelnetInterpreter`. The handler disposes the interpreter when the socket closes.
 - `WithFallback` (or `acceptNoSubprotocol: true`) picks the handler for a client that offers nothing. Without one,
   `RunAsync` closes such a socket with 1002.
-- A client offers the registry's names with `options.AddSubprotocols(registry)` and runs the same `RunAsync`.
+- A client uses a registry the same way: `registry.ConnectAsync(uri)` offers its names in order, and
+  `registry.RunAsync(socket)` runs whichever one the server picked. `options.AddSubprotocols(registry)` does the
+  offering alone, for a `ClientWebSocket` you connect yourself.
+- `AddTelnetSession` registers the telnet names to run an `ITelnetSession`, the same object a TCP connection
+  runs; see [Connections and sessions](sessions.md).
 
 ## Writing a subprotocol handler
 
@@ -133,7 +138,23 @@ Neither has a telnet layer, so there is no NAWS, TTYPE, CHARSET, echo control or
 - **GMCP**, on `gmcp.mudstandards.org`, is `Package.Name {json}` in a TEXT frame: the GMCP payload as telnet
   carries it, which is what Evennia and Telix send. The proposal itself does not spell the format out.
   `GmcpWebSocketHandler.Send` is a `GmcpSend`, so the GMCP package's sessions work unchanged:
-  `new GmcpServerSession(handler.Send)`.
+  `new GmcpServerSession(handler.Send)` on a server, `new GmcpClientSession(handler.Send)` on a client.
+- **Text as sent.** `LineReceived` suits a server reading commands. A client wants the server's output whole,
+  prompts without a line ending included: set `TextReceived`, which gets each BINARY message before any line
+  splitting.
+
+```csharp
+var registry = new WebSocketSubprotocolRegistry()
+    .AddTelnet(CreateClientBuilder)                       // offered first
+    .Add(MudWebSocketSubprotocols.Gmcp, () => new GmcpWebSocketHandler
+    {
+        TextReceived = (h, text) => screen.WriteAsync(text),
+        GmcpReceived = (h, package, data) => ui.GmcpAsync(package, data),
+    });
+
+using var socket = await registry.ConnectAsync(new Uri("wss://game.example/ws"), cancellationToken: ct);
+await registry.RunAsync(socket, ct);   // telnet or gmcp, whichever the server chose
+```
 
 ## MSSP
 
@@ -147,10 +168,26 @@ new MSSPConfig
 }
 ```
 
+## Running it in production
+
+- **Await the run.** The socket lives as long as the request does, so the endpoint awaits `RunAsync` or
+  `Completion`; returning early disposes the socket under the connection.
+- **Detect vanished players.** A client whose network drops sends no close frame. Set
+  `WebSocketOptions.KeepAliveTimeout` (with `KeepAliveInterval`) so the server pings and aborts a socket that
+  stops answering; TNC keeps a receive pending, which the pong needs. With `OnInputProcessed`, each chunk can hold
+  the next receive for up to a second, so keep the timeout well above that.
+- **Bounded close.** A close this side starts waits `MudWebSocketConnection.CloseTimeout` (5 seconds) for the
+  peer's answer, then aborts the socket, so a silent peer cannot hold the connection open. Pass your own
+  `MudWebSocketConnection` to `TelnetTransport.WebSocket` or `RunAsync` to change it.
+- **Origins.** Browsers apply no CORS to WebSockets, so any page can open one to your endpoint. That is harmless
+  when login happens in-band, as telnet's does; if the endpoint trusts cookies, list the allowed pages in
+  `WebSocketOptions.AllowedOrigins`. The `Origin` header is not authentication.
+- **Compression.** Leave `permessage-deflate` off on the telnet subprotocols. MCCP already compresses the stream,
+  and compressing a password in the same context as text another player chose is what CRIME and BREACH exploit.
+  If you do enable it for another subprotocol, set `DisableServerContextTakeover`.
+
 ## Notes
 
-- **Compression.** MCCP works over `telnet.mudstandards.org`, but if the socket negotiated `permessage-deflate`,
-  do not also offer MCCP: compressing twice gains nothing.
 - **Client address.** Behind a reverse proxy, the client's address comes from the HTTP layer
   (`X-Forwarded-For`, `HttpContext.Connection.RemoteIpAddress`), not from MNES.
 - The [TestServer](../../TelnetNegotiationCore.TestServer/Program.cs) serves every built-in subprotocol at

@@ -47,17 +47,32 @@ public sealed class WebSocketSubprotocolRegistry
 	/// </summary>
 	/// <param name="name">The subprotocol name. RFC 6455 asks for one based on a domain you control.</param>
 	/// <param name="factory">Makes the handler for one connection. Called once per connection.</param>
-	/// <exception cref="ArgumentException">The name is empty, contains a separator or space, or is already registered.</exception>
+	/// <exception cref="ArgumentException">
+	/// The name is not an HTTP token (empty, or holding a space, separator, control or non-ASCII character), or is
+	/// already registered.
+	/// </exception>
 	public WebSocketSubprotocolRegistry Add(string name, Func<IWebSocketSubprotocolHandler> factory)
 	{
-		if (string.IsNullOrWhiteSpace(name) || name.IndexOfAny([',', ' ', '\t', '"']) >= 0)
-			throw new ArgumentException("A subprotocol name is a single non-empty token.", nameof(name));
+		if (!IsToken(name))
+			throw new ArgumentException("A subprotocol name is a single non-empty HTTP token (RFC 7230).", nameof(name));
 		if (factory is null) throw new ArgumentNullException(nameof(factory));
 		if (Find(name) is not null)
 			throw new ArgumentException($"The subprotocol '{name}' is already registered.", nameof(name));
 
 		_entries.Add((name, factory));
 		return this;
+	}
+
+	// RFC 7230 tchar: what the Sec-WebSocket-Protocol header, and ClientWebSocketOptions.AddSubProtocol, accept.
+	private static bool IsToken(string? name)
+	{
+		if (string.IsNullOrEmpty(name)) return false;
+		foreach (var c in name!)
+		{
+			if (c <= ' ' || c >= 0x7F || "()<>@,;:\\\"/[]?={}".IndexOf(c) >= 0) return false;
+		}
+
+		return true;
 	}
 
 	/// <summary>

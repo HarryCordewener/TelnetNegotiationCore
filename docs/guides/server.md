@@ -28,7 +28,7 @@ public override async Task OnConnectedAsync(ConnectionContext connection)
     // When a reported variable changes, tell the client - the handler re-reads and re-sends it.
     // await msdpHandler.Data.NotifyChangeAsync("ROOM");
 
-    var (telnet, readTask) = await new TelnetInterpreterBuilder()
+    await using var telnet = await new TelnetInterpreterBuilder()
         .UseMode(TelnetInterpreter.TelnetMode.Server)
         .UseLogger(_logger)
         .OnSubmit(WriteBackAsync)
@@ -52,12 +52,15 @@ public override async Task OnConnectedAsync(ConnectionContext connection)
         .AddPlugin<EORProtocol>()
         .AddPlugin<SuppressGoAheadProtocol>()
         .AddPlugin<MXPProtocol>()
-        .BuildAndStartAsync(connection.Transport);
+        .StartAsync(connection.Transport);
 
-    await readTask;
+    await telnet.Completion;
     _logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
 }
 ```
+
+The TestServer goes one step further and puts this in an `ITelnetSession`, so its WebSocket endpoint runs the same
+code; see [Connections and sessions](sessions.md).
 
 ## Copyover
 
@@ -67,10 +70,10 @@ every offer before the copyover, then make them again afterwards as if the clien
 
 ```csharp
 // Before exec: ends compression, then sends WONT/DONT for every option offered at connection start.
-await telnet.UnannounceSupportAsync();
+await telnet.Interpreter.UnannounceSupportAsync();
 
 // In the new process, once the interpreter for the inherited socket is built:
-await telnet.AnnounceSupportAsync();
+await telnet.Interpreter.AnnounceSupportAsync();
 ```
 
 `InitialOffers` lists the `WILL` and `DO` offers this side made, which is what

@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **`StartAsync` and `TelnetConnection`.** `StartAsync` takes the transports `BuildAndStartAsync` takes and returns
+  a connection handle: `Interpreter`, `Completion`, `Closed`, `CloseAsync` (ends the connection from this side,
+  whatever the transport) and `ClosedByServer`. It owns the interpreter and deconstructs as the old
+  `(interpreter, readTask)` pair. See [Connections and sessions](docs/guides/sessions.md).
+- **Read and write hooks on the builder:** `OnReceived` (each chunk received), `OnInputProcessed` (after each chunk
+  has been handled) and `WrapOutput` (a decorator on every write). The input hooks run in every read loop the
+  library starts, `BuildAndStartAsync` and the WebSocket handlers included.
+- `ITelnetTransport` and `TelnetTransport` (`Pipe`, `Stream`, `Tcp`, `WebSocket`): every built-in read loop now
+  runs through one, and a transport the library does not know is one interface away. `Pipe` and `Stream` take a
+  `close` lambda, so a Kestrel connection can be aborted.
+- **`ITelnetSession`:** one object per connection that configures the builder and then runs beside the read loop.
+  `TelnetConnection.RunAsync(session, transport)` runs it on any transport, and
+  `WebSocketSubprotocolRegistry.AddTelnetSession` (or `TelnetWebSocketHandler.ForSession`) on a WebSocket
+  endpoint, so the same code serves TCP and WebSocket players. `TelnetSession.Create` makes one from two lambdas.
+- **WebSocket clients.** `TelnetWebSocketClient.ConnectAsync(uri)` connects a `ClientWebSocket` offering
+  `telnet.mudstandards.org` and `telnet`, ready for `StartAsync`. `registry.ConnectAsync(uri)` offers a registry's
+  names, and `registry.RunAsync` then runs whichever one the server picked.
+- `TerminalWebSocketHandler.TextReceived` (and so `GmcpWebSocketHandler`'s): each BINARY message whole, before line
+  splitting, so a client sees a prompt that has no line ending.
+- `MudWebSocketConnection.CloseTimeout` (5 seconds by default): a close this side sent that the peer never answers
+  aborts the socket after it, instead of waiting forever. `Timeout.InfiniteTimeSpan` turns it off.
+- The TestServer runs one `ITelnetSession` over TCP and every telnet WebSocket subprotocol. The TestClient connects
+  over a WebSocket when given a `ws://` or `wss://` address.
+
+### Fixed
+
+- `ReadFromPipeAsync` (and every pipe read loop) returns when the reader's `CancelPendingRead` is called. It
+  ignored the cancel and went on reading.
+- The TestClient connected to port 4201; the TestServer listens on 4202.
+- A session run by the registry (`AddTelnetSession`) saw `Completion` complete normally when the socket failed;
+  it now faults, as it does for a connection that reads its own socket.
+- `MudWebSocketConnection.RunAsync` completes normally when cancelled while a handler is opening or handling a
+  frame, instead of throwing `OperationCanceledException`.
+- `WebSocketSubprotocolRegistry.Add` refuses any name that is not an HTTP token (separators such as `/` or `;`,
+  control and non-ASCII characters), which a client could not have offered.
+- After this side sends a close (a 1003 for a TEXT frame on telnet, say), `MudWebSocketConnection.RunAsync` keeps
+  receiving until the peer answers but hands no more frames to the handler. Input from a client that was refused
+  reached the interpreter.
+- Cutting a long close reason down to 123 bytes no longer re-encodes the string once per character removed.
+
+## [4.12.0]
+
+### Added
+
 - **WebSocket transport, following the [mudstandards.org WebSocket proposal](https://mudstandards.org/websocket/).**
   `BuildAndStartAsync(WebSocket)` runs the interpreter over `telnet.mudstandards.org` (and its alias `telnet`), or
   `telnetb64.mudstandards.org`, server or client side, on every target framework. Each write goes out as one BINARY

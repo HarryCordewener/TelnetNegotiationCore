@@ -33,12 +33,12 @@ builder.WebHost.UseKestrel(options =>
 
 var app = builder.Build();
 
-// The mudstandards.org WebSocket subprotocols, most preferred first. The telnet ones run the same interpreter the
-// TCP listener does; gmcp and terminal have no telnet layer and just echo.
+// The mudstandards.org WebSocket subprotocols, most preferred first. The telnet ones run the same session the TCP
+// listener does; gmcp and terminal have no telnet layer and just echo.
 var mock = ActivatorUtilities.CreateInstance<KestrelMockServer>(app.Services);
 var wsLogger = app.Services.GetRequiredService<ILogger<KestrelMockServer>>();
-var subprotocols = new WebSocketSubprotocolRegistry()
-	.AddTelnet(mock.CreateBuilder, acceptNoSubprotocol: true)
+WebSocketSubprotocolRegistry Subprotocols(string remote) => new WebSocketSubprotocolRegistry()
+	.AddTelnetSession(() => mock.CreateSession(remote), acceptNoSubprotocol: true)
 	.Add(MudWebSocketSubprotocols.Gmcp, () => new GmcpWebSocketHandler
 	{
 		LineReceived = (h, line) => h.SendLineAsync($"We heard: {line}"),
@@ -52,9 +52,21 @@ var subprotocols = new WebSocketSubprotocolRegistry()
 	{
 		LineReceived = (h, line) => h.SendLineAsync($"We heard: {line}"),
 	})
-	.AddTelnetBase64(mock.CreateBuilder);
+	.Add(MudWebSocketSubprotocols.TelnetBase64, () => TelnetWebSocketHandler.ForSession(() => mock.CreateSession(remote), base64: true));
 
-app.UseWebSockets();
+// One registry for choosing, before the socket is accepted; the per-request one carries the client's address.
+var subprotocols = Subprotocols("(none)");
+
+app.UseWebSockets(new WebSocketOptions
+{
+	// Ping every 30 seconds, and drop a client that has not answered within 15: a player whose network vanished
+	// sends no close frame, and without a timeout the server would hold the connection until TCP gives up.
+	KeepAliveInterval = TimeSpan.FromSeconds(30),
+	KeepAliveTimeout = TimeSpan.FromSeconds(15),
+	// A browser does not apply CORS to WebSockets: list the pages allowed to open one. Empty allows every origin,
+	// which a game whose login happens in-band (as telnet's does) can accept; one that authenticates with cookies
+	// cannot.
+});
 app.Map("/ws", async (HttpContext context) =>
 {
 	if (!context.WebSockets.IsWebSocketRequest)
@@ -71,9 +83,12 @@ app.Map("/ws", async (HttpContext context) =>
 		return;
 	}
 
+	// No permessage-deflate: MCCP already compresses the telnet stream, and compressing a password together with text
+	// another player chose is what CRIME and BREACH exploit.
 	using var socket = await context.WebSockets.AcceptWebSocketAsync(chosen);
 	wsLogger.LogInformation("WebSocket connected with subprotocol {Subprotocol}", chosen ?? "(none)");
-	await subprotocols.RunAsync(socket, context.RequestAborted);
+	// Awaited: the socket lives only as long as this request does.
+	await Subprotocols(context.Connection.RemoteIpAddress?.ToString() ?? "unknown").RunAsync(socket, context.RequestAborted);
 	wsLogger.LogInformation("WebSocket disconnected");
 });
 
