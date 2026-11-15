@@ -34,6 +34,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `TelnetWebSocketClient.ConnectAsync(uri)` dials again offering no subprotocol when the server answers the
+  `telnet.mudstandards.org`/`telnet` offer with an HTTP error. websockify (400) and an Apache proxy in front of a game
+  (502) refuse names they do not know, and accept the same handshake with none; MUME's and The Last Outpost's
+  WebSocket endpoints are both like that. A connect that fails with no HTTP answer is not retried.
 - `ReadFromPipeAsync` (and every pipe read loop) returns when the reader's `CancelPendingRead` is called. It
   ignored the cancel and went on reading.
 - The TestClient connected to port 4201; the TestServer listens on 4202.
