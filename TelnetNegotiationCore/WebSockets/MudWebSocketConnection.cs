@@ -28,8 +28,12 @@ public sealed class MudWebSocketConnection
 	/// <summary>The receive buffer size. Frames larger than this arrive as several chunks.</summary>
 	public const int ReceiveBufferSize = 4 * 1024;
 
+	/// <summary>How long <see cref="CloseTimeout"/> is unless set: five seconds.</summary>
+	public static readonly TimeSpan DefaultCloseTimeout = TimeSpan.FromSeconds(5);
+
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
 	private bool _closeSent;
+	private volatile bool _abortedUnanswered;
 
 	/// <summary>
 	/// Wraps an open socket.
@@ -42,6 +46,16 @@ public sealed class MudWebSocketConnection
 
 	/// <summary>The wrapped socket.</summary>
 	public WebSocket Socket { get; }
+
+	/// <summary>
+	/// How long to wait for the peer to answer a close this side started. A peer that has not answered by then has
+	/// its socket aborted, and <see cref="RunAsync"/> completes. <see cref="Timeout.InfiniteTimeSpan"/> waits forever.
+	/// </summary>
+	/// <remarks>
+	/// RFC 6455 has the closing side wait for the peer's close frame, but a peer that has gone silent never sends
+	/// one, and without a limit the receive loop, and whatever awaits it, would wait with it.
+	/// </remarks>
+	public TimeSpan CloseTimeout { get; init; } = DefaultCloseTimeout;
 
 	/// <summary>The subprotocol the handshake settled on, or <see langword="null"/> when none was.</summary>
 	public string? Subprotocol => Socket.SubProtocol;
@@ -93,11 +107,21 @@ public sealed class MudWebSocketConnection
 			await Socket.CloseOutputAsync(status, LimitCloseDescription(description), cancellationToken);
 			// Only once it went out: a close that failed leaves the socket usable, and a later close can still be sent.
 			_closeSent = true;
+			if (CloseTimeout != Timeout.InfiniteTimeSpan) _ = AbortIfUnansweredAsync();
 		}
 		finally
 		{
 			_sendLock.Release();
 		}
+	}
+
+	private async Task AbortIfUnansweredAsync()
+	{
+		await Task.Delay(CloseTimeout).ConfigureAwait(false);
+		if (Socket.State != WebSocketState.CloseSent) return;
+
+		_abortedUnanswered = true;
+		Socket.Abort();
 	}
 
 	/// <summary>The most UTF-8 bytes a close reason may take: a control frame carries 125, two of them the status.</summary>
@@ -171,6 +195,11 @@ public sealed class MudWebSocketConnection
 				}
 				catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 				{
+					break;
+				}
+				catch (Exception) when (_abortedUnanswered)
+				{
+					// Our close went unanswered for CloseTimeout: the end of the connection, not a failure.
 					break;
 				}
 

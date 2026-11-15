@@ -37,11 +37,11 @@ public class MyConnectionHandler(
 {
     public override async Task OnConnectedAsync(ConnectionContext connection)
     {
-        var (telnet, readTask) = await telnetFactory.CreateBuilder()
+        await using var telnet = await telnetFactory.CreateBuilder()
             .OnSubmit(WriteBackAsync)
-            .BuildAndStartAsync(connection.Transport);
+            .StartAsync(connection.Transport);
 
-        await readTask;
+        await telnet.Completion;
     }
 }
 ```

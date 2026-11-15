@@ -283,6 +283,37 @@ public class TelnetConnectionTests : BaseTest
 	}
 
 	[Test]
+	public async Task AnUnansweredCloseAbortsTheSocketAfterTheCloseTimeout()
+	{
+		var (serverSocket, clientSocket) = WebSocketPair.Create(MudWebSocketSubprotocols.Telnet);
+		var socket = new MudWebSocketConnection(serverSocket) { CloseTimeout = TimeSpan.FromMilliseconds(200) };
+		var connection = await ServerBuilder().StartAsync(TelnetTransport.WebSocket(socket));
+
+		// The client never reads, so it never answers the close.
+		await connection.CloseAsync();
+
+		await connection.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+		await Assert.That(connection.Completion.IsCompletedSuccessfully).IsTrue();
+		await Assert.That(serverSocket.State).IsEqualTo(WebSocketState.Aborted);
+		await connection.DisposeAsync();
+		clientSocket.Dispose();
+	}
+
+	[Test]
+	public async Task CancelPendingReadEndsThePipeReadLoopWithoutAnException()
+	{
+		var wire = new PipeWire();
+		var connection = await ServerBuilder().StartAsync(wire.Server);
+
+		wire.ToServer.Reader.CancelPendingRead();
+
+		await connection.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+		await Assert.That(connection.Completion.IsCompletedSuccessfully).IsTrue();
+		await Assert.That(connection.ClosedByServer).IsFalse();
+		await connection.DisposeAsync();
+	}
+
+	[Test]
 	public async Task AWebSocketWithAnotherSubprotocolIsRefused()
 	{
 		var (serverSocket, _) = WebSocketPair.Create(MudWebSocketSubprotocols.Gmcp);

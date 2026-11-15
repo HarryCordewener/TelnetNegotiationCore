@@ -10,10 +10,10 @@ dotnet add package TelnetNegotiationCore
 
 ## Quick start
 
-`BuildAndStartAsync` wires the connection and starts the read loop automatically. Pass an `IDuplexPipe` (e.g. Kestrel's `connection.Transport`), a `TcpClient`, or a raw `Stream`:
+`StartAsync` wires the connection and starts the read loop automatically. Pass an `IDuplexPipe` (e.g. Kestrel's `connection.Transport`), a `TcpClient`, a raw `Stream` or a telnet [WebSocket](websocket.md). It returns a `TelnetConnection`, which owns the interpreter: dispose the connection and the interpreter goes with it.
 
 ```csharp
-var (telnet, readTask) = await new TelnetInterpreterBuilder()
+await using var telnet = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Server)
     .UseLogger(logger)
     .OnSubmit(HandleSubmitAsync)
@@ -29,9 +29,9 @@ var (telnet, readTask) = await new TelnetInterpreterBuilder()
     .AddPlugin<EORProtocol>()
     .AddPlugin<SuppressGoAheadProtocol>()
     .AddPlugin<MXPProtocol>()
-    .BuildAndStartAsync(connection.Transport);   // IDuplexPipe (Kestrel), TcpClient, or Stream
+    .StartAsync(connection.Transport);   // IDuplexPipe (Kestrel), TcpClient, Stream or WebSocket
 
-await readTask; // completes when the connection closes
+await telnet.Completion; // completes when the connection closes
 ```
 
 `AddDefaultMUDProtocols()` registers NAWS, GMCP, MSDP, MSSP, Terminal Type, Charset, EOR, Suppress
@@ -41,7 +41,7 @@ given: unlike the other two prompt sources it drains the line buffer on a guess 
 explicit marker from the peer, so it is not added for a consumer who never asked for prompts at all.
 
 ```csharp
-var (telnet, readTask) = await new TelnetInterpreterBuilder()
+await using var telnet = await new TelnetInterpreterBuilder()
     .UseMode(TelnetInterpreter.TelnetMode.Server)
     .UseLogger(logger)
     .OnSubmit(HandleSubmitAsync)
@@ -50,10 +50,13 @@ var (telnet, readTask) = await new TelnetInterpreterBuilder()
         onGMCPMessage: HandleGMCPAsync,
         msspConfig: () => new MSSPConfig { Name = "My Server", UTF_8 = true }
     )
-    .BuildAndStartAsync(connection.Transport);
+    .StartAsync(connection.Transport);
 
-await readTask;
+await telnet.Completion;
 ```
+
+`BuildAndStartAsync` takes the same arguments and returns the older `(interpreter, readTask)` pair, which leaves
+the interpreter yours to dispose. `telnet.Interpreter` is the interpreter here, for sending.
 
 ## Next
 

@@ -162,6 +162,12 @@ public static class TelnetTransport
 		while (!cancellationToken.IsCancellationRequested)
 		{
 			var result = await reader.ReadAtLeastAsync(1, cancellationToken);
+			if (result.IsCanceled)
+			{
+				// CancelPendingRead: stop reading without an exception, leaving the buffer for a later reader.
+				reader.AdvanceTo(result.Buffer.Start);
+				break;
+			}
 
 			foreach (var segment in result.Buffer)
 			{

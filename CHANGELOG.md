@@ -19,6 +19,21 @@ All notable changes to this project will be documented in this file.
   `TelnetConnection.RunAsync(session, transport)` runs it on any transport, and
   `WebSocketSubprotocolRegistry.AddTelnetSession` (or `TelnetWebSocketHandler.ForSession`) on a WebSocket
   endpoint, so the same code serves TCP and WebSocket players. `TelnetSession.Create` makes one from two lambdas.
+- **WebSocket clients.** `TelnetWebSocketClient.ConnectAsync(uri)` connects a `ClientWebSocket` offering
+  `telnet.mudstandards.org` and `telnet`, ready for `StartAsync`. `registry.ConnectAsync(uri)` offers a registry's
+  names, and `registry.RunAsync` then runs whichever one the server picked.
+- `TerminalWebSocketHandler.TextReceived` (and so `GmcpWebSocketHandler`'s): each BINARY message whole, before line
+  splitting, so a client sees a prompt that has no line ending.
+- `MudWebSocketConnection.CloseTimeout` (5 seconds by default): a close this side sent that the peer never answers
+  aborts the socket after it, instead of waiting forever. `Timeout.InfiniteTimeSpan` turns it off.
+- The TestServer runs one `ITelnetSession` over TCP and every telnet WebSocket subprotocol. The TestClient connects
+  over a WebSocket when given a `ws://` or `wss://` address.
+
+### Fixed
+
+- `ReadFromPipeAsync` (and every pipe read loop) returns when the reader's `CancelPendingRead` is called. It
+  ignored the cancel and went on reading.
+- The TestClient connected to port 4201; the TestServer listens on 4202.
 
 ## [4.12.0]
 

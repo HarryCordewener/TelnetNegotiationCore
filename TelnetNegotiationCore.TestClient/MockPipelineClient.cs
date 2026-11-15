@@ -4,6 +4,8 @@ using System.Text;
 using TelnetNegotiationCore.Models;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Builders;
+using TelnetNegotiationCore.Connections;
+using TelnetNegotiationCore.WebSockets;
 using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.TestClient;
@@ -28,11 +30,9 @@ public class MockPipelineClient(ILogger<MockPipelineClient> logger, ITelnetInter
 	public async ValueTask SignalPromptAsync() =>
 		await Task.Run(() => logger.LogDebug("Prompt"));
 
-	public async Task StartAsync(string address, int port)
-	{
-		var client = new TcpClient(address, port);
-
-		var (telnet, readTask) = await telnetFactory.CreateBuilder()
+	/// <summary>The builder for one connection, shared by the TCP and WebSocket clients.</summary>
+	private TelnetInterpreterBuilder CreateBuilder() =>
+		telnetFactory.CreateBuilder()
 			.OnSubmit(WriteBackAsync)
 			.WithClientIdentity(new ClientIdentity("TNC-TESTCLIENT")
 			{
@@ -49,19 +49,44 @@ public class MockPipelineClient(ILogger<MockPipelineClient> logger, ITelnetInter
 			.AddPlugin<CharsetProtocol>()
 			.AddPlugin<EORProtocol>()
 				.OnPrompt(SignalPromptAsync)
-			.AddPlugin<SuppressGoAheadProtocol>()
-			.BuildAndStartAsync(client);
+			.AddPlugin<SuppressGoAheadProtocol>();
 
-		// readTask completes when the server closes the connection.
-		// Log any unexpected errors from the network read loop.
-		_ = readTask.ContinueWith(
+	/// <summary>Telnet over TCP.</summary>
+	public async Task StartAsync(string address, int port)
+	{
+		using var client = new TcpClient(address, port);
+		await using var connection = await CreateBuilder().StartAsync(client);
+		await PlayAsync(connection);
+	}
+
+	/// <summary>Telnet over a WebSocket: <c>telnet.mudstandards.org</c>, or no subprotocol for a plain bridge.</summary>
+	public async Task StartAsync(Uri uri)
+	{
+		using var socket = await TelnetWebSocketClient.ConnectAsync(uri, options =>
+			// A ping every 30 seconds keeps proxies from timing an idle connection out.
+			options.KeepAliveInterval = TimeSpan.FromSeconds(30));
+		logger.LogInformation("Connected to {Uri} with subprotocol {Subprotocol}", uri, socket.SubProtocol ?? "(none)");
+		await using var connection = await CreateBuilder().StartAsync(socket);
+		await PlayAsync(connection);
+	}
+
+	/// <summary>Sends each console line until the input ends or the server closes the connection.</summary>
+	private async Task PlayAsync(TelnetConnection connection)
+	{
+		// Log any unexpected errors from the network read loop. Completion completes when the server closes the
+		// connection, and faults only when the transport fails.
+		_ = connection.Completion.ContinueWith(
 			t => logger.LogError(t.Exception, "Network read loop ended with an error"),
 			TaskContinuationOptions.OnlyOnFaulted);
 
-		while (true)
+		var telnet = connection.Interpreter;
+		while (!connection.Closed.IsCancellationRequested)
 		{
-			var read = Console.ReadLine() ?? string.Empty;
+			var read = Console.ReadLine();
+			if (read is null) break; // end of input: leave, and close the connection
 			await telnet.SendPromptAsync(telnet.CurrentEncoding.GetBytes(read));
 		}
+
+		await connection.CloseAsync();
 	}
 }

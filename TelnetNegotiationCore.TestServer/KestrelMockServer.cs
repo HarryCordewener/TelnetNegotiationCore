@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using TelnetNegotiationCore.Interpreters;
 using TelnetNegotiationCore.Models;
@@ -8,6 +9,7 @@ using Microsoft.AspNetCore.Connections;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Handlers;
 using TelnetNegotiationCore.Builders;
+using TelnetNegotiationCore.Connections;
 using TelnetNegotiationCore.Protocols;
 
 namespace TelnetNegotiationCore.TestServer
@@ -115,18 +117,61 @@ namespace TelnetNegotiationCore.TestServer
 			.AddPlugin<SuppressGoAheadProtocol>();
 		}
 
-		public override async Task OnConnectedAsync(ConnectionContext connection)
+		/// <summary>
+		/// One connection's session, whatever carries it: the TCP listener and the WebSocket endpoint both run it.
+		/// </summary>
+		public ITelnetSession CreateSession(string remote) => new MockSession(this, logger, remote);
+
+		public override Task OnConnectedAsync(ConnectionContext connection) =>
+			TelnetConnection.RunAsync(
+				CreateSession(connection.RemoteEndPoint?.ToString() ?? connection.ConnectionId),
+				// Abort rather than complete the pipe: the server is done with the player, so drop at once.
+				TelnetTransport.Pipe(connection.Transport, () =>
+				{
+					connection.Abort();
+					return ValueTask.CompletedTask;
+				}),
+				connection.ConnectionClosed);
+
+		private sealed class MockSession(KestrelMockServer server, ILogger logger, string remote) : ITelnetSession
 		{
-			using (logger.BeginScope(new Dictionary<string, object> { { "ConnectionId", connection.ConnectionId } }))
+			private long _received;
+			private long _sent;
+
+			public TelnetInterpreterBuilder CreateBuilder() =>
+				server.CreateBuilder()
+					.OnReceived(bytes =>
+					{
+						Interlocked.Add(ref _received, bytes.Length);
+						return ValueTask.CompletedTask;
+					})
+					.WrapOutput(write => async bytes =>
+					{
+						await write(bytes);
+						Interlocked.Add(ref _sent, bytes.Length);
+					});
+
+			public async Task RunAsync(TelnetConnection connection, CancellationToken cancellationToken)
 			{
-				logger.LogInformation("{ConnectionId} connected", connection.ConnectionId);
+				using (logger.BeginScope(new Dictionary<string, object> { { "Remote", remote } }))
+				{
+					logger.LogInformation("{Remote} connected", remote);
 
-				var (telnet, readTask) = await CreateBuilder()
-				.BuildAndStartAsync(connection.Transport);
+					// The interpreter is already reading, so the client's answers arrive while this waits.
+					var opening = await connection.Interpreter.WaitForInitialNegotiationAsync(
+						TimeSpan.FromMilliseconds(500), cancellationToken);
+					logger.LogInformation("{Remote} opening negotiation ended: {End}", remote, opening);
 
-				await readTask;
-
-				logger.LogInformation("{ConnectionId} disconnected", connection.ConnectionId);
+					try
+					{
+						await connection.Completion;
+					}
+					finally
+					{
+						logger.LogInformation("{Remote} disconnected after {Received} bytes in, {Sent} out",
+							remote, Interlocked.Read(ref _received), Interlocked.Read(ref _sent));
+					}
+				}
 			}
 		}
 	}
