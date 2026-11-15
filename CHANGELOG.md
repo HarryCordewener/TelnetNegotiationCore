@@ -3,6 +3,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **WebSocket transport, following the [mudstandards.org WebSocket proposal](https://mudstandards.org/websocket/).**
+  `BuildAndStartAsync(WebSocket)` runs the interpreter over `telnet.mudstandards.org` (and its alias `telnet`), or
+  `telnetb64.mudstandards.org`, server or client side, on every target framework. Each write goes out as one BINARY
+  message; received frames are fed as they arrive, so a telnet command split across frames parses. A socket with no
+  subprotocol is taken as telnet; any other subprotocol throws `ArgumentException`. See
+  [WebSockets](docs/guides/websocket.md).
+- `WebSocketSubprotocolRegistry` serves several subprotocols on one endpoint: it picks one from the client's offer in
+  the server's order of preference and runs the handler registered for it. `AddTelnet` and `AddTelnetBase64`
+  register the telnet ones.
+- A plugin form for subprotocols: subclass `WebSocketMessageHandler` (whole messages, a size limit, close codes
+  handled) or implement `IWebSocketSubprotocolHandler` (raw frames). Sends through `MudWebSocketConnection` are
+  serialized, close frames included.
+- `GmcpWebSocketHandler` (`gmcp.mudstandards.org`) and `TerminalWebSocketHandler` (`terminal.mudstandards.org`), with
+  no telnet layer. GMCP TEXT frames are `Package.Name {json}`, as Evennia and Telix send them;
+  `GmcpWebSocketHandler.Send` is a `GmcpSend`, so `GmcpServerSession` works on it unchanged.
+- `MSSPConfig.WebSocket` and `MSSPConfig.WebSocketSubprotocols`, the `WEBSOCKET` and `WEBSOCKET_SUBPROTOCOLS` variables
+  the proposal suggests.
+- The TestServer serves every built-in subprotocol at `ws://localhost:4203/ws`.
+
 ## [4.11.0]
 
 ### Fixed

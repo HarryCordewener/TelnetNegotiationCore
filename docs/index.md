@@ -22,6 +22,7 @@ dotnet add package TelnetNegotiationCore
 | [Dependency injection](guides/dependency-injection.md) | `AddTelnetServer()` / `AddTelnetClient()`, Kestrel, `ITelnetInterpreterFactory` |
 | [Writing a client](guides/client.md) | A `TcpClient` connection, wired up |
 | [Writing a server](guides/server.md) | A Kestrel `ConnectionHandler`, and the MSDP server model |
+| [WebSockets](guides/websocket.md) | The mudstandards.org subprotocols, `WebSocketSubprotocolRegistry`, and writing your own subprotocol |
 | [Saying who your application is](guides/client-identity.md) | `ClientIdentity`, and the MTTS bits that are calculated rather than claimed |
 | [Detecting prompts](guides/prompts.md) | EOR, Go-Ahead and Packet Patch — three sources, one callback |
 | [Keep-alive](guides/keep-alive.md) | `IAC NOP` on an idle connection, and what it does not prove |

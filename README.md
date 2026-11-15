@@ -34,7 +34,8 @@ Telnet is a byte-stream protocol with stateful negotiation layered throughout th
 library handles that machinery while leaving application behavior in your hands.
 
 - **Composable protocols** — opt into each Telnet option as a plugin or register the common MUD set.
-- **Client and server support** — build either side over `IDuplexPipe`, `TcpClient`, or `Stream`.
+- **Client and server support** — build either side over `IDuplexPipe`, `TcpClient`, `Stream`, or a `WebSocket`.
+- **WebSockets** — the [mudstandards.org subprotocols](docs/guides/websocket.md) (`telnet`, `telnetb64`, `gmcp`, `terminal`), and a registry to serve your own beside them.
 - **Predictable I/O** — a state machine interprets incoming bytes and outgoing writes are serialized.
 - **Modern .NET integration** — fluent configuration, dependency injection, logging, analyzers, and source generators.
 - **Built for verification** — protocol behavior is isolated and testable down to exact wire bytes.

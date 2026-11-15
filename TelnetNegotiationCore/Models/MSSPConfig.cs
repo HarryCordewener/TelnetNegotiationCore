@@ -145,6 +145,17 @@ public class MSSPConfig
 	[Name("WEBSITE"), Official(true)]
 	public string? Website { get; set; }
 
+	/// <summary>WEBSOCKET: a comma-separated list of WebSocket URIs the game can be reached at, such as
+	/// <c>wss://mygame.net/</c>. Suggested by the mudstandards.org WebSocket proposal, not part of MSSP itself.</summary>
+	[Name("WEBSOCKET"), Official(false)]
+	public string? WebSocket { get; set; }
+
+	/// <summary>WEBSOCKET_SUBPROTOCOLS: a comma-separated list of the WebSocket subprotocols the game accepts, such as
+	/// <c>telnet.mudstandards.org,gmcp.mudstandards.org</c>. Suggested by the mudstandards.org WebSocket proposal,
+	/// mainly for game listings.</summary>
+	[Name("WEBSOCKET_SUBPROTOCOLS"), Official(false)]
+	public string? WebSocketSubprotocols { get; set; }
+
 	/// <summary>FAMILY: AberMUD, CoffeeMUD, DikuMUD, Evennia, LPMud, MajorMUD, MOO, Mordor, SocketMud, TinyMUD, TinyMUCK, TinyMUSH, Custom.
 	/// Report Custom unless it's a well established family.
 	///
