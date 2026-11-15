@@ -32,7 +32,7 @@ public sealed class MudWebSocketConnection
 	public static readonly TimeSpan DefaultCloseTimeout = TimeSpan.FromSeconds(5);
 
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
-	private bool _closeSent;
+	private volatile bool _closeSent;
 	private volatile bool _abortedUnanswered;
 	private volatile Exception? _failure;
 
@@ -251,6 +251,10 @@ public sealed class MudWebSocketConnection
 
 					break;
 				}
+
+				// Once this side has closed (a 1003 for a wrong frame type, say), keep receiving until the peer answers,
+				// but hand nothing more to the handler: the connection is over for the application.
+				if (_closeSent) continue;
 
 				await handler.OnFrameAsync(
 					this,

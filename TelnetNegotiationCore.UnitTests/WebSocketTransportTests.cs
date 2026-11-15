@@ -374,6 +374,23 @@ public class WebSocketTransportTests : BaseTest
 	}
 
 	[Test]
+	public async Task FramesAfterThisSideClosedNeverReachTheHandler()
+	{
+		var (serverSocket, clientSocket) = WebSocketPair.Create(null);
+		var frames = 0;
+		var run = new MudWebSocketConnection(serverSocket).RunAsync(new CloseOnFirstFrameHandler(() => frames++));
+
+		// A frame that arrives after the close, as one already in flight would.
+		await SendBinaryAsync(clientSocket, [1]);
+		await Assert.That(await ReceiveCloseAsync(clientSocket)).IsEqualTo(WebSocketCloseStatus.PolicyViolation);
+		await SendBinaryAsync(clientSocket, [2]);
+		await clientSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None);
+
+		await run.WaitAsync(TimeSpan.FromSeconds(5));
+		await Assert.That(frames).IsEqualTo(1);
+	}
+
+	[Test]
 	public async Task CancellingTheRunWhileAHandlerOpensEndsTheRunNormally()
 	{
 		var (serverSocket, _) = WebSocketPair.Create(null);
@@ -580,6 +597,21 @@ public class WebSocketTransportTests : BaseTest
 			var result = await socket.ReceiveAsync(buffer, timeout.Token);
 			if (result.MessageType == WebSocketMessageType.Close) return result.CloseStatus;
 		}
+	}
+
+	/// <summary>Closes with 1008 on the first frame it is given.</summary>
+	private sealed class CloseOnFirstFrameHandler(Action onFrame) : IWebSocketSubprotocolHandler
+	{
+		public ValueTask OnOpenAsync(MudWebSocketConnection connection, CancellationToken cancellationToken) => default;
+
+		public ValueTask OnFrameAsync(MudWebSocketConnection connection, WebSocketMessageType messageType,
+			ReadOnlyMemory<byte> data, bool endOfMessage, CancellationToken cancellationToken)
+		{
+			onFrame();
+			return connection.CloseAsync(WebSocketCloseStatus.PolicyViolation, null, cancellationToken);
+		}
+
+		public ValueTask OnClosedAsync(MudWebSocketConnection connection, WebSocketCloseStatus? status, string? description) => default;
 	}
 
 	/// <summary>Waits in <c>OnOpenAsync</c> until the run is cancelled.</summary>

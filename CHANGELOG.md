@@ -40,6 +40,9 @@ All notable changes to this project will be documented in this file.
   frame, instead of throwing `OperationCanceledException`.
 - `WebSocketSubprotocolRegistry.Add` refuses any name that is not an HTTP token (separators such as `/` or `;`,
   control and non-ASCII characters), which a client could not have offered.
+- After this side sends a close (a 1003 for a TEXT frame on telnet, say), `MudWebSocketConnection.RunAsync` keeps
+  receiving until the peer answers but hands no more frames to the handler. Input from a client that was refused
+  reached the interpreter.
 - Cutting a long close reason down to 123 bytes no longer re-encodes the string once per character removed.
 
 ## [4.12.0]
