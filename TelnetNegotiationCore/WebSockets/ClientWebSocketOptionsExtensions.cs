@@ -48,7 +48,7 @@ public static class TelnetWebSocketClient
 	/// <para>
 	/// The server picks, by its own preference. Evennia speaks no telnet over a WebSocket and picks <c>gmcp</c>;
 	/// offered only the telnet names it names none and sends its own JSON, which is not a telnet stream.
-	/// <see cref="Connections.TelnetTransport.WebSocket(WebSocket)"/> runs the interpreter over whichever was picked.
+	/// <see cref="Connections.TelnetTransport.WebSocketClient(WebSocket, WebSocketClientBridges?)"/> runs the interpreter over whichever was picked.
 	/// </para>
 	/// <para>
 	/// A server that answers the offer with an HTTP error is dialled once more offering no subprotocol. Bridges
@@ -77,7 +77,7 @@ public static class TelnetWebSocketClient
 	/// Otherwise as <see cref="ConnectAsync(Uri, Action{ClientWebSocketOptions}?, CancellationToken)"/>.
 	/// </summary>
 	public static Task<ClientWebSocket> ConnectAsync(
-		Uri uri, WebSocketClientBridges bridges, Action<ClientWebSocketOptions>? configure = null,
+		Uri uri, Action<ClientWebSocketOptions>? configure, WebSocketClientBridges bridges,
 		CancellationToken cancellationToken = default) =>
 		ConnectTelnetAsync(uri, bridges ?? throw new ArgumentNullException(nameof(bridges)), configure, cancellationToken);
 

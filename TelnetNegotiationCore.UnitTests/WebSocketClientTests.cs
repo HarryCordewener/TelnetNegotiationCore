@@ -103,6 +103,24 @@ public class WebSocketClientTests : BaseTest
 	}
 
 	[Test]
+	public async Task ABridgeSetIsOfferedAfterTheTelnetNamesAndAPlainNullStillMeansNoConfigure()
+	{
+		const string name = "lines.v1.example.org";
+		var registry = new WebSocketSubprotocolRegistry().Add(name, () => new TerminalWebSocketHandler());
+		await using var server = Server.Start(registry);
+
+		using (var plain = await TelnetWebSocketClient.ConnectAsync(server.Uri, null))
+		{
+			// The default offer holds no name this server serves, so it names none.
+			await Assert.That(plain.SubProtocol).IsNull();
+		}
+
+		var bridges = new WebSocketClientBridges().Add(name, () => new TerminalClientBridge());
+		using var socket = await TelnetWebSocketClient.ConnectAsync(server.Uri, null, bridges);
+		await Assert.That(socket.SubProtocol).IsEqualTo(name);
+	}
+
+	[Test]
 	public async Task AServerThatNamesNoSubprotocolIsTakenAsTelnet()
 	{
 		var registry = new WebSocketSubprotocolRegistry().AddTelnetSession(

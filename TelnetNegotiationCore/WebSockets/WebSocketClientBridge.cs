@@ -213,7 +213,7 @@ public sealed class GmcpClientBridge : OptionTextFrameBridge
 /// listed: <see cref="TelnetWebSocketClient"/> always offers them first and the interpreter reads them natively.
 /// <code>
 /// var bridges = WebSocketClientBridges.Default.Add("msdp.example.org", () =&gt; new OptionTextFrameBridge((byte)Trigger.MSDP));
-/// using var socket = await TelnetWebSocketClient.ConnectAsync(uri, bridges, cancellationToken: ct);
+/// using var socket = await TelnetWebSocketClient.ConnectAsync(uri, null, bridges, ct);
 /// await using var connection = await builder.StartAsync(TelnetTransport.WebSocketClient(socket, bridges), ct);
 /// </code>
 /// </remarks>

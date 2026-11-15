@@ -178,8 +178,13 @@ turns the server's frames into a telnet stream and decides what each thing the i
   included. A server with no telnet layer reads those bytes as text, in front of the next line the player sends,
   which is usually the login: the game shows its connect screen again and logs nobody in.
 - **Nothing else is negotiated**: no NAWS, TTYPE, CHARSET, echo control or prompt marking. The text is UTF-8, so
-  decode as UTF-8 rather than waiting for CHARSET, and let `PacketPatchProtocol` (in `AddDefaultMUDProtocols`) find
-  the prompts. A password is echoed by the server's own rules.
+  decode as UTF-8 rather than waiting for CHARSET. A prompt such as `Name: ` has no line ending and no GA or EOR, so
+  let `PacketPatchProtocol` find it from the pause after it: `AddDefaultMUDProtocols(onPrompt: …)` adds it only when
+  `onPrompt` is given. A password is echoed by the server's own rules.
+
+```csharp
+builder.AddDefaultMUDProtocols(onPrompt: () => screen.ShowPromptAsync(connection.Interpreter.LastPromptBytes));
+```
 
 A TEXT frame on `terminal` closes the socket with 1003. A server interpreter refuses both subprotocols; serve them with
 `GmcpWebSocketHandler` and `TerminalWebSocketHandler`.
@@ -205,7 +210,7 @@ subclass `WebSocketClientBridge`; by default it behaves as `terminal`, and you o
 var bridges = WebSocketClientBridges.Default
     .Add("msdp.v1.example.org", () => new OptionTextFrameBridge((byte)Trigger.MSDP));
 
-using var socket = await TelnetWebSocketClient.ConnectAsync(uri, bridges, cancellationToken: ct);
+using var socket = await TelnetWebSocketClient.ConnectAsync(uri, null, bridges, ct);
 await using var connection = await builder.StartAsync(TelnetTransport.WebSocketClient(socket, bridges), ct);
 ```
 
