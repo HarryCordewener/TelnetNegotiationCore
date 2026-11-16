@@ -166,6 +166,34 @@ public class WebSocketClientTests : BaseTest
 	}
 
 	[Test]
+	public async Task BothDialsGoThroughTheCallersInvoker()
+	{
+		var registry = new WebSocketSubprotocolRegistry().AddTelnetSession(
+			() => Builder(TelnetInterpreter.TelnetMode.Server),
+			(connection, _) => connection.Completion,
+			acceptNoSubprotocol: true);
+		await using var server = Server.Start(registry, acceptWithoutSubprotocol: true, refuseAnOffer: true);
+
+		var dials = 0;
+		using var invoker = new System.Net.Http.HttpMessageInvoker(new System.Net.Http.SocketsHttpHandler
+		{
+			ConnectCallback = async (context, token) =>
+			{
+				Interlocked.Increment(ref dials);
+				var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+				await socket.ConnectAsync(IPAddress.Loopback, context.DnsEndPoint.Port, token);
+				return new NetworkStream(socket, ownsSocket: true);
+			},
+		});
+
+		using var socket = await TelnetWebSocketClient.ConnectAsync(server.Uri, invoker, null, null);
+		await Assert.That(string.IsNullOrEmpty(socket.SubProtocol)).IsTrue();
+		await Assert.That(server.Handshakes).IsEqualTo(2);
+		await Assert.That(Volatile.Read(ref dials)).IsEqualTo(2);
+		socket.Abort();
+	}
+
+	[Test]
 	public async Task AServerThatRefusesEveryHandshakeIsDialledOnlyTwice()
 	{
 		var registry = new WebSocketSubprotocolRegistry().AddTelnetSession(

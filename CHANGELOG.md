@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `TelnetWebSocketClient.ConnectAsync(uri, invoker, configure, bridges)`: connects through the caller's
+  `HttpMessageInvoker`, the redial with no subprotocol included. A `SocketsHttpHandler` whose `ConnectCallback` dials
+  addresses already vetted gets the retry and the bridged names without the library resolving the name again.
 - `SendLinesAsync`: several lines in one write, each escaped and ended with CR LF as `SendAsync` would, flushed once.
   A room description sent a line at a time is that many transport writes and, under MCCP, that many deflate flushes.
 - `WithCompressionLevel` on the MCCP plugin: the zlib level for what this side sends (default `Optimal`, as before).
