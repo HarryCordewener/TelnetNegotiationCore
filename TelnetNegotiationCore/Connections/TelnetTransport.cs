@@ -173,6 +173,10 @@ public static class TelnetTransport
 		public async ValueTask WriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
 		{
 			// Uncancellable, as the stream writes have always been.
+#if !NETSTANDARD2_0
+			// The memory overload: a ValueTask, and no copy for memory that is not an array.
+			await stream.WriteAsync(data);
+#else
 			if (MemoryMarshal.TryGetArray(data, out var segment) && segment.Array is not null)
 			{
 				await stream.WriteAsync(segment.Array, segment.Offset, segment.Count);
@@ -181,6 +185,7 @@ public static class TelnetTransport
 
 			var copy = data.ToArray();
 			await stream.WriteAsync(copy, 0, copy.Length);
+#endif
 		}
 
 		public ValueTask CloseAsync(CancellationToken cancellationToken)

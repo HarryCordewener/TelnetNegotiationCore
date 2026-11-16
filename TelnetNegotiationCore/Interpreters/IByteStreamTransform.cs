@@ -37,6 +37,43 @@ public interface IInboundByteTransform : IDisposable
 }
 
 /// <summary>
+/// What one <see cref="IInboundChunkTransform.DecodeChunkAsync"/> call did.
+/// </summary>
+internal readonly struct InboundDecodeResult(int consumed, ReadOnlyMemory<byte> decoded, bool hasMoreOutput)
+{
+	/// <summary>How many of the wire bytes passed in this call are finished with.</summary>
+	public int Consumed { get; } = consumed;
+
+	/// <summary>Telnet bytes for the state machine, owned by the transform and valid until its next call.</summary>
+	public ReadOnlyMemory<byte> Decoded { get; } = decoded;
+
+	/// <summary>Whether a further call may produce more output, even with no new input.</summary>
+	public bool HasMoreOutput { get; } = hasMoreOutput;
+}
+
+/// <summary>
+/// An inbound transform that takes the wire a chunk at a time and returns bounded slices of output.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The interpreter prefers this over <see cref="IInboundByteTransform.DecodeAsync"/> when a transform
+/// offers it. A call may consume none, some or all of its input, and may produce output without
+/// consuming anything. The caller fires what comes back into the state machine before calling again,
+/// passes the unconsumed rest of the wire next time, and keeps calling while input is left or
+/// <see cref="InboundDecodeResult.HasMoreOutput"/> is true.
+/// </para>
+/// <para>
+/// Bytes a transform leaves unconsumed when it finishes (its stream ended) are telnet again; the
+/// caller gives them to whatever is installed next, the state machine included.
+/// </para>
+/// </remarks>
+internal interface IInboundChunkTransform : IInboundByteTransform
+{
+	/// <summary>Decodes from the start of <paramref name="wire"/>.</summary>
+	ValueTask<InboundDecodeResult> DecodeChunkAsync(ReadOnlyMemory<byte> wire);
+}
+
+/// <summary>
 /// Transforms outbound bytes on their way to the network, after everything else in the library has
 /// had its say.
 /// </summary>

@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `SendLinesAsync`: several lines in one write, each escaped and ended with CR LF as `SendAsync` would, flushed once.
+  A room description sent a line at a time is that many transport writes and, under MCCP, that many deflate flushes.
+- `WithCompressionLevel` on the MCCP plugin: the zlib level for what this side sends (default `Optimal`, as before).
+  `Fastest` costs about a third of the CPU per flushed line for output about 11% larger.
 - **WebSocket clients on subprotocols that carry no telnet.** `TelnetTransport.WebSocketClient` runs a client
   interpreter, every plugin unchanged, over any subprotocol with a `WebSocketClientBridge`: the bridge turns frames
   into a telnet stream and decides what each write becomes, and drops every telnet command it does not carry (a server
@@ -43,6 +47,14 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **MCCP input is about 10x faster again.** The inflater took one compressed byte per call to keep its output bounded.
+  It now takes a whole chunk and hands back at most 2 KiB at a time, which bounds memory the same way. It is
+  SharpZipLib's `Inflater` on every target now, as it already was on netstandard2.0, because `ZLibStream` keeps the
+  bytes it reads past the end of a stream. 4 MiB of MCCP2 input: 853 ms to about 90 ms. The end of a stream is now
+  noticed on the trailer's last byte instead of on the next byte after it.
+- `SendAsync`, `SendPromptAsync` and `SendGMCPCommand` build each frame in one buffer, escaping straight into it:
+  one allocation per call instead of two (lines) or five (`SendGMCPCommand(string, string)`). Stream transports
+  write through the `ReadOnlyMemory` overload on .NET 8 and later.
 - **Input is about 35x faster.** The interpreter queued every received byte as its own channel item, which cost a
   lock on each side and often an async suspension per byte. It now queues each read in chunks of up to 4 KiB.
   4 MiB of text went from 1.8 s to 47 ms (net11.0), and 4 MiB of GMCP from 1.5 s to 77 ms. MCCP input went from

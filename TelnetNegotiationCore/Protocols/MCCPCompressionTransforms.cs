@@ -5,16 +5,16 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TelnetNegotiationCore.Interpreters;
-#if NETSTANDARD2_0
 using ICSharpCode.SharpZipLib.Zip.Compression;
+#if NETSTANDARD2_0
 using ICSharpCode.SharpZipLib.Zip.Compression.Streams;
 #endif
 
 namespace TelnetNegotiationCore.Protocols;
 
 /// <summary>
-/// Inflates an MCCP stream: <b>one</b> zlib stream for the life of the connection, fed one wire
-/// byte at a time.
+/// Inflates an MCCP stream: <b>one</b> zlib stream for the life of the connection, fed a chunk of wire
+/// bytes at a time and drained a bounded amount at a time.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -31,8 +31,22 @@ namespace TelnetNegotiationCore.Protocols;
 /// and hands the connection back, rather than going on feeding plain telnet to a finished inflater
 /// — which produces nothing, for ever, in silence.
 /// </para>
+/// <para>
+/// <b>Why SharpZipLib's <see cref="Inflater"/> on every target, not <see cref="ZLibStream"/>.</b> The
+/// end of the stream has to be found to the byte: whatever follows it is plain telnet, possibly a
+/// fresh compression marker and a new stream. <see cref="ZLibStream"/> pulls its input in blocks and
+/// keeps what it pulled past the end, so it could only be fed one byte per call, which cost about 37
+/// times what inflating in blocks does. <see cref="Inflater.RemainingInput"/> says exactly what it has
+/// not used, so it can be fed a whole chunk.
+/// </para>
+/// <para>
+/// <b>The output is bounded, not the input.</b> Each call produces at most
+/// <see cref="OutputChunkSize"/> bytes, which the interpreter hands to the state machine before it asks
+/// for more. A decompression bomb arrives as any number of bounded slices and never as one buffer, so
+/// memory stays flat however hostile the peer is; <see cref="ExpansionIsImplausible"/> bounds the CPU.
+/// </para>
 /// </remarks>
-internal sealed class MCCPInflateTransform : IInboundByteTransform
+internal sealed class MCCPInflateTransform : IInboundChunkTransform
 {
 	/// <summary>
 	/// The cumulative output-to-input ratio a peer's stream may reach before it is treated as an
@@ -53,23 +67,29 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 	/// </summary>
 	internal const long ExpansionRatioFloorBytes = 1024 * 1024;
 
+	/// <summary>The most one <see cref="DecodeChunkAsync"/> call produces, and the size of its buffer.</summary>
+	internal const int OutputChunkSize = 2048;
+
 	private readonly ILogger _logger;
 	private readonly Func<ValueTask> _onFailureAsync;
 	private readonly Func<ValueTask> _onStreamEndAsync;
 	private readonly int _maxExpansionRatio;
-	private byte[] _output = new byte[1024];
+	private readonly Inflater _inflater = new();
+	private readonly byte[] _output = new byte[OutputChunkSize];
 	private long _compressedIn;
 	private long _inflatedOut;
 	private bool _failed;
 	private bool _ended;
 
-#if NETSTANDARD2_0
-	private readonly Inflater _inflater = new Inflater();
-	private readonly byte[] _input = new byte[1];
-#else
-	private readonly PendingInput _input = new();
-	private readonly ZLibStream _inflater;
-#endif
+	/// <summary>
+	/// Wire bytes handed to the inflater that have not yet been reported consumed: the start of the
+	/// next call's input, which the inflater still holds. Non-zero only while its window has bytes left.
+	/// </summary>
+	private int _unreported;
+
+	/// <summary>Storage for <see cref="DecodeAsync"/>, the one-byte form.</summary>
+	private readonly byte[] _single = new byte[1];
+	private byte[] _singleOutput = new byte[OutputChunkSize];
 
 	/// <param name="logger">Where a corrupt stream is reported.</param>
 	/// <param name="onFailureAsync">
@@ -95,17 +115,20 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 		_onFailureAsync = onFailureAsync;
 		_onStreamEndAsync = onStreamEndAsync;
 		_maxExpansionRatio = maxExpansionRatio;
-#if !NETSTANDARD2_0
-		_inflater = new ZLibStream(_input, CompressionMode.Decompress);
-#endif
 	}
 
 	/// <inheritdoc />
-	public ValueTask<ReadOnlyMemory<byte>> DecodeAsync(byte raw)
+	/// <remarks>
+	/// The inflater reads <paramref name="wire"/> where it lies rather than copying it, so the caller
+	/// must keep that memory alive, and keep calling, until a result reports
+	/// <see cref="InboundDecodeResult.HasMoreOutput"/> false with all of it consumed.
+	/// </remarks>
+	public ValueTask<InboundDecodeResult> DecodeChunkAsync(ReadOnlyMemory<byte> wire)
 	{
 		if (_failed)
 		{
-			return new ValueTask<ReadOnlyMemory<byte>>(ReadOnlyMemory<byte>.Empty);
+			// A broken deflate stream cannot be resumed. Everything after it is dropped, as before.
+			return new ValueTask<InboundDecodeResult>(new InboundDecodeResult(wire.Length, ReadOnlyMemory<byte>.Empty, false));
 		}
 
 		if (_ended)
@@ -113,89 +136,123 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 			// The peer stopped compressing and the owner has not swapped this out yet. These are
 			// telnet bytes, not deflate bytes; passing them through is the only thing that is not
 			// data loss.
-			_output[0] = raw;
-			return new ValueTask<ReadOnlyMemory<byte>>(_output.AsMemory(0, 1));
+			var passed = Math.Min(wire.Length, _output.Length);
+			wire.Span.Slice(0, passed).CopyTo(_output);
+			return new ValueTask<InboundDecodeResult>(new InboundDecodeResult(passed, _output.AsMemory(0, passed), false));
 		}
 
-		// `written` resets every call, and the interpreter feeds exactly one byte per call, so the
-		// most this can produce is DEFLATE's maximum expansion from one input byte: 1032. _output
-		// therefore plateaus at 2 KiB for the life of the connection however hostile the peer is.
-		var written = 0;
-		_compressedIn++;
+		int written;
 		try
 		{
-#if NETSTANDARD2_0
-			_input[0] = raw;
-			_inflater.SetInput(_input, 0, 1);
-#else
-			_input.Push(raw);
-#endif
-
-			// Drain until the inflater stops producing, which is how both implementations say
-			// "I need more input" — one byte in can be nothing out, or a match that expands to
-			// hundreds.
-			while (InflateInto(ref written) > 0)
+			if (_unreported == 0 && !wire.IsEmpty)
 			{
+				if (!MemoryMarshal.TryGetArray(wire, out var segment) || segment.Array is null)
+				{
+					throw new ArgumentException("MCCP input must be array-backed.", nameof(wire));
+				}
+
+				_inflater.SetInput(segment.Array, segment.Offset, segment.Count);
+				_unreported = segment.Count;
+
+				// Counted as handed over, so the ratio below is judged against everything the peer has
+				// sent, including bytes still in the window while their output drains.
+				_compressedIn += segment.Count;
 			}
+
+			// Called even with no new input: output that did not fit last time is still in its window.
+			written = _inflater.Inflate(_output, 0, _output.Length);
 		}
-#if !NETSTANDARD2_0
-		catch (InvalidDataException) when (_input.RanDryDuringLastRead)
-		{
-			// A host that switches on System.IO.Compression.UseStrictValidation makes ZLibStream
-			// report a base stream that has run out of bytes as truncated data instead of returning
-			// 0, which without this would end every MCCP connection in that process with "the
-			// peer's stream is not valid zlib" on the first partial read. For MCCP a dry base
-			// stream is never truncation — the peer has simply not sent the rest of the symbol yet
-			// — so it means here exactly what a 0-byte read means: stop, resume when more arrives.
-			// The `when` clause is what keeps this from swallowing genuine corruption, which is
-			// always detected on bytes the inflater already has, never on a read that came back
-			// empty.
-			//
-			// Not covered by a unit test: the switch is captured the first time the decompression
-			// path is used in a process, so a test can only observe it if it is the first thing to
-			// decompress anything, which is not something a shared test host can guarantee.
-			// Verified out of process instead, on net8.0 and net10.0.
-		}
-#endif
 		catch (Exception ex)
 		{
 			_failed = true;
+			_unreported = 0;
 			_logger.LogError(ex, "MCCP: the peer's compressed stream is not valid zlib. Decompression stopped");
-			return FailAsync();
+			return FailAsync(wire.Length);
 		}
 
 		// Counted before the stream-end check, not after: a peer that blows the budget on the very
-		// byte that ends its stream still blew it, and leaving that call out of the accounting would
-		// make the running total quietly wrong for anyone who reads it later. The exposure either
-		// way is one call -- at most DEFLATE's 1,032 bytes from one input byte -- since an ended
-		// stream inflates nothing further; the reason to count it is that the invariant should be
-		// true, not that the byte matters.
+		// call that ends its stream still blew it, and leaving that call out of the accounting would
+		// make the running total quietly wrong for anyone who reads it later.
 		_inflatedOut += written;
+
+		if (_inflater.IsFinished)
+		{
+			// Whatever the inflater was handed but did not use is past the end of the zlib stream,
+			// which makes it the first plain telnet the peer has sent since the marker. It is left
+			// unconsumed, so the interpreter hands it to the state machine itself -- and a fresh
+			// marker in it installs a fresh inflater at exactly the right byte.
+			var leftover = Math.Min(_inflater.RemainingInput, _unreported);
+			var consumed = _unreported - leftover;
+			_compressedIn -= leftover;
+			_unreported = 0;
+			_ended = true;
+
+			if (ExpansionIsImplausible())
+			{
+				return FailImplausibleAsync(consumed);
+			}
+
+			_logger.LogInformation(
+				"MCCP: the peer ended its compressed stream; the connection continues in the clear");
+			return EndAsync(new InboundDecodeResult(consumed, _output.AsMemory(0, written), false));
+		}
+
+		var reported = 0;
+		if (_inflater.IsNeedingInput)
+		{
+			// Everything handed over is inside the inflater now. A few bits of it may sit in its bit
+			// buffer, but those are its state, not input it declined.
+			reported = _unreported;
+			_unreported = 0;
+		}
+		else if (written == 0)
+		{
+			// Input left, room left, and nothing produced: the only way there is a preset dictionary,
+			// which MCCP never uses. Stop rather than spin.
+			_failed = true;
+			_unreported = 0;
+			_logger.LogError("MCCP: the peer's compressed stream asks for a preset dictionary. Decompression stopped");
+			return FailAsync(wire.Length);
+		}
 
 		if (ExpansionIsImplausible())
 		{
-			_failed = true;
-			_logger.LogError(
-				"MCCP: the peer's stream claims to expand {InflatedBytes} bytes out of {CompressedBytes} "
-				+ "({Ratio}:1, ceiling {Ceiling}:1). Decompression stopped",
-				_inflatedOut, _compressedIn, _inflatedOut / Math.Max(_compressedIn, 1), _maxExpansionRatio);
-			return FailAsync();
+			return FailImplausibleAsync(Math.Max(reported, wire.Length));
 		}
 
-		if (StreamHasEnded())
+		// Output full means there may be more without any new input; input left in the window means
+		// there certainly is more to do before the caller may let go of it.
+		var more = written == _output.Length || _unreported > 0;
+		return new ValueTask<InboundDecodeResult>(new InboundDecodeResult(reported, _output.AsMemory(0, written), more));
+	}
+
+	/// <inheritdoc />
+	/// <remarks>
+	/// The one-byte form the public interface requires. The interpreter uses
+	/// <see cref="DecodeChunkAsync"/>; this drains everything one byte produces, at most DEFLATE's
+	/// 1,032 bytes, and passes a byte left past the end of the stream through.
+	/// </remarks>
+	public async ValueTask<ReadOnlyMemory<byte>> DecodeAsync(byte raw)
+	{
+		_single[0] = raw;
+		var input = _single.AsMemory();
+		var total = 0;
+		InboundDecodeResult result;
+		do
 		{
-			_ended = true;
-			_logger.LogInformation(
-				"MCCP: the peer ended its compressed stream; the connection continues in the clear");
+			result = await DecodeChunkAsync(input);
+			input = input.Slice(result.Consumed);
+			if (_singleOutput.Length - total < result.Decoded.Length)
+			{
+				Array.Resize(ref _singleOutput, Math.Max(_singleOutput.Length * 2, total + result.Decoded.Length));
+			}
 
-			// Whatever the inflater pulled in but did not consume is past the end of the zlib
-			// stream, which makes it the first plain telnet the peer has sent since the marker.
-			// Dropping it would lose the peer's own "I have stopped compressing" negotiation.
-			written += TakeUnconsumedInput(written);
-			return EndAsync(written);
+			result.Decoded.Span.CopyTo(_singleOutput.AsSpan(total));
+			total += result.Decoded.Length;
 		}
+		while (result.HasMoreOutput || (!input.IsEmpty && (result.Consumed > 0 || !result.Decoded.IsEmpty || _ended)));
 
-		return new ValueTask<ReadOnlyMemory<byte>>(_output.AsMemory(0, written));
+		return _singleOutput.AsMemory(0, total);
 	}
 
 	/// <summary>
@@ -212,203 +269,34 @@ internal sealed class MCCPInflateTransform : IInboundByteTransform
 		_inflatedOut > ExpansionRatioFloorBytes
 		&& _inflatedOut > _compressedIn * (long)_maxExpansionRatio;
 
-	private async ValueTask<ReadOnlyMemory<byte>> FailAsync()
+	private ValueTask<InboundDecodeResult> FailImplausibleAsync(int consumed)
+	{
+		_failed = true;
+		_unreported = 0;
+		_logger.LogError(
+			"MCCP: the peer's stream claims to expand {InflatedBytes} bytes out of {CompressedBytes} "
+			+ "({Ratio}:1, ceiling {Ceiling}:1). Decompression stopped",
+			_inflatedOut, _compressedIn, _inflatedOut / Math.Max(_compressedIn, 1), _maxExpansionRatio);
+		return FailAsync(consumed);
+	}
+
+	private async ValueTask<InboundDecodeResult> FailAsync(int consumed)
 	{
 		await _onFailureAsync();
-		return ReadOnlyMemory<byte>.Empty;
+		return new InboundDecodeResult(consumed, ReadOnlyMemory<byte>.Empty, false);
 	}
 
-	private async ValueTask<ReadOnlyMemory<byte>> EndAsync(int written)
+	private async ValueTask<InboundDecodeResult> EndAsync(InboundDecodeResult result)
 	{
 		await _onStreamEndAsync();
-		return _output.AsMemory(0, written);
-	}
-
-	/// <summary>
-	/// Whether the peer's zlib stream is over. Both implementations say this the same way: the
-	/// inflater stops asking for input, so input the transform has already handed it stays
-	/// unconsumed.
-	/// </summary>
-#if NETSTANDARD2_0
-	private bool StreamHasEnded() => _inflater.IsFinished;
-#else
-	private bool StreamHasEnded() => _input.HasUnconsumedInput;
-#endif
-
-	/// <summary>
-	/// Moves the bytes the inflater declined to consume into the tail of <see cref="_output"/>, and
-	/// returns how many there were.
-	/// </summary>
-	/// <param name="written">How much of <see cref="_output"/> is already in use.</param>
-	private int TakeUnconsumedInput(int written)
-	{
-#if NETSTANDARD2_0
-		// The interpreter feeds exactly one byte per call, so the one still in _input is the only
-		// byte SharpZipLib's inflater can be holding back.
-		if (_inflater.RemainingInput == 0)
-		{
-			return 0;
-		}
-
-		if (written == _output.Length)
-		{
-			Array.Resize(ref _output, _output.Length * 2);
-		}
-
-		_output[written] = _input[0];
-		return 1;
-#else
-		while (_output.Length - written < _input.UnconsumedInputLength)
-		{
-			Array.Resize(ref _output, _output.Length * 2);
-		}
-
-		return _input.TakeUnconsumedInput(_output, written);
-#endif
-	}
-
-	/// <summary>
-	/// Inflates into the tail of <see cref="_output"/>, growing it first when it is full, and
-	/// returns how many bytes it produced. Zero means the inflater wants more input.
-	/// </summary>
-	private int InflateInto(ref int written)
-	{
-		if (written == _output.Length)
-		{
-			Array.Resize(ref _output, _output.Length * 2);
-		}
-
-#if NETSTANDARD2_0
-		var produced = _inflater.Inflate(_output, written, _output.Length - written);
-#else
-		var produced = _inflater.Read(_output, written, _output.Length - written);
-#endif
-		written += produced;
-		return produced;
+		return result;
 	}
 
 	/// <inheritdoc />
 	public void Dispose()
 	{
-#if !NETSTANDARD2_0
-		try
-		{
-			_inflater.Dispose();
-		}
-		finally
-		{
-			_input.Dispose();
-		}
-#endif
+		// The inflater holds no unmanaged state.
 	}
-
-#if !NETSTANDARD2_0
-	/// <summary>
-	/// The bytes the peer has sent that <see cref="ZLibStream"/> has not consumed yet.
-	/// </summary>
-	/// <remarks>
-	/// <see cref="ZLibStream"/> only pulls, so an incremental feed needs something for it to pull
-	/// from. Returning 0 from <see cref="Read"/> is how this says "no more input right now", which
-	/// ends the current <c>Read</c> without ending the deflate stream: the inflater picks up where
-	/// it left off once there is more.
-	/// </remarks>
-	private sealed class PendingInput : Stream
-	{
-		private byte[] _buffer = new byte[64];
-		private int _start;
-		private int _end;
-
-		/// <summary>
-		/// Whether the most recent <see cref="Read"/> found nothing left. This distinguishes
-		/// "the peer has not sent the rest yet" from "what the peer sent is corrupt", which
-		/// <see cref="ZLibStream"/> reports as the same exception under strict validation.
-		/// </summary>
-		public bool RanDryDuringLastRead { get; private set; }
-
-		/// <summary>
-		/// How many pushed bytes <see cref="ZLibStream"/> has not taken.
-		/// </summary>
-		/// <remarks>
-		/// A running inflater always empties this — <c>DeflateStream</c> keeps pulling until a read
-		/// comes back empty — so anything left here means it has stopped asking, which for zlib
-		/// means the stream ended. These bytes are therefore past the end of it.
-		/// </remarks>
-		public int UnconsumedInputLength => _end - _start;
-
-		/// <inheritdoc cref="UnconsumedInputLength" />
-		public bool HasUnconsumedInput => _end > _start;
-
-		/// <summary>Moves everything left here into <paramref name="destination"/>.</summary>
-		public int TakeUnconsumedInput(byte[] destination, int offset)
-		{
-			var taken = _end - _start;
-			Buffer.BlockCopy(_buffer, _start, destination, offset, taken);
-			_start = 0;
-			_end = 0;
-			return taken;
-		}
-
-		public void Push(byte value)
-		{
-			RanDryDuringLastRead = false;
-
-			if (_end == _buffer.Length)
-			{
-				Compact();
-			}
-
-			_buffer[_end++] = value;
-		}
-
-		private void Compact()
-		{
-			var pending = _end - _start;
-			Buffer.BlockCopy(_buffer, _start, _buffer, 0, pending);
-			_start = 0;
-			_end = pending;
-
-			if (_end == _buffer.Length)
-			{
-				Array.Resize(ref _buffer, _buffer.Length * 2);
-			}
-		}
-
-		public override int Read(byte[] buffer, int offset, int count)
-		{
-			var taken = Math.Min(count, _end - _start);
-			RanDryDuringLastRead = taken == 0;
-			Buffer.BlockCopy(_buffer, _start, buffer, offset, taken);
-			_start += taken;
-
-			if (_start == _end)
-			{
-				_start = 0;
-				_end = 0;
-			}
-
-			return taken;
-		}
-
-		public override bool CanRead => true;
-		public override bool CanSeek => false;
-		public override bool CanWrite => false;
-		public override long Length => throw new NotSupportedException();
-
-		public override long Position
-		{
-			get => throw new NotSupportedException();
-			set => throw new NotSupportedException();
-		}
-
-		public override void Flush()
-		{
-		}
-
-		public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-		public override void SetLength(long value) => throw new NotSupportedException();
-		public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-	}
-#endif
 }
 
 /// <summary>
@@ -428,12 +316,18 @@ internal sealed class MCCPDeflateTransform : IFinishableOutboundTransform
 	private readonly ZLibStream _deflater;
 #endif
 
-	public MCCPDeflateTransform()
+	/// <param name="level">How hard to compress. See <see cref="MCCPProtocol.WithCompressionLevel"/>.</param>
+	public MCCPDeflateTransform(CompressionLevel level = CompressionLevel.Optimal)
 	{
 #if NETSTANDARD2_0
-		_deflater = new DeflaterOutputStream(_sink) { IsStreamOwner = false };
+		_deflater = new DeflaterOutputStream(_sink, new Deflater(level switch
+		{
+			CompressionLevel.NoCompression => Deflater.NO_COMPRESSION,
+			CompressionLevel.Fastest => Deflater.BEST_SPEED,
+			_ => Deflater.DEFAULT_COMPRESSION,
+		})) { IsStreamOwner = false };
 #else
-		_deflater = new ZLibStream(_sink, CompressionLevel.Optimal, leaveOpen: true);
+		_deflater = new ZLibStream(_sink, level, leaveOpen: true);
 #endif
 	}
 
