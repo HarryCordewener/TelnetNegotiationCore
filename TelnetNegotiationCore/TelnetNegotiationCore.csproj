@@ -51,7 +51,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="StateAlchemist" Version="1.5.0" />
+		<PackageReference Include="StateAlchemist" Version="1.5.1" />
 		<!--
 			MCCP inflates with SharpZipLib on every target: its Inflater reports exactly how much input it left
 			unused, which is what lets it take a whole chunk at a time and still find the end of a compressed

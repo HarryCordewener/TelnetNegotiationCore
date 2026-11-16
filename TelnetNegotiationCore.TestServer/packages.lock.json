@@ -46,8 +46,8 @@
       },
       "StateAlchemist": {
         "type": "Transitive",
-        "resolved": "1.5.0",
-        "contentHash": "xwTDdYDCeX/DiaD31aGMl4yiNZCkZyVOyRIAGlKn/zuieDizaS+R3vpUdWulEClF/s7VoL0+x4YnfhDBKbjHtg=="
+        "resolved": "1.5.1",
+        "contentHash": "KKR9HJ7MvaH59pCx+t1N4NJ+lJHcOx6fFALyehrrEurXycI2MkC5M0Q6oC9Ehn8mDzuVdOCxLv+vbDwtyTb04Q=="
       },
       "System.Diagnostics.DiagnosticSource": {
         "type": "Transitive",
@@ -65,7 +65,7 @@
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[11.0.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[11.0.0, )",
           "SharpZipLib": "[1.4.2, )",
-          "StateAlchemist": "[1.5.0, )",
+          "StateAlchemist": "[1.5.1, )",
           "System.IO.Pipelines": "[11.0.0, )",
           "TelnetNegotiationCore.Gmcp": "[0.1.0, )"
         }

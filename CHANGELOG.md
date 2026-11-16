@@ -65,6 +65,8 @@ All notable changes to this project will be documented in this file.
   per connection. The text path also copies each run of text into the line buffer in one step, and GMCP, MSDP,
   MSSP and CHARSET TTABLE payloads are appended a run at a time. The idle check before every byte now runs only
   when Packet Patch is registered.
+- StateAlchemist 1.5.1 (was 1.5.0). On net11.0 its generated pooled async methods no longer run as runtime async,
+  so a suspending firing of the telnet machine stops allocating again.
 
 ### Fixed
 
