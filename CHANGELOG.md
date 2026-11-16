@@ -53,6 +53,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- A WebSocket client on `gmcp` or `terminal` ends a line at the end of each BINARY message when the message has no
+  line ending of its own and more text follows (`WebSocketClientBridge.MessageEndsLine`, on by default). Evennia sends
+  each message without one, so two of them ran together on one line.
+
 - `WaitForProcessingAsync` no longer polls with `Task.Delay(1)`; the processing loop signals it when an item has been
   handled. A pending wait cost a timer tick, about 4 ms on Linux and 15.6 ms on Windows, and `OnInputProcessed`
   pays that wait after every read, so a server writing a few bytes at a time was slowed to one read per tick. It is
