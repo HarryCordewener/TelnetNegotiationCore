@@ -708,10 +708,7 @@ public class MSSPProtocol : TelnetProtocolPluginBase
     /// </summary>
     internal void AppendMsspBytes(ReadOnlyMemory<byte> data)
     {
-        foreach (var b in data.Span)
-        {
-            _msspBytes.Add(b);
-        }
+        _msspBytes.AddRange(data.Span);
     }
 
     /// <summary>The generated machine's equivalent of AlmostNegotiatingMSSP's OnEntry.</summary>

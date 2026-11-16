@@ -41,6 +41,16 @@ All notable changes to this project will be documented in this file.
 - The TestServer runs one `ITelnetSession` over TCP and every telnet WebSocket subprotocol. The TestClient connects
   over a WebSocket when given a `ws://` or `wss://` address.
 
+### Changed
+
+- **Input is about 35x faster.** The interpreter queued every received byte as its own channel item, which cost a
+  lock on each side and often an async suspension per byte. It now queues each read in chunks of up to 4 KiB.
+  4 MiB of text went from 1.8 s to 47 ms (net11.0), and 4 MiB of GMCP from 1.5 s to 77 ms. MCCP input went from
+  3.0 s to 0.85 s and allocates 8.5 MB instead of 60 MB. Backpressure still caps unprocessed input at about 16 KiB
+  per connection. The text path also copies each run of text into the line buffer in one step, and GMCP, MSDP,
+  MSSP and CHARSET TTABLE payloads are appended a run at a time. The idle check before every byte now runs only
+  when Packet Patch is registered.
+
 ### Fixed
 
 - `WaitForProcessingAsync` no longer polls with `Task.Delay(1)`; the processing loop signals it when an item has been

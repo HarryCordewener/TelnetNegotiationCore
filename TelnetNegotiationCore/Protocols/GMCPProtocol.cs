@@ -248,10 +248,7 @@ public class GMCPProtocol : TelnetProtocolPluginBase
     /// <summary>Appends a stretch of raw bytes to the buffer, respecting the same maximum message size.</summary>
     internal void AppendGmcpBytes(ReadOnlyMemory<byte> data)
     {
-        foreach (var b in data.Span)
-        {
-            _gmcpBytes.Add(b);
-        }
+        _gmcpBytes.AddRange(data.Span);
     }
 
     /// <summary>What the buffered bytes mean, once a message is complete -- independent of how they arrived.</summary>
@@ -785,10 +782,7 @@ public class MSDPProtocol : TelnetProtocolPluginBase
     /// <summary>Appends a stretch of raw bytes to the buffer, respecting the same maximum message size.</summary>
     internal void AppendMsdpBytes(ReadOnlyMemory<byte> data)
     {
-        foreach (var b in data.Span)
-        {
-            _msdpBytes.Add(b);
-        }
+        _msdpBytes.AddRange(data.Span);
     }
 
     /// <inheritdoc />

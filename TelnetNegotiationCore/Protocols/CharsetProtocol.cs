@@ -567,7 +567,7 @@ public class CharsetProtocol : TelnetProtocolPluginBase
 
     internal void AppendTTableBytes(ReadOnlyMemory<byte> data)
     {
-        foreach (var b in data.Span) _ttableBytes.Add(b);
+        _ttableBytes.AddRange(data.Span);
     }
 
     internal ValueTask CompleteTTableFromBufferAsync(IProtocolContext context) =>

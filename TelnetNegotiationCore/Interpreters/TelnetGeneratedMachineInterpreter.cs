@@ -104,6 +104,14 @@ public partial class TelnetInterpreter
     {
         public override void Write(ReadOnlySpan<byte> text)
         {
+            // Ordinary text with nothing watching it byte by byte: one copy for the whole run.
+            if (owner._pendingInputCallbacks.Count == 0 && owner._pendingInputWrites.Count == 0
+                && owner._inputByteFilter is null && owner.CallbackOnByteAsync is null && owner.InputByteObserver is null)
+            {
+                owner.WriteSpanToBuffer(text);
+                return;
+            }
+
             for (var position = 0; position < text.Length; position++)
             {
                 if (owner._pendingInputCallbacks.Count > 0 || owner._pendingInputWrites.Count > 0)
