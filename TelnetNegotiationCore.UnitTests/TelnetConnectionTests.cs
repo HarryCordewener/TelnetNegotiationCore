@@ -314,6 +314,35 @@ public class TelnetConnectionTests : BaseTest
 		await connection.DisposeAsync();
 	}
 
+	// A token runs its callbacks newest first, so a cleanup registered on the start token, or on Closed, runs before
+	// the linked reading token is cancelled. Its close is still not the server's.
+	[Test]
+	public async Task ACloseFromAStartTokenCallbackIsNotAServerClose()
+	{
+		var wire = new PipeWire();
+		using var cts = new CancellationTokenSource();
+		var connection = await ServerBuilder().StartAsync(wire.Server, cts.Token);
+		using var registration = cts.Token.Register(() => _ = connection.CloseAsync());
+
+		await cts.CancelAsync();
+
+		await connection.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+		await Assert.That(connection.ClosedByServer).IsFalse();
+		await connection.DisposeAsync();
+	}
+
+	[Test]
+	public async Task ACloseFromAClosedCallbackDuringDisposeIsNotAServerClose()
+	{
+		var wire = new PipeWire();
+		var connection = await ServerBuilder().StartAsync(wire.Server);
+		connection.Closed.Register(() => _ = connection.CloseAsync());
+
+		await connection.DisposeAsync();
+
+		await Assert.That(connection.ClosedByServer).IsFalse();
+	}
+
 	// The other order: the server closes first, then the start token is cancelled. That close stays the server's.
 	[Test]
 	public async Task AServerCloseStaysOneWhenTheStartTokenIsCancelledAfterIt()

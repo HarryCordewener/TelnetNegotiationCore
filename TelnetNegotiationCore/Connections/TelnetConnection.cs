@@ -192,7 +192,11 @@ public sealed class TelnetConnection : IAsyncDisposable
 	/// </summary>
 	public async ValueTask CloseAsync()
 	{
-		var closing = _reading.IsCancellationRequested ? ClosedAfterStop : ClosedHere;
+		// The start token and _disposed are read as well as _reading: a callback on the start token or on Closed runs
+		// before the linked _reading token is cancelled, since a token runs its callbacks newest first.
+		var stopped = _startToken.IsCancellationRequested || _reading.IsCancellationRequested
+			|| Volatile.Read(ref _disposed) == 1;
+		var closing = stopped ? ClosedAfterStop : ClosedHere;
 		if (Interlocked.CompareExchange(ref _state, closing, Open) != Open) return;
 		try
 		{
