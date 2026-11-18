@@ -43,7 +43,7 @@ connection.Interpreter      // the interpreter; the connection disposes it
 connection.Completion       // the read loop
 connection.Closed           // cancelled once the connection has ended, either side
 await connection.CloseAsync();   // end it from this side, whatever the transport
-connection.ClosedByServer   // whether CloseAsync ended it while the peer was still there
+connection.ClosedByServer   // whether CloseAsync ended it while the peer was still there (not after the start token was cancelled)
 ```
 
 It deconstructs as the old pair, so `var (telnet, read) = await builder.StartAsync(...)` still reads the same.
