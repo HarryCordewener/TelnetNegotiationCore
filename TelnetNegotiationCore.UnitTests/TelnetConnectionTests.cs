@@ -283,6 +283,84 @@ public class TelnetConnectionTests : BaseTest
 		await connection.DisposeAsync();
 	}
 
+	// The start token can be cancelled (the client's connection token, say) and a cleanup close arrive before the read
+	// loop has reached its finally. That close ended nothing and is not the server's.
+	[Test]
+	public async Task ACloseAfterTheStartTokenWasCancelledIsNotAServerClose()
+	{
+		var closes = 0;
+		var transport = new HeldReadTransport(() => Interlocked.Increment(ref closes));
+		using var cts = new CancellationTokenSource();
+		var connection = await ServerBuilder().StartAsync(transport, cts.Token);
+		await transport.Reading.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+		await cts.CancelAsync();
+		await connection.CloseAsync();
+		await connection.CloseAsync();
+
+		await Assert.That(connection.Completion.IsCompleted).IsFalse();
+		await Assert.That(connection.ClosedByServer).IsFalse();
+		await Assert.That(connection.Closed.IsCancellationRequested).IsTrue();
+		await Assert.That(closes).IsEqualTo(1);
+
+		transport.Release.SetResult();
+		await connection.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+		await Assert.That(connection.ClosedByServer).IsFalse();
+
+		// A write after the close goes nowhere and does not throw.
+		var writes = transport.Writes;
+		await connection.Interpreter.SendAsync(Encoding.ASCII.GetBytes("late"));
+		await Assert.That(transport.Writes).IsEqualTo(writes);
+		await connection.DisposeAsync();
+	}
+
+	// A token runs its callbacks newest first, so a cleanup registered on the start token, or on Closed, runs before
+	// the linked reading token is cancelled. Its close is still not the server's.
+	[Test]
+	public async Task ACloseFromAStartTokenCallbackIsNotAServerClose()
+	{
+		var wire = new PipeWire();
+		using var cts = new CancellationTokenSource();
+		var connection = await ServerBuilder().StartAsync(wire.Server, cts.Token);
+		using var registration = cts.Token.Register(() => _ = connection.CloseAsync());
+
+		await cts.CancelAsync();
+
+		await connection.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+		await Assert.That(connection.ClosedByServer).IsFalse();
+		await connection.DisposeAsync();
+	}
+
+	[Test]
+	public async Task ACloseFromAClosedCallbackDuringDisposeIsNotAServerClose()
+	{
+		var wire = new PipeWire();
+		var connection = await ServerBuilder().StartAsync(wire.Server);
+		connection.Closed.Register(() => _ = connection.CloseAsync());
+
+		await connection.DisposeAsync();
+
+		await Assert.That(connection.ClosedByServer).IsFalse();
+	}
+
+	// The other order: the server closes first, then the start token is cancelled. That close stays the server's.
+	[Test]
+	public async Task AServerCloseStaysOneWhenTheStartTokenIsCancelledAfterIt()
+	{
+		var transport = new HeldReadTransport(() => { });
+		using var cts = new CancellationTokenSource();
+		var connection = await ServerBuilder().StartAsync(transport, cts.Token);
+		await transport.Reading.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+		await connection.CloseAsync();
+		await cts.CancelAsync();
+		transport.Release.SetResult();
+
+		await connection.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+		await Assert.That(connection.ClosedByServer).IsTrue();
+		await connection.DisposeAsync();
+	}
+
 	[Test]
 	public async Task CancellingTheStartTokenEndsTheConnectionNormally()
 	{
@@ -519,6 +597,37 @@ public class TelnetConnectionTests : BaseTest
 	}
 
 	/// <summary>A server-side duplex pipe and the two pipes behind it.</summary>
+	/// <summary>A transport whose read loop does not see cancellation until the test releases it.</summary>
+	private sealed class HeldReadTransport(Action onClose) : ITelnetTransport
+	{
+		private int _writes;
+
+		public TaskCompletionSource Reading { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		public int Writes => Volatile.Read(ref _writes);
+
+		public async Task ReadAsync(Func<ReadOnlyMemory<byte>, ValueTask> onData, CancellationToken cancellationToken)
+		{
+			Reading.TrySetResult();
+			await Release.Task;
+			cancellationToken.ThrowIfCancellationRequested();
+		}
+
+		public ValueTask WriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
+		{
+			Interlocked.Increment(ref _writes);
+			return ValueTask.CompletedTask;
+		}
+
+		public ValueTask CloseAsync(CancellationToken cancellationToken)
+		{
+			onClose();
+			return ValueTask.CompletedTask;
+		}
+	}
+
 	private sealed class PipeWire
 	{
 		public Pipe ToServer { get; } = new();

@@ -22,7 +22,9 @@ namespace TelnetNegotiationCore.Connections;
 /// </remarks>
 public sealed class TelnetConnection : IAsyncDisposable
 {
-	private const int Open = 0, ClosedHere = 1, Ended = 2;
+	// ClosedAfterStop: CloseAsync ran after the start token or a dispose had already stopped the read loop,
+	// but before the loop's finally recorded Ended. That close ended nothing, so it is not a close by this side.
+	private const int Open = 0, ClosedHere = 1, Ended = 2, ClosedAfterStop = 3;
 
 	private readonly ITelnetTransport _transport;
 	private readonly CancellationToken _startToken;
@@ -54,7 +56,11 @@ public sealed class TelnetConnection : IAsyncDisposable
 	/// </summary>
 	public CancellationToken Closed { get; }
 
-	/// <summary>Whether this side ended the connection with <see cref="CloseAsync"/> while the peer was still there.</summary>
+	/// <summary>
+	/// Whether this side ended the connection with <see cref="CloseAsync"/> while the peer was still there. False when
+	/// the close came after the start token was cancelled or the connection was disposed, even if the read loop had
+	/// not finished yet: the connection was already ending.
+	/// </summary>
 	public bool ClosedByServer => Volatile.Read(ref _state) == ClosedHere;
 
 	/// <summary>Deconstructs into the interpreter and the read loop, as <c>BuildAndStartAsync</c> returns them.</summary>
@@ -157,7 +163,7 @@ public sealed class TelnetConnection : IAsyncDisposable
 		}
 	}
 
-	private bool IsStopped => Volatile.Read(ref _disposed) == 1 || Volatile.Read(ref _state) == ClosedHere;
+	private bool IsStopped => Volatile.Read(ref _disposed) == 1 || Volatile.Read(ref _state) is ClosedHere or ClosedAfterStop;
 
 	private ValueTask WriteAsync(ReadOnlyMemory<byte> data) =>
 		// A write after this side closed has nowhere to go; the interpreter may still write while it shuts down.
@@ -186,7 +192,12 @@ public sealed class TelnetConnection : IAsyncDisposable
 	/// </summary>
 	public async ValueTask CloseAsync()
 	{
-		if (Interlocked.CompareExchange(ref _state, ClosedHere, Open) != Open) return;
+		// The start token and _disposed are read as well as _reading: a callback on the start token or on Closed runs
+		// before the linked _reading token is cancelled, since a token runs its callbacks newest first.
+		var stopped = _startToken.IsCancellationRequested || _reading.IsCancellationRequested
+			|| Volatile.Read(ref _disposed) == 1;
+		var closing = stopped ? ClosedAfterStop : ClosedHere;
+		if (Interlocked.CompareExchange(ref _state, closing, Open) != Open) return;
 		try
 		{
 			await _transport.CloseAsync(_startToken);

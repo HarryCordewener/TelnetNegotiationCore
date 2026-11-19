@@ -70,6 +70,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `TelnetConnection.ClosedByServer` is false for a `CloseAsync` that comes after the start token was cancelled (or
+  the connection disposed) but before the read loop has finished. That close ended nothing, yet it was reported as
+  this side's, so a server cleaning up after a client that left mid-login treated the client's leaving as its own
+  close.
+
 - A WebSocket client on `gmcp` or `terminal` ends a line at the end of each BINARY message when the message has no
   line ending of its own and more text follows (`WebSocketClientBridge.MessageEndsLine`, on by default). Evennia sends
   each message without one, so two of them ran together on one line.
