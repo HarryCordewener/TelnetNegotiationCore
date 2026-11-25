@@ -39,7 +39,7 @@
     TUnit dropped net8.0 in 1.83; 1.81.16 is its last release that targets it.
   -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
-    <PackageReference Include="TUnit" Version="1.86.6" />
+    <PackageReference Include="TUnit" Version="1.87.12" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="11.0.0" />
   </ItemGroup>
 
